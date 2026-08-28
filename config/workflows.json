@@ -1,0 +1,62 @@
+[
+  {
+    "id": "new_client_proposal",
+    "name": "New client proposal",
+    "description": "Research -> strategy -> pricing -> proposal -> review -> final",
+    "synthesize": true,
+    "steps": [
+      {
+        "agent": "research",
+        "task": "Build a research brief for this engagement:\n{task}"
+      },
+      {
+        "agent": "strategy",
+        "task": "Using this research, set out the recommended approach and roadmap.\n\nTask: {task}\n\nResearch:\n{previous}"
+      },
+      {
+        "agent": "finance",
+        "task": "Price this engagement (effort, day rates, fixed fee options, payment schedule).\n\nTask: {task}\n\nApproach:\n{previous}"
+      },
+      {
+        "agent": "proposal",
+        "task": "Write the full client-facing proposal.\n\nTask: {task}\n\nAll prior work:\n{all}"
+      },
+      {
+        "agent": "qa",
+        "task": "Review this proposal and return fixes.\n\n{previous}"
+      }
+    ]
+  },
+  {
+    "id": "discovery_brief",
+    "name": "Discovery brief",
+    "description": "Research + strategic point of view before a first meeting",
+    "synthesize": false,
+    "steps": [
+      {
+        "agent": "research",
+        "task": "Prepare a pre-meeting research brief:\n{task}"
+      },
+      {
+        "agent": "strategy",
+        "task": "Draft our point of view and 5 sharp discovery questions.\n\nTask: {task}\n\nResearch:\n{previous}"
+      }
+    ]
+  },
+  {
+    "id": "client_email",
+    "name": "Client email",
+    "description": "Draft + review a client email",
+    "synthesize": false,
+    "steps": [
+      {
+        "agent": "comms",
+        "task": "Draft this client email:\n{task}"
+      },
+      {
+        "agent": "qa",
+        "task": "Review and return the improved final email.\n\n{previous}"
+      }
+    ]
+  }
+]

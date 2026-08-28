@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: hermes-ops
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn -w 1 --threads 8 -b 0.0.0.0:$PORT hermes.desk.app:app
+    healthCheckPath: /api/stats
+    envVars:
+      - key: DESK_MODE
+        value: demo
+      - key: DESK_TEMPLATE
+        value: sales_desk
+      - key: DEMO_DELAY
+        value: "0.8"
+      - key: PYTHON_VERSION
+        value: "3.11.9"

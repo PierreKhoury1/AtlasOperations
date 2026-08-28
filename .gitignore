@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+config/providers.json
+config/ui.json
+config/*.tmp
+data/
+workspace/runs/
+workspace/inputs/*
+!workspace/inputs/.gitkeep
+templates/*.json
+*.png
+!site/img/*

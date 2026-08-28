@@ -1,0 +1,291 @@
+"""Business-model templates: business profile + agent roster + workflows.
+
+Any JSON file dropped into templates/ with the same shape is picked up too.
+"""
+from __future__ import annotations
+
+import json
+from typing import Any
+
+from .config import TEMPLATES_DIR
+
+_BASE_HERMES_PROMPT = """You are Hermes, the orchestrator and engagement lead for this business.
+
+You receive a task from the owner. You decide how to get it done using the specialist agents available to you.
+Work like a strong principal: understand what the deliverable actually needs to be, delegate focused sub-tasks
+with all the context the specialist needs (they cannot see this conversation), review what comes back, push back
+or re-delegate if quality is short, and combine the results. Delegate in parallel when sub-tasks are independent.
+
+Save every client-ready deliverable with save_deliverable (markdown). When the work is complete, call finish
+with a concise summary of what was produced and any open questions for the owner."""
+
+_SPECIALIST_SUFFIX = """
+
+You receive a task from Hermes (the orchestrator). Produce your deliverable directly and completely in your reply —
+it will be passed back verbatim. State assumptions explicitly. If information is genuinely missing, say what you assumed."""
+
+
+def _agent(id_: str, name: str, role: str, prompt: str, tools: list[str] | None = None,
+           model: str = "", provider: str = "", color: str = "") -> dict[str, Any]:
+    return {
+        "id": id_, "name": name, "role": role, "enabled": True,
+        "provider": provider, "model": model,
+        "tools": tools or ["read_file", "list_files"],
+        "system_prompt": prompt.strip() + ("" if id_ == "hermes" else _SPECIALIST_SUFFIX),
+        "color": color,
+    }
+
+
+def _hermes(extra: str = "") -> dict[str, Any]:
+    return _agent("hermes", "Hermes", "Orchestrator / Engagement Lead",
+                  _BASE_HERMES_PROMPT + ("\n\n" + extra if extra else ""),
+                  tools=["delegate", "list_agents", "save_deliverable", "read_file", "list_files"],
+                  color="#f5c542")
+
+
+CONSULTANCY: dict[str, Any] = {
+    "business": {
+        "name": "Your Consultancy",
+        "model": "consultancy",
+        "tagline": "Advisory and delivery for growing businesses",
+        "description": "Boutique consultancy delivering strategy, operations and digital advisory to SMEs.",
+        "services": ["Strategy & growth advisory", "Operations improvement", "Digital transformation",
+                     "Market entry research", "Fractional leadership"],
+        "target_clients": "Owner-led SMEs and scale-ups, 10-250 staff",
+        "tone": "Confident, plain-spoken, evidence-led. No jargon.",
+        "currency": "GBP",
+        "pricing_notes": "Day rate 900-1,400; fixed-fee projects; retainers from 3,000/mo.",
+        "extra_context": "",
+    },
+    "agents": [
+        _hermes(),
+        _agent("research", "Research Analyst", "Market & client research",
+               "You are a research analyst at a consultancy. You build fast, structured briefs: market size and trends, competitor landscape, client background, risks and open questions. Cite what you know vs what is inferred.",
+               tools=["read_file", "list_files", "web_fetch"], color="#8ab4f8"),
+        _agent("strategy", "Strategy Consultant", "Strategy & recommendations",
+               "You are a senior strategy consultant. You turn research and a client situation into a clear point of view: diagnosis, options, recommendation, roadmap with phases, and the risks. Use frameworks only when they sharpen the answer.",
+               color="#c58af9"),
+        _agent("finance", "Pricing & Finance Analyst", "Pricing, budgets, business cases",
+               "You are a pricing and financial analyst at a consultancy. You build project pricing, effort estimates, budgets, ROI / business-case models and payment schedules. Show the arithmetic and assumptions in tables.",
+               color="#7fd1b9"),
+        _agent("proposal", "Proposal Writer", "Proposals, pitches, SOWs",
+               "You are a proposal writer at a consultancy. You write winning, client-facing proposals and statements of work: situation, objectives, approach, deliverables, timeline, team, pricing, terms, next steps. Structured markdown, client-ready.",
+               color="#f28b82"),
+        _agent("comms", "Client Communications", "Emails, follow-ups, updates",
+               "You handle client communications for a consultancy: outreach emails, follow-ups, meeting summaries, status updates. Short, warm, specific, with a clear ask.",
+               color="#fdd663"),
+        _agent("qa", "Quality Reviewer", "Partner-level review",
+               "You are the reviewing partner. Critique deliverables hard: logic gaps, unsupported claims, weak structure, missing numbers, tone mismatches. Return a prioritised list of fixes and, where quick, the corrected text.",
+               color="#9aa0a6"),
+    ],
+    "workflows": [
+        {
+            "id": "new_client_proposal", "name": "New client proposal",
+            "description": "Research -> strategy -> pricing -> proposal -> review -> final",
+            "synthesize": True,
+            "steps": [
+                {"agent": "research", "task": "Build a research brief for this engagement:\n{task}"},
+                {"agent": "strategy", "task": "Using this research, set out the recommended approach and roadmap.\n\nTask: {task}\n\nResearch:\n{previous}"},
+                {"agent": "finance", "task": "Price this engagement (effort, day rates, fixed fee options, payment schedule).\n\nTask: {task}\n\nApproach:\n{previous}"},
+                {"agent": "proposal", "task": "Write the full client-facing proposal.\n\nTask: {task}\n\nAll prior work:\n{all}"},
+                {"agent": "qa", "task": "Review this proposal and return fixes.\n\n{previous}"},
+            ],
+        },
+        {
+            "id": "discovery_brief", "name": "Discovery brief",
+            "description": "Research + strategic point of view before a first meeting",
+            "synthesize": False,
+            "steps": [
+                {"agent": "research", "task": "Prepare a pre-meeting research brief:\n{task}"},
+                {"agent": "strategy", "task": "Draft our point of view and 5 sharp discovery questions.\n\nTask: {task}\n\nResearch:\n{previous}"},
+            ],
+        },
+        {
+            "id": "client_email", "name": "Client email",
+            "description": "Draft + review a client email",
+            "synthesize": False,
+            "steps": [
+                {"agent": "comms", "task": "Draft this client email:\n{task}"},
+                {"agent": "qa", "task": "Review and return the improved final email.\n\n{previous}"},
+            ],
+        },
+    ],
+}
+
+
+AGENCY: dict[str, Any] = {
+    "business": {
+        "name": "Your Agency", "model": "agency",
+        "tagline": "Brand, content and performance marketing",
+        "description": "Marketing agency delivering brand, content, paid media and web for SMEs.",
+        "services": ["Brand & positioning", "Content & social", "Paid media", "Web design & build", "SEO"],
+        "target_clients": "Consumer and B2B brands, 1-50M revenue",
+        "tone": "Energetic, sharp, creative but commercially grounded.",
+        "currency": "GBP", "pricing_notes": "Retainers 2,500-15,000/mo; projects fixed-fee.",
+        "extra_context": "",
+    },
+    "agents": [
+        _hermes(),
+        _agent("research", "Audience & Market Research", "Audience, competitor, channel research",
+               "You research audiences, competitors and channels for a marketing agency. Output structured briefs with personas, positioning gaps and channel opportunities.", tools=["read_file", "list_files", "web_fetch"], color="#8ab4f8"),
+        _agent("creative", "Creative Director", "Concepts, copy, campaign ideas",
+               "You are a creative director. You generate campaign concepts, taglines, hooks and copy across channels, with rationale tied to the audience.", color="#c58af9"),
+        _agent("media", "Media Planner", "Channel plans and budgets",
+               "You are a performance media planner. You build channel mixes, budget splits, KPIs and forecast ranges with assumptions shown.", color="#7fd1b9"),
+        _agent("account", "Account Manager", "Client-facing docs and comms",
+               "You are an account manager. You write client-facing proposals, scopes, status reports and emails. Clear, friendly, commercial.", color="#fdd663"),
+        _agent("qa", "Quality Reviewer", "Review", "You are the agency's reviewing partner. Critique for strategy, creative strength, feasibility and client fit. Return prioritised fixes.", color="#9aa0a6"),
+    ],
+    "workflows": [
+        {"id": "campaign_pitch", "name": "Campaign pitch", "description": "Research -> creative -> media plan -> pitch -> review", "synthesize": True,
+         "steps": [
+             {"agent": "research", "task": "Research the audience, competitors and channels for:\n{task}"},
+             {"agent": "creative", "task": "Develop 3 campaign concepts with copy.\n\nBrief: {task}\n\nResearch:\n{previous}"},
+             {"agent": "media", "task": "Build the channel plan and budget.\n\nBrief: {task}\n\nConcepts:\n{previous}"},
+             {"agent": "account", "task": "Write the client pitch document.\n\nBrief: {task}\n\nAll work:\n{all}"},
+             {"agent": "qa", "task": "Review and list fixes.\n\n{previous}"},
+         ]},
+    ],
+}
+
+
+SAAS: dict[str, Any] = {
+    "business": {
+        "name": "Your SaaS", "model": "saas",
+        "tagline": "B2B software",
+        "description": "Early-stage B2B SaaS company.",
+        "services": ["Product", "Sales & GTM", "Customer success", "Fundraising"],
+        "target_clients": "Mid-market B2B companies",
+        "tone": "Direct, data-driven, product-led.",
+        "currency": "USD", "pricing_notes": "Tiered subscriptions; annual contracts preferred.",
+        "extra_context": "",
+    },
+    "agents": [
+        _hermes(),
+        _agent("research", "Market Analyst", "Market, competitor, ICP research",
+               "You research markets, competitors and ideal customer profiles for a B2B SaaS. Structured briefs with sources vs inferences flagged.", tools=["read_file", "list_files", "web_fetch"], color="#8ab4f8"),
+        _agent("product", "Product Manager", "Specs, roadmaps, PRDs",
+               "You are a product manager. You write PRDs, user stories, prioritised roadmaps and success metrics.", color="#c58af9"),
+        _agent("gtm", "GTM Lead", "Positioning, pricing, sales playbooks",
+               "You lead go-to-market. You produce positioning, pricing/packaging, outbound sequences and sales playbooks with clear reasoning.", color="#7fd1b9"),
+        _agent("finance", "Finance", "Models, forecasts, investor material",
+               "You are a startup finance lead. You build revenue models, unit economics, burn/runway and investor-facing numbers with assumptions in tables.", color="#fdd663"),
+        _agent("qa", "Reviewer", "Review", "You are a sceptical operator/investor reviewer. Find weak logic, missing numbers and unrealistic assumptions. Prioritised fixes.", color="#9aa0a6"),
+    ],
+    "workflows": [
+        {"id": "gtm_plan", "name": "GTM plan", "description": "Research -> positioning/pricing -> model -> review", "synthesize": True,
+         "steps": [
+             {"agent": "research", "task": "Research the market and ICP for:\n{task}"},
+             {"agent": "gtm", "task": "Produce positioning, pricing and a 90-day GTM plan.\n\nTask: {task}\n\nResearch:\n{previous}"},
+             {"agent": "finance", "task": "Model the revenue and unit economics for this plan.\n\nTask: {task}\n\nPlan:\n{previous}"},
+             {"agent": "qa", "task": "Review everything and list fixes.\n\n{all}"},
+         ]},
+    ],
+}
+
+
+ECOMMERCE: dict[str, Any] = {
+    "business": {
+        "name": "Your Store", "model": "ecommerce",
+        "tagline": "Online retail brand",
+        "description": "Direct-to-consumer e-commerce brand.",
+        "services": ["Product sourcing", "Store & merchandising", "Marketing & CRM", "Operations & fulfilment"],
+        "target_clients": "Online consumers, 18-45",
+        "tone": "Friendly, punchy, brand-led.",
+        "currency": "USD", "pricing_notes": "Target 60%+ gross margin; free shipping over threshold.",
+        "extra_context": "",
+    },
+    "agents": [
+        _hermes(),
+        _agent("research", "Market & Product Research", "Trends, competitors, sourcing",
+               "You research product trends, competitors, pricing and suppliers for an e-commerce brand.", tools=["read_file", "list_files", "web_fetch"], color="#8ab4f8"),
+        _agent("merch", "Merchandising & Copy", "Listings, collections, copy",
+               "You write product listings, collection copy, and merchandising plans that convert. Include SEO titles and bullet benefits.", color="#c58af9"),
+        _agent("marketing", "Growth Marketer", "Ads, email, CRM",
+               "You plan and write ad creative, email flows and promotions with budgets and KPIs.", color="#7fd1b9"),
+        _agent("ops", "Operations", "Inventory, fulfilment, margins",
+               "You plan inventory, fulfilment, landed cost and margin models with the arithmetic shown.", color="#fdd663"),
+        _agent("qa", "Reviewer", "Review", "You review for brand consistency, conversion best practice and margin sanity. Prioritised fixes.", color="#9aa0a6"),
+    ],
+    "workflows": [
+        {"id": "product_launch", "name": "Product launch", "description": "Research -> listing -> marketing -> ops -> review", "synthesize": True,
+         "steps": [
+             {"agent": "research", "task": "Research the market and competitors for:\n{task}"},
+             {"agent": "merch", "task": "Write the product listing and launch collection copy.\n\nTask: {task}\n\nResearch:\n{previous}"},
+             {"agent": "marketing", "task": "Build the launch marketing plan (ads, email, promo).\n\nTask: {task}\n\nListing:\n{previous}"},
+             {"agent": "ops", "task": "Plan inventory, landed cost and margin.\n\nTask: {task}\n\nContext:\n{all}"},
+             {"agent": "qa", "task": "Review all of it and list fixes.\n\n{all}"},
+         ]},
+    ],
+}
+
+
+SALES_DESK: dict[str, Any] = {
+    "business": {
+        "name": "Acme Estates", "model": "sales_desk",
+        "tagline": "Independent estate & lettings agency — AI Sales Desk",
+        "description": "Estate and lettings agency in South London. The AI Sales Desk handles inbound leads: research, personalised outreach, CRM updates and follow-ups. Outbound messages always wait for owner approval.",
+        "services": ["Sales valuations", "Lettings & property management", "Landlord onboarding", "Buyer matching"],
+        "target_clients": "Landlords with 1–10 properties, first-time sellers, relocating buyers in SE London",
+        "tone": "Warm, local, specific. Short emails. Never pushy. Always one clear next step.",
+        "currency": "GBP", "pricing_notes": "Sales fee 1.2% + VAT; lettings 8% managed / 5% let-only.",
+        "extra_context": "Approval rules: any email, WhatsApp or SMS to a lead must go through queue_action. Never promise a valuation figure in writing before a visit.",
+    },
+    "agents": [
+        _agent("hermes", "Hermes", "Desk orchestrator",
+               _BASE_HERMES_PROMPT + "\n\nThis is an AI Sales Desk. For every lead: check the CRM (crm_lookup), get research and a drafted outreach from specialists, update the CRM (crm_update) with stage and next action, then queue the outreach with queue_action — never send directly. Finish with a summary for the owner.",
+               tools=["delegate", "list_agents", "crm_lookup", "crm_update", "queue_action", "save_deliverable", "read_file", "list_files"],
+               color="#f5c542"),
+        _agent("research", "Lead Researcher", "Researches the lead, property and context",
+               "You are a lead researcher at an estate agency. Given a lead, produce a short brief: who they are, likely intent (sell / let / buy), property context, timing signals, risks, and 3 questions to ask on the first call. Flag what is inferred vs known.",
+               tools=["read_file", "list_files", "web_fetch"], color="#8ab4f8"),
+        _agent("writer", "Outreach Writer", "Drafts personalised first-touch messages",
+               "You are an outreach writer for an estate agency. Write a short, warm, specific first email to the lead (under 120 words) with one clear next step (a call or visit). Start your reply with 'Subject: ...' on the first line, then a blank line, then the body.",
+               color="#c58af9"),
+        _agent("crm", "CRM Assistant", "Keeps contact records clean",
+               "You maintain the agency CRM. Given lead details and research, state the correct stage, notes and next action for this contact in one short paragraph.",
+               tools=["crm_lookup", "crm_update"], color="#7fd1b9"),
+        _agent("qa", "Quality Reviewer", "Checks outreach before it is queued",
+               "You review outreach drafts for an estate agency: accuracy, tone, no written valuation promises, one clear ask. Return either 'APPROVED' plus tiny fixes, or the corrected text.",
+               color="#9aa0a6"),
+    ],
+    "workflows": [
+        {"id": "new_lead", "name": "New lead → outreach", "description": "Research → draft → QA → Hermes queues for approval", "synthesize": True,
+         "steps": [
+             {"agent": "research", "task": "Research this lead:\n{task}"},
+             {"agent": "writer", "task": "Draft the first-touch email.\n\nLead:\n{task}\n\nResearch:\n{previous}"},
+             {"agent": "qa", "task": "Review this draft.\n\n{previous}"},
+         ]},
+    ],
+}
+
+
+BUILTIN: dict[str, dict[str, Any]] = {
+    "sales_desk": SALES_DESK,
+    "consultancy": CONSULTANCY,
+    "agency": AGENCY,
+    "saas": SAAS,
+    "ecommerce": ECOMMERCE,
+}
+
+
+def names() -> list[str]:
+    out = list(BUILTIN.keys())
+    for p in sorted(TEMPLATES_DIR.glob("*.json")):
+        if p.stem not in out:
+            out.append(p.stem)
+    return out
+
+
+def get(name: str) -> dict[str, Any]:
+    p = TEMPLATES_DIR / f"{name}.json"
+    if p.exists():
+        with p.open("r", encoding="utf-8") as f:
+            return json.load(f)
+    return json.loads(json.dumps(BUILTIN.get(name, CONSULTANCY)))
+
+
+def export_current(name: str, business: dict, agents: list, workflows: list) -> None:
+    """Save the current setup as a reusable template."""
+    with (TEMPLATES_DIR / f"{name}.json").open("w", encoding="utf-8") as f:
+        json.dump({"business": business, "agents": agents, "workflows": workflows}, f, indent=2, ensure_ascii=False)

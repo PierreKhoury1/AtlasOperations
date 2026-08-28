@@ -1,0 +1,18 @@
+{
+  "name": "Your Consultancy",
+  "model": "consultancy",
+  "tagline": "Advisory and delivery for growing businesses",
+  "description": "Boutique consultancy delivering strategy, operations and digital advisory to SMEs.",
+  "services": [
+    "Strategy & growth advisory",
+    "Operations improvement",
+    "Digital transformation",
+    "Market entry research",
+    "Fractional leadership"
+  ],
+  "target_clients": "Owner-led SMEs and scale-ups, 10-250 staff",
+  "tone": "Confident, plain-spoken, evidence-led. No jargon.",
+  "currency": "GBP",
+  "pricing_notes": "Day rate 900-1,400; fixed-fee projects; retainers from 3,000/mo.",
+  "extra_context": ""
+}
