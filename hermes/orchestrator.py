@@ -122,7 +122,10 @@ class Orchestrator:
     def run_agent(self, agent_id: str, task: str, context: str = "", depth: int = 0) -> str:
         agent = self.agents.get(agent_id)
         if not agent:
-            return f"ERROR: unknown agent '{agent_id}'. Available: {', '.join(self.agents)}"
+            if agent_id in T.SCHEMAS:
+                return (f"ERROR: '{agent_id}' is a TOOL, not an agent. Call the {agent_id} tool directly with its own "
+                        f"arguments. Agents you can delegate to: {', '.join(a for a in self.agents if a != 'hermes')}")
+            return f"ERROR: unknown agent '{agent_id}'. Agents you can delegate to: {', '.join(a for a in self.agents if a != 'hermes')}"
         self._check()
         provider = self.pool.get(agent.get("provider") or "")
         model = agent.get("model") or provider.default_model

@@ -161,6 +161,12 @@ class WorkspaceTools:
 
     def web_fetch(self, url: str, max_chars: int = 12000) -> str:
         import httpx
+        try:
+            max_chars = int(max_chars)
+        except (TypeError, ValueError):
+            max_chars = 12000
+        if max_chars <= 0:
+            max_chars = 12000
         if not re.match(r"^https?://", url):
             return "error: only http(s) URLs"
         try:

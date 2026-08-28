@@ -31,6 +31,15 @@ DEFAULT_PROVIDERS: dict[str, Any] = {
             "max_tokens": 16000,
             "timeout": 600,
         },
+        "ollama": {
+            "type": "openai",
+            "base_url": "http://localhost:11434/v1",
+            "api_key": "",
+            "default_model": "llama3.2:3b",
+            "temperature": 0.3,
+            "max_tokens": 1500,
+            "timeout": 300,
+        },
         "openai_compatible": {
             "type": "openai",
             "base_url": "http://localhost:11434/v1",

@@ -44,6 +44,8 @@ def _mode() -> str:
     m = os.environ.get("DESK_MODE", "auto").lower()
     if m in ("demo", "live"):
         return m
+    if os.environ.get("DESK_PROVIDER", "").strip():
+        return "live"
     prov = cfg.load("providers", cfg.DEFAULT_PROVIDERS)
     key = cfg.resolve_api_key(prov["providers"].get("anthropic", {"type": "anthropic"}))
     return "live" if key else "demo"
@@ -59,6 +61,17 @@ def build_configs() -> dict[str, Any]:
             a["model"] = ""
     else:
         providers = cfg.load("providers", cfg.DEFAULT_PROVIDERS)
+        for name, pc in cfg.DEFAULT_PROVIDERS["providers"].items():   # backfill presets added later
+            providers.setdefault("providers", {}).setdefault(name, dict(pc))
+        prov = os.environ.get("DESK_PROVIDER", "").strip()
+        if prov:
+            providers["default_provider"] = prov
+            model = os.environ.get("DESK_MODEL", "").strip()
+            if model:
+                providers["providers"][prov]["default_model"] = model
+            for a in t["agents"]:
+                a["provider"] = prov
+                a["model"] = ""
     return {
         "providers": providers,
         "orchestration": cfg.load("orchestration", cfg.DEFAULT_ORCHESTRATION),
