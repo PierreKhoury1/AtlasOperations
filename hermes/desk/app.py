@@ -19,7 +19,9 @@ import time
 from pathlib import Path
 from typing import Any
 
-from flask import Flask, abort, jsonify, make_response, redirect, request, send_from_directory
+import json
+
+from flask import Flask, Response, abort, jsonify, make_response, redirect, request, send_from_directory
 
 from .. import config as cfg
 from .. import templates
@@ -35,6 +37,28 @@ app = Flask(__name__, static_folder=None)
 store = Store(DB_PATH)
 _runs: dict[str, dict[str, Any]] = {}          # run_id -> {"events": [...], "thread":..., "orch":...}
 _runs_lock = threading.Lock()
+_feed: list[dict[str, Any]] = []               # global live feed (all runs, incl. token deltas) for /api/stream
+_feed_lock = threading.Lock()
+_feed_seq = 0
+_FEED_MAX = 30000
+
+
+def _push_feed(run_id: str, ev: Event):
+    global _feed_seq
+    with _feed_lock:
+        _feed_seq += 1
+        _feed.append({"seq": _feed_seq, "run_id": run_id, "ts": ev.ts, "kind": ev.kind,
+                      "agent": ev.agent, "text": ev.text, "data": ev.data})
+        if len(_feed) > _FEED_MAX:
+            del _feed[: _FEED_MAX // 3]
+
+
+def _feed_after(seq: int) -> list[dict[str, Any]]:
+    with _feed_lock:
+        if not _feed or _feed[-1]["seq"] <= seq:
+            return []
+        lo = max(0, len(_feed) - (_feed[-1]["seq"] - seq))   # seqs are contiguous, so index by offset
+        return _feed[lo:]
 TEMPLATE = os.environ.get("DESK_TEMPLATE", "sales_desk")
 PASSWORD = os.environ.get("DESK_PASSWORD", "").strip()
 
@@ -171,11 +195,15 @@ def _start_run(task: str, mode: str, lead_id: int | None = None) -> str:
     configs = build_configs()
     events: list[dict[str, Any]] = []
 
+    orch: Orchestrator
+
     def emit(ev: Event):
-        events.append({"ts": ev.ts, "kind": ev.kind, "agent": ev.agent, "text": ev.text, "data": ev.data})
+        if ev.kind != "token":                     # deltas are live-only; the full text arrives as a `log` event
+            events.append({"ts": ev.ts, "kind": ev.kind, "agent": ev.agent, "text": ev.text, "data": ev.data})
+        _push_feed(orch.run_id, ev)
 
     orch = Orchestrator(configs, store, emit)
-    holder: dict[str, Any] = {"events": events, "orch": orch}
+    holder: dict[str, Any] = {"events": events, "orch": orch, "task": task}
 
     def work():
         res = orch.run(task, mode)
@@ -268,6 +296,56 @@ def api_run(run_id):
             if p.name not in ("TASK.md",):
                 row["deliverables"].append({"name": p.name, "content": p.read_text(encoding="utf-8", errors="replace")[:20000]})
     return jsonify(row)
+
+
+@app.get("/api/stream")
+def api_stream():
+    """Server-sent events: every orchestrator event from every run, including token deltas.
+    ?since=<seq> resumes after a sequence number; ?since=now (default) starts from the present."""
+    arg = request.args.get("since", "now")
+    run_filter = request.args.get("run", "")
+    with _feed_lock:
+        start = _feed_seq if arg == "now" else max(0, min(int(arg or 0), _feed_seq))
+
+    def gen():
+        last = start
+        idle = 0
+        yield "retry: 2000\n\n"
+        while True:
+            new = _feed_after(last)
+            if new:
+                idle = 0
+                for e in new:
+                    last = e["seq"]
+                    if run_filter and e["run_id"] != run_filter:
+                        continue
+                    yield f"data: {json.dumps(e, ensure_ascii=False)}\n\n"
+            else:
+                idle += 1
+                if idle % 100 == 0:
+                    yield ": ping\n\n"
+                time.sleep(0.1)
+
+    return Response(gen(), mimetype="text/event-stream",
+                    headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no", "Connection": "keep-alive"})
+
+
+@app.get("/api/live")
+def api_live():
+    """Runs that are executing right now, with the events so far (no token deltas) for a late-joining viewer."""
+    out = []
+    with _runs_lock:
+        items = list(_runs.items())
+    for rid, h in items:
+        alive = h["thread"].is_alive()
+        if not alive and not request.args.get("all"):
+            continue
+        out.append({"id": rid, "active": alive, "task": h.get("task", ""),
+                    "events": [e for e in h["events"] if e["kind"] != "usage"],
+                    "tokens_in": h["orch"].tokens_in, "tokens_out": h["orch"].tokens_out})
+    with _feed_lock:
+        seq = _feed_seq
+    return jsonify({"seq": seq, "runs": out})
 
 
 @app.post("/api/runs/<run_id>/cancel")

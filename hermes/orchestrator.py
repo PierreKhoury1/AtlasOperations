@@ -70,7 +70,7 @@ class Orchestrator:
     # ------------------------------------------------------------------ events
     def emit(self, kind: str, agent: str = "system", text: str = "", **data):
         ev = Event(kind, agent, text, data)
-        if self.store and self.run_id and kind not in ("usage",):
+        if self.store and self.run_id and kind not in ("usage", "token"):
             try:
                 self.store.add_event(self.run_id, kind, agent, text)
             except Exception:
@@ -97,6 +97,9 @@ class Orchestrator:
             f"Tone of voice: {b.get('tone','')}",
             f"Currency: {b.get('currency','')}",
             f"Pricing notes: {b.get('pricing_notes','')}",
+            f"Sign outbound messages as: {b['sender_name']}" if b.get("sender_name") else "",
+            f"Availability for calls/visits: {b['availability']}" if b.get("availability") else "",
+            f"Today is {time.strftime('%A %d %B %Y')}.",
         ]
         if b.get("extra_context"):
             parts.append("\nAdditional context:\n" + b["extra_context"])
@@ -142,10 +145,14 @@ class Orchestrator:
         messages: list[Any] = [provider.user_message(prompt)]
         self.emit("agent_start", agent_id, f"{agent['name']} ← task ({len(prompt)} chars)", depth=depth, model=model)
         final_text = ""
+
+        def on_token(text: str, thinking: bool = False):
+            self.emit("token", agent_id, text, thinking=thinking, depth=depth)
+
         for i in range(max_iter):
             self._check()
             try:
-                resp = provider.chat(self.system_prompt(agent), messages, schemas, model)
+                resp = provider.chat(self.system_prompt(agent), messages, schemas, model, on_token=on_token)
             except Exception as exc:
                 msg = f"{type(exc).__name__}: {exc}"
                 self.emit("error", agent_id, msg)

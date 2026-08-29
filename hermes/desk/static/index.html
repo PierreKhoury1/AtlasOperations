@@ -52,6 +52,46 @@ tr.click{cursor:pointer}tr.click:hover{background:var(--panel2)}
 .toast.on{opacity:1}
 .agentline{display:flex;gap:8px;align-items:center;margin:6px 0}.agentline i{width:10px;height:10px;border-radius:50%;display:inline-block}
 .stepper{display:flex;gap:6px;margin:8px 0 14px;flex-wrap:wrap}.stepper span{padding:5px 10px;border-radius:6px;background:var(--panel2);font-size:12px;color:var(--muted);border:1px solid var(--line)}.stepper span.on{border-color:var(--accent);color:var(--text)}
+/* ---- live desk ---- */
+.livebar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:14px}
+.livebar select{width:auto;min-width:260px}
+.livebar .kv{font-family:Consolas,monospace;font-size:12px;color:var(--muted);background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:6px 10px}
+.livebar .kv b{color:var(--text);font-variant-numeric:tabular-nums}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--muted);display:inline-block}
+.dot.live{background:var(--ok);box-shadow:0 0 0 0 rgba(61,220,151,.6);animation:pulse 1.4s infinite}
+@keyframes pulse{0%{box-shadow:0 0 0 0 rgba(61,220,151,.6)}100%{box-shadow:0 0 0 9px rgba(61,220,151,0)}}
+.stage{position:relative;background:#0d0d11;border:1px solid var(--line);border-radius:var(--r);padding:18px;min-height:560px}
+.stage svg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
+.stage .edge{fill:none;stroke:#2a2a36;stroke-width:2}
+.stage .edge.on{stroke:var(--c,var(--accent));stroke-width:2.5;stroke-dasharray:6 8;animation:flow .7s linear infinite}
+.stage .edge.done{stroke:var(--c,var(--accent));opacity:.45}
+@keyframes flow{to{stroke-dashoffset:-14}}
+.sgrid{position:relative;display:grid;grid-template-columns:minmax(300px,1.1fr) 1fr 1fr;gap:18px 40px;align-items:stretch}
+.node{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 14px;display:flex;flex-direction:column;min-height:150px;position:relative;transition:border-color .25s,box-shadow .25s}
+.node.hermes{grid-row:1 / span 2}
+.node.busy{border-color:var(--c);box-shadow:0 0 0 1px var(--c),0 0 28px -8px var(--c)}
+.node.fin{border-color:color-mix(in srgb,var(--c) 45%,var(--line))}
+.node .nh{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+.node .nh i{width:10px;height:10px;border-radius:50%;background:var(--c);display:inline-block}
+.node .nh b{font-weight:600}
+.node .nh .role{color:var(--muted);font-size:12px}
+.node .st{margin-left:auto;font-size:10px;letter-spacing:.1em;text-transform:uppercase;padding:2px 8px;border-radius:6px;background:#262633;color:var(--muted)}
+.node.busy .st{background:var(--c);color:#111}
+.node .chips{display:flex;gap:6px;flex-wrap:wrap;min-height:20px;margin-bottom:6px}
+.chip{font-family:Consolas,monospace;font-size:11px;padding:2px 8px;border-radius:6px;background:#1f1f2a;color:var(--muted);border:1px solid var(--line)}
+.chip.new{border-color:var(--c);color:var(--text);animation:chipin .35s ease-out}
+@keyframes chipin{from{transform:scale(.7);opacity:0}to{transform:none;opacity:1}}
+.stream{flex:1;background:#09090c;border:1px solid var(--line);border-radius:8px;padding:10px;font-family:Consolas,monospace;font-size:12px;line-height:1.5;white-space:pre-wrap;overflow:auto;max-height:230px;min-height:80px;color:#d5d5dd}
+.node.hermes .stream{max-height:430px}
+.stream .think{color:#6f6f80;font-style:italic}
+.stream .caret{display:inline-block;width:7px;height:13px;background:var(--c,var(--accent));vertical-align:-2px;margin-left:2px;animation:blink 1s steps(2) infinite}
+@keyframes blink{to{opacity:0}}
+.node .nf{display:flex;gap:12px;margin-top:8px;font-size:11px;color:var(--muted);font-family:Consolas,monospace}
+.ticker{margin-top:14px}
+.ticker .log{max-height:200px}
+.approval-flash{border-left:4px solid var(--accent);background:#1a1710}
+@media(max-width:1100px){.sgrid{grid-template-columns:1fr 1fr}.node.hermes{grid-column:1 / span 2;grid-row:auto}.stage svg{display:none}}
+@media(prefers-reduced-motion:reduce){.stage .edge.on,.dot.live,.stream .caret{animation:none}}
 @media(max-width:900px){.layout{grid-template-columns:1fr}aside{position:static;height:auto}.g4,.g3,.g2{grid-template-columns:1fr 1fr}main{padding:16px}}
 </style>
 </head>
@@ -62,6 +102,7 @@ tr.click{cursor:pointer}tr.click:hover{background:var(--panel2)}
   <div class="sub" id="bizname">…</div>
   <nav id="nav">
     <button data-p="dash" class="on">Dashboard</button>
+    <button data-p="live">Live desk <span class="dot" id="n-live"></span></button>
     <button data-p="leads">Leads <span class="pill" id="n-leads">0</span></button>
     <button data-p="approvals">Approvals <span class="pill" id="n-pending">0</span></button>
     <button data-p="crm">CRM</button>
@@ -99,6 +140,24 @@ tr.click{cursor:pointer}tr.click:hover{background:var(--panel2)}
       <p class="lead" style="margin:0">Email, WhatsApp, SMS, publishing, refunds, contracts. Agents can only <em>queue</em> these; nothing leaves until you press Approve.</p>
     </div>
   </div>
+</section>
+
+<!-- LIVE DESK -->
+<section id="p-live" class="hide">
+  <h1>Live desk</h1><p class="lead">Watch the agents work in real time — every token as the model writes it, every hand-off, every tool call.</p>
+  <div class="livebar">
+    <select id="live-run" onchange="pickLive(this.value)"></select>
+    <span class="kv"><span class="dot" id="live-dot"></span> <span id="live-status">idle</span></span>
+    <span class="kv">elapsed <b id="live-elapsed">0s</b></span>
+    <span class="kv">tokens in <b id="live-in">0</b></span>
+    <span class="kv">out <b id="live-out">0</b></span>
+    <span class="kv">events <b id="live-n">0</b></span>
+    <span class="spacer"></span>
+    <button class="btn sm" onclick="seed()">▶ Seed 3 leads</button>
+    <button class="btn sm" onclick="go('leads')">+ Lead</button>
+  </div>
+  <div class="stage" id="stage"><svg id="edges"></svg><div class="sgrid" id="sgrid"></div></div>
+  <div class="ticker card"><h2>Hand-offs, tools, approvals</h2><div class="log" id="live-log">(waiting for a run)</div></div>
 </section>
 
 <!-- LEADS -->
@@ -190,7 +249,9 @@ async function refresh(){
   const s = await api('/stats'); if(!s) return;
   $('#n-leads').textContent = s.leads; $('#n-pending').textContent = s.pending;
   $('#k-leads').textContent = s.leads; $('#k-pending').textContent = s.pending; $('#k-sent').textContent = s.approved; $('#k-qual').textContent = s.qualified;
+  $('#n-live').classList.toggle('live', s.active_runs > 0);
   if (page==='dash') loadDashLog();
+  if (page==='live') liveRefreshList();
   if (page==='leads') loadLeads();
   if (page==='approvals') loadApprovals();
   if (page==='crm') loadCrm();
@@ -206,18 +267,18 @@ function evLine(e){
 }
 async function loadDashLog(){ const ev = await api('/audit'); $('#dash-log').innerHTML = ev.length ? ev.slice(0,40).reverse().map(evLine).join('') : '(nothing yet — seed demo leads)'; $('#dash-log').scrollTop = 1e9; }
 
-async function seed(){ toast('Seeding 3 leads…'); await api('/demo/seed', {method:'POST', body:{}}); go('runs'); }
+async function seed(){ toast('Seeding 3 leads…'); const r = await api('/demo/seed', {method:'POST', body:{}}); if (r && r[0]) liveWant = r[0].run_id; go('live'); }
 async function resetDemo(){ if(!confirm('Wipe all demo data?')) return; const r = await api('/demo/reset', {method:'POST', body:{}}); toast(r.ok ? 'Reset' : (r.error||'failed')); curRun=null; refresh(); }
 async function addLead(){
   const b = {name:$('#l-name').value, company:$('#l-company').value, email:$('#l-email').value, phone:$('#l-phone').value, source:$('#l-source').value, notes:$('#l-notes').value, mode:$('#l-mode').value};
   const r = await api('/leads', {method:'POST', body:b}); if (r.error) return toast(r.error);
-  toast('Lead added — desk running'); ['#l-name','#l-company','#l-email','#l-phone','#l-notes'].forEach(s=>$(s).value=''); curRun = r.run_id; go('runs');
+  toast('Lead added — desk running'); ['#l-name','#l-company','#l-email','#l-phone','#l-notes'].forEach(s=>$(s).value=''); curRun = r.run_id; liveWant = r.run_id; go('live');
 }
 async function loadLeads(){
   const L = await api('/leads');
   $('#leads-table').innerHTML = L.length ? `<table><tr><th>When</th><th>Lead</th><th>Source</th><th>Status</th><th></th></tr>` + L.map(l=>`<tr><td>${when(l.created)}</td><td><b>${esc(l.name)}</b><br><span style="color:var(--muted)">${esc(l.company||'')} ${esc(l.email)}</span><br><span style="color:var(--muted);font-size:12px">${esc(l.notes).slice(0,110)}</span></td><td>${esc(l.source)}</td><td><span class="tag ${l.status}">${l.status}</span></td><td>${l.run_id?`<button class="btn sm" onclick="curRun='${l.run_id}';go('runs')">run</button>`:''} <button class="btn sm" onclick="rerun(${l.id})">re-run</button></td></tr>`).join('') + '</table>' : '<div class="empty">No leads yet</div>';
 }
-async function rerun(id){ const r = await api(`/leads/${id}/run`, {method:'POST', body:{mode:'auto'}}); curRun=r.run_id; go('runs'); }
+async function rerun(id){ const r = await api(`/leads/${id}/run`, {method:'POST', body:{mode:'auto'}}); curRun=r.run_id; liveWant=r.run_id; go('live'); }
 
 function setAf(f){ af=f; document.querySelectorAll('#p-approvals .btn.sm').forEach(b=>b.classList.toggle('on', b.dataset.f===f)); loadApprovals(); }
 async function loadApprovals(){
@@ -250,7 +311,7 @@ async function loadRuns(){
 async function loadRun(id, quiet){
   const r = await api('/runs/'+id); if(!r || r.error) return;
   const el = $('#run-detail'); const atBottom = true;
-  el.innerHTML = `<div class="row"><span class="tag ${r.active?'running':r.status}">${r.active?'running':r.status}</span><b>${esc(r.id)}</b><span class="spacer"></span>${r.active?`<button class="btn sm d" onclick="api('/runs/${r.id}/cancel',{method:'POST',body:{}})">stop</button>`:''}</div>
+  el.innerHTML = `<div class="row"><span class="tag ${r.active?'running':r.status}">${r.active?'running':r.status}</span><b>${esc(r.id)}</b><span class="spacer"></span>${r.active?`<button class="btn sm" onclick="liveWant='${r.id}';go('live')">▶ watch live</button> <button class="btn sm d" onclick="api('/runs/${r.id}/cancel',{method:'POST',body:{}})">stop</button>`:''}</div>
     <div class="md" style="color:var(--muted);margin:8px 0">${esc(r.task).slice(0,400)}</div>
     <div class="log" id="runlog">${r.events.map(evLine).join('')}${r.active?'<div style="color:var(--blue)">… working</div>':''}</div>
     ${r.summary?`<h2 style="margin-top:14px">Summary</h2><div class="md">${esc(r.summary)}</div>`:''}
@@ -272,6 +333,128 @@ async function loadReport(){
       <p class="lead" style="margin-top:10px;font-size:12px">${esc(r.assumption)}</p></div>
     <div class="card"><h2>What we changed this month</h2><ul style="padding-left:18px">${r.changes.map(c=>`<li>${esc(c)}</li>`).join('')}</ul><h2 style="margin-top:16px">Next month</h2><ul style="padding-left:18px"><li>Add follow-up sequence for no-reply after 3 days</li><li>Connect calendar so viewings can be proposed in the first email</li></ul></div></div>`;
 }
+/* ================= LIVE DESK ================= */
+let liveWant = null, liveId = null, liveES = null, liveState = null, liveTimer = null;
+const MAXSTREAM = 6000;
+
+function liveRefreshList(){
+  api('/runs').then(R => {
+    if (!R) return;
+    const sel = $('#live-run');
+    const opts = R.slice(0, 25).map(r => `<option value="${r.id}">${r.active ? '● ' : ''}${esc(r.task.replace(/^New inbound lead[^\n]*\n(Name: )?/, '')).split('\n')[0].slice(0, 42)} · ${when(r.created)} · ${r.active ? 'running' : r.status}</option>`).join('');
+    if (sel.innerHTML !== opts) sel.innerHTML = opts;
+    const active = R.filter(r => r.active);
+    let want = liveWant && R.find(r => r.id === liveWant) ? liveWant : null;
+    if (!want && !liveId && (active[0] || R[0])) want = (active[0] || R[0]).id;
+    if (!want && liveId && liveState && !liveState.active && active[0]) want = active[0].id;  // current finished, a new one started
+    if (want && want !== liveId) { liveWant = null; pickLive(want); }
+    if (liveId) sel.value = liveId;
+  });
+}
+
+async function pickLive(id){
+  if (!id) return;
+  liveId = id; $('#live-run').value = id;
+  const r = await api('/runs/' + id); if (!r || r.error) return;
+  liveState = { id, active: r.active, t0: r.created, agents: {}, edges: {}, n: 0, tin: r.tokens_in, tout: r.tokens_out, log: [] };
+  if (r.active) { const L = await api('/live'); const me = L && L.runs.find(x => x.id === id); if (me) { liveState.tin = me.tokens_in; liveState.tout = me.tokens_out; } }
+  buildStage();
+  r.events.forEach(e => applyLive(e, false));   // replay history (no token deltas in history — full texts arrive as logs)
+  renderLive();
+  if (liveES) { liveES.close(); liveES = null; }
+  if (r.active) {
+    liveES = new EventSource('/api/stream?since=now&run=' + encodeURIComponent(id));
+    liveES.onmessage = ev => { const e = JSON.parse(ev.data); applyLive(e, true); scheduleRender(); };
+    liveES.onerror = () => {};   // browser auto-reconnects
+  }
+  clearInterval(liveTimer);
+  liveTimer = setInterval(() => { if (page !== 'live') return; const t = liveState.active ? (Date.now()/1000 - liveState.t0) : (liveState.tEnd || Date.now()/1000) - liveState.t0; $('#live-elapsed').textContent = Math.max(0, t).toFixed(0) + 's'; }, 500);
+}
+
+function agentState(id){
+  const s = liveState.agents;
+  if (!s[id]) { const a = CFG.agents.find(x => x.id === id); s[id] = { id, name: a ? a.name : id, role: a ? a.role : '', color: colors[id] || '#8ab4f8', status: 'idle', text: '', think: '', chips: [], iters: 0, chars: 0, done: false }; }
+  return s[id];
+}
+
+function applyLive(e, live){
+  const S = liveState; S.n++;
+  if (e.kind === 'usage') { S.tin = e.data.tokens_in; S.tout = e.data.tokens_out; return; }
+  if (e.agent !== 'system' && e.agent !== 'owner') {
+    const a = agentState(e.agent);
+    if (e.kind === 'agent_start') { a.status = 'thinking'; a.done = false; a.text = ''; a.think = ''; a.iters = 0; a.chips = []; }
+    else if (e.kind === 'token') {
+      if (e.data && e.data.thinking) { a.think += e.text; if (a.think.length > 1500) a.think = a.think.slice(-1500); a.status = 'thinking'; }
+      else { if (a.needSep) { a.text += '\n\n'; a.needSep = false; } a.text += e.text; a.chars += e.text.length; a.status = 'writing'; if (a.text.length > MAXSTREAM) a.text = a.text.slice(-MAXSTREAM); }
+      return;
+    }
+    else if (e.kind === 'log') { if (!live) { a.text = (a.text ? a.text + '\n\n' : '') + e.text; } else if (!a.text.trim().endsWith(e.text.trim().slice(-40))) { a.text += (a.text ? '\n\n' : '') + e.text; } a.iters++; a.status = 'thinking'; a.think = ''; a.needSep = true; }
+    else if (e.kind === 'tool') {
+      const name = e.text.split(/[( →:]/)[0];
+      a.chips.push({ name, t: Date.now() }); if (a.chips.length > 8) a.chips.shift();
+      a.status = 'tool';
+      if (name === 'delegate') { const m = e.text.match(/delegate → (\w+)/); if (m) S.edges[m[1]] = 'on'; }
+      if (name === 'finish') a.status = 'finishing';
+    }
+    else if (e.kind === 'agent_end') { a.status = 'done'; a.done = true; S.edges[e.agent] = S.edges[e.agent] ? 'done' : S.edges[e.agent]; }
+    else if (e.kind === 'error') { a.status = 'error'; }
+    else if (e.kind === 'approval') { a.chips.push({ name: '⏸ ' + (e.data.action_kind || 'approval'), t: Date.now() }); }
+  }
+  if (e.kind === 'done') { S.active = false; S.tEnd = e.ts; Object.values(S.agents).forEach(a => { if (!a.done) { a.status = 'done'; a.done = true; } }); Object.keys(S.edges).forEach(k => S.edges[k] = 'done'); }
+  if (['tool', 'approval', 'agent_start', 'agent_end', 'deliverable', 'done', 'error', 'sent'].includes(e.kind)) { S.log.push(e); if (S.log.length > 60) S.log.shift(); }
+}
+
+function buildStage(){
+  const g = $('#sgrid');
+  const order = [...CFG.agents.filter(a => a.id === 'hermes'), ...CFG.agents.filter(a => a.id !== 'hermes')];
+  g.innerHTML = order.map(a => `<div class="node ${a.id === 'hermes' ? 'hermes' : ''}" id="node-${a.id}" style="--c:${a.color || '#8ab4f8'}">
+    <div class="nh"><i></i><b>${esc(a.name)}</b><span class="role">${esc(a.role)}</span><span class="st" id="st-${a.id}">idle</span></div>
+    <div class="chips" id="chips-${a.id}"></div>
+    <div class="stream" id="stream-${a.id}"></div>
+    <div class="nf"><span id="nf-${a.id}"></span></div></div>`).join('');
+  drawEdges();
+}
+
+function drawEdges(){
+  const svg = $('#edges'), stage = $('#stage'); if (!svg || !liveState) return;
+  const sr = stage.getBoundingClientRect(); const h = $('#node-hermes'); if (!h) return;
+  const hr = h.getBoundingClientRect();
+  svg.setAttribute('viewBox', `0 0 ${sr.width} ${sr.height}`);
+  svg.innerHTML = CFG.agents.filter(a => a.id !== 'hermes').map(a => {
+    const n = $('#node-' + a.id); if (!n) return '';
+    const r = n.getBoundingClientRect();
+    const x1 = hr.right - sr.left, y1 = hr.top - sr.top + hr.height/2, x2 = r.left - sr.left, y2 = r.top - sr.top + r.height/2;
+    const mx = (x1 + x2) / 2;
+    return `<path class="edge ${liveState.edges[a.id] || ''}" style="--c:${a.color}" d="M${x1},${y1} C${mx},${y1} ${mx},${y2} ${x2},${y2}"/>`;
+  }).join('');
+}
+
+let renderQueued = false;
+function scheduleRender(){ if (renderQueued) return; renderQueued = true; requestAnimationFrame(() => { renderQueued = false; renderLive(); }); }
+function renderLive(){
+  const S = liveState; if (!S || page !== 'live') return;
+  $('#live-status').textContent = S.active ? 'running' : 'finished'; $('#live-dot').classList.toggle('live', S.active);
+  $('#live-in').textContent = (S.tin || 0).toLocaleString(); $('#live-out').textContent = (S.tout || 0).toLocaleString(); $('#live-n').textContent = S.n;
+  CFG.agents.forEach(cfgA => {
+    const a = S.agents[cfgA.id]; const node = $('#node-' + cfgA.id); if (!node) return;
+    const st = a ? a.status : 'idle';
+    node.classList.toggle('busy', !!a && !a.done && st !== 'idle'); node.classList.toggle('fin', !!a && a.done);
+    $('#st-' + cfgA.id).textContent = st;
+    if (a) {
+      const chips = $('#chips-' + cfgA.id); const now = Date.now();
+      chips.innerHTML = a.chips.map(c => `<span class="chip ${now - c.t < 1500 ? 'new' : ''}">${esc(c.name)}</span>`).join('');
+      const s = $('#stream-' + cfgA.id);
+      const caret = (st === 'writing' || st === 'thinking') && S.active ? '<span class="caret"></span>' : '';
+      s.innerHTML = (a.think ? `<span class="think">${esc(a.think.slice(-600))}</span>\n` : '') + esc(a.text.slice(-MAXSTREAM)) + caret;
+      s.scrollTop = 1e9;
+      $('#nf-' + cfgA.id).textContent = `${a.iters} turn${a.iters === 1 ? '' : 's'} · ${a.chars.toLocaleString()} chars streamed`;
+    }
+  });
+  drawEdges();
+  $('#live-log').innerHTML = S.log.slice(-14).reverse().map(e => `<div class="${e.kind === 'approval' ? 'approval-flash' : ''}">${evLine(e)}</div>`).join('') || '(no hand-offs yet)';
+}
+window.addEventListener('resize', () => { if (page === 'live') drawEdges(); });
+
 init();
 </script>
 </body>

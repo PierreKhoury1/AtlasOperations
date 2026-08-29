@@ -13,7 +13,7 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Callable
 
 from . import config as cfg
 
@@ -50,7 +50,9 @@ class Provider:
         self.cfg = pcfg
         self.default_model = pcfg.get("default_model", "")
 
-    def chat(self, system: str, messages: list[Any], tools: list[dict[str, Any]], model: str = "") -> LLMResponse:
+    def chat(self, system: str, messages: list[Any], tools: list[dict[str, Any]], model: str = "",
+             on_token: Callable[..., None] | None = None) -> LLMResponse:
+        """`on_token(text, thinking=False)` is called for every streamed delta when supplied."""
         raise NotImplementedError
 
     def user_message(self, text: str) -> Any:
@@ -89,7 +91,7 @@ class AnthropicProvider(Provider):
     def _tools(tools: list[dict[str, Any]]) -> list[dict[str, Any]]:
         return [{"name": t["name"], "description": t["description"], "input_schema": t["parameters"]} for t in tools]
 
-    def chat(self, system, messages, tools, model=""):
+    def chat(self, system, messages, tools, model="", on_token=None):
         model = model or self.default_model or "claude-opus-5"
         kwargs: dict[str, Any] = {
             "model": model,
@@ -112,16 +114,29 @@ class AnthropicProvider(Provider):
 
         use_fallbacks = bool(self.cfg.get("fallbacks", True)) and bool(_FALLBACK_RE.search(model))
         A = self._anthropic
+
+        def _run(with_fallbacks: bool):
+            api = self._client.beta.messages if with_fallbacks else self._client.messages
+            extra = {"betas": ["server-side-fallback-2026-07-01"], "fallbacks": "default"} if with_fallbacks else {}
+            if not on_token:
+                return api.create(**extra, **kwargs)
+            with api.stream(**extra, **kwargs) as s:
+                for ev in s:
+                    if getattr(ev, "type", "") == "content_block_delta":
+                        d = ev.delta
+                        dt = getattr(d, "type", "")
+                        if dt == "text_delta" and d.text:
+                            on_token(d.text)
+                        elif dt == "thinking_delta" and getattr(d, "thinking", ""):
+                            on_token(d.thinking, True)
+                return s.get_final_message()
+
         try:
-            if use_fallbacks:
-                resp = self._client.beta.messages.create(
-                    betas=["server-side-fallback-2026-07-01"], fallbacks="default", **kwargs)
-            else:
-                resp = self._client.messages.create(**kwargs)
+            resp = _run(use_fallbacks)
         except A.BadRequestError as exc:
             # Older SDK/server without fallbacks support -> retry plain.
             if use_fallbacks and "fallback" in str(exc).lower():
-                resp = self._client.messages.create(**kwargs)
+                resp = _run(False)
             else:
                 raise
 
@@ -175,7 +190,7 @@ class OpenAICompatProvider(Provider):
         return [{"type": "function", "function": {"name": t["name"], "description": t["description"],
                                                   "parameters": t["parameters"]}} for t in tools]
 
-    def chat(self, system, messages, tools, model=""):
+    def chat(self, system, messages, tools, model="", on_token=None):
         model = model or self.default_model
         if not self.base_url:
             raise RuntimeError("OpenAI-compatible provider: base_url not set (Settings).")
@@ -192,10 +207,11 @@ class OpenAICompatProvider(Provider):
         headers = {"Content-Type": "application/json"}
         if self.api_key:
             headers["Authorization"] = f"Bearer {self.api_key}"
-        with self._httpx.Client(base_url=self.base_url, headers=headers,
-                                timeout=float(self.cfg.get("timeout", 300))) as client:
-            r = client.post("/chat/completions", json=payload)
-        if r.status_code >= 400:
+        if on_token:
+            payload["stream"] = True
+            payload["stream_options"] = {"include_usage": True}
+
+        def _raise(r):
             msg = r.text[:400]
             try:
                 err = r.json().get("error")
@@ -203,7 +219,16 @@ class OpenAICompatProvider(Provider):
             except Exception:
                 pass
             raise RuntimeError(f"HTTP {r.status_code}: {msg}")
-        body = r.json()
+
+        with self._httpx.Client(base_url=self.base_url, headers=headers,
+                                timeout=float(self.cfg.get("timeout", 300))) as client:
+            if not on_token:
+                r = client.post("/chat/completions", json=payload)
+                if r.status_code >= 400:
+                    _raise(r)
+                body = r.json()
+            else:
+                body = self._stream(client, payload, on_token, _raise)
         choice = body["choices"][0]
         message = choice["message"]
         calls = []
@@ -224,6 +249,55 @@ class OpenAICompatProvider(Provider):
             output_tokens=int(usage.get("completion_tokens") or 0),
             model=body.get("model") or model,
         )
+
+    @staticmethod
+    def _stream(client, payload, on_token, _raise) -> dict[str, Any]:
+        """Consume an OpenAI-style SSE stream; rebuild the same `body` shape the non-stream path returns."""
+        text_parts: list[str] = []
+        calls: dict[int, dict[str, str]] = {}
+        finish, usage, model_used = "", {}, ""
+        with client.stream("POST", "/chat/completions", json=payload) as r:
+            if r.status_code >= 400:
+                r.read()
+                _raise(r)
+            for line in r.iter_lines():
+                if not line or not line.startswith("data:"):
+                    continue
+                data = line[5:].strip()
+                if data == "[DONE]":
+                    break
+                try:
+                    chunk = json.loads(data)
+                except json.JSONDecodeError:
+                    continue
+                if chunk.get("usage"):
+                    usage = chunk["usage"]
+                model_used = chunk.get("model") or model_used
+                for ch in chunk.get("choices") or []:
+                    d = ch.get("delta") or {}
+                    think = d.get("reasoning") or d.get("reasoning_content")
+                    if think:
+                        on_token(think, True)
+                    if d.get("content"):
+                        text_parts.append(d["content"])
+                        on_token(d["content"])
+                    for tc in d.get("tool_calls") or []:
+                        acc = calls.setdefault(int(tc.get("index") or 0), {"id": "", "name": "", "args": ""})
+                        if tc.get("id"):
+                            acc["id"] = tc["id"]
+                        fn = tc.get("function") or {}
+                        if fn.get("name") and not acc["name"]:
+                            acc["name"] = fn["name"]
+                        if fn.get("arguments"):
+                            acc["args"] += fn["arguments"]
+                    if ch.get("finish_reason"):
+                        finish = ch["finish_reason"]
+        message: dict[str, Any] = {"role": "assistant", "content": "".join(text_parts)}
+        if calls:
+            message["tool_calls"] = [{"id": a["id"] or f"call_{i}", "type": "function",
+                                      "function": {"name": a["name"], "arguments": a["args"] or "{}"}}
+                                     for i, a in sorted(calls.items())]
+        return {"choices": [{"message": message, "finish_reason": finish}], "usage": usage, "model": model_used}
 
     def tool_results(self, results):
         return [{"role": "tool", "tool_call_id": call_id, "name": name,
@@ -274,9 +348,19 @@ class DemoProvider(Provider):
                         outs.append(str(blk.get("content", "")))
         return outs
 
-    def chat(self, system, messages, tools, model=""):
+    def chat(self, system, messages, tools, model="", on_token=None):
         import time as _t
         _t.sleep(self.delay)
+        r = self._chat(system, messages, tools)
+        if on_token and r.text:   # simulate token streaming so the live view behaves like a real model
+            words = r.text.split(" ")
+            step = min(0.04, 1.5 / max(1, len(words)))
+            for i, w in enumerate(words):
+                on_token(w + (" " if i < len(words) - 1 else ""))
+                _t.sleep(step)
+        return r
+
+    def _chat(self, system, messages, tools):
         names = {t["name"] for t in tools}
         task = self._task_of(messages)
         subject_line = (task.strip().splitlines() or ["the task"])[0][:90]
