@@ -96,6 +96,41 @@ SCHEMAS: dict[str, dict[str, Any]] = {
             "required": ["contact", "fields"],
         },
     },
+    "list_connectors": {
+        "name": "list_connectors",
+        "description": "List the external systems this desk is connected to (email sending, inbox, HTTP APIs, webhooks) and whether writes need approval.",
+        "parameters": {"type": "object", "properties": {}},
+    },
+    "http_request": {
+        "name": "http_request",
+        "description": "Call an external HTTP API through a configured connector (see list_connectors). GET runs immediately and returns the response. POST/PUT/PATCH/DELETE run immediately only if the connector allows writes without approval; otherwise the call is queued for the owner to approve.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "connector": {"type": "string", "description": "Connector name."},
+                "method": {"type": "string", "enum": ["GET", "POST", "PUT", "PATCH", "DELETE"]},
+                "path": {"type": "string", "description": "Path relative to the connector's base_url, e.g. /v1/customers"},
+                "params": {"type": "object", "description": "Query parameters."},
+                "body": {"type": "object", "description": "JSON body for write methods."},
+                "reason": {"type": "string", "description": "Why this call is needed (shown to the owner if approval is required)."},
+            },
+            "required": ["connector", "method", "path"],
+        },
+    },
+    "schedule_task": {
+        "name": "schedule_task",
+        "description": "Schedule work for later: a one-off task in N minutes (e.g. a follow-up check) or a recurring task every N minutes. The task text is handed to Hermes when it fires.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string"},
+                "task": {"type": "string", "description": "Full instructions, self-contained (include names, emails, context)."},
+                "in_minutes": {"type": "integer", "description": "Run once after this many minutes."},
+                "every_minutes": {"type": "integer", "description": "Repeat every N minutes (omit for one-off)."},
+            },
+            "required": ["name", "task"],
+        },
+    },
     "finish": {
         "name": "finish",
         "description": "Signal the task is complete. Provide the final summary for the owner.",
@@ -108,7 +143,8 @@ SCHEMAS: dict[str, dict[str, Any]] = {
 }
 
 ALL_TOOL_NAMES = list(SCHEMAS.keys())
-ORCHESTRATOR_ONLY = {"delegate", "list_agents", "finish", "queue_action", "crm_lookup", "crm_update"}
+ORCHESTRATOR_ONLY = {"delegate", "list_agents", "finish", "queue_action", "crm_lookup", "crm_update",
+                     "list_connectors", "http_request", "schedule_task"}
 
 
 def schema_for(names: list[str]) -> list[dict[str, Any]]:

@@ -25,7 +25,9 @@ from flask import Flask, Response, abort, jsonify, redirect, request, send_from_
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from .. import config as cfg
+from .. import integrations as I
 from .. import templates
+from . import scheduler
 from ..orchestrator import Event, Orchestrator
 from ..store import Store
 
@@ -176,6 +178,8 @@ def _guard():
     if OPEN:
         return None
     p = request.path
+    if p.startswith("/hook/"):
+        return None
     if p.startswith("/api") and p not in PUBLIC_API:
         if not current_user():
             abort(401)
@@ -594,11 +598,17 @@ def api_decide(aid):
     by = (u["name"] if u else d.get("by", "owner"))
     row = dstore.decide_action(aid, status, by=by, note=d.get("note", ""), body=d.get("body"), subject=d.get("subject"))
     if status == "approved":
-        # Simulated dispatch. Wire a real sender (SMTP / WhatsApp API) here when a client goes live.
-        row = dstore.decide_action(aid, "sent", by=by, note=(d.get("note", "") + " [simulated send]").strip())
-        dstore.add_event(row["run_id"], "sent", "owner", f"{row['kind']} sent to {row['to']} — {row['subject']}")
-        if "@" in (row["to"] or ""):
-            dstore.upsert_contact(row["to"], {"stage": "Contacted", "next_action": "Follow up in 3 days if no reply"})
+        note = d.get("note", "")
+        try:
+            result = _dispatch(desk, row)
+            row = dstore.decide_action(aid, "sent", by=by, note=(note + " " + result).strip())
+            dstore.add_event(row["run_id"], "sent", "owner", f"{row['kind']} → {row['to']} — {row['subject']} ({result})")
+            if row["kind"] == "email" and "@" in (row["to"] or ""):
+                dstore.upsert_contact(row["to"], {"stage": "Contacted", "next_action": "Follow up in 3 days if no reply"})
+        except Exception as exc:
+            err = f"{type(exc).__name__}: {str(exc)[:300]}"
+            row = dstore.decide_action(aid, "failed", by=by, note=(note + " send failed: " + err).strip())
+            dstore.add_event(row["run_id"], "error", "owner", f"{row['kind']} → {row['to']} failed: {err}")
     else:
         dstore.add_event(row["run_id"], "rejected", "owner", f"{row['kind']} to {row['to']} rejected — {d.get('note','')}")
     return jsonify(row)
@@ -704,6 +714,189 @@ def api_reset():
     for rid in [k for k, v in _runs.items() if v["desk_id"] == desk["id"]]:
         _runs.pop(rid, None)
     return jsonify({"ok": True})
+
+
+def _dispatch(desk: dict[str, Any], row: dict[str, Any]) -> str:
+    """Perform an approved action for real when a connector exists; otherwise simulate and say so."""
+    dstore = store.for_desk(desk["id"])
+    kind = row["kind"]
+    if kind == "email":
+        conn = next((c for c in dstore.connectors() if c["kind"] == "smtp"), None)
+        if not conn:
+            return "[simulated send — no SMTP connector]"
+        return "[" + I.send_email(conn["config"], row["to"], row["subject"] or "", row["body"] or "") + "]"
+    if kind == "api_call":
+        conn = dstore.connector_by_name(row["to"])
+        if not conn:
+            return "[failed — connector missing]"
+        spec = json.loads(row["body"] or "{}")
+        res = I.http_call(conn["config"], spec.get("method", "POST"), spec.get("path", ""), spec.get("params"), spec.get("body"))
+        return f"[HTTP {res['status']} {res['url']}]"
+    return f"[simulated {kind} — no connector for this channel yet]"
+
+
+# ---------------------------------------------------------------------------- api: connectors (integrations)
+def _conn_public(c: dict[str, Any]) -> dict[str, Any]:
+    return {**c, "config": I.mask(c.get("config") or {})}
+
+
+@app.get("/api/connectors")
+def api_connectors():
+    desk = need_desk()
+    return jsonify({"connectors": [_conn_public(c) for c in store.connectors(desk["id"])],
+                    "kinds": I.KINDS, "hook_url": request.host_url.rstrip("/") + "/hook/" + store.ensure_hook_token(desk["id"])})
+
+
+@app.post("/api/connectors")
+def api_add_connector():
+    desk = need_desk()
+    d = request.get_json(force=True) or {}
+    kind = d.get("kind")
+    if kind not in I.KINDS:
+        return jsonify({"error": "unknown kind"}), 400
+    name = (d.get("name") or kind).strip()
+    if store.connector_by_name(desk["id"], name):
+        return jsonify({"error": "a connector with that name exists"}), 400
+    c = store.add_connector(desk["id"], kind, name, d.get("config") or {}, bool(d.get("auto")))
+    return jsonify(_conn_public(c))
+
+
+@app.patch("/api/connectors/<int:cid>")
+def api_update_connector(cid):
+    desk = need_desk()
+    c = store.connector(cid)
+    if not c or c["desk_id"] != desk["id"]:
+        abort(404)
+    d = request.get_json(force=True) or {}
+    fields: dict[str, Any] = {}
+    if "config" in d:
+        fields["config"] = I.merge_secrets(c["config"], d["config"] or {})
+    if "auto" in d:
+        fields["auto"] = 1 if d["auto"] else 0
+    if d.get("name"):
+        fields["name"] = str(d["name"]).strip()
+    store.update_connector(cid, **fields)
+    return jsonify(_conn_public(store.connector(cid)))
+
+
+@app.delete("/api/connectors/<int:cid>")
+def api_delete_connector(cid):
+    desk = need_desk()
+    c = store.connector(cid)
+    if not c or c["desk_id"] != desk["id"]:
+        abort(404)
+    store.delete_connector(cid)
+    return jsonify({"ok": True})
+
+
+@app.post("/api/connectors/<int:cid>/test")
+def api_test_connector(cid):
+    desk = need_desk()
+    c = store.connector(cid)
+    if not c or c["desk_id"] != desk["id"]:
+        abort(404)
+    try:
+        msg = I.test_connector(c["kind"], c["config"])
+        store.update_connector(cid, status="ok: " + msg, last_test=time.time())
+        return jsonify({"ok": True, "result": msg})
+    except Exception as exc:
+        err = f"{type(exc).__name__}: {str(exc)[:300]}"
+        store.update_connector(cid, status="error: " + err, last_test=time.time())
+        return jsonify({"ok": False, "result": err}), 400
+
+
+# ---------------------------------------------------------------------------- api: jobs (automations)
+JOB_KINDS = {
+    "task": "Run a task (once or every N minutes)",
+    "inbox_watch": "Watch the inbox — every new email becomes a lead",
+    "followups": "Chase contacts stuck at Contacted for N days",
+    "http_poll": "Poll an HTTP API and hand the result to the desk",
+}
+
+
+@app.get("/api/jobs")
+def api_jobs():
+    desk = need_desk()
+    return jsonify({"jobs": store.jobs(desk["id"]), "kinds": JOB_KINDS, "now": time.time()})
+
+
+@app.post("/api/jobs")
+def api_add_job():
+    desk = need_desk()
+    d = request.get_json(force=True) or {}
+    kind = d.get("kind") if d.get("kind") in JOB_KINDS else "task"
+    every = int(d.get("every_min") or 0)
+    delay = int(d.get("in_min") or 0)
+    nxt = time.time() + (delay * 60 if delay else (every * 60 if every and not d.get("run_now") else 0))
+    task = d.get("task") or ""
+    if kind == "followups" and not task:
+        task = json.dumps({"days": int(d.get("days") or 3)})
+    if kind == "http_poll" and isinstance(task, dict):
+        task = json.dumps(task)
+    j = store.add_job(desk["id"], kind, d.get("name") or JOB_KINDS[kind], task, every, nxt)
+    return jsonify(j)
+
+
+@app.patch("/api/jobs/<int:jid>")
+def api_update_job(jid):
+    desk = need_desk()
+    j = store.job(jid)
+    if not j or j["desk_id"] != desk["id"]:
+        abort(404)
+    d = request.get_json(force=True) or {}
+    fields = {k: d[k] for k in ("name", "task", "every_min") if k in d}
+    if "enabled" in d:
+        fields["enabled"] = 1 if d["enabled"] else 0
+        if d["enabled"] and not j.get("next_run"):
+            fields["next_run"] = time.time()
+    store.update_job(jid, **fields)
+    return jsonify(store.job(jid))
+
+
+@app.post("/api/jobs/<int:jid>/run")
+def api_run_job(jid):
+    desk = need_desk()
+    j = store.job(jid)
+    if not j or j["desk_id"] != desk["id"]:
+        abort(404)
+    store.update_job(jid, next_run=time.time() - 1, enabled=1)
+    return jsonify({"ok": True, "note": "will run within 20 seconds"})
+
+
+@app.delete("/api/jobs/<int:jid>")
+def api_delete_job(jid):
+    desk = need_desk()
+    j = store.job(jid)
+    if not j or j["desk_id"] != desk["id"]:
+        abort(404)
+    store.delete_job(jid)
+    return jsonify({"ok": True})
+
+
+# ---------------------------------------------------------------------------- inbound webhook (public, token-addressed)
+@app.route("/hook/<token>", methods=["GET", "POST"])
+def hook(token):
+    desk = store.desk_by_token(token)
+    if not desk:
+        abort(404)
+    if request.method == "GET":
+        return jsonify({"ok": True, "desk": desk["name"], "post": "JSON {name, email, phone, company, notes, source}"})
+    d = request.get_json(silent=True) or request.form.to_dict() or {}
+    name = (d.get("name") or d.get("full_name") or "").strip()
+    email_ = (d.get("email") or "").strip()
+    notes = (d.get("notes") or d.get("message") or d.get("enquiry") or "").strip()
+    if not name and not email_:
+        return jsonify({"error": "name or email required"}), 400
+    dstore = store.for_desk(desk["id"])
+    lid = dstore.add_lead(name or email_.split("@")[0], (d.get("company") or "").strip(), email_, (d.get("phone") or "").strip(),
+                          (d.get("source") or "webhook").strip(), notes)
+    if email_:
+        dstore.upsert_contact(email_, {"name": name, "company": d.get("company", ""), "email": email_, "phone": d.get("phone", ""), "stage": "New", "notes": "Inbound via webhook"})
+    rid = _start_run(desk, _lead_task(dstore.lead(lid)), "auto", lid)
+    return jsonify({"ok": True, "lead_id": lid, "run_id": rid})
+
+
+scheduler.start(store, _start_run, store.desk)
 
 
 def main():

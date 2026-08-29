@@ -173,6 +173,9 @@ tr.click{cursor:pointer}tr.click:hover{background:var(--panel2)}
     <button data-p="leads"><svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c0-3.5 3-6 6.5-6s6.5 2.5 6.5 6"/><path d="M17 8h5M19.5 5.5v5"/></svg>Leads <span class="pill" id="n-leads">0</span></button>
     <button data-p="approvals"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="m8 12 3 3 5-6"/></svg>Approvals <span class="pill" id="n-pending">0</span></button>
     <button data-p="crm"><svg viewBox="0 0 24 24"><ellipse cx="12" cy="6" rx="8" ry="3"/><path d="M4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6"/><path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/></svg>CRM</button>
+    <div class="grp">Operate</div>
+    <button data-p="integrations"><svg viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1"/><path d="M14 11a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1"/></svg>Integrations</button>
+    <button data-p="automations"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>Automations <span class="pill" id="n-jobs">0</span></button>
     <div class="grp">Records</div>
     <button data-p="runs"><svg viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13"/><path d="M3 6h.01M3 12h.01M3 18h.01"/></svg>Runs</button>
     <button data-p="audit"><svg viewBox="0 0 24 24"><path d="M6 2h9l5 5v15H6z"/><path d="M14 2v6h6"/><path d="M9 13h7M9 17h7"/></svg>Audit log</button>
@@ -285,6 +288,46 @@ tr.click{cursor:pointer}tr.click:hover{background:var(--panel2)}
   <div class="grid g2"><div class="card" id="runs-table"></div><div class="card" id="run-detail"><div class="empty">Select a run</div></div></div>
 </section>
 
+<!-- INTEGRATIONS -->
+<section id="p-integrations" class="hide">
+  <div class="phead"><div><h1>Integrations</h1><p class="lead">Connect the desk to the real world. Email out, inbox in, any HTTP API, inbound webhooks. Writes need your approval unless you switch a connector to auto.</p></div></div>
+  <div class="grid g2" style="grid-template-columns:1.2fr 1fr">
+    <div>
+      <div class="panel" style="margin-bottom:14px"><div class="ph"><h2>Connected systems</h2></div><div class="pb" id="conn-list"></div></div>
+      <div class="panel"><div class="ph"><h2>Inbound webhook</h2><span class="hint">Any form, Zapier, Make, Typeform</span></div><div class="pb">
+        <div class="row"><input id="hook-url" readonly style="flex:1;font-family:Consolas,monospace;font-size:12px"><button class="btn sm" onclick="navigator.clipboard.writeText($('#hook-url').value);toast('Copied')">Copy</button><button class="btn sm p" onclick="testHook()">Send test lead</button></div>
+        <p class="hint" style="margin-top:8px">POST JSON <code>{name, email, phone, company, notes, source}</code>. Every hit becomes a lead and a run — same approvals, same audit log.</p>
+      </div></div>
+    </div>
+    <div class="panel"><div class="ph"><h2>Add a connector</h2></div><div class="pb">
+      <label>Type</label><select id="c-kind" onchange="connFields()"></select>
+      <p class="hint" id="c-hint"></p>
+      <label>Name (agents refer to it by this)</label><input id="c-name" placeholder="e.g. crm-api, gmail">
+      <div id="c-fields"></div>
+      <label style="display:flex;gap:8px;align-items:center;margin-top:10px"><input type="checkbox" id="c-auto" style="width:auto"> Allow writes without approval (POST/PUT/DELETE run immediately)</label>
+      <div class="row" style="margin-top:12px"><button class="btn p" onclick="addConnector()">Add connector</button></div>
+    </div></div>
+  </div>
+</section>
+
+<!-- AUTOMATIONS -->
+<section id="p-automations" class="hide">
+  <div class="phead"><div><h1>Automations</h1><p class="lead">Always-on agents. They run on a schedule, create runs like any lead, and everything they want to send still lands in Approvals.</p></div>
+    <div class="ctl"><button class="btn sm" onclick="addPreset('inbox_watch')">+ Inbox watcher</button><button class="btn sm" onclick="addPreset('followups')">+ Follow-up chaser</button></div></div>
+  <div class="grid g2" style="grid-template-columns:1.3fr 1fr">
+    <div class="panel"><div class="ph"><h2>Scheduled &amp; standing agents</h2><span class="hint">checked every 20 seconds</span></div><div class="pb" id="job-list"></div></div>
+    <div class="panel"><div class="ph"><h2>New automation</h2></div><div class="pb">
+      <label>What kind?</label><select id="j-kind" onchange="jobFields()"></select>
+      <label>Name</label><input id="j-name" placeholder="Morning pipeline review">
+      <div id="j-task-wrap"><label>Task for Hermes</label><textarea id="j-task" placeholder="Review every contact at Qualified, draft a next-step email for each and queue for approval."></textarea></div>
+      <div id="j-poll-wrap" class="hide"><label>Connector name</label><input id="j-conn" placeholder="crm-api"><label>Path</label><input id="j-path" placeholder="/v1/orders?status=new"><label>What to do with the result</label><textarea id="j-prompt" placeholder="For every new order, draft a confirmation email and queue it."></textarea></div>
+      <div id="j-days-wrap" class="hide"><label>Chase after (days)</label><input id="j-days" type="number" value="3"></div>
+      <div class="grid g2"><div><label>Every (minutes, 0 = once)</label><input id="j-every" type="number" value="60"></div><div><label>First run in (minutes)</label><input id="j-in" type="number" value="0"></div></div>
+      <div class="row" style="margin-top:12px"><button class="btn p" onclick="addJob()">Add automation</button></div>
+    </div></div>
+  </div>
+</section>
+
 <!-- AUDIT -->
 <section id="p-audit" class="hide">
   <h1>Audit log</h1><p class="lead">Every agent action, tool call, approval and send — who, what, when.</p>
@@ -347,6 +390,8 @@ async function refresh(){
   if (page==='crm') loadCrm();
   if (page==='runs') { loadRuns(); if (curRun) loadRun(curRun, true); }
   if (page==='audit') loadAudit();
+  if (page==='integrations') loadConnectors();
+  if (page==='automations') loadJobs();
   if (page==='report') loadReport();
 }
 
@@ -579,6 +624,53 @@ async function createDesk(){
     banned_phrases: v('ob-banned'), extra_context: v('ob-extra'), no_money_figures: $('#ob-nofig').checked };
   const r = await api('/desks', {method:'POST', body}); if (!r || r.error) return toast(r?.error || 'failed');
   toast('Desk created'); location.hash = '#dash'; location.reload();
+}
+
+/* ================= INTEGRATIONS ================= */
+let KINDS = {};
+async function loadConnectors(){
+  const R = await api('/connectors'); if (!R) return;
+  KINDS = R.kinds; $('#hook-url').value = R.hook_url;
+  if (!$('#c-kind').options.length) { $('#c-kind').innerHTML = Object.entries(KINDS).filter(([k])=>k!=='webhook').map(([k,v])=>`<option value="${k}">${esc(v.label)}</option>`).join(''); connFields(); }
+  $('#conn-list').innerHTML = R.connectors.length ? `<table><tr><th>Name</th><th>Type</th><th>Details</th><th>Writes</th><th>Status</th><th></th></tr>` + R.connectors.map(c=>`<tr><td><b>${esc(c.name)}</b></td><td><span class="tag">${esc(c.kind)}</span></td><td class="model">${esc(Object.entries(c.config).filter(([k])=>k!=='notes').map(([k,v])=>k+'='+v).join('  ').slice(0,90))}</td><td><label style="margin:0;display:flex;gap:6px;align-items:center"><input type="checkbox" style="width:auto" ${c.auto?'checked':''} onchange="api('/connectors/${c.id}',{method:'PATCH',body:{auto:this.checked}})"> auto</label></td><td class="hint">${esc(c.status||'untested')}</td><td class="row"><button class="btn sm" onclick="testConn(${c.id})">Test</button><button class="btn sm d" onclick="delConn(${c.id})">✕</button></td></tr>`).join('') + '</table>' : '<div class="empty">No connectors yet. Add email sending, an inbox or an API on the right.</div>';
+}
+function connFields(){
+  const k = $('#c-kind').value, spec = KINDS[k]; if (!spec) return;
+  $('#c-hint').textContent = spec.hint;
+  const ph = {host:'smtp.gmail.com', port: k==='imap'?'993':'587', user:'you@gmail.com', password:'app password', from_email:'you@company.com', from_name:'Sam Reid', folder:'INBOX', base_url:'https://api.example.com', auth_type:'bearer | header | query | basic | none', token:'secret', headers:'{"X-Custom":"value"} (optional)', notes:'What this API is and which paths the agents may use'};
+  $('#c-fields').innerHTML = spec.fields.map(f=>`<label>${f}</label>${f==='notes'||f==='headers'?`<textarea data-f="${f}" placeholder="${ph[f]||''}" style="min-height:60px"></textarea>`:`<input data-f="${f}" placeholder="${ph[f]||''}" ${f==='password'||f==='token'?'type="password"':''}>`}`).join('');
+}
+async function addConnector(){
+  const config = {}; document.querySelectorAll('#c-fields [data-f]').forEach(el=>{ if (el.value.trim()) config[el.dataset.f] = el.value.trim(); });
+  const r = await api('/connectors', {method:'POST', body:{kind:$('#c-kind').value, name:$('#c-name').value, config, auto:$('#c-auto').checked}});
+  if (!r || r.error) return toast(r?.error||'failed'); toast('Connector added — test it'); $('#c-name').value=''; connFields(); loadConnectors();
+}
+async function testConn(id){ toast('Testing…'); const r = await api(`/connectors/${id}/test`, {method:'POST', body:{}}); toast(r && r.result ? r.result : 'failed'); loadConnectors(); }
+async function delConn(id){ if(!confirm('Remove connector?')) return; await api(`/connectors/${id}`, {method:'DELETE', body:{}}); loadConnectors(); }
+async function testHook(){
+  const r = await fetch($('#hook-url').value, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({name:'Webhook Test', email:'webhook.test@example.com', phone:'+44 7700 900999', company:'Test Form Ltd', source:'webhook test', notes:'Hello — testing the inbound form. Can you tell me how you work and what a first step looks like?'})});
+  const j = await r.json(); toast(j.ok ? 'Lead created — desk running' : (j.error||'failed')); if (j.run_id) { liveWant = j.run_id; go('live'); }
+}
+
+/* ================= AUTOMATIONS ================= */
+let JOBK = {};
+async function loadJobs(){
+  const R = await api('/jobs'); if (!R) return; JOBK = R.kinds;
+  if (!$('#j-kind').options.length) { $('#j-kind').innerHTML = Object.entries(JOBK).map(([k,v])=>`<option value="${k}">${esc(v)}</option>`).join(''); jobFields(); }
+  $('#n-jobs').textContent = R.jobs.filter(j=>j.enabled).length;
+  const rel = t => !t ? '—' : (t - R.now > 0 ? 'in ' + Math.round((t-R.now)/60) + ' min' : Math.round((R.now-t)/60) + ' min ago');
+  $('#job-list').innerHTML = R.jobs.length ? `<table><tr><th>Name</th><th>Kind</th><th>Every</th><th>Next</th><th>Last result</th><th>On</th><th></th></tr>` + R.jobs.map(j=>`<tr><td><b>${esc(j.name)}</b><div class="hint" style="max-width:260px">${esc((j.task||'').slice(0,90))}</div></td><td><span class="tag">${esc(j.kind)}</span></td><td>${j.every_min?j.every_min+' min':'once'}</td><td>${j.enabled?rel(j.next_run):'paused'}</td><td class="hint" style="max-width:220px">${esc(j.last_result||'')}${j.last_run?'<br>'+rel(j.last_run):''}</td><td><input type="checkbox" style="width:auto" ${j.enabled?'checked':''} onchange="api('/jobs/${j.id}',{method:'PATCH',body:{enabled:this.checked}}).then(loadJobs)"></td><td class="row"><button class="btn sm" onclick="api('/jobs/${j.id}/run',{method:'POST',body:{}}).then(()=>{toast('Queued — runs within 20s');setTimeout(loadJobs,1500)})">Run now</button><button class="btn sm d" onclick="api('/jobs/${j.id}',{method:'DELETE',body:{}}).then(loadJobs)">✕</button></td></tr>`).join('') + '</table>' : '<div class="empty">No automations yet. Add an inbox watcher, a follow-up chaser or a scheduled task.</div>';
+}
+function jobFields(){ const k=$('#j-kind').value; $('#j-task-wrap').classList.toggle('hide', k!=='task'); $('#j-poll-wrap').classList.toggle('hide', k!=='http_poll'); $('#j-days-wrap').classList.toggle('hide', k!=='followups'); }
+async function addJob(){
+  const k=$('#j-kind').value; let task=$('#j-task').value;
+  if (k==='http_poll') task = JSON.stringify({connector:$('#j-conn').value, path:$('#j-path').value, prompt:$('#j-prompt').value});
+  const r = await api('/jobs', {method:'POST', body:{kind:k, name:$('#j-name').value, task, every_min:+$('#j-every').value||0, in_min:+$('#j-in').value||0, days:+$('#j-days').value||3}});
+  if (!r || r.error) return toast(r?.error||'failed'); toast('Automation added'); $('#j-name').value=''; $('#j-task').value=''; loadJobs();
+}
+async function addPreset(k){
+  const body = k==='inbox_watch' ? {kind:k, name:'Inbox watcher', every_min:2, in_min:0} : {kind:k, name:'Follow-up chaser', every_min:1440, in_min:0, days:3};
+  const r = await api('/jobs', {method:'POST', body}); if (r && !r.error) { toast(k==='inbox_watch' ? 'Inbox watcher on — needs an IMAP connector' : 'Follow-up chaser on'); loadJobs(); }
 }
 
 init();

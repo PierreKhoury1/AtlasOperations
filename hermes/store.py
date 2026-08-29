@@ -40,6 +40,14 @@ CREATE TABLE IF NOT EXISTS desks (
   id INTEGER PRIMARY KEY AUTOINCREMENT, owner_id INTEGER, name TEXT, template TEXT, tier TEXT DEFAULT 'free',
   config TEXT DEFAULT '{}', created REAL
 );
+CREATE TABLE IF NOT EXISTS connectors (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, desk_id INTEGER, kind TEXT, name TEXT, config TEXT DEFAULT '{}',
+  auto INTEGER DEFAULT 0, status TEXT DEFAULT '', last_test REAL, created REAL
+);
+CREATE TABLE IF NOT EXISTS jobs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, desk_id INTEGER, kind TEXT, name TEXT, task TEXT DEFAULT '',
+  every_min INTEGER DEFAULT 0, next_run REAL, last_run REAL, last_result TEXT DEFAULT '', enabled INTEGER DEFAULT 1, created REAL
+);
 CREATE TABLE IF NOT EXISTS leads (
   id INTEGER PRIMARY KEY AUTOINCREMENT, created REAL, name TEXT, company TEXT, email TEXT, phone TEXT,
   source TEXT, notes TEXT, status TEXT DEFAULT 'new', run_id TEXT, desk_id INTEGER DEFAULT 1
@@ -53,6 +61,7 @@ _MIGRATIONS = [
     ("actions", "desk_id", "INTEGER DEFAULT 1"),
     ("actions", "flags", "TEXT DEFAULT ''"),
     ("leads", "desk_id", "INTEGER DEFAULT 1"),
+    ("desks", "hook_token", "TEXT"),
 ]
 
 STAGES = ("New", "Contacted", "Qualified", "Proposal", "Won", "Lost")
@@ -117,6 +126,99 @@ class Store:
             out.append(d)
         return out
 
+    def desk_by_token(self, token: str) -> dict[str, Any] | None:
+        rows = _rows(self._conn.execute("SELECT * FROM desks WHERE hook_token=?", (token,)))
+        if not rows:
+            return None
+        d = rows[0]
+        d["config"] = json.loads(d.get("config") or "{}")
+        return d
+
+    def ensure_hook_token(self, desk_id: int) -> str:
+        import secrets as _s
+        row = self._conn.execute("SELECT hook_token FROM desks WHERE id=?", (desk_id,)).fetchone()
+        if row and row[0]:
+            return row[0]
+        tok = _s.token_urlsafe(18)
+        with self._lock:
+            self._conn.execute("UPDATE desks SET hook_token=? WHERE id=?", (tok, desk_id))
+            self._conn.commit()
+        return tok
+
+    # ------------------------------------------------------------------ connectors
+    def add_connector(self, desk_id: int, kind: str, name: str, config: dict[str, Any], auto: bool = False) -> dict[str, Any]:
+        with self._lock:
+            cur = self._conn.execute("INSERT INTO connectors(desk_id,kind,name,config,auto,created) VALUES(?,?,?,?,?,?)",
+                                     (desk_id, kind, name.strip(), json.dumps(config), 1 if auto else 0, time.time()))
+            self._conn.commit()
+            return self.connector(cur.lastrowid)  # type: ignore[return-value]
+
+    def connector(self, cid: int) -> dict[str, Any] | None:
+        rows = _rows(self._conn.execute("SELECT * FROM connectors WHERE id=?", (cid,)))
+        if not rows:
+            return None
+        c = rows[0]
+        c["config"] = json.loads(c.get("config") or "{}")
+        return c
+
+    def connectors(self, desk_id: int) -> list[dict[str, Any]]:
+        out = []
+        for c in _rows(self._conn.execute("SELECT * FROM connectors WHERE desk_id=? ORDER BY created", (desk_id,))):
+            c["config"] = json.loads(c.get("config") or "{}")
+            out.append(c)
+        return out
+
+    def connector_by_name(self, desk_id: int, name: str) -> dict[str, Any] | None:
+        n = (name or "").strip().lower()
+        return next((c for c in self.connectors(desk_id) if c["name"].lower() == n), None)
+
+    def update_connector(self, cid: int, **fields) -> None:
+        fields = {k: v for k, v in fields.items() if k in ("name", "config", "auto", "status", "last_test")}
+        if "config" in fields and not isinstance(fields["config"], str):
+            fields["config"] = json.dumps(fields["config"])
+        if not fields:
+            return
+        with self._lock:
+            self._conn.execute(f"UPDATE connectors SET {', '.join(f'{k}=?' for k in fields)} WHERE id=?", (*fields.values(), cid))
+            self._conn.commit()
+
+    def delete_connector(self, cid: int) -> None:
+        with self._lock:
+            self._conn.execute("DELETE FROM connectors WHERE id=?", (cid,))
+            self._conn.commit()
+
+    # ------------------------------------------------------------------ jobs (automations)
+    def add_job(self, desk_id: int, kind: str, name: str, task: str, every_min: int = 0, next_run: float | None = None) -> dict[str, Any]:
+        with self._lock:
+            cur = self._conn.execute(
+                "INSERT INTO jobs(desk_id,kind,name,task,every_min,next_run,enabled,created) VALUES(?,?,?,?,?,?,1,?)",
+                (desk_id, kind, name.strip(), task or "", int(every_min or 0), next_run if next_run is not None else time.time(), time.time()))
+            self._conn.commit()
+            return self.job(cur.lastrowid)  # type: ignore[return-value]
+
+    def job(self, jid: int) -> dict[str, Any] | None:
+        rows = _rows(self._conn.execute("SELECT * FROM jobs WHERE id=?", (jid,)))
+        return rows[0] if rows else None
+
+    def jobs(self, desk_id: int) -> list[dict[str, Any]]:
+        return _rows(self._conn.execute("SELECT * FROM jobs WHERE desk_id=? ORDER BY created", (desk_id,)))
+
+    def due_jobs(self, now: float) -> list[dict[str, Any]]:
+        return _rows(self._conn.execute("SELECT * FROM jobs WHERE enabled=1 AND next_run IS NOT NULL AND next_run<=? ORDER BY next_run", (now,)))
+
+    def update_job(self, jid: int, **fields) -> None:
+        fields = {k: v for k, v in fields.items() if k in ("name", "task", "every_min", "next_run", "last_run", "last_result", "enabled")}
+        if not fields:
+            return
+        with self._lock:
+            self._conn.execute(f"UPDATE jobs SET {', '.join(f'{k}=?' for k in fields)} WHERE id=?", (*fields.values(), jid))
+            self._conn.commit()
+
+    def delete_job(self, jid: int) -> None:
+        with self._lock:
+            self._conn.execute("DELETE FROM jobs WHERE id=?", (jid,))
+            self._conn.commit()
+
     def all_desks(self) -> list[dict[str, Any]]:
         out = []
         for d in _rows(self._conn.execute("SELECT * FROM desks ORDER BY created")):
@@ -139,7 +241,7 @@ class Store:
             run_ids = [r[0] for r in self._conn.execute("SELECT id FROM runs WHERE desk_id=?", (desk_id,)).fetchall()]
             for rid in run_ids:
                 self._conn.execute("DELETE FROM events WHERE run_id=?", (rid,))
-            for t in ("runs", "actions", "leads", "contacts"):
+            for t in ("runs", "actions", "leads", "contacts", "jobs"):
                 self._conn.execute(f"DELETE FROM {t} WHERE desk_id=?", (desk_id,))
             self._conn.commit()
 
@@ -359,3 +461,8 @@ class DeskStore:
     def all_events(self, limit=300): return self.s.all_events(limit, self.desk_id)
     def stats(self): return self.s.stats(self.desk_id)
     def reset(self): return self.s.delete_desk_data(self.desk_id)
+    def connectors(self): return self.s.connectors(self.desk_id)
+    def connector_by_name(self, name): return self.s.connector_by_name(self.desk_id, name)
+    def add_job(self, kind, name, task, every_min=0, next_run=None):
+        return self.s.add_job(self.desk_id, kind, name, task, every_min, next_run)
+    def jobs(self): return self.s.jobs(self.desk_id)

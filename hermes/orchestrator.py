@@ -18,6 +18,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
 
+from . import integrations as I
 from . import policy as P
 from . import tools as T
 from .config import RUNS_DIR
@@ -121,6 +122,8 @@ class Orchestrator:
             parts.append(self.business_context())
         if "delegate" in agent.get("tools", []):
             parts.append("Specialist agents available via delegate(agent_id, ...):\n" + self.roster_text(agent["id"]))
+        if "http_request" in agent.get("tools", []) and self.store is not None and hasattr(self.store, "connectors"):
+            parts.append("Connected systems (use http_request / list_connectors):\n" + I.describe(self.store.connectors()))
         return "\n\n".join(p for p in parts if p)
 
     # ------------------------------------------------------------------ agent loop
@@ -255,6 +258,40 @@ class Orchestrator:
             row = self.store.upsert_contact(str(args.get("contact", "")), dict(args.get("fields") or {}))
             self.emit("tool", aid, f"crm_update → {row['name'] or row['email']} stage={row['stage']}")
             return f"updated contact #{row['id']} ({row['name'] or row['email']}) stage={row['stage']}"
+        if name == "list_connectors":
+            if not self.store or not hasattr(self.store, "connectors"):
+                return "(no connectors in this context)"
+            return I.describe(self.store.connectors())
+        if name == "http_request":
+            if not self.store or not hasattr(self.store, "connector_by_name"):
+                return "no connectors in this context"
+            conn = self.store.connector_by_name(str(args.get("connector", "")))
+            if not conn:
+                return f"unknown connector {args.get('connector')!r}. Available:\n" + I.describe(self.store.connectors())
+            if conn["kind"] != "http":
+                return f"connector {conn['name']} is {conn['kind']}, not an HTTP API"
+            method = str(args.get("method", "GET")).upper()
+            path = str(args.get("path", ""))
+            if method != "GET" and not conn.get("auto"):
+                payload = json.dumps({"method": method, "path": path, "params": args.get("params") or {}, "body": args.get("body")}, indent=1)
+                qid = self.store.add_action(self.run_id, aid, "api_call", conn["name"], f"{method} {path}", payload,
+                                            str(args.get("reason", "") or ""))
+                self.emit("approval", aid, f"api_call → {conn['name']}: {method} {path}", action_id=qid, action_kind="api_call", to=conn["name"])
+                return f"queued for approval (id={qid}): {method} {path} on {conn['name']} — the owner must approve writes on this connector."
+            self.emit("tool", aid, f"http_request {method} {conn['name']}{path}")
+            res = I.http_call(conn["config"], method, path, args.get("params") or None, args.get("body"))
+            txt = json.dumps(res, ensure_ascii=False)
+            return txt[:8000] + ("\n...[truncated]" if len(txt) > 8000 else "")
+        if name == "schedule_task":
+            if not self.store or not hasattr(self.store, "add_job"):
+                return "no scheduler in this context"
+            every = int(args.get("every_minutes") or 0)
+            in_min = int(args.get("in_minutes") or 0)
+            nxt = time.time() + max(1, in_min if in_min else every) * 60
+            job = self.store.add_job("task", str(args.get("name", "scheduled task")), str(args.get("task", "")), every, nxt)
+            when = f"every {every} min" if every else f"in {in_min or every} min"
+            self.emit("tool", aid, f"schedule_task → #{job['id']} {job['name']} ({when})")
+            return f"scheduled job #{job['id']} {when}"
         self.emit("tool", aid, f"{name}({', '.join(f'{k}={str(v)[:60]!r}' for k, v in args.items() if k != 'content')})")
         assert self._ws is not None
         return self._ws.call(name, args)
