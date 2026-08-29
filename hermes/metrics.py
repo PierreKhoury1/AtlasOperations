@@ -86,7 +86,9 @@ def compute(store, desk_id: int | None = None, since: float | None = None, run_i
         per_run.append({"id": r["id"], "status": r["status"], "duration_s": round(dur, 1) if dur else None,
                         "tokens_in": r["tokens_in"], "tokens_out": r["tokens_out"], "tools": n_tools, "errors": n_err,
                         "policy": n_pol, "approvals": n_appr, "task": (r["task"] or "")[:60]})
-    span = (max(r["created"] for r in runs) - min(r["created"] for r in runs)) or 1.0
+    ends = [e[1] for evs in ev_by_run.values() for e in evs if e[2] == "done"]
+    span = max((max(ends) if ends else 0), max(r["created"] for r in runs)) - min(r["created"] for r in runs)
+    span = max(span, 1.0)
     tin = sum(r["tokens_in"] or 0 for r in runs); tout = sum(r["tokens_out"] or 0 for r in runs)
     return {
         "runs": len(runs), "done": done, "error": errored, "cancelled": cancelled,

@@ -404,6 +404,17 @@ def _lead_task(lead: dict[str, Any]) -> str:
             f"Phone: {lead['phone'] or '-'}\nSource: {lead['source']}\n\nEnquiry:\n{lead['notes']}")
 
 
+_KEEP_FINISHED_S = 3600
+
+
+def _prune_runs() -> None:
+    """Drop in-memory holders of runs that finished over an hour ago (their events live in the DB)."""
+    now = time.time()
+    for rid, h in list(_runs.items()):
+        if not h["thread"].is_alive() and now - h.get("ended", h.get("started", now)) > _KEEP_FINISHED_S:
+            _runs.pop(rid, None)
+
+
 def _start_run(desk: dict[str, Any], task: str, mode: str, lead_id: int | None = None) -> str:
     configs = desk_configs(desk)
     dstore = store.for_desk(desk["id"])
@@ -416,10 +427,11 @@ def _start_run(desk: dict[str, Any], task: str, mode: str, lead_id: int | None =
         _push_feed(orch.run_id, desk["id"], ev)
 
     orch = Orchestrator(configs, dstore, emit)
-    holder: dict[str, Any] = {"events": events, "orch": orch, "task": task, "desk_id": desk["id"]}
+    holder: dict[str, Any] = {"events": events, "orch": orch, "task": task, "desk_id": desk["id"], "started": time.time()}
 
     def work():
         res = orch.run(task, mode)
+        holder["ended"] = time.time()
         if lead_id is not None:
             dstore.set_lead(lead_id, status=("processed" if res.status == "done" else res.status), run_id=res.run_id)
 
@@ -432,6 +444,7 @@ def _start_run(desk: dict[str, Any], task: str, mode: str, lead_id: int | None =
         time.sleep(0.02)
     with _runs_lock:
         _runs[orch.run_id] = holder
+        _prune_runs()
     if lead_id is not None:
         dstore.set_lead(lead_id, status="running", run_id=orch.run_id)
     return orch.run_id
