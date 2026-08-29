@@ -48,6 +48,10 @@ CREATE TABLE IF NOT EXISTS jobs (
   id INTEGER PRIMARY KEY AUTOINCREMENT, desk_id INTEGER, kind TEXT, name TEXT, task TEXT DEFAULT '',
   every_min INTEGER DEFAULT 0, next_run REAL, last_run REAL, last_result TEXT DEFAULT '', enabled INTEGER DEFAULT 1, created REAL
 );
+CREATE TABLE IF NOT EXISTS memories (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, desk_id INTEGER, key TEXT, value TEXT, source TEXT DEFAULT '', created REAL, updated REAL
+);
+CREATE INDEX IF NOT EXISTS ix_mem_desk ON memories(desk_id);
 CREATE TABLE IF NOT EXISTS leads (
   id INTEGER PRIMARY KEY AUTOINCREMENT, created REAL, name TEXT, company TEXT, email TEXT, phone TEXT,
   source TEXT, notes TEXT, status TEXT DEFAULT 'new', run_id TEXT, desk_id INTEGER DEFAULT 1
@@ -187,6 +191,31 @@ class Store:
             self._conn.execute("DELETE FROM connectors WHERE id=?", (cid,))
             self._conn.commit()
 
+    # ------------------------------------------------------------------ memories (desk-wide facts)
+    def remember(self, desk_id: int, key: str, value: str, source: str = "") -> dict[str, Any]:
+        key = (key or "").strip()[:120]
+        with self._lock:
+            row = self._conn.execute("SELECT id FROM memories WHERE desk_id=? AND key=?", (desk_id, key)).fetchone()
+            if row:
+                self._conn.execute("UPDATE memories SET value=?, source=?, updated=? WHERE id=?", (value, source, time.time(), row[0]))
+                mid = row[0]
+            else:
+                cur = self._conn.execute("INSERT INTO memories(desk_id,key,value,source,created,updated) VALUES(?,?,?,?,?,?)",
+                                         (desk_id, key, value, source, time.time(), time.time()))
+                mid = cur.lastrowid
+            self._conn.commit()
+        return _rows(self._conn.execute("SELECT * FROM memories WHERE id=?", (mid,)))[0]
+
+    def recall(self, desk_id: int, query: str = "", limit: int = 20) -> list[dict[str, Any]]:
+        q = f"%{(query or '').strip()}%"
+        return _rows(self._conn.execute(
+            "SELECT * FROM memories WHERE desk_id=? AND (key LIKE ? OR value LIKE ?) ORDER BY updated DESC LIMIT ?", (desk_id, q, q, limit)))
+
+    def forget(self, desk_id: int, key: str) -> None:
+        with self._lock:
+            self._conn.execute("DELETE FROM memories WHERE desk_id=? AND key=?", (desk_id, key))
+            self._conn.commit()
+
     # ------------------------------------------------------------------ jobs (automations)
     def add_job(self, desk_id: int, kind: str, name: str, task: str, every_min: int = 0, next_run: float | None = None) -> dict[str, Any]:
         with self._lock:
@@ -241,7 +270,7 @@ class Store:
             run_ids = [r[0] for r in self._conn.execute("SELECT id FROM runs WHERE desk_id=?", (desk_id,)).fetchall()]
             for rid in run_ids:
                 self._conn.execute("DELETE FROM events WHERE run_id=?", (rid,))
-            for t in ("runs", "actions", "leads", "contacts", "jobs"):
+            for t in ("runs", "actions", "leads", "contacts", "jobs", "memories"):
                 self._conn.execute(f"DELETE FROM {t} WHERE desk_id=?", (desk_id,))
             self._conn.commit()
 
@@ -466,3 +495,6 @@ class DeskStore:
     def add_job(self, kind, name, task, every_min=0, next_run=None):
         return self.s.add_job(self.desk_id, kind, name, task, every_min, next_run)
     def jobs(self): return self.s.jobs(self.desk_id)
+    def remember(self, key, value, source=""): return self.s.remember(self.desk_id, key, value, source)
+    def recall(self, query="", limit=20): return self.s.recall(self.desk_id, query, limit)
+    def forget(self, key): return self.s.forget(self.desk_id, key)

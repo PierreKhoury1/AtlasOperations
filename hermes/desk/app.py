@@ -730,6 +730,10 @@ def _dispatch(desk: dict[str, Any], row: dict[str, Any]) -> str:
         if not conn:
             return "[failed — connector missing]"
         spec = json.loads(row["body"] or "{}")
+        if conn["kind"] == "mcp" or "mcp_tool" in spec:
+            from .. import mcp_client as M
+            out = M.REGISTRY.get(conn).call(spec["mcp_tool"], spec.get("arguments") or {})
+            return f"[MCP {spec['mcp_tool']}: {out[:160]}]"
         res = I.http_call(conn["config"], spec.get("method", "POST"), spec.get("path", ""), spec.get("params"), spec.get("body"))
         return f"[HTTP {res['status']} {res['url']}]"
     return f"[simulated {kind} — no connector for this channel yet]"
@@ -786,6 +790,8 @@ def api_delete_connector(cid):
     if not c or c["desk_id"] != desk["id"]:
         abort(404)
     store.delete_connector(cid)
+    from .. import mcp_client as M
+    M.REGISTRY.drop(cid)
     return jsonify({"ok": True})
 
 
@@ -803,6 +809,25 @@ def api_test_connector(cid):
         err = f"{type(exc).__name__}: {str(exc)[:300]}"
         store.update_connector(cid, status="error: " + err, last_test=time.time())
         return jsonify({"ok": False, "result": err}), 400
+
+
+@app.get("/api/memory")
+def api_memory():
+    return jsonify(ds().recall(request.args.get("q", ""), 200))
+
+
+@app.post("/api/memory")
+def api_memory_add():
+    d = request.get_json(force=True) or {}
+    if not d.get("key"):
+        return jsonify({"error": "key required"}), 400
+    return jsonify(ds().remember(d["key"], d.get("value", ""), source="owner"))
+
+
+@app.delete("/api/memory/<path:key>")
+def api_memory_del(key):
+    ds().forget(key)
+    return jsonify({"ok": True})
 
 
 # ---------------------------------------------------------------------------- api: jobs (automations)

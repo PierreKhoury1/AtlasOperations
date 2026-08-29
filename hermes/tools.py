@@ -131,6 +131,21 @@ SCHEMAS: dict[str, dict[str, Any]] = {
             "required": ["name", "task"],
         },
     },
+    "run_python": {
+        "name": "run_python",
+        "description": "Run a short Python 3 script (60s limit) in the run folder. Use for calculations, data transforms, parsing CSV/JSON, generating tables. stdout is returned. Files in the run folder are readable/writable; network is available.",
+        "parameters": {"type": "object", "properties": {"code": {"type": "string"}}, "required": ["code"]},
+    },
+    "remember": {
+        "name": "remember",
+        "description": "Store a durable fact about this business/desk for future runs (client preferences, decisions, recurring facts). Keys are short slugs; re-using a key overwrites.",
+        "parameters": {"type": "object", "properties": {"key": {"type": "string"}, "value": {"type": "string"}}, "required": ["key", "value"]},
+    },
+    "recall": {
+        "name": "recall",
+        "description": "Search desk memory (facts stored with remember) by keyword. Empty query returns the most recent facts.",
+        "parameters": {"type": "object", "properties": {"query": {"type": "string"}}},
+    },
     "finish": {
         "name": "finish",
         "description": "Signal the task is complete. Provide the final summary for the owner.",
@@ -144,7 +159,7 @@ SCHEMAS: dict[str, dict[str, Any]] = {
 
 ALL_TOOL_NAMES = list(SCHEMAS.keys())
 ORCHESTRATOR_ONLY = {"delegate", "list_agents", "finish", "queue_action", "crm_lookup", "crm_update",
-                     "list_connectors", "http_request", "schedule_task"}
+                     "list_connectors", "http_request", "schedule_task", "remember", "recall"}
 
 
 def schema_for(names: list[str]) -> list[dict[str, Any]]:
@@ -221,7 +236,30 @@ class WorkspaceTools:
         text = text.strip()
         return f"HTTP {r.status_code} {url}\n\n" + text[:max_chars] + ("\n...[truncated]" if len(text) > max_chars else "")
 
-    _ALIASES = {"content": ("markdown", "text", "body", "data"), "filename": ("name", "file", "path_name"),
+    def run_python(self, code: str) -> str:
+        import subprocess
+        import sys as _sys
+        code = str(code or "")
+        if not code.strip():
+            return "error: empty code"
+        run_dir = self.run_dir.resolve()
+        script = run_dir / f"_snippet_{int(__import__('time').time() * 1000)}.py"
+        script.write_text(code, encoding="utf-8")
+        try:
+            r = subprocess.run([_sys.executable, "-I", str(script)], cwd=str(run_dir), capture_output=True,
+                               text=True, timeout=60, encoding="utf-8", errors="replace")
+        except subprocess.TimeoutExpired:
+            return "error: script exceeded 60s"
+        finally:
+            try:
+                script.unlink()
+            except Exception:
+                pass
+        out = (r.stdout or "")[-8000:]
+        err = (r.stderr or "")[-3000:]
+        return (out + (("\n[stderr]\n" + err) if err else "") + (f"\n[exit {r.returncode}]" if r.returncode else "")).strip() or "(no output)"
+
+    _ALIASES = {"content": ("markdown", "text", "body", "data", "code"), "filename": ("name", "file", "path_name"),
                 "path": ("file", "filename", "name"), "url": ("link", "href")}
 
     def call(self, name: str, args: dict[str, Any]) -> str:

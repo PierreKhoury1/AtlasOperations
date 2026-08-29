@@ -40,7 +40,8 @@ def _hermes(extra: str = "") -> dict[str, Any]:
     return _agent("hermes", "Hermes", "Orchestrator / Engagement Lead",
                   _BASE_HERMES_PROMPT + ("\n\n" + extra if extra else ""),
                   tools=["delegate", "list_agents", "save_deliverable", "read_file", "list_files",
-                         "crm_lookup", "crm_update", "queue_action", "list_connectors", "http_request", "schedule_task"],
+                         "crm_lookup", "crm_update", "queue_action", "list_connectors", "http_request", "schedule_task",
+                         "mcp", "run_python", "remember", "recall"],
                   color="#c084fc")
 
 
@@ -62,7 +63,7 @@ CONSULTANCY: dict[str, Any] = {
         _hermes(),
         _agent("research", "Research Analyst", "Market & client research",
                "You are a research analyst at a consultancy. You build fast, structured briefs: market size and trends, competitor landscape, client background, risks and open questions. Cite what you know vs what is inferred.",
-               tools=["read_file", "list_files", "web_fetch"], color="#60a5fa"),
+               tools=["read_file", "list_files", "web_fetch", "run_python"], color="#60a5fa"),
         _agent("strategy", "Strategy Consultant", "Strategy & recommendations",
                "You are a senior strategy consultant. You turn research and a client situation into a clear point of view: diagnosis, options, recommendation, roadmap with phases, and the risks. Use frameworks only when they sharpen the answer.",
                color="#f472b6"),
@@ -238,11 +239,11 @@ SALES_DESK: dict[str, Any] = {
         _agent("hermes", "Hermes", "Desk orchestrator",
                _BASE_HERMES_PROMPT + "\n\nThis is an AI Sales Desk. For every lead: check the CRM (crm_lookup), get research and a drafted outreach from specialists, update the CRM (crm_update) with notes and next action — keep stage at New (it moves to Contacted automatically when the owner approves a send; only set Qualified/Proposal/Won/Lost when the lead's replies justify it), then queue the outreach with queue_action — never send directly. Finish with a summary for the owner.",
                tools=["delegate", "list_agents", "crm_lookup", "crm_update", "queue_action", "save_deliverable", "read_file", "list_files",
-                      "list_connectors", "http_request", "schedule_task"],
+                      "list_connectors", "http_request", "schedule_task", "mcp", "run_python", "remember", "recall"],
                color="#c084fc"),
         _agent("research", "Lead Researcher", "Researches the lead, property and context",
                "You are a lead researcher at an estate agency. Given a lead, produce a short brief: who they are, likely intent (sell / let / buy), property context, timing signals, risks, and 3 questions to ask on the first call. Flag what is inferred vs known. Never invent market figures: quote a number only if you fetched it (web_fetch) and name the source; otherwise describe the market qualitatively.",
-               tools=["read_file", "list_files", "web_fetch"], color="#60a5fa"),
+               tools=["read_file", "list_files", "web_fetch", "run_python"], color="#60a5fa"),
         _agent("writer", "Outreach Writer", "Drafts personalised first-touch messages",
                "You are an outreach writer for an estate agency. Write a short, warm, specific first email to the lead (under 120 words) with one clear next step (a call or visit). Plain text only — no markdown, no asterisks, no bullet symbols. Sign off with the business's sender name; never leave a placeholder. Offer a morning or afternoon, not an exact time. Start your reply with 'Subject: ...' on the first line, then a blank line, then the body.",
                color="#f472b6"),

@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from . import integrations as I
+from . import mcp_client as M
 from . import policy as P
 from . import tools as T
 from .config import RUNS_DIR
@@ -124,6 +125,10 @@ class Orchestrator:
             parts.append("Specialist agents available via delegate(agent_id, ...):\n" + self.roster_text(agent["id"]))
         if "http_request" in agent.get("tools", []) and self.store is not None and hasattr(self.store, "connectors"):
             parts.append("Connected systems (use http_request / list_connectors):\n" + I.describe(self.store.connectors()))
+        if "recall" in agent.get("tools", []) and self.store is not None and hasattr(self.store, "recall"):
+            mem = self.store.recall("", 15)
+            if mem:
+                parts.append("Desk memory (most recent facts; use recall for more, remember to add):\n" + "\n".join(f"- {m['key']}: {m['value'][:200]}" for m in mem))
         return "\n\n".join(p for p in parts if p)
 
     # ------------------------------------------------------------------ agent loop
@@ -143,6 +148,11 @@ class Orchestrator:
         if agent_id == "hermes" and "finish" not in tool_names:
             tool_names.append("finish")
         schemas = T.schema_for(tool_names)
+        self._mcp_index: dict[str, tuple[dict, str]] = getattr(self, "_mcp_index", {})
+        if "mcp" in agent.get("tools", []) and self.store is not None and hasattr(self.store, "connectors"):
+            mcp_schemas, idx = M.REGISTRY.schemas_for(self.store.connectors())
+            schemas = schemas + mcp_schemas
+            self._mcp_index.update(idx)
         max_iter = int(self.orch.get("max_iterations", 24)) if agent_id == "hermes" \
             else int(self.orch.get("specialist_max_iterations", 8))
 
@@ -258,6 +268,31 @@ class Orchestrator:
             row = self.store.upsert_contact(str(args.get("contact", "")), dict(args.get("fields") or {}))
             self.emit("tool", aid, f"crm_update → {row['name'] or row['email']} stage={row['stage']}")
             return f"updated contact #{row['id']} ({row['name'] or row['email']}) stage={row['stage']}"
+        if name.startswith("mcp__"):
+            hit = self._mcp_index.get(name)
+            if not hit:
+                return f"unknown MCP tool {name}"
+            conn, tool = hit
+            if M.is_write(tool) and not conn.get("auto"):
+                payload = json.dumps({"mcp_tool": tool, "arguments": args}, indent=1)
+                qid = self.store.add_action(self.run_id, aid, "api_call", conn["name"], f"MCP {tool}", payload,
+                                            f"Write-type MCP tool on {conn['name']} — owner approval required")
+                self.emit("approval", aid, f"api_call → {conn['name']}: MCP {tool}", action_id=qid, action_kind="api_call", to=conn["name"])
+                return f"queued for approval (id={qid}): {tool} on {conn['name']} looks like a write; the owner must approve."
+            self.emit("tool", aid, f"mcp {conn['name']}.{tool}({', '.join(f'{k}={str(v)[:40]!r}' for k, v in args.items())})")
+            return M.REGISTRY.get(conn).call(tool, args)
+        if name == "remember":
+            if not self.store or not hasattr(self.store, "remember"):
+                return "no memory in this context"
+            row = self.store.remember(str(args.get("key", "")), str(args.get("value", "")), source=self.run_id)
+            self.emit("tool", aid, f"remember {row['key']} = {row['value'][:80]}")
+            return f"remembered '{row['key']}'"
+        if name == "recall":
+            if not self.store or not hasattr(self.store, "recall"):
+                return "no memory in this context"
+            rows = self.store.recall(str(args.get("query", "") or ""))
+            self.emit("tool", aid, f"recall({args.get('query','')!r}) → {len(rows)}")
+            return "\n".join(f"- {r['key']}: {r['value']}" for r in rows) or "(nothing remembered yet)"
         if name == "list_connectors":
             if not self.store or not hasattr(self.store, "connectors"):
                 return "(no connectors in this context)"

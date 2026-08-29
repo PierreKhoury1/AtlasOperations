@@ -344,6 +344,9 @@ tr.click{cursor:pointer}tr.click:hover{background:var(--panel2)}
 <section id="p-setup" class="hide">
   <h1>Desk setup</h1><p class="lead">Business profile, agents and workflows this desk runs on. Edited by your ops lead; shown here for transparency.</p>
   <div class="grid g2"><div class="card" id="setup-biz"></div><div class="card" id="setup-agents"></div></div>
+  <div class="panel" style="margin-top:14px"><div class="ph"><h2>Desk memory</h2><span class="hint">facts the agents keep between runs (they add with <code>remember</code>; you can add or delete)</span></div><div class="pb">
+    <div class="row" style="margin-bottom:10px"><input id="m-key" placeholder="key e.g. preferred-viewing-days" style="max-width:260px"><input id="m-val" placeholder="value" style="flex:1"><button class="btn sm p" onclick="addMem()">Remember</button></div>
+    <div id="mem-list"></div></div></div>
 </section>
 
 </main></div>
@@ -391,6 +394,7 @@ async function refresh(){
   if (page==='runs') { loadRuns(); if (curRun) loadRun(curRun, true); }
   if (page==='audit') loadAudit();
   if (page==='integrations') loadConnectors();
+  if (page==='setup') loadMem();
   if (page==='automations') loadJobs();
   if (page==='report') loadReport();
 }
@@ -637,7 +641,7 @@ async function loadConnectors(){
 function connFields(){
   const k = $('#c-kind').value, spec = KINDS[k]; if (!spec) return;
   $('#c-hint').textContent = spec.hint;
-  const ph = {host:'smtp.gmail.com', port: k==='imap'?'993':'587', user:'you@gmail.com', password:'app password', from_email:'you@company.com', from_name:'Sam Reid', folder:'INBOX', base_url:'https://api.example.com', auth_type:'bearer | header | query | basic | none', token:'secret', headers:'{"X-Custom":"value"} (optional)', notes:'What this API is and which paths the agents may use'};
+  const ph = {host:'smtp.gmail.com', port: k==='imap'?'993':'587', user:'you@gmail.com', password:'app password', from_email:'you@company.com', from_name:'Sam Reid', folder:'INBOX', base_url:'https://api.example.com', auth_type:'bearer | header | query | basic | none', token:'secret', headers:'{"X-Custom":"value"} (optional)', notes:'What this API is and which paths the agents may use', command:'npx -y @modelcontextprotocol/server-filesystem C:/clients/acme', env:'{"GITHUB_PERSONAL_ACCESS_TOKEN":"..."} (optional)'};
   $('#c-fields').innerHTML = spec.fields.map(f=>`<label>${f}</label>${f==='notes'||f==='headers'?`<textarea data-f="${f}" placeholder="${ph[f]||''}" style="min-height:60px"></textarea>`:`<input data-f="${f}" placeholder="${ph[f]||''}" ${f==='password'||f==='token'?'type="password"':''}>`}`).join('');
 }
 async function addConnector(){
@@ -673,6 +677,8 @@ async function addPreset(k){
   const r = await api('/jobs', {method:'POST', body}); if (r && !r.error) { toast(k==='inbox_watch' ? 'Inbox watcher on — needs an IMAP connector' : 'Follow-up chaser on'); loadJobs(); }
 }
 
+async function loadMem(){ const M = await api('/memory'); if(!M) return; $('#mem-list').innerHTML = M.length ? `<table><tr><th>Key</th><th>Value</th><th>Source</th><th></th></tr>` + M.map(m=>`<tr><td><b>${esc(m.key)}</b></td><td class="md">${esc(m.value)}</td><td class="hint">${esc(m.source||'')}</td><td><button class="btn sm d" onclick="api('/memory/${encodeURIComponent(m.key)}',{method:'DELETE',body:{}}).then(loadMem)">✕</button></td></tr>`).join('') + '</table>' : '<div class="empty">Nothing remembered yet.</div>'; }
+async function addMem(){ const k=$('#m-key').value.trim(), v=$('#m-val').value.trim(); if(!k) return; await api('/memory',{method:'POST',body:{key:k,value:v}}); $('#m-key').value=''; $('#m-val').value=''; loadMem(); }
 init();
 </script>
 </body>

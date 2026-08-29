@@ -26,11 +26,13 @@ KINDS = {
              "hint": "Gmail: imap.gmail.com:993. New unread emails become leads."},
     "http": {"label": "HTTP API", "fields": ["base_url", "auth_type", "token", "headers", "notes"],
              "hint": "Any REST API. auth_type: bearer | header | query | basic | none. `notes` tells the agents what the API does and which paths exist."},
+    "mcp": {"label": "MCP server (any tool provider)", "fields": ["command", "env", "notes"],
+            "hint": "Model Context Protocol server started as a subprocess. e.g. `npx -y @modelcontextprotocol/server-filesystem C:/clients/acme`, `npx -y @modelcontextprotocol/server-github` (env GITHUB_PERSONAL_ACCESS_TOKEN=...), Slack, Notion, Postgres, Gmail... Every tool the server offers becomes an agent tool. Writes need approval unless auto."},
     "webhook": {"label": "Inbound webhook", "fields": [],
                 "hint": "POST JSON {name, email, phone, company, notes, source} to the desk's hook URL — web forms, Zapier, Make, Typeform."},
 }
 
-SECRET_KEYS = ("password", "token", "secret", "api_key")
+SECRET_KEYS = ("password", "token", "secret", "api_key", "env")
 
 
 def mask(config: dict[str, Any]) -> dict[str, Any]:
@@ -245,6 +247,9 @@ def test_connector(kind: str, cfg: dict[str, Any]) -> str:
         return test_imap(cfg)
     if kind == "http":
         return test_http(cfg)
+    if kind == "mcp":
+        from . import mcp_client
+        return mcp_client.test_server(cfg)
     if kind == "webhook":
         return "webhook connectors need no test — POST to the hook URL"
     raise RuntimeError(f"unknown connector kind {kind}")
@@ -262,5 +267,7 @@ def describe(connectors: list[dict[str, Any]]) -> str:
             extra = f" base_url={cfg.get('base_url','')}" + (f" — {cfg.get('notes')}" if cfg.get("notes") else "")
         elif c["kind"] == "smtp":
             extra = f" from={cfg.get('from_email','')}"
+        elif c["kind"] == "mcp":
+            extra = f" tools exposed as mcp__{c['name']}__<tool>" + (f" — {cfg.get('notes')}" if cfg.get("notes") else "")
         lines.append(f"- {c['name']} [{c['kind']}]{extra}  writes-without-approval={'yes' if c.get('auto') else 'no'}")
     return "\n".join(lines)
