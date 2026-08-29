@@ -185,8 +185,27 @@ class WorkspaceTools:
         text = text.strip()
         return f"HTTP {r.status_code} {url}\n\n" + text[:max_chars] + ("\n...[truncated]" if len(text) > max_chars else "")
 
+    _ALIASES = {"content": ("markdown", "text", "body", "data"), "filename": ("name", "file", "path_name"),
+                "path": ("file", "filename", "name"), "url": ("link", "href")}
+
     def call(self, name: str, args: dict[str, Any]) -> str:
+        """Dispatch with lenient kwargs: small models often invent near-miss argument names."""
+        import inspect
         fn = getattr(self, name, None)
         if fn is None or name in ORCHESTRATOR_ONLY:
             raise ValueError(f"unknown tool {name}")
-        return fn(**args)
+        params = inspect.signature(fn).parameters
+        clean: dict[str, Any] = {}
+        for k, v in (args or {}).items():
+            if k in params:
+                clean[k] = v
+        for want, aliases in self._ALIASES.items():
+            if want in params and want not in clean:
+                for a in aliases:
+                    if a in (args or {}):
+                        clean[want] = args[a]
+                        break
+        missing = [k for k, p in params.items() if p.default is inspect._empty and k not in clean]
+        if missing:
+            raise ValueError(f"{name}: missing argument(s) {', '.join(missing)}; got {sorted(args or {})}")
+        return fn(**clean)
