@@ -79,6 +79,9 @@ class AnthropicProvider(Provider):
         kwargs: dict[str, Any] = {"timeout": float(pcfg.get("timeout", 600)), "max_retries": 3}
         if key:
             kwargs["api_key"] = key
+        ws = (pcfg.get("workspace_id") or "").strip()   # required for identity-linked API keys
+        if ws:
+            kwargs["default_headers"] = {"anthropic-workspace-id": ws}
         self._client = anthropic.Anthropic(**kwargs)
         self._anthropic = anthropic
 

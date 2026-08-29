@@ -17,6 +17,7 @@ def main(argv: list[str] | None = None) -> int:
     k = sub.add_parser("set-key", help="store an API key in config/providers.json")
     k.add_argument("key")
     k.add_argument("--provider", default="anthropic")
+    k.add_argument("--workspace", default="", help="anthropic-workspace-id (identity-linked keys)")
     args = p.parse_args(argv)
 
     if args.cmd == "set-key":
@@ -26,6 +27,8 @@ def main(argv: list[str] | None = None) -> int:
             print(f"unknown provider {args.provider!r}; have: {', '.join(prov.get('providers', {}))}")
             return 2
         prov["providers"][args.provider]["api_key"] = args.key.strip()
+        if args.workspace:
+            prov["providers"][args.provider]["workspace_id"] = args.workspace.strip()
         cfg.save("providers", prov)
         print(f"saved key for {args.provider} ({args.key.strip()[:10]}...)")
         return 0
