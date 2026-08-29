@@ -97,6 +97,7 @@ DEFAULT_ORCHESTRATION: dict[str, Any] = {
     "max_iterations": 24,
     "max_delegation_depth": 2,
     "specialist_max_iterations": 8,
+    "agent_token_budget": 60000,
     "include_business_context_in_specialists": True,
 }
 

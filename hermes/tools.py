@@ -63,7 +63,7 @@ SCHEMAS: dict[str, dict[str, Any]] = {
         "parameters": {
             "type": "object",
             "properties": {"url": {"type": "string"},
-                           "max_chars": {"type": "integer", "description": "Default 12000."}},
+                           "max_chars": {"type": "integer", "description": "Default 6000 (max 12000). Fetch at most 2-3 pages per task."}},
             "required": ["url"],
         },
     },
@@ -210,14 +210,15 @@ class WorkspaceTools:
             lines += [f"  {x.relative_to(base)}  ({x.stat().st_size} B)" for x in files] or ["  (empty)"]
         return "\n".join(lines)
 
-    def web_fetch(self, url: str, max_chars: int = 12000) -> str:
+    def web_fetch(self, url: str, max_chars: int = 6000) -> str:
         import httpx
         try:
             max_chars = int(max_chars)
         except (TypeError, ValueError):
             max_chars = 12000
         if max_chars <= 0:
-            max_chars = 12000
+            max_chars = 6000
+        max_chars = min(max_chars, 12000)
         if not re.match(r"^https?://", url):
             return "error: only http(s) URLs"
         try:

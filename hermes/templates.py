@@ -242,7 +242,7 @@ SALES_DESK: dict[str, Any] = {
                       "list_connectors", "http_request", "schedule_task", "mcp", "run_python", "remember", "recall"],
                color="#c084fc"),
         _agent("research", "Lead Researcher", "Researches the lead, property and context",
-               "You are a lead researcher at an estate agency. Given a lead, produce a short brief: who they are, likely intent (sell / let / buy), property context, timing signals, risks, and 3 questions to ask on the first call. Flag what is inferred vs known. Never invent market figures: quote a number only if you fetched it (web_fetch) and name the source; otherwise describe the market qualitatively.",
+               "You are a lead researcher at an estate agency. Given a lead, produce a short brief: who they are, likely intent (sell / let / buy), property context, timing signals, risks, and 3 questions to ask on the first call. Flag what is inferred vs known. Never invent market figures: quote a number only if you fetched it (web_fetch) and name the source; otherwise describe the market qualitatively. Fetch at most 2 pages; if a page fails, move on rather than retrying.",
                tools=["read_file", "list_files", "web_fetch", "run_python"], color="#60a5fa"),
         _agent("writer", "Outreach Writer", "Drafts personalised first-touch messages",
                "You are an outreach writer for an estate agency. Write a short, warm, specific first email to the lead (under 120 words) with one clear next step (a call or visit). Plain text only — no markdown, no asterisks, no bullet symbols. Sign off with the business's sender name; never leave a placeholder. Offer a morning or afternoon, not an exact time. Start your reply with 'Subject: ...' on the first line, then a blank line, then the body.",
@@ -356,8 +356,8 @@ SAMPLE_LEADS: dict[str, list[dict[str, str]]] = {
 # model tiers: which agents get the strong model. Provider stays whatever the desk runs on (OpenRouter by default).
 TIERS: dict[str, dict[str, Any]] = {
     "free":     {"label": "Free",     "strong": [],                                  "note": "Free OpenRouter model for every agent. Good for demos; writing is adequate."},
-    "balanced": {"label": "Balanced", "strong": ["hermes"],                          "note": "Claude Sonnet plans and reviews; specialists run free. About 5p per lead."},
-    "best":     {"label": "Best",     "strong": ["hermes", "qa", "writer", "proposal", "strategy", "review"], "note": "Claude Sonnet wherever judgement or client-facing text matters. About 15p per lead."},
+    "balanced": {"label": "Balanced", "strong": ["hermes"],                          "note": "Claude Sonnet plans and reviews; specialists run free. About 5-10p per lead."},
+    "best":     {"label": "Best",     "strong": ["hermes", "qa", "writer", "proposal", "strategy", "review"], "note": "Claude Sonnet wherever judgement or client-facing text matters. About 15-30p per lead."},
 }
 STRONG_MODEL = "anthropic/claude-sonnet-4.5"
 FREE_MODEL = "minimax/minimax-m3:free"

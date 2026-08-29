@@ -160,6 +160,8 @@ class Orchestrator:
         messages: list[Any] = [provider.user_message(prompt)]
         self.emit("agent_start", agent_id, f"{agent['name']} ← task ({len(prompt)} chars)", depth=depth, model=model)
         final_text = ""
+        budget = int(self.orch.get("agent_token_budget", 60000))
+        spent_in = 0
 
         def on_token(text: str, thinking: bool = False):
             self.emit("token", agent_id, text, thinking=thinking, depth=depth)
@@ -175,6 +177,7 @@ class Orchestrator:
             with self._usage_lock:
                 self.tokens_in += resp.input_tokens
                 self.tokens_out += resp.output_tokens
+            spent_in += resp.input_tokens
             self.emit("usage", agent_id, "", tokens_in=self.tokens_in, tokens_out=self.tokens_out)
             if resp.refusal:
                 self.emit("error", agent_id, resp.refusal)
@@ -191,6 +194,18 @@ class Orchestrator:
                 self.emit("log", agent_id, resp.text)
                 final_text = resp.text
             if not resp.tool_calls:
+                break
+            if spent_in > budget and agent_id != "hermes":
+                self.emit("log", agent_id, f"(token budget {budget:,} reached after {i + 1} turns — wrapping up with what I have)")
+                messages.append(resp.assistant_message)
+                messages.extend(provider.tool_results([(c.id, c.name, "SKIPPED: token budget reached. Write your final answer now from what you already have.", True) for c in resp.tool_calls]))
+                resp2 = provider.chat(self.system_prompt(agent), messages, [], model, on_token=on_token)
+                with self._usage_lock:
+                    self.tokens_in += resp2.input_tokens
+                    self.tokens_out += resp2.output_tokens
+                if resp2.text:
+                    self.emit("log", agent_id, resp2.text)
+                    final_text = resp2.text
                 break
             messages.append(resp.assistant_message)
             results = self._execute_tools(agent, resp.tool_calls, depth)
