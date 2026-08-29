@@ -40,6 +40,15 @@ DEFAULT_PROVIDERS: dict[str, Any] = {
             "max_tokens": 1500,
             "timeout": 300,
         },
+        "openrouter": {
+            "type": "openai",
+            "base_url": "https://openrouter.ai/api/v1",
+            "api_key": "",
+            "default_model": "anthropic/claude-sonnet-4.5",
+            "temperature": 0.2,
+            "max_tokens": 8000,
+            "timeout": 600,
+        },
         "openai_compatible": {
             "type": "openai",
             "base_url": "http://localhost:11434/v1",
