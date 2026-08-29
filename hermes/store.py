@@ -117,6 +117,13 @@ class Store:
             out.append(d)
         return out
 
+    def all_desks(self) -> list[dict[str, Any]]:
+        out = []
+        for d in _rows(self._conn.execute("SELECT * FROM desks ORDER BY created")):
+            d["config"] = json.loads(d.get("config") or "{}")
+            out.append(d)
+        return out
+
     def update_desk(self, desk_id: int, **fields) -> None:
         fields = {k: v for k, v in fields.items() if k in ("name", "template", "tier", "config")}
         if "config" in fields and not isinstance(fields["config"], str):

@@ -143,8 +143,10 @@ def current_user() -> dict[str, Any] | None:
 
 def current_desk() -> dict[str, Any] | None:
     u = current_user()
-    if OPEN and not u:
-        return ensure_demo_desk()
+    if OPEN and not u:                     # testing mode: any desk, no account
+        did = session.get("desk")
+        d = store.desk(int(did)) if did else None
+        return d or (store.all_desks() or [ensure_demo_desk()])[0]
     if not u:
         return None
     did = session.get("desk")
@@ -313,7 +315,7 @@ def api_templates():
 @app.get("/api/desks")
 def api_desks():
     u = current_user()
-    rows = store.desks_for(u["id"]) if u else ([ensure_demo_desk()] if OPEN else [])
+    rows = store.desks_for(u["id"]) if u else ((store.all_desks() or [ensure_demo_desk()]) if OPEN else [])
     cur = current_desk()
     return jsonify({"desks": [_desk_public(d) for d in rows], "current": cur["id"] if cur else None})
 
@@ -337,7 +339,7 @@ def api_create_desk():
 def api_select_desk(did):
     u = current_user()
     d = store.desk(did)
-    if not d or (u and d["owner_id"] != u["id"]) or (not u and not OPEN):
+    if not d or (u and d["owner_id"] != u["id"] and not OPEN) or (not u and not OPEN):
         abort(404)
     session["desk"] = did
     return jsonify(_desk_public(d))
@@ -347,7 +349,7 @@ def api_select_desk(did):
 def api_update_desk(did):
     u = current_user()
     d = store.desk(did)
-    if not d or (u and d["owner_id"] != u["id"]):
+    if not d or (u and d["owner_id"] != u["id"] and not OPEN):
         abort(404)
     body = request.get_json(force=True) or {}
     fields: dict[str, Any] = {}

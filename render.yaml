@@ -9,6 +9,8 @@ services:
     envVars:
       - key: DESK_MODE
         value: demo
+      - key: DESK_OPEN
+        value: "1"
       - key: DESK_SECRET
         generateValue: true
       - key: DESK_TEMPLATE
