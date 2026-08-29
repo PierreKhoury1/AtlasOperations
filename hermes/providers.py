@@ -421,6 +421,8 @@ class DemoProvider(Provider):
 
         # ---- specialist scripts
         role = self._role(system)
+        m_sign = re.search(r"Sign outbound messages as: (.+)", system)
+        signer = m_sign.group(1).strip() if m_sign else "The team"
         name = next((line for line in task.splitlines() if line.lower().startswith("name:")), "Name: the contact").split(":", 1)[1].strip()
         company = next((line for line in task.splitlines() if line.lower().startswith("company:")), "Company: their business").split(":", 1)[1].strip()
         if company in ("(individual)", "-", ""):
@@ -436,8 +438,8 @@ class DemoProvider(Provider):
                         f"Hi {name.split()[0] if name else 'there'},\n\n"
                         f"Thanks for getting in touch — \"{subject_line}\". We've helped {'two clients in a similar position' if company == name else 'two businesses like ' + company} with exactly this in the last year; "
                         f"typically it comes down to fixing the hand-offs rather than adding headcount.\n\n"
-                        f"Happy to share what worked on a 20-minute call this week. Would Tuesday or Thursday afternoon suit?\n\n"
-                        f"Best,\n[Your name]\n{company and ''}")
+                        f"Happy to share what worked on a 20-minute call this week. Would a morning or an afternoon suit you better?\n\n"
+                        f"Best,\n{signer}")
         if role == "crm":
             return resp(f"CRM: matched {name} at {company}. Stage moved to Qualified. Next action: follow-up in 3 days if no reply.")
         if role in ("finance", "pricing"):

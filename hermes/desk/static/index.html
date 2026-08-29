@@ -338,6 +338,7 @@ tr.click{cursor:pointer}tr.click:hover{background:var(--panel2)}
 <section id="p-report" class="hide">
   <h1>Monthly report</h1><p class="lead">What you get every month: volume, approval rate, time saved, cost, what we changed.</p>
   <div id="report"></div>
+  <div class="panel" id="perf-panel" style="margin-top:14px"><div class="ph"><h2>Performance &amp; capacity</h2><span class="hint">computed from every run on this desk</span></div><div class="pb" id="perf"></div></div>
 </section>
 
 <!-- SETUP -->
@@ -459,7 +460,26 @@ async function loadRun(id, quiet){
   const lg = $('#runlog'); if (lg) lg.scrollTop = 1e9;
 }
 async function loadAudit(){ const ev = await api('/audit'); $('#audit-table').innerHTML = ev.length ? `<table><tr><th>When</th><th>Run</th><th>Agent</th><th>Kind</th><th>Detail</th></tr>` + ev.map(e=>`<tr><td>${when(e.ts)}</td><td style="color:var(--muted);font-size:12px">${esc(e.run_id)}</td><td style="color:${colors[e.agent]||'var(--text)'}">${esc(e.agent)}</td><td><span class="tag">${e.kind}</span></td><td class="md" style="max-width:600px">${esc(e.text).slice(0,300)}</td></tr>`).join('') + '</table>' : '<div class="empty">Empty</div>'; }
+async function loadPerf(){
+  const m = await api('/metrics'); const cap = await api('/capacity'); if (!m || !cap) return;
+  if (!m.runs) { $('#perf').innerHTML = '<div class="empty">No runs yet.</div>'; return; }
+  const d = m.duration_s||{}, t = m.tokens||{};
+  const lat = Object.entries(m.agent_latency_s||{}).map(([a,v])=>`<tr><td style="color:${colors[a]||'inherit'}"><b>${esc(a)}</b></td><td>${v.n}</td><td>${v.mean}s</td><td>${v.p90}s</td></tr>`).join('');
+  $('#perf').innerHTML = `<div class="grid g5" style="margin-bottom:14px">
+    <div class="card kpi"><span>Completion</span><b>${Math.round(m.completion_rate*100)}%</b><small>${m.done}/${m.runs} runs</small></div>
+    <div class="card kpi"><span>Run time</span><b>${d.p50??'–'}s</b><small>p50 · p90 ${d.p90}s · max ${d.max}s</small></div>
+    <div class="card kpi"><span>Tool error rate</span><b style="color:${m.tool_error_rate>0.05?'var(--danger)':'var(--ok)'}">${Math.round(m.tool_error_rate*100)}%</b><small>${m.tool_errors}/${m.tool_calls} calls</small></div>
+    <div class="card kpi"><span>Policy</span><b>${m.policy_blocks}</b><small>blocks · ${m.policy_flags} flagged</small></div>
+    <div class="card kpi"><span>Tokens / run</span><b>${(t.per_run_in||0).toLocaleString()}</b><small>in · ${t.per_run_out} out · £${t.est_cost_gbp_sonnet} total on Sonnet</small></div></div>
+    <div class="grid g2"><div><h2>Agent latency</h2><table><tr><th>Agent</th><th>Runs</th><th>Mean</th><th>p90</th></tr>${lat}</table></div>
+    <div><h2>Capacity</h2><table>
+      <tr><td>Active runs now</td><td>${cap.active_runs}</td></tr><tr><td>Threads / CPUs</td><td>${cap.threads} / ${cap.cpu_count}</td></tr>
+      <tr><td>Mean run (24h)</td><td>${cap.mean_run_s}s</td></tr><tr><td>Runs per hour per slot</td><td>${cap.est_runs_per_hour_per_slot??'–'}</td></tr>
+      <tr><td>Empty model replies</td><td>${m.empty_replies}</td></tr><tr><td>Provider errors</td><td>${m.provider_errors}</td></tr>
+      <tr><td>Throughput (observed)</td><td>${m.throughput_runs_per_min??'–'} runs/min</td></tr></table><p class="hint" style="margin-top:8px">${esc(cap.note)}</p></div></div>`;
+}
 async function loadReport(){
+  loadPerf();
   const r = await api('/report');
   $('#report').innerHTML = `<div class="grid g4" style="margin-bottom:14px">
     <div class="card kpi"><b>${r.leads_handled}</b><span>Leads handled</span></div>

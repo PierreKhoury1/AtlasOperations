@@ -18,7 +18,11 @@ def main(argv: list[str] | None = None) -> int:
     k.add_argument("key")
     k.add_argument("--provider", default="anthropic")
     k.add_argument("--workspace", default="", help="anthropic-workspace-id (identity-linked keys)")
-    args = p.parse_args(argv)
+    sub.add_parser("eval", help="run the evaluation / capacity harness (see hermes/eval.py --help)", add_help=False)
+    args, rest = p.parse_known_args(argv)
+    if args.cmd == "eval":
+        from .eval import main as eval_main
+        return eval_main(rest)
 
     if args.cmd == "set-key":
         from . import config as cfg

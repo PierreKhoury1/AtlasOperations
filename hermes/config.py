@@ -12,7 +12,7 @@ TEMPLATES_DIR = ROOT / "templates"
 WORKSPACE_DIR = ROOT / "workspace"
 INPUTS_DIR = WORKSPACE_DIR / "inputs"
 RUNS_DIR = WORKSPACE_DIR / "runs"
-DATA_DIR = ROOT / "data"
+DATA_DIR = Path(os.environ["HERMES_DATA_DIR"]) if os.environ.get("HERMES_DATA_DIR") else ROOT / "data"
 
 for _d in (CONFIG_DIR, TEMPLATES_DIR, INPUTS_DIR, RUNS_DIR, DATA_DIR):
     _d.mkdir(parents=True, exist_ok=True)

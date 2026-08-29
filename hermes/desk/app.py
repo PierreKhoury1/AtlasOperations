@@ -26,6 +26,7 @@ from werkzeug.security import check_password_hash, generate_password_hash
 
 from .. import config as cfg
 from .. import integrations as I
+from .. import metrics as MX
 from .. import templates
 from . import scheduler
 from ..orchestrator import Event, Orchestrator
@@ -632,6 +633,21 @@ def api_upsert_contact():
 @app.get("/api/audit")
 def api_audit():
     return jsonify(ds().all_events(400))
+
+
+@app.get("/api/metrics")
+def api_metrics():
+    desk = need_desk()
+    since = request.args.get("since")
+    m = MX.compute(store, desk_id=desk["id"], since=float(since) if since else None)
+    m.pop("per_run", None) if request.args.get("full") is None else None
+    return jsonify(m)
+
+
+@app.get("/api/capacity")
+def api_capacity():
+    active = sum(1 for r in _runs.values() if r["thread"].is_alive())
+    return jsonify(MX.capacity(store, active))
 
 
 @app.get("/api/report")
