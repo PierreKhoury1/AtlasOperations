@@ -13,8 +13,10 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="cinema.css">
 </head>
 <body>
+<canvas class="orbit" data-orbit='{"alpha":0.42,"zoom":0.92}' aria-hidden="true"></canvas>
 <!-- multipage -->
 <nav class="nav">
   <div class="wrap">
@@ -38,13 +40,13 @@
     <h2>One desk. One function. Fully <b>operated</b>.</h2>
     <p class="lead">A desk is a team of AI agents built around one job in your business — an orchestrator that plans and delegates, specialists that do the work, and an approval queue for you. We start with the desk that pays back fastest.</p>
     <div class="cards">
-      <div id="sales" class="card rv"><div class="ic">📈</div><h3>AI Sales Desk</h3><p>Finds leads, researches them, drafts personalised outreach, updates your CRM and prepares follow-ups — you approve before anything is sent.</p>
+      <div id="sales" class="card"><div class="ic">📈</div><h3>AI Sales Desk</h3><p>Finds leads, researches them, drafts personalised outreach, updates your CRM and prepares follow-ups — you approve before anything is sent.</p>
         <ul><li>Lead sourcing &amp; enrichment</li><li>Personalised email / WhatsApp drafts</li><li>CRM hygiene &amp; follow-up cadence</li><li>Weekly pipeline report</li></ul><div class="for">Estate agents · B2B services</div></div>
-      <div id="support" class="card rv"><div class="ic">📅</div><h3>Support &amp; Booking Desk</h3><p>Answers enquiries, books and reschedules appointments, sends reminders, escalates anything it shouldn't decide.</p>
+      <div id="support" class="card"><div class="ic">📅</div><h3>Support &amp; Booking Desk</h3><p>Answers enquiries, books and reschedules appointments, sends reminders, escalates anything it shouldn't decide.</p>
         <ul><li>Email / chat / WhatsApp triage</li><li>Calendar booking &amp; reminders</li><li>FAQ &amp; policy answers from your docs</li><li>Escalation with full context</li></ul><div class="for">Clinics · Salons · Trades</div></div>
-      <div id="content" class="card rv"><div class="ic">✍️</div><h3>Content &amp; Outreach Desk</h3><p>Plans and drafts content, product copy, email flows and partner outreach, then reports on what moved the numbers.</p>
+      <div id="content" class="card"><div class="ic">✍️</div><h3>Content &amp; Outreach Desk</h3><p>Plans and drafts content, product copy, email flows and partner outreach, then reports on what moved the numbers.</p>
         <ul><li>Content calendar &amp; drafts</li><li>Product / collection copy</li><li>Email &amp; promo campaigns</li><li>Monthly performance report</li></ul><div class="for">E-commerce · Agencies</div></div>
-      <div id="research" class="card rv"><div class="ic">📚</div><h3>Research &amp; Documents Desk</h3><p>Turns a brief into research, strategy, pricing and a client-ready proposal, reviewed by a QA agent before it reaches you.</p>
+      <div id="research" class="card"><div class="ic">📚</div><h3>Research &amp; Documents Desk</h3><p>Turns a brief into research, strategy, pricing and a client-ready proposal, reviewed by a QA agent before it reaches you.</p>
         <ul><li>Market &amp; client research briefs</li><li>Proposals, SOWs, reports</li><li>Pricing &amp; business cases</li><li>Partner-level QA pass</li></ul><div class="for">Consultancies · Professional services</div></div>
     </div>
   </div>
@@ -66,9 +68,9 @@
 </section>
 <section class="tight">
   <div class="wrap">
-    <div class="band rv">
+    <div class="band">
       <div><div class="eyebrow">Start small, prove it, expand</div><h2>One desk in 30 <b>days</b>.</h2></div>
-      <a class="btn primary" href="contact.html#form">Book a scoping call →</a>
+      <a class="btn primary" href="contact.html#form">Book a scoping call <i class="ar">→</i></a>
     </div>
   </div>
 </section>
@@ -83,7 +85,12 @@
     <div class="fbar"><span>© <span id="yr"></span> <span data-brand>Hermes Ops</span></span><a href="mailto:hello@hermesops.co" data-email>hello@hermesops.co</a></div>
   </div>
 </footer>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/ScrollTrigger.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/lenis@1.1.18/dist/lenis.min.js"></script>
 <script src="silk.js"></script>
+<script src="orbit.js"></script>
 <script src="script.js"></script>
+<script src="cinema.js"></script>
 </body>
 </html>

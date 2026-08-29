@@ -1,19 +1,19 @@
-﻿"""Hermes Desk portal (Flask).
+"""Hermes Desk portal (Flask).
 
   /            marketing site (hermes/site)
-  /desk        client portal SPA
-  /api/...     JSON API used by the portal
+  /desk        client portal SPA (accounts + one or more desks per account)
+  /api/...     JSON API used by the portal — every data endpoint is scoped to the current desk
 
 Run:  py -m hermes.desk            (PORT env, default 8094)
-Env:  DESK_TEMPLATE=sales_desk     business-model template to run the desk on
-      DESK_MODE=demo|live|auto     demo = scripted provider (no API key needed); auto = live if key present
+Env:  DESK_MODE=demo|live|auto     demo = scripted provider (no API key needed); auto = live if key present
+      DESK_PROVIDER=openrouter     live mode provider (default: providers.json default_provider)
       DESK_SECRET=...              session-cookie secret (auto-generated into data/secret.key if unset)
-      DESK_OPEN=1                  skip accounts entirely (portal public) â€” local dev only
-      ANTHROPIC_API_KEY=...        live mode
+      DESK_OPEN=1                  skip accounts (portal public on the built-in demo desk) — local dev only
+      DEMO_DELAY=0.6               demo provider pacing
 """
 from __future__ import annotations
 
-import hashlib
+import json
 import os
 import secrets
 import threading
@@ -21,9 +21,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-import json
-
-from flask import Flask, Response, abort, jsonify, make_response, redirect, request, send_from_directory, session
+from flask import Flask, Response, abort, jsonify, redirect, request, send_from_directory, session
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from .. import config as cfg
@@ -54,19 +52,22 @@ app.secret_key = _secret()
 app.config.update(SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE="Lax",
                   SESSION_COOKIE_SECURE=bool(os.environ.get("RENDER")), PERMANENT_SESSION_LIFETIME=30 * 86400)
 OPEN = os.environ.get("DESK_OPEN", "").strip() in ("1", "true", "yes")
-_runs: dict[str, dict[str, Any]] = {}          # run_id -> {"events": [...], "thread":..., "orch":...}
+DEFAULT_TEMPLATE = os.environ.get("DESK_TEMPLATE", "sales_desk")
+
+_runs: dict[str, dict[str, Any]] = {}          # run_id -> {"events": [...], "thread":..., "orch":..., "desk_id":...}
 _runs_lock = threading.Lock()
-_feed: list[dict[str, Any]] = []               # global live feed (all runs, incl. token deltas) for /api/stream
+_feed: list[dict[str, Any]] = []               # global live feed (all desks, incl. token deltas) for /api/stream
 _feed_lock = threading.Lock()
 _feed_seq = 0
 _FEED_MAX = 30000
 
 
-def _push_feed(run_id: str, ev: Event):
+# ---------------------------------------------------------------------------- live feed
+def _push_feed(run_id: str, desk_id: int, ev: Event):
     global _feed_seq
     with _feed_lock:
         _feed_seq += 1
-        _feed.append({"seq": _feed_seq, "run_id": run_id, "ts": ev.ts, "kind": ev.kind,
+        _feed.append({"seq": _feed_seq, "run_id": run_id, "desk_id": desk_id, "ts": ev.ts, "kind": ev.kind,
                       "agent": ev.agent, "text": ev.text, "data": ev.data})
         if len(_feed) > _FEED_MAX:
             del _feed[: _FEED_MAX // 3]
@@ -78,10 +79,9 @@ def _feed_after(seq: int) -> list[dict[str, Any]]:
             return []
         lo = max(0, len(_feed) - (_feed[-1]["seq"] - seq))   # seqs are contiguous, so index by offset
         return _feed[lo:]
-TEMPLATE = os.environ.get("DESK_TEMPLATE", "sales_desk")
 
 
-# ---------------------------------------------------------------------------- config / mode
+# ---------------------------------------------------------------------------- mode / configs
 def _mode() -> str:
     m = os.environ.get("DESK_MODE", "auto").lower()
     if m in ("demo", "live"):
@@ -89,46 +89,84 @@ def _mode() -> str:
     if os.environ.get("DESK_PROVIDER", "").strip():
         return "live"
     prov = cfg.load("providers", cfg.DEFAULT_PROVIDERS)
-    key = cfg.resolve_api_key(prov["providers"].get("anthropic", {"type": "anthropic"}))
+    name = prov.get("default_provider", "anthropic")
+    key = cfg.resolve_api_key(prov["providers"].get(name, {"type": "anthropic"}))
     return "live" if key else "demo"
 
 
-def build_configs() -> dict[str, Any]:
-    t = templates.get(TEMPLATE)
+def desk_configs(desk: dict[str, Any]) -> dict[str, Any]:
+    """Engine config for one desk: template + the desk's stored overrides + model tier + provider."""
+    t = templates.get(desk.get("template") or DEFAULT_TEMPLATE)
+    over = desk.get("config") or {}
+    business = {**t["business"], **(over.get("business") or {})}
+    agents = over.get("agents") or t["agents"]
+    workflows = over.get("workflows") or t["workflows"]
     mode = _mode()
     if mode == "demo":
         providers = {"default_provider": "demo", "providers": {"demo": {"type": "demo", "delay": float(os.environ.get("DEMO_DELAY", "0.6"))}}}
-        for a in t["agents"]:
+        for a in agents:
             a["provider"] = "demo"
             a["model"] = ""
     else:
         providers = cfg.load("providers", cfg.DEFAULT_PROVIDERS)
         for name, pc in cfg.DEFAULT_PROVIDERS["providers"].items():   # backfill presets added later
             providers.setdefault("providers", {}).setdefault(name, dict(pc))
-        prov = os.environ.get("DESK_PROVIDER", "").strip()
-        if prov:
-            providers["default_provider"] = prov
-            model = os.environ.get("DESK_MODEL", "").strip()
-            if model:
-                providers["providers"][prov]["default_model"] = model
-            for a in t["agents"]:
-                a["provider"] = prov
+        prov = os.environ.get("DESK_PROVIDER", "").strip() or providers.get("default_provider", "openrouter")
+        providers["default_provider"] = prov
+        for a in agents:
+            a["provider"] = prov
+        if prov == "openrouter":
+            templates.apply_tier(agents, desk.get("tier") or "free")
+        else:
+            for a in agents:
                 a["model"] = ""
-    return {
-        "providers": providers,
-        "orchestration": cfg.load("orchestration", cfg.DEFAULT_ORCHESTRATION),
-        "business": t["business"], "agents": t["agents"], "workflows": t["workflows"],
-        "ui": {}, "mode": mode,
-    }
+    return {"providers": providers, "orchestration": cfg.load("orchestration", cfg.DEFAULT_ORCHESTRATION),
+            "business": business, "agents": agents, "workflows": workflows, "ui": {}, "mode": mode,
+            "desk_id": desk["id"]}
 
 
-# ---------------------------------------------------------------------------- auth (accounts)
+def ensure_demo_desk() -> dict[str, Any]:
+    d = store.desk(1)
+    if d is None:
+        d = store.add_desk(0, "Acme Estates", "sales_desk", "free", templates.build_desk("sales_desk", {}))
+    return d
+
+
+# ---------------------------------------------------------------------------- auth + desk context
 PUBLIC_API = {"/api/health", "/api/stats", "/api/me"}
 
 
 def current_user() -> dict[str, Any] | None:
     uid = session.get("uid")
     return store.user(int(uid)) if uid else None
+
+
+def current_desk() -> dict[str, Any] | None:
+    u = current_user()
+    if OPEN and not u:
+        return ensure_demo_desk()
+    if not u:
+        return None
+    did = session.get("desk")
+    d = store.desk(int(did)) if did else None
+    if d and d["owner_id"] == u["id"]:
+        return d
+    ds_ = store.desks_for(u["id"])
+    if ds_:
+        session["desk"] = ds_[0]["id"]
+        return ds_[0]
+    return None
+
+
+def need_desk() -> dict[str, Any]:
+    d = current_desk()
+    if not d:
+        abort(Response(json.dumps({"error": "no_desk"}), 409, mimetype="application/json"))
+    return d
+
+
+def ds():
+    return store.for_desk(need_desk()["id"])
 
 
 @app.before_request
@@ -146,7 +184,7 @@ def _guard():
 
 
 def _esc(s: str) -> str:
-    return s.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;').replace('"', '&quot;')
+    return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
 
 
 def _page(template: str, **vars_) -> str:
@@ -196,7 +234,7 @@ def signup():
         elif len(pw) < 8:
             err = "Password must be at least 8 characters."
         elif store.user_by_email(email):
-            err = "An account with that email already exists â€” log in instead."
+            err = "An account with that email already exists — log in instead."
         if err:
             if request.is_json:
                 return jsonify({"error": err}), 400
@@ -205,7 +243,6 @@ def signup():
         session.clear()
         session.permanent = True
         session["uid"] = u["id"]
-        store.add_event("", "signup", "system", f"{name} ({email}) created an account")
         if request.is_json:
             return jsonify({"ok": True})
         return redirect("/desk")
@@ -260,14 +297,84 @@ def desk_static(path):
     return send_from_directory(STATIC_DIR, path)
 
 
+# ---------------------------------------------------------------------------- api: desks (onboarding + switching)
+def _desk_public(d: dict[str, Any]) -> dict[str, Any]:
+    b = (d.get("config") or {}).get("business") or {}
+    return {"id": d["id"], "name": d["name"], "template": d["template"], "tier": d.get("tier", "free"),
+            "business_name": b.get("name", d["name"]), "created": d.get("created")}
+
+
+@app.get("/api/templates")
+def api_templates():
+    return jsonify({"desks": templates.DESK_TYPES, "tiers": [{"id": k, **v} for k, v in templates.TIERS.items()],
+                    "mode": _mode()})
+
+
+@app.get("/api/desks")
+def api_desks():
+    u = current_user()
+    rows = store.desks_for(u["id"]) if u else ([ensure_demo_desk()] if OPEN else [])
+    cur = current_desk()
+    return jsonify({"desks": [_desk_public(d) for d in rows], "current": cur["id"] if cur else None})
+
+
+@app.post("/api/desks")
+def api_create_desk():
+    u = current_user()
+    if not u and not OPEN:
+        abort(401)
+    d = request.get_json(force=True) or {}
+    template = d.get("template") if d.get("template") in templates.BUILTIN else DEFAULT_TEMPLATE
+    tier = d.get("tier") if d.get("tier") in templates.TIERS else "free"
+    name = (d.get("name") or "").strip() or "My desk"
+    conf = templates.build_desk(template, d)
+    desk = store.add_desk(u["id"] if u else 0, name, template, tier, conf)
+    session["desk"] = desk["id"]
+    return jsonify(_desk_public(desk))
+
+
+@app.post("/api/desks/<int:did>/select")
+def api_select_desk(did):
+    u = current_user()
+    d = store.desk(did)
+    if not d or (u and d["owner_id"] != u["id"]) or (not u and not OPEN):
+        abort(404)
+    session["desk"] = did
+    return jsonify(_desk_public(d))
+
+
+@app.patch("/api/desks/<int:did>")
+def api_update_desk(did):
+    u = current_user()
+    d = store.desk(did)
+    if not d or (u and d["owner_id"] != u["id"]):
+        abort(404)
+    body = request.get_json(force=True) or {}
+    fields: dict[str, Any] = {}
+    if body.get("tier") in templates.TIERS:
+        fields["tier"] = body["tier"]
+    if body.get("name"):
+        fields["name"] = str(body["name"]).strip()
+    if isinstance(body.get("business"), dict):
+        conf = d.get("config") or {}
+        conf["business"] = {**(conf.get("business") or {}), **body["business"]}
+        fields["config"] = conf
+    store.update_desk(did, **fields)
+    return jsonify(_desk_public(store.desk(did)))
+
+
 # ---------------------------------------------------------------------------- api: overview
 @app.get("/api/config")
 def api_config():
-    c = build_configs()
+    desk = current_desk()
+    if not desk:
+        return jsonify({"mode": _mode(), "needs_desk": True, "protected": not OPEN})
+    c = desk_configs(desk)
     return jsonify({
-        "mode": c["mode"], "template": TEMPLATE, "business": c["business"],
+        "mode": c["mode"], "template": desk["template"], "tier": desk.get("tier", "free"), "business": c["business"],
+        "desk": _desk_public(desk),
         "agents": [{"id": a["id"], "name": a["name"], "role": a.get("role", ""), "color": a.get("color", ""),
-                    "tools": a.get("tools", [])} for a in c["agents"]],
+                    "tools": a.get("tools", []), "model": a.get("model", "") or "(provider default)"} for a in c["agents"]],
         "workflows": [{"id": w["id"], "name": w["name"], "description": w.get("description", "")} for w in c["workflows"]],
         "protected": not OPEN,
     })
@@ -275,95 +382,101 @@ def api_config():
 
 @app.get("/api/stats")
 def api_stats():
-    s = store.stats()
-    s["active_runs"] = sum(1 for r in _runs.values() if r["thread"].is_alive())
+    desk = current_desk()
+    if not desk:
+        return jsonify({"leads": 0, "pending": 0, "approved": 0, "qualified": 0, "active_runs": 0, "tokens_in": 0, "tokens_out": 0, "needs_desk": True})
+    s = store.stats(desk["id"])
+    s["active_runs"] = sum(1 for r in _runs.values() if r["desk_id"] == desk["id"] and r["thread"].is_alive())
     return jsonify(s)
 
 
 # ---------------------------------------------------------------------------- api: leads + runs
 def _lead_task(lead: dict[str, Any]) -> str:
-    return (f"New inbound lead â€” handle end to end.\n"
+    return (f"New inbound lead — handle end to end.\n"
             f"Name: {lead['name']}\nCompany: {lead['company'] or '(individual)'}\nEmail: {lead['email']}\n"
             f"Phone: {lead['phone'] or '-'}\nSource: {lead['source']}\n\nEnquiry:\n{lead['notes']}")
 
 
-def _start_run(task: str, mode: str, lead_id: int | None = None) -> str:
-    configs = build_configs()
+def _start_run(desk: dict[str, Any], task: str, mode: str, lead_id: int | None = None) -> str:
+    configs = desk_configs(desk)
+    dstore = store.for_desk(desk["id"])
     events: list[dict[str, Any]] = []
-
     orch: Orchestrator
 
     def emit(ev: Event):
         if ev.kind != "token":                     # deltas are live-only; the full text arrives as a `log` event
             events.append({"ts": ev.ts, "kind": ev.kind, "agent": ev.agent, "text": ev.text, "data": ev.data})
-        _push_feed(orch.run_id, ev)
+        _push_feed(orch.run_id, desk["id"], ev)
 
-    orch = Orchestrator(configs, store, emit)
-    holder: dict[str, Any] = {"events": events, "orch": orch, "task": task}
+    orch = Orchestrator(configs, dstore, emit)
+    holder: dict[str, Any] = {"events": events, "orch": orch, "task": task, "desk_id": desk["id"]}
 
     def work():
         res = orch.run(task, mode)
         if lead_id is not None:
-            store.set_lead(lead_id, status=("processed" if res.status == "done" else res.status), run_id=res.run_id)
+            dstore.set_lead(lead_id, status=("processed" if res.status == "done" else res.status), run_id=res.run_id)
 
     th = threading.Thread(target=work, daemon=True)
     holder["thread"] = th
     th.start()
-    # wait briefly for run_id to exist
-    for _ in range(50):
+    for _ in range(50):                            # wait briefly for run_id to exist
         if orch.run_id:
             break
         time.sleep(0.02)
     with _runs_lock:
         _runs[orch.run_id] = holder
     if lead_id is not None:
-        store.set_lead(lead_id, status="running", run_id=orch.run_id)
+        dstore.set_lead(lead_id, status="running", run_id=orch.run_id)
     return orch.run_id
 
 
 @app.get("/api/leads")
 def api_leads():
-    return jsonify(store.leads())
+    return jsonify(ds().leads())
 
 
 @app.post("/api/leads")
 def api_add_lead():
+    desk = need_desk()
     d = request.get_json(force=True) or {}
     name = (d.get("name") or "").strip()
     email = (d.get("email") or "").strip()
     if not name or not email:
         return jsonify({"error": "name and email required"}), 400
-    lid = store.add_lead(name, (d.get("company") or "").strip(), email, (d.get("phone") or "").strip(),
-                         (d.get("source") or "web form").strip(), (d.get("notes") or "").strip())
-    store.upsert_contact(email, {"name": name, "company": d.get("company", ""), "email": email,
-                                 "phone": d.get("phone", ""), "stage": "New", "notes": "Inbound lead"})
+    dstore = store.for_desk(desk["id"])
+    lid = dstore.add_lead(name, (d.get("company") or "").strip(), email, (d.get("phone") or "").strip(),
+                          (d.get("source") or "web form").strip(), (d.get("notes") or "").strip())
+    dstore.upsert_contact(email, {"name": name, "company": d.get("company", ""), "email": email,
+                                  "phone": d.get("phone", ""), "stage": "New", "notes": "Inbound lead"})
     run_id = None
     if d.get("run", True):
-        run_id = _start_run(_lead_task(store.lead(lid)), d.get("mode", "auto"), lid)
+        run_id = _start_run(desk, _lead_task(dstore.lead(lid)), d.get("mode", "auto"), lid)
     return jsonify({"id": lid, "run_id": run_id})
 
 
 @app.post("/api/leads/<int:lid>/run")
 def api_run_lead(lid):
+    desk = need_desk()
     lead = store.lead(lid)
-    if not lead:
+    if not lead or lead.get("desk_id") != desk["id"]:
         abort(404)
     mode = (request.get_json(silent=True) or {}).get("mode", "auto")
-    return jsonify({"run_id": _start_run(_lead_task(lead), mode, lid)})
+    return jsonify({"run_id": _start_run(desk, _lead_task(lead), mode, lid)})
 
 
 @app.post("/api/runs")
 def api_run_task():
+    desk = need_desk()
     d = request.get_json(force=True) or {}
     task = (d.get("task") or "").strip()
     if not task:
         return jsonify({"error": "task required"}), 400
-    return jsonify({"run_id": _start_run(task, d.get("mode", "auto"))})
+    return jsonify({"run_id": _start_run(desk, task, d.get("mode", "auto"))})
 
 
 @app.get("/api/runs")
 def api_runs():
-    rows = store.runs(100)
+    rows = ds().runs(100)
     for r in rows:
         r["active"] = r["id"] in _runs and _runs[r["id"]]["thread"].is_alive()
     return jsonify(rows)
@@ -371,12 +484,13 @@ def api_runs():
 
 @app.get("/api/runs/<run_id>")
 def api_run(run_id):
-    row = next((r for r in store.runs(500) if r["id"] == run_id), None)
+    desk = need_desk()
+    row = store.run(run_id)
     live = _runs.get(run_id)
-    if not row and live:   # thread started but DB row not written yet
-        row = {"id": run_id, "created": time.time(), "task": "", "mode": "", "status": "running",
-               "summary": "", "tokens_in": 0, "tokens_out": 0, "run_dir": ""}
-    if not row:
+    if not row and live and live["desk_id"] == desk["id"]:   # thread started but DB row not written yet
+        row = {"id": run_id, "created": time.time(), "task": live["task"], "mode": "", "status": "running",
+               "summary": "", "tokens_in": 0, "tokens_out": 0, "run_dir": "", "desk_id": desk["id"]}
+    if not row or row.get("desk_id") != desk["id"]:
         abort(404)
     if live:
         events = [e for e in live["events"] if e["kind"] != "usage"]
@@ -396,12 +510,14 @@ def api_run(run_id):
 
 @app.get("/api/stream")
 def api_stream():
-    """Server-sent events: every orchestrator event from every run, including token deltas.
+    """Server-sent events for the current desk: every orchestrator event, including token deltas.
     ?since=<seq> resumes after a sequence number; ?since=now (default) starts from the present."""
+    desk = need_desk()
     arg = request.args.get("since", "now")
     run_filter = request.args.get("run", "")
     with _feed_lock:
         start = _feed_seq if arg == "now" else max(0, min(int(arg or 0), _feed_seq))
+    desk_id = desk["id"]
 
     def gen():
         last = start
@@ -413,7 +529,7 @@ def api_stream():
                 idle = 0
                 for e in new:
                     last = e["seq"]
-                    if run_filter and e["run_id"] != run_filter:
+                    if e["desk_id"] != desk_id or (run_filter and e["run_id"] != run_filter):
                         continue
                     yield f"data: {json.dumps(e, ensure_ascii=False)}\n\n"
             else:
@@ -428,11 +544,13 @@ def api_stream():
 
 @app.get("/api/live")
 def api_live():
-    """Runs that are executing right now, with the events so far (no token deltas) for a late-joining viewer."""
+    desk = need_desk()
     out = []
     with _runs_lock:
         items = list(_runs.items())
     for rid, h in items:
+        if h["desk_id"] != desk["id"]:
+            continue
         alive = h["thread"].is_alive()
         if not alive and not request.args.get("all"):
             continue
@@ -446,8 +564,9 @@ def api_live():
 
 @app.post("/api/runs/<run_id>/cancel")
 def api_cancel(run_id):
+    desk = need_desk()
     live = _runs.get(run_id)
-    if live:
+    if live and live["desk_id"] == desk["id"]:
         live["orch"].cancel()
     return jsonify({"ok": True})
 
@@ -455,34 +574,38 @@ def api_cancel(run_id):
 # ---------------------------------------------------------------------------- api: approvals
 @app.get("/api/actions")
 def api_actions():
-    return jsonify(store.actions(request.args.get("status", "")))
+    return jsonify(ds().actions(request.args.get("status", "")))
 
 
 @app.post("/api/actions/<int:aid>/decide")
 def api_decide(aid):
+    desk = need_desk()
+    dstore = store.for_desk(desk["id"])
+    row = dstore.action(aid)
+    if not row or row.get("desk_id") != desk["id"]:
+        abort(404)
     d = request.get_json(force=True) or {}
     status = d.get("status")
     if status not in ("approved", "rejected"):
         return jsonify({"error": "status must be approved|rejected"}), 400
-    row = store.decide_action(aid, status, by=d.get("by", "owner"), note=d.get("note", ""),
-                              body=d.get("body"), subject=d.get("subject"))
-    if not row:
-        abort(404)
+    u = current_user()
+    by = (u["name"] if u else d.get("by", "owner"))
+    row = dstore.decide_action(aid, status, by=by, note=d.get("note", ""), body=d.get("body"), subject=d.get("subject"))
     if status == "approved":
         # Simulated dispatch. Wire a real sender (SMTP / WhatsApp API) here when a client goes live.
-        row = store.decide_action(aid, "sent", by=d.get("by", "owner"), note=(d.get("note", "") + " [simulated send]").strip())
-        store.add_event(row["run_id"], "sent", "owner", f"{row['kind']} sent to {row['to']} â€” {row['subject']}")
+        row = dstore.decide_action(aid, "sent", by=by, note=(d.get("note", "") + " [simulated send]").strip())
+        dstore.add_event(row["run_id"], "sent", "owner", f"{row['kind']} sent to {row['to']} — {row['subject']}")
         if "@" in (row["to"] or ""):
-            store.upsert_contact(row["to"], {"stage": "Contacted", "next_action": "Follow up in 3 days if no reply"})
+            dstore.upsert_contact(row["to"], {"stage": "Contacted", "next_action": "Follow up in 3 days if no reply"})
     else:
-        store.add_event(row["run_id"], "rejected", "owner", f"{row['kind']} to {row['to']} rejected â€” {d.get('note','')}")
+        dstore.add_event(row["run_id"], "rejected", "owner", f"{row['kind']} to {row['to']} rejected — {d.get('note','')}")
     return jsonify(row)
 
 
 # ---------------------------------------------------------------------------- api: crm / audit / report
 @app.get("/api/contacts")
 def api_contacts():
-    return jsonify(store.contacts(request.args.get("q", "")))
+    return jsonify(ds().contacts(request.args.get("q", "")))
 
 
 @app.post("/api/contacts")
@@ -491,73 +614,99 @@ def api_upsert_contact():
     contact = d.get("contact") or d.get("email") or d.get("name")
     if not contact:
         return jsonify({"error": "contact required"}), 400
-    return jsonify(store.upsert_contact(contact, d.get("fields") or d))
+    return jsonify(ds().upsert_contact(contact, d.get("fields") or d))
 
 
 @app.get("/api/audit")
 def api_audit():
-    return jsonify(store.all_events(400))
+    return jsonify(ds().all_events(400))
 
 
 @app.get("/api/report")
 def api_report():
-    s = store.stats()
-    acts = store.actions()
+    dstore = ds()
+    s = dstore.stats()
+    acts = dstore.actions()
     decided = [a for a in acts if a["status"] in ("sent", "approved", "rejected")]
     approval_rate = round(100 * sum(1 for a in decided if a["status"] != "rejected") / len(decided)) if decided else None
-    runs = store.runs(500)
+    runs = dstore.runs(500)
     done = [r for r in runs if r["status"] == "done"]
+    flagged = sum(1 for a in acts if a.get("flags"))
     mins_saved = len(done) * 35  # assumption: ~35 min of research + drafting + CRM per lead
     return jsonify({
         "period": time.strftime("%B %Y"),
         "leads_handled": s["leads"], "runs_done": len(done), "runs_failed": len([r for r in runs if r["status"] == "error"]),
-        "actions_queued": len(acts), "approval_rate": approval_rate,
+        "actions_queued": len(acts), "approval_rate": approval_rate, "policy_flagged": flagged,
         "sent": sum(1 for a in acts if a["status"] == "sent"), "rejected": s["rejected"], "pending": s["pending"],
         "contacts": s["contacts"], "qualified": s["qualified"],
         "hours_saved": round(mins_saved / 60, 1), "assumption": "35 min saved per processed lead (research + draft + CRM)",
         "tokens_in": s["tokens_in"], "tokens_out": s["tokens_out"],
         "est_model_cost_gbp": round((s["tokens_in"] * 5 + s["tokens_out"] * 25) / 1_000_000 * 0.78, 2),
-        "changes": ["Outreach tone tightened after 2 owner edits", "Added 'no written valuation' rule to QA agent"],
+        "changes": ["Policy layer now blocks figures, placeholders and invented time slots before the queue",
+                    "CRM stage held at New until you approve the first send"],
     })
 
 
 # ---------------------------------------------------------------------------- demo helpers
-SAMPLE_LEADS = [
-    {"name": "Priya Raman", "company": "", "email": "priya.raman@example.com", "phone": "+44 7700 900101", "source": "website form",
-     "notes": "Landlord with 3 flats in SE17, current agent underperforming. Wants a lettings management quote and a valuation for one flat."},
-    {"name": "Tom Okafor", "company": "Okafor Property Ltd", "email": "tom@okaforproperty.example.com", "phone": "+44 7700 900102", "source": "Rightmove enquiry",
-     "notes": "Thinking of selling a 2-bed in Walworth in the next 3 months. Asked for a rough price range."},
-    {"name": "Hannah Weiss", "company": "", "email": "hannah.weiss@example.com", "phone": "", "source": "referral",
-     "notes": "Relocating to London in October, needs a 1-bed rental near Elephant & Castle, budget ~Â£1,600."},
-]
+def _sample_leads(desk: dict[str, Any]) -> list[dict[str, str]]:
+    """Template samples for the stock business; for a customised business ask the (cheap) model to invent
+    three realistic enquiries so the demo matches what the client actually does."""
+    stock = templates.SAMPLE_LEADS.get(desk["template"], templates.SAMPLE_LEADS["sales_desk"])
+    c = desk_configs(desk)
+    b = c["business"]
+    default_name = templates.get(desk["template"])["business"].get("name")
+    if c["mode"] == "demo" or b.get("name") == default_name:
+        return stock
+    try:
+        from ..providers import ProviderPool
+        pool = ProviderPool(c["providers"])
+        prov = pool.get()
+        model = templates.FREE_MODEL if c["providers"].get("default_provider") == "openrouter" else ""
+        prompt = (f"Invent 3 realistic inbound enquiries for this business. Return ONLY a JSON array of objects with keys "
+                  f"name, company, email, phone, source, notes (notes = 1-2 sentence enquiry in the customer's words). "
+                  f"Use example.com emails and +44 7700 9001xx phones.\n\nBusiness: {b.get('name')}\n{b.get('description','')}\n"
+                  f"Services: {', '.join(b.get('services', []))}\nTarget clients: {b.get('target_clients','')}")
+        r = prov.chat("You output strict JSON only.", [prov.user_message(prompt)], [], model)
+        txt = r.text.strip()
+        txt = txt[txt.index("["): txt.rindex("]") + 1]
+        rows = json.loads(txt)
+        out = []
+        for x in rows[:3]:
+            out.append({"name": str(x.get("name", "")).strip() or "Enquiry", "company": str(x.get("company", "") or ""),
+                        "email": str(x.get("email", "") or "lead@example.com"), "phone": str(x.get("phone", "") or ""),
+                        "source": str(x.get("source", "") or "website form"), "notes": str(x.get("notes", "") or "")})
+        return out or stock
+    except Exception:
+        return stock
 
 
 @app.post("/api/demo/seed")
 def api_seed():
+    desk = need_desk()
+    dstore = store.for_desk(desk["id"])
     ids = []
-    for L in SAMPLE_LEADS:
-        lid = store.add_lead(L["name"], L["company"], L["email"], L["phone"], L["source"], L["notes"])
-        store.upsert_contact(L["email"], {"name": L["name"], "company": L["company"], "email": L["email"], "phone": L["phone"], "stage": "New", "notes": "Inbound lead"})
-        ids.append({"id": lid, "run_id": _start_run(_lead_task(store.lead(lid)), "auto", lid)})
+    for L in _sample_leads(desk):
+        lid = dstore.add_lead(L["name"], L["company"], L["email"], L["phone"], L["source"], L["notes"])
+        dstore.upsert_contact(L["email"], {"name": L["name"], "company": L["company"], "email": L["email"], "phone": L["phone"], "stage": "New", "notes": "Inbound lead"})
+        ids.append({"id": lid, "run_id": _start_run(desk, _lead_task(dstore.lead(lid)), "auto", lid)})
         time.sleep(0.05)
     return jsonify(ids)
 
 
 @app.post("/api/demo/reset")
 def api_reset():
-    if any(r["thread"].is_alive() for r in _runs.values()):
+    desk = need_desk()
+    if any(r["desk_id"] == desk["id"] and r["thread"].is_alive() for r in _runs.values()):
         return jsonify({"error": "runs in progress"}), 409
-    with store._lock:
-        for t in ("events", "runs", "actions", "leads", "contacts"):
-            store._conn.execute(f"DELETE FROM {t}")
-        store._conn.commit()
-    _runs.clear()
+    store.for_desk(desk["id"]).reset()
+    for rid in [k for k, v in _runs.items() if v["desk_id"] == desk["id"]]:
+        _runs.pop(rid, None)
     return jsonify({"ok": True})
 
 
 def main():
     port = int(os.environ.get("PORT", "8094"))
-    print(f"Hermes Desk  mode={_mode()}  template={TEMPLATE}  http://localhost:{port}/desk")
+    print(f"Hermes Desk  mode={_mode()}  accounts={'off' if OPEN else 'on'}  http://localhost:{port}/desk")
     app.run(host="0.0.0.0", port=port, debug=False, threaded=True)
 
 

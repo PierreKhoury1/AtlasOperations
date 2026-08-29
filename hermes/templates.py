@@ -39,7 +39,8 @@ def _agent(id_: str, name: str, role: str, prompt: str, tools: list[str] | None 
 def _hermes(extra: str = "") -> dict[str, Any]:
     return _agent("hermes", "Hermes", "Orchestrator / Engagement Lead",
                   _BASE_HERMES_PROMPT + ("\n\n" + extra if extra else ""),
-                  tools=["delegate", "list_agents", "save_deliverable", "read_file", "list_files"],
+                  tools=["delegate", "list_agents", "save_deliverable", "read_file", "list_files",
+                         "crm_lookup", "crm_update", "queue_action"],
                   color="#c084fc")
 
 
@@ -291,3 +292,99 @@ def export_current(name: str, business: dict, agents: list, workflows: list) -> 
     """Save the current setup as a reusable template."""
     with (TEMPLATES_DIR / f"{name}.json").open("w", encoding="utf-8") as f:
         json.dump({"business": business, "agents": agents, "workflows": workflows}, f, indent=2, ensure_ascii=False)
+
+
+# ---------------------------------------------------------------------------- desk catalogue (onboarding)
+DESK_TYPES: list[dict[str, Any]] = [
+    {"id": "sales_desk", "label": "Sales desk", "tagline": "Inbound leads answered, researched, drafted, CRM kept clean.",
+     "does": ["Research every lead", "Personalised first reply", "CRM stage + next action", "Follow-ups"], "for": "Estate agents, clinics, trades, B2B services"},
+    {"id": "consultancy", "label": "Consultancy desk", "tagline": "Briefs, strategy, pricing and client-ready proposals.",
+     "does": ["Research brief", "Recommendation + roadmap", "Pricing", "Proposal reviewed by QA"], "for": "Consultancies, advisors, freelancers"},
+    {"id": "agency", "label": "Agency desk", "tagline": "Campaign pitches: research, creative, media plan, review.",
+     "does": ["Audience research", "Creative concepts", "Media plan", "Pitch deck copy"], "for": "Marketing, creative and PR agencies"},
+    {"id": "saas", "label": "SaaS desk", "tagline": "Go-to-market plans, positioning, pricing, product notes.",
+     "does": ["Market + competitor research", "Positioning + pricing", "Business model", "Review"], "for": "Software companies"},
+    {"id": "ecommerce", "label": "E-commerce desk", "tagline": "Product launches: listings, marketing, operations.",
+     "does": ["Product research", "Listing copy", "Launch marketing", "Ops checklist"], "for": "Online stores and brands"},
+]
+
+SAMPLE_LEADS: dict[str, list[dict[str, str]]] = {
+    "sales_desk": [
+        {"name": "Priya Raman", "company": "", "email": "priya.raman@example.com", "phone": "+44 7700 900101", "source": "website form",
+         "notes": "Landlord with 3 flats in SE17, current agent underperforming. Wants a lettings management quote and a valuation for one flat."},
+        {"name": "Tom Okafor", "company": "Okafor Property Ltd", "email": "tom@okaforproperty.example.com", "phone": "+44 7700 900102", "source": "Rightmove enquiry",
+         "notes": "Thinking of selling a 2-bed in Walworth in the next 3 months. Asked for a rough price range."},
+        {"name": "Hannah Weiss", "company": "", "email": "hannah.weiss@example.com", "phone": "", "source": "referral",
+         "notes": "Relocating to London in October, needs a 1-bed rental near Elephant & Castle, budget ~£1,600."},
+    ],
+    "consultancy": [
+        {"name": "Dana Whitfield", "company": "Northgate Logistics", "email": "dana@northgate.example.com", "phone": "+44 7700 900201", "source": "LinkedIn",
+         "notes": "Ops director. Warehouse picking errors up 30% since a new WMS went in; wants an outside view and a fixed-fee diagnostic."},
+        {"name": "Samir Haddad", "company": "Haddad & Co Accountants", "email": "samir@haddadco.example.com", "phone": "", "source": "website form",
+         "notes": "12-person accountancy practice. Asks whether AI can take over client onboarding and document chasing, and what it would cost."},
+        {"name": "Lena Fischer", "company": "Fischer Dental Group", "email": "lena@fischerdental.example.com", "phone": "+44 7700 900203", "source": "referral",
+         "notes": "Three clinics, wants a growth strategy for a fourth site and help pricing a membership plan."},
+    ],
+    "agency": [
+        {"name": "Marcus Bell", "company": "Bell's Bakery", "email": "marcus@bellsbakery.example.com", "phone": "+44 7700 900301", "source": "Instagram DM",
+         "notes": "Opening a second shop in Peckham in November. Wants a launch campaign on a 4k budget."},
+        {"name": "Aisha Khan", "company": "Kite Yoga Studios", "email": "aisha@kiteyoga.example.com", "phone": "", "source": "website form",
+         "notes": "Membership sign-ups flat for six months. Asks for a pitch: social + email + local partnerships."},
+        {"name": "Oliver Grant", "company": "Grant Kitchens", "email": "oliver@grantkitchens.example.com", "phone": "+44 7700 900303", "source": "referral",
+         "notes": "Premium fitted kitchens, wants brand refresh + a lead-gen campaign for spring."},
+    ],
+    "saas": [
+        {"name": "Chloe Martin", "company": "Ledgerly", "email": "chloe@ledgerly.example.com", "phone": "", "source": "product signup",
+         "notes": "Founder of a bookkeeping SaaS for cafes. Wants a go-to-market plan and pricing tiers before launch."},
+        {"name": "Ravi Patel", "company": "ShiftBoard", "email": "ravi@shiftboard.example.com", "phone": "+44 7700 900402", "source": "website form",
+         "notes": "Rota software for care homes. Asks for competitor positioning and an outbound plan."},
+        {"name": "Emma Lund", "company": "Fieldnote", "email": "emma@fieldnote.example.com", "phone": "", "source": "referral",
+         "notes": "Inspection app for surveyors. Needs a pricing model review and a churn-reduction plan."},
+    ],
+    "ecommerce": [
+        {"name": "Jade Owens", "company": "Owens Ceramics", "email": "jade@owensceramics.example.com", "phone": "", "source": "Shopify contact form",
+         "notes": "Launching a 12-piece tableware range in October. Wants listings, launch emails and an ads plan."},
+        {"name": "Ben Carter", "company": "Trailhead Supply", "email": "ben@trailhead.example.com", "phone": "+44 7700 900502", "source": "website form",
+         "notes": "Outdoor gear store; asks how to launch a new sleeping-bag line with a 2k budget."},
+        {"name": "Nadia Ali", "company": "Nadia Ali Skincare", "email": "nadia@nadiaali.example.com", "phone": "", "source": "Instagram DM",
+         "notes": "Wants product descriptions rewritten for 8 SKUs and a launch plan for a new serum."},
+    ],
+}
+
+# model tiers: which agents get the strong model. Provider stays whatever the desk runs on (OpenRouter by default).
+TIERS: dict[str, dict[str, Any]] = {
+    "free":     {"label": "Free",     "strong": [],                                  "note": "Free OpenRouter model for every agent. Good for demos; writing is adequate."},
+    "balanced": {"label": "Balanced", "strong": ["hermes"],                          "note": "Claude Sonnet plans and reviews; specialists run free. About 5p per lead."},
+    "best":     {"label": "Best",     "strong": ["hermes", "qa", "writer", "proposal", "strategy", "review"], "note": "Claude Sonnet wherever judgement or client-facing text matters. About 15p per lead."},
+}
+STRONG_MODEL = "anthropic/claude-sonnet-4.5"
+FREE_MODEL = "minimax/minimax-m3:free"
+
+
+def apply_tier(agents: list[dict[str, Any]], tier: str) -> None:
+    strong = set(TIERS.get(tier, TIERS["free"])["strong"])
+    for a in agents:
+        a["model"] = STRONG_MODEL if a["id"] in strong else FREE_MODEL
+
+
+def build_desk(template: str, answers: dict[str, Any]) -> dict[str, Any]:
+    """Turn onboarding answers into the desk config stored in the DB (business overrides only)."""
+    t = get(template)
+    b = dict(t["business"])
+    for k in ("name", "tagline", "description", "target_clients", "tone", "currency", "pricing_notes",
+              "extra_context", "sender_name", "availability"):
+        v = answers.get(k)
+        if isinstance(v, str):
+            v = v.strip()
+        if v:
+            b[k] = v
+    if answers.get("services"):
+        sv = answers["services"]
+        b["services"] = [x.strip() for x in (sv.split(",") if isinstance(sv, str) else sv) if x.strip()]
+    b["policy"] = {
+        "no_money_figures": bool(answers.get("no_money_figures", template == "sales_desk")),
+        "max_words": int(answers.get("max_words") or 220),
+        "banned_phrases": [x.strip() for x in str(answers.get("banned_phrases") or "").split(",") if x.strip()],
+    }
+    b["model"] = template
+    return {"business": b}

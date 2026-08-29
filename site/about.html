@@ -13,8 +13,10 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="cinema.css">
 </head>
 <body>
+<canvas class="orbit" data-orbit='{"alpha":0.42,"zoom":0.92}' aria-hidden="true"></canvas>
 <!-- multipage -->
 <nav class="nav">
   <div class="wrap">
@@ -64,9 +66,9 @@
 </section>
 <section class="tight">
   <div class="wrap">
-    <div class="band rv">
+    <div class="band">
       <div><div class="eyebrow">Start small, prove it, expand</div><h2>One desk in 30 <b>days</b>.</h2></div>
-      <a class="btn primary" href="contact.html#form">Book a scoping call →</a>
+      <a class="btn primary" href="contact.html#form">Book a scoping call <i class="ar">→</i></a>
     </div>
   </div>
 </section>
@@ -81,7 +83,12 @@
     <div class="fbar"><span>© <span id="yr"></span> <span data-brand>Hermes Ops</span></span><a href="mailto:hello@hermesops.co" data-email>hello@hermesops.co</a></div>
   </div>
 </footer>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/ScrollTrigger.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/lenis@1.1.18/dist/lenis.min.js"></script>
 <script src="silk.js"></script>
+<script src="orbit.js"></script>
 <script src="script.js"></script>
+<script src="cinema.js"></script>
 </body>
 </html>

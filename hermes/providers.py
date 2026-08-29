@@ -220,15 +220,20 @@ class OpenAICompatProvider(Provider):
                 pass
             raise RuntimeError(f"HTTP {r.status_code}: {msg}")
 
+        fallback = (self.cfg.get("fallback_model") or "").strip()
         with self._httpx.Client(base_url=self.base_url, headers=headers,
                                 timeout=float(self.cfg.get("timeout", 300))) as client:
-            if not on_token:
-                r = client.post("/chat/completions", json=payload)
-                if r.status_code >= 400:
-                    _raise(r)
-                body = r.json()
-            else:
-                body = self._stream(client, payload, on_token, _raise)
+            try:
+                body = self._once(client, payload, on_token, _raise)
+            except RuntimeError as exc:
+                code = str(exc)[:9]
+                retryable = any(code.startswith(f"HTTP {c}") for c in ("402", "429", "500", "502", "503", "529"))
+                if fallback and fallback != model and retryable:
+                    payload["model"] = fallback
+                    body = self._once(client, payload, on_token, _raise)
+                    body["_fallback_from"] = model
+                else:
+                    raise
         choice = body["choices"][0]
         message = choice["message"]
         calls = []
@@ -249,6 +254,14 @@ class OpenAICompatProvider(Provider):
             output_tokens=int(usage.get("completion_tokens") or 0),
             model=body.get("model") or model,
         )
+
+    def _once(self, client, payload, on_token, _raise) -> dict[str, Any]:
+        if not on_token:
+            r = client.post("/chat/completions", json=payload)
+            if r.status_code >= 400:
+                _raise(r)
+            return r.json()
+        return self._stream(client, payload, on_token, _raise)
 
     @staticmethod
     def _stream(client, payload, on_token, _raise) -> dict[str, Any]:

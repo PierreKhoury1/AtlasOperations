@@ -18,6 +18,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
 
+from . import policy as P
 from . import tools as T
 from .config import RUNS_DIR
 from .providers import ProviderPool, ToolCall
@@ -66,6 +67,7 @@ class Orchestrator:
         self.run_dir = RUNS_DIR
         self.deliverables: list[Path] = []
         self._ws: T.WorkspaceTools | None = None
+        self._policy_hits: dict[tuple[str, str], int] = {}
 
     # ------------------------------------------------------------------ events
     def emit(self, kind: str, agent: str = "system", text: str = "", **data):
@@ -217,7 +219,18 @@ class Orchestrator:
             kind = str(args.get("kind", "other")); to = str(args.get("to", ""))
             subject = str(args.get("subject", "") or ""); body = str(args.get("body", ""))
             reason = str(args.get("reason", "") or "")
-            qid = self.store.add_action(self.run_id, aid, kind, to, subject, body, reason)
+            violations = P.check_outbound(kind, subject, body, self.business)
+            key = (kind, to)
+            self._policy_hits[key] = self._policy_hits.get(key, 0) + (1 if violations else 0)
+            flags = ""
+            if violations and self._policy_hits[key] <= 2:
+                self.emit("policy", aid, f"blocked {kind} → {to}: " + "; ".join(violations), violations=violations)
+                return ("POLICY BLOCK - not queued. Fix these and call queue_action again:"
+                        + "".join(chr(10) + "- " + v for v in violations))
+            if violations:   # third attempt: let it through, but flag it loudly for the owner
+                flags = " | ".join(violations)
+                self.emit("policy", aid, f"flagged {kind} → {to} after repeated violations: " + flags, violations=violations)
+            qid = self.store.add_action(self.run_id, aid, kind, to, subject, body, reason, flags=flags)
             self.emit("approval", aid, f"{kind} → {to}: {subject or body[:60]}", action_id=qid, action_kind=kind, to=to)
             return f"queued for approval (id={qid}). It will only be sent after the owner approves."
         if name == "crm_lookup":
@@ -243,6 +256,7 @@ class Orchestrator:
         self._cancel.clear()
         self.tokens_in = self.tokens_out = 0
         self.deliverables = []
+        self._policy_hits = {}
         self.run_id = time.strftime("%Y%m%d-%H%M%S") + "-" + uuid.uuid4().hex[:6]
         self.run_dir = RUNS_DIR / self.run_id
         self.run_dir.mkdir(parents=True, exist_ok=True)

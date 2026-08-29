@@ -13,8 +13,10 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="cinema.css">
 </head>
 <body>
+<canvas class="orbit" data-orbit='{"alpha":0.42,"zoom":0.92}' aria-hidden="true"></canvas>
 <!-- multipage -->
 <nav class="nav">
   <div class="wrap">
@@ -37,11 +39,11 @@
     <div class="eyebrow">How it works</div>
     <h2>A repeatable operating system, not a one-off <b>build</b>.</h2>
     <div class="steps">
-      <div class="step rv"><h3>Map the process</h3><p>We sit with you and write down how the function actually runs today — inputs, decisions, hand-offs, what "good" looks like.</p></div>
-      <div class="step rv"><h3>Connect your accounts</h3><p>Email, calendar, CRM, forms, WhatsApp, Slack, your documents. Your data stays in your accounts.</p></div>
-      <div class="step rv"><h3>Configure the desk</h3><p>Specialised agents with your tone, rules and templates. Approval rules for anything sensitive.</p></div>
-      <div class="step rv"><h3>Run with approvals</h3><p>Agents work the queue. You approve, edit or reject from one inbox. Nothing risky goes out on its own.</p></div>
-      <div class="step rv"><h3>Monitor &amp; improve</h3><p>We watch failures, tune prompts and workflows, and add capability monthly. You get a report and a roadmap.</p></div>
+      <div class="step"><h3>Map the process</h3><p>We sit with you and write down how the function actually runs today — inputs, decisions, hand-offs, what "good" looks like.</p></div>
+      <div class="step"><h3>Connect your accounts</h3><p>Email, calendar, CRM, forms, WhatsApp, Slack, your documents. Your data stays in your accounts.</p></div>
+      <div class="step"><h3>Configure the desk</h3><p>Specialised agents with your tone, rules and templates. Approval rules for anything sensitive.</p></div>
+      <div class="step"><h3>Run with approvals</h3><p>Agents work the queue. You approve, edit or reject from one inbox. Nothing risky goes out on its own.</p></div>
+      <div class="step"><h3>Monitor &amp; improve</h3><p>We watch failures, tune prompts and workflows, and add capability monthly. You get a report and a roadmap.</p></div>
     </div>
   </div>
 </section>
@@ -59,7 +61,7 @@
         <li>Cancel any time; your data, prompts and workflows are yours</li>
       </ul>
     </div>
-    <div class="guard rv">
+    <div class="guard">
       <h3>🔒 Never without approval</h3>
       <ul class="list x">
         <li>Sending money or issuing refunds</li>
@@ -88,9 +90,9 @@
 </section>
 <section class="tight">
   <div class="wrap">
-    <div class="band rv">
+    <div class="band">
       <div><div class="eyebrow">Start small, prove it, expand</div><h2>One desk in 30 <b>days</b>.</h2></div>
-      <a class="btn primary" href="contact.html#form">Book a scoping call →</a>
+      <a class="btn primary" href="contact.html#form">Book a scoping call <i class="ar">→</i></a>
     </div>
   </div>
 </section>
@@ -105,7 +107,12 @@
     <div class="fbar"><span>© <span id="yr"></span> <span data-brand>Hermes Ops</span></span><a href="mailto:hello@hermesops.co" data-email>hello@hermesops.co</a></div>
   </div>
 </footer>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/ScrollTrigger.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/lenis@1.1.18/dist/lenis.min.js"></script>
 <script src="silk.js"></script>
+<script src="orbit.js"></script>
 <script src="script.js"></script>
+<script src="cinema.js"></script>
 </body>
 </html>

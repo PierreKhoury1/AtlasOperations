@@ -136,13 +136,37 @@ tr.click{cursor:pointer}tr.click:hover{background:var(--panel2)}
 @media(max-width:1100px){.sgrid{grid-template-columns:1fr 1fr}.node.hermes{grid-column:1 / span 2;grid-row:auto}.stage svg{display:none}}
 @media(prefers-reduced-motion:reduce){.stage .edge.on,.dot.live,.stream .caret{animation:none}}
 @media(max-width:900px){.layout{grid-template-columns:1fr}aside{position:static;height:auto}.g5,.g4,.g3,.g2{grid-template-columns:1fr 1fr}main{padding:16px}}
+
+/* ---------- onboarding */
+.ob{max-width:920px}
+.ob .step{margin-bottom:18px}
+.ob .step .ph h2{display:flex;align-items:center;gap:10px}
+.ob .num{width:22px;height:22px;border-radius:4px;background:var(--accent);color:#fff;font-size:12px;display:grid;place-items:center;font-weight:700}
+.ob .pb{display:grid;gap:0 14px;grid-template-columns:1fr 1fr}
+.ob .pb .full{grid-column:1 / -1}
+.choices{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:10px;grid-column:1 / -1}
+.choice{border:1px solid var(--line);border-radius:var(--r);padding:12px 14px;cursor:pointer;background:var(--bg)}
+.choice:hover{border-color:var(--line2)}
+.choice.on{border-color:var(--accent);background:rgba(168,85,247,.08)}
+.choice b{display:block;font-size:13.5px;margin-bottom:3px}
+.choice small{color:var(--muted);font-size:12px;display:block;line-height:1.4}
+.choice ul{margin:8px 0 0;padding-left:16px;color:var(--muted);font-size:12px}
+.hint{color:var(--faint);font-size:12px;margin-top:4px}
+.ws{position:relative}
+.wsmenu{position:absolute;left:0;right:0;top:calc(100% + 4px);background:var(--panel);border:1px solid var(--line2);border-radius:var(--r);z-index:20;padding:6px;box-shadow:0 12px 30px rgba(0,0,0,.5)}
+.wsmenu button{display:block;width:100%;text-align:left;background:none;border:0;color:var(--text);padding:8px 10px;border-radius:6px;font:inherit;font-size:13px;cursor:pointer}
+.wsmenu button:hover{background:var(--panel2)}
+.wsmenu button.on{color:var(--accent2)}
+.wsmenu .new{border-top:1px solid var(--line);margin-top:4px;padding-top:8px;color:var(--accent2);font-weight:700}
+.flag{background:rgba(251,113,133,.10);border:1px solid rgba(251,113,133,.4);color:#ffb3c2;padding:8px 10px;border-radius:6px;font-size:12px;margin:8px 0}
+.model{font-family:Consolas,"Cascadia Mono",monospace;font-size:11px;color:var(--faint)}
 </style>
 </head>
 <body>
 <div class="layout">
 <aside>
   <div class="brand"><i></i>Hermes Desk</div>
-  <div class="ws" title="Workspace"><div><b id="bizname">…</b><small id="wshint">sales desk</small></div><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m7 15 5 5 5-5M7 9l5-5 5 5"/></svg></div>
+  <div class="ws" title="Switch desk" onclick="toggleWs(event)"><div><b id="bizname">…</b><small id="wshint">sales desk</small></div><div class="wsmenu hide" id="wsmenu"></div><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m7 15 5 5 5-5M7 9l5-5 5 5"/></svg></div>
   <nav id="nav">
     <button data-p="dash" class="on"><svg viewBox="0 0 24 24"><path d="M3 12 12 3l9 9"/><path d="M5 10v10h14V10"/></svg>Dashboard</button>
     <button data-p="live"><svg viewBox="0 0 24 24"><path d="M3 12h4l3-8 4 16 3-8h4"/></svg>Live desk <span class="dot" id="n-live"></span></button>
@@ -162,6 +186,32 @@ tr.click{cursor:pointer}tr.click:hover{background:var(--panel2)}
   </div>
 </aside>
 <main>
+
+<!-- ONBOARDING -->
+<section id="p-onboard" class="hide">
+  <div class="phead"><div><h1>Set up your desk</h1><p class="lead">Four short steps. This is the same mapping we do on a scoping call — you can change any of it later in Desk setup.</p></div></div>
+  <div class="ob">
+    <div class="panel step"><div class="ph"><h2><span class="num">1</span>Your business</h2></div><div class="pb">
+      <div><label>Business name</label><input id="ob-name" placeholder="Acme Estates"></div>
+      <div><label>One-line tagline</label><input id="ob-tagline" placeholder="Independent estate & lettings agency"></div>
+      <div class="full"><label>What do you do? (2–3 sentences)</label><textarea id="ob-desc" placeholder="Estate and lettings agency in South London. We sell and let flats and houses and manage rentals for landlords."></textarea></div>
+      <div><label>Services (comma separated)</label><input id="ob-services" placeholder="Sales valuations, Lettings, Property management"></div>
+      <div><label>Who are your customers?</label><input id="ob-target" placeholder="Landlords with 1–10 properties, first-time sellers"></div>
+      <div class="full"><label>Tone of voice</label><input id="ob-tone" placeholder="Warm, local, specific. Short emails. Never pushy. One clear next step."></div>
+    </div></div>
+    <div class="panel step"><div class="ph"><h2><span class="num">2</span>Which desk?</h2><span class="hint">One function first. Add more desks later.</span></div><div class="pb"><div class="choices" id="ob-types"></div></div></div>
+    <div class="panel step"><div class="ph"><h2><span class="num">3</span>Rules the agents must follow</h2></div><div class="pb">
+      <div><label>Sign outbound messages as</label><input id="ob-sender" placeholder="Sam Reid, Acme Estates"></div>
+      <div><label>Availability for calls / visits</label><input id="ob-avail" placeholder="Weekdays 9–6 and Saturday mornings"></div>
+      <div><label>Pricing notes (for the agents, not quoted unless allowed)</label><input id="ob-pricing" placeholder="Sales 1.2% + VAT; lettings 8% managed / 5% let-only"></div>
+      <div><label>Banned phrases (comma separated)</label><input id="ob-banned" placeholder="guaranteed, best price, cheapest"></div>
+      <div class="full"><label>Approval rules &amp; anything else the agents must know</label><textarea id="ob-extra" placeholder="Never promise a valuation figure in writing before a visit. Any email, WhatsApp or SMS waits for owner approval."></textarea></div>
+      <div class="full"><label style="display:flex;gap:8px;align-items:center;margin-top:4px"><input type="checkbox" id="ob-nofig" style="width:auto" checked> Block any money or fee figure in outbound messages (policy layer)</label></div>
+    </div></div>
+    <div class="panel step"><div class="ph"><h2><span class="num">4</span>Which brain?</h2><span class="hint" id="ob-modehint"></span></div><div class="pb"><div class="choices" id="ob-tiers"></div></div></div>
+    <div class="row"><button class="btn p" onclick="createDesk()">Create desk →</button><span class="hint">You can seed three sample leads right after and watch the desk run.</span></div>
+  </div>
+</section>
 
 <!-- DASHBOARD -->
 <section id="p-dash">
@@ -259,7 +309,7 @@ tr.click{cursor:pointer}tr.click:hover{background:var(--panel2)}
 <script>
 window.addEventListener('hashchange', ()=>{const h=location.hash.slice(1); if(document.getElementById('p-'+h)) go(h);});
 const $ = s => document.querySelector(s);
-const api = async (p, opt) => { const r = await fetch('/api' + p, opt ? {headers:{'Content-Type':'application/json'}, ...opt, body: opt.body ? JSON.stringify(opt.body) : undefined} : undefined); if (r.status === 401) { location.href = '/login?next=/desk'; return; } return r.json(); };
+const api = async (p, opt) => { const r = await fetch('/api' + p, opt ? {headers:{'Content-Type':'application/json'}, ...opt, body: opt.body ? JSON.stringify(opt.body) : undefined} : undefined); if (r.status === 401) { location.href = '/login?next=/desk'; return; } if (r.status === 409) { const j = await r.json(); if (j.error === 'no_desk') { showOnboarding(); return null; } return j; } return r.json(); };
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const when = ts => new Date(ts * 1000).toLocaleString('en-GB', {day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit'});
 const hms = ts => new Date(ts * 1000).toLocaleTimeString('en-GB');
@@ -270,6 +320,8 @@ document.querySelectorAll('#nav button').forEach(b=>b.onclick=()=>go(b.dataset.p
 
 async function init(){
   CFG = await api('/config');
+  if (CFG && CFG.needs_desk) { await showOnboarding(); return; }
+  loadDesks();
   const me = await api('/me'); if (me && me.id) { $('#who').textContent = me.name; $('#whoco').textContent = me.company || me.email; $('#whoav').textContent = (me.name||'?').trim()[0].toUpperCase(); } else { $('#who').textContent = 'Guest'; }
   colors = Object.fromEntries(CFG.agents.map(a=>[a.id, a.color || '#60a5fa']));
   $('#bizname').textContent = CFG.business.name; $('#wshint').textContent = (CFG.template || '').replace('_', ' ') + ' · ' + CFG.mode;
@@ -279,12 +331,12 @@ async function init(){
   const modes = ['<option value="auto">auto (Hermes decides)</option>'].concat(CFG.workflows.map(w=>`<option value="${w.id}">${esc(w.name)}</option>`)).join('');
   $('#l-mode').innerHTML = modes; $('#r-mode').innerHTML = modes;
   $('#setup-biz').innerHTML = `<h2>Business</h2><div class="md">${esc(Object.entries(CFG.business).map(([k,v])=>`${k}: ${Array.isArray(v)?v.join(', '):v}`).join('\n'))}</div>`;
-  $('#setup-agents').innerHTML = `<h2>Agents &amp; tools</h2>` + CFG.agents.map(a=>`<div style="margin-bottom:10px"><div class="agentline"><i style="background:${a.color||'#60a5fa'}"></i><b>${esc(a.name)}</b> <span class="tag">${a.id}</span></div><div style="color:var(--muted);font-size:12px;margin-left:18px">${esc(a.role)}<br>tools: ${a.tools.map(t=>`<span class="tag">${t}</span>`).join(' ')}</div></div>`).join('') + `<h2 style="margin-top:14px">Workflows</h2>` + CFG.workflows.map(w=>`<div><b>${esc(w.name)}</b> <span style="color:var(--muted)">— ${esc(w.description)}</span></div>`).join('');
+  $('#setup-agents').innerHTML = `<h2>Agents &amp; tools</h2>` + CFG.agents.map(a=>`<div style="margin-bottom:10px"><div class="agentline"><i style="background:${a.color||'#60a5fa'}"></i><b>${esc(a.name)}</b> <span class="tag">${a.id}</span></div><div style="color:var(--muted);font-size:12px;margin-left:18px">${esc(a.role)} <span class="model">· ${esc(a.model||'')}</span><br>tools: ${a.tools.map(t=>`<span class="tag">${t}</span>`).join(' ')}</div></div>`).join('') + `<h2 style="margin-top:14px">Workflows</h2>` + CFG.workflows.map(w=>`<div><b>${esc(w.name)}</b> <span style="color:var(--muted)">— ${esc(w.description)}</span></div>`).join('');
   const h=location.hash.slice(1); if(h && document.getElementById('p-'+h)) go(h); else refresh(); setInterval(refresh, 2500);
 }
 
 async function refresh(){
-  const s = await api('/stats'); if(!s) return;
+  const s = await api('/stats'); if(!s || s.needs_desk) return;
   $('#n-leads').textContent = s.leads; $('#n-pending').textContent = s.pending;
   $('#k-leads').textContent = s.leads; $('#k-pending').textContent = s.pending; $('#k-sent').textContent = s.approved; $('#k-qual').textContent = s.qualified; $('#k-active').textContent = s.active_runs; $('#d-dot').classList.toggle('live', s.active_runs > 0); $('#k-tok').textContent = ((s.tokens_in||0)+(s.tokens_out||0)).toLocaleString(); $('#k-cost').textContent = 'model cost £' + (((s.tokens_in||0)*5+(s.tokens_out||0)*25)/1e6*0.78).toFixed(2);
   $('#n-live').classList.toggle('live', s.active_runs > 0);
@@ -323,7 +375,8 @@ async function loadApprovals(){
   const A = await api('/actions' + (af?`?status=${af}`:''));
   $('#approvals').innerHTML = A.length ? A.map(a=>`<div class="card appr" id="a${a.id}">
     <div class="row"><span class="tag ${a.status}">${a.status}</span><span class="tag">${esc(a.kind)}</span><b>to ${esc(a.to)}</b><span class="spacer"></span><span class="meta">queued ${when(a.created)} by <span style="color:${colors[a.agent]||'var(--text)'}">${esc(a.agent)}</span> · run ${esc(a.run_id)}</span></div>
-    ${a.reason?`<div class="meta" style="margin-top:6px">⚠ ${esc(a.reason)}</div>`:''}
+    ${a.flags?`<div class="flag">⚠ Policy flagged this after repeated attempts — check before sending: ${esc(a.flags)}</div>`:''}
+    ${a.reason?`<div class="meta" style="margin-top:6px">${esc(a.reason)}</div>`:''}
     <label>Subject</label><input id="s${a.id}" value="${esc(a.subject)}" ${a.status!=='pending'?'disabled':''}>
     <label>Body</label><textarea id="b${a.id}" ${a.status!=='pending'?'disabled':''}>${esc(a.body)}</textarea>
     ${a.status==='pending' ? `<div class="row" style="margin-top:10px"><button class="btn ok" onclick="decide(${a.id},'approved')">✔ Approve &amp; send</button><button class="btn d" onclick="decide(${a.id},'rejected')">✖ Reject</button><input id="n${a.id}" placeholder="note (optional — used to tune the agents)" style="flex:1"></div>` : `<div class="meta" style="margin-top:8px">decided ${a.decided_at?when(a.decided_at):''} by ${esc(a.decided_by||'')} ${a.note?'— '+esc(a.note):''}</div>`}
@@ -492,6 +545,41 @@ function renderLive(){
   $('#live-log').innerHTML = S.log.slice(-14).reverse().map(e => `<div class="${e.kind === 'approval' ? 'approval-flash' : ''}">${evLine(e)}</div>`).join('') || '(no hand-offs yet)';
 }
 window.addEventListener('resize', () => { if (page === 'live') drawEdges(); });
+
+/* ================= DESKS + ONBOARDING ================= */
+let OB = { template: 'sales_desk', tier: 'free', types: [], tiers: [] };
+async function loadDesks(){
+  const D = await api('/desks'); if (!D) return;
+  $('#wsmenu').innerHTML = D.desks.map(d => `<button class="${d.id===D.current?'on':''}" onclick="switchDesk(${d.id}, event)">${esc(d.business_name||d.name)} <span class="model">· ${esc(d.template.replace('_',' '))} · ${esc(d.tier)}</span></button>`).join('') + `<button class="new" onclick="newDesk(event)">+ New desk</button>`;
+}
+function toggleWs(ev){ ev.stopPropagation(); $('#wsmenu').classList.toggle('hide'); }
+document.addEventListener('click', () => { const m = $('#wsmenu'); if (m) m.classList.add('hide'); });
+async function switchDesk(id, ev){ ev.stopPropagation(); await api(`/desks/${id}/select`, {method:'POST', body:{}}); location.hash = '#dash'; location.reload(); }
+function newDesk(ev){ ev.stopPropagation(); showOnboarding(); }
+async function showOnboarding(){
+  const T = await api('/templates'); OB.types = T.desks; OB.tiers = T.tiers;
+  document.querySelectorAll('main > section').forEach(s=>s.classList.toggle('hide', s.id!=='p-onboard'));
+  document.querySelectorAll('#nav button').forEach(b=>b.classList.remove('on'));
+  $('#ob-modehint').textContent = T.mode==='demo' ? 'Demo mode: scripted agents, no model cost.' : 'Live models via OpenRouter. Free tier costs nothing.';
+  renderChoices();
+  const me = await api('/me'); if (me && me.company && !$('#ob-name').value) $('#ob-name').value = me.company;
+  if (me && me.id) { $('#who').textContent = me.name; $('#whoco').textContent = me.company || me.email; $('#whoav').textContent = (me.name||'?').trim()[0].toUpperCase(); }
+  $('#bizname').textContent = 'New desk'; $('#wshint').textContent = 'not created yet';
+  loadDesks();
+}
+function renderChoices(){
+  $('#ob-types').innerHTML = OB.types.map(t => `<div class="choice ${t.id===OB.template?'on':''}" onclick="OB.template='${t.id}';renderChoices()"><b>${esc(t.label)}</b><small>${esc(t.tagline)}</small><ul>${t.does.map(d=>`<li>${esc(d)}</li>`).join('')}</ul><small style="margin-top:6px">For: ${esc(t.for)}</small></div>`).join('');
+  $('#ob-tiers').innerHTML = OB.tiers.map(t => `<div class="choice ${t.id===OB.tier?'on':''}" onclick="OB.tier='${t.id}';renderChoices()"><b>${esc(t.label)}</b><small>${esc(t.note)}</small></div>`).join('');
+}
+async function createDesk(){
+  const v = id => $('#'+id).value.trim();
+  if (!v('ob-name')) { toast('Give the desk a business name'); $('#ob-name').focus(); return; }
+  const body = { name: v('ob-name'), template: OB.template, tier: OB.tier, tagline: v('ob-tagline'), description: v('ob-desc'), services: v('ob-services'),
+    target_clients: v('ob-target'), tone: v('ob-tone'), sender_name: v('ob-sender'), availability: v('ob-avail'), pricing_notes: v('ob-pricing'),
+    banned_phrases: v('ob-banned'), extra_context: v('ob-extra'), no_money_figures: $('#ob-nofig').checked };
+  const r = await api('/desks', {method:'POST', body}); if (!r || r.error) return toast(r?.error || 'failed');
+  toast('Desk created'); location.hash = '#dash'; location.reload();
+}
 
 init();
 </script>

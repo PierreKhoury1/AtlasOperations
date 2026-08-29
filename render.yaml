@@ -9,6 +9,8 @@ services:
     envVars:
       - key: DESK_MODE
         value: demo
+      - key: DESK_SECRET
+        generateValue: true
       - key: DESK_TEMPLATE
         value: sales_desk
       - key: DEMO_DELAY

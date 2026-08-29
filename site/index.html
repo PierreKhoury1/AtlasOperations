@@ -13,9 +13,14 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="cinema.css">
 </head>
 <body>
 <!-- multipage -->
+<div class="bgimg" id="bgimg" data-src="img/hero.jpg" aria-hidden="true"></div>
+<canvas class="orbit" data-orbit='{"alpha":1}' aria-hidden="true"></canvas>
+<div class="shade" aria-hidden="true"></div>
+
 <nav class="nav">
   <div class="wrap">
     <a class="brand" href="index.html"><i></i><span data-brand>Hermes Ops</span></a>
@@ -23,16 +28,16 @@
     <button class="burger" id="burger" aria-label="menu">☰</button>
   </div>
 </nav>
-<header class="hero" id="top">
-  <canvas class="silk" data-silk='{"ribbons":6,"alpha":1}' aria-hidden="true"></canvas>
+
+<header class="hero cine" id="top" data-title="Hermes Ops">
   <div class="wrap grid">
-    <div>
+    <div class="h-in">
       <div class="crumb"><b>Hermes Ops</b> / AI operations, run as a service</div>
-      <h1>We install and operate an <b>AI workforce</b> for one business function.</h1>
+      <h1>We install and operate an <span class="gw">AI workforce</span> for one business function.</h1>
       <p class="lead">Bring us your business and its process. We map it, connect your accounts, configure a team of specialised AI agents with approval rules — then run and improve it every month. You stay in control of anything that touches money, contracts or customers.</p>
       <div class="cta">
-        <a class="btn primary" href="contact.html#form">Book a scoping call →</a>
-        <a class="btn ghost" href="/signup">Try the live demo ↗</a>
+        <a class="btn primary" href="contact.html#form">Book a scoping call <i class="ar">→</i></a>
+        <a class="btn ghost" href="/signup">Try the live demo <i class="ar">↗</i></a>
       </div>
       <div class="proof">
         <div><b>1 function</b>at a time — done properly</div>
@@ -48,71 +53,93 @@
       <div class="row"><span class="tag writer">Writer</span><div>Drafted personalised outreach + valuation offer. Tone: warm, specific.</div></div>
       <div class="row"><span class="tag crm">CRM</span><div>Contact updated · stage = Qualified · follow-up in 3 days.</div></div>
       <div class="row approve"><span class="tag hermes">Approve</span><div>Send email to lead?<div class="a"><span>Approve &amp; send</span><span class="no">Edit</span><span class="no">Reject</span></div></div></div>
+      <div class="sent">✓ Sent · CRM updated · follow-up scheduled</div>
     </div>
   </div>
+  <a class="scroll-hint" href="#desks"><span></span>Scroll</a>
 </header>
 
-<div class="strip"><div class="wrap">
-  <span>Estate agents</span><span>Clinics</span><span>E-commerce brands</span><span>Consultancies</span><span>Agencies</span><span>Professional services</span>
+<div class="strip"><div class="track" aria-hidden="true">
+  <span>Estate agents</span><span>Clinics</span><span>E-commerce brands</span><span>Consultancies</span><span>Agencies</span><span>Professional services</span><span>Trades</span><span>Salons</span>
+  <span>Estate agents</span><span>Clinics</span><span>E-commerce brands</span><span>Consultancies</span><span>Agencies</span><span>Professional services</span><span>Trades</span><span>Salons</span>
 </div></div>
 
-<section id="desks">
+<section id="desks" class="scene" data-title="Desks">
   <div class="wrap">
     <div class="eyebrow">What we install</div>
     <h2>One desk. One function. Fully <b>operated</b>.</h2>
     <p class="lead">A desk is a team of AI agents built around one job in your business — an orchestrator that plans and delegates, specialists that do the work, and an approval queue for you. We start with the desk that pays back fastest.</p>
     <div class="cards">
-      <div class="card rv"><div class="ic">📈</div><h3>AI Sales Desk</h3><p>Finds leads, researches them, drafts personalised outreach, updates your CRM and prepares follow-ups — you approve before anything is sent.</p>
+      <div class="card"><div class="ic">📈</div><h3>AI Sales Desk</h3><p>Finds leads, researches them, drafts personalised outreach, updates your CRM and prepares follow-ups — you approve before anything is sent.</p>
         <ul><li>Lead sourcing &amp; enrichment</li><li>Personalised email / WhatsApp drafts</li><li>CRM hygiene &amp; follow-up cadence</li><li>Weekly pipeline report</li></ul><div class="for">Estate agents · B2B services</div></div>
-      <div class="card rv"><div class="ic">📅</div><h3>Support &amp; Booking Desk</h3><p>Answers enquiries, books and reschedules appointments, sends reminders, escalates anything it shouldn't decide.</p>
+      <div class="card"><div class="ic">📅</div><h3>Support &amp; Booking Desk</h3><p>Answers enquiries, books and reschedules appointments, sends reminders, escalates anything it shouldn't decide.</p>
         <ul><li>Email / chat / WhatsApp triage</li><li>Calendar booking &amp; reminders</li><li>FAQ &amp; policy answers from your docs</li><li>Escalation with full context</li></ul><div class="for">Clinics · Salons · Trades</div></div>
-      <div class="card rv"><div class="ic">✍️</div><h3>Content &amp; Outreach Desk</h3><p>Plans and drafts content, product copy, email flows and partner outreach, then reports on what moved the numbers.</p>
+      <div class="card"><div class="ic">✍️</div><h3>Content &amp; Outreach Desk</h3><p>Plans and drafts content, product copy, email flows and partner outreach, then reports on what moved the numbers.</p>
         <ul><li>Content calendar &amp; drafts</li><li>Product / collection copy</li><li>Email &amp; promo campaigns</li><li>Monthly performance report</li></ul><div class="for">E-commerce · Agencies</div></div>
-      <div class="card rv"><div class="ic">📚</div><h3>Research &amp; Documents Desk</h3><p>Turns a brief into research, strategy, pricing and a client-ready proposal, reviewed by a QA agent before it reaches you.</p>
+      <div class="card"><div class="ic">📚</div><h3>Research &amp; Documents Desk</h3><p>Turns a brief into research, strategy, pricing and a client-ready proposal, reviewed by a QA agent before it reaches you.</p>
         <ul><li>Market &amp; client research briefs</li><li>Proposals, SOWs, reports</li><li>Pricing &amp; business cases</li><li>Partner-level QA pass</li></ul><div class="for">Consultancies · Professional services</div></div>
     </div>
-  <p style="margin-top:26px"><a class="btn ghost" href="desks.html">All desks in detail →</a></p>
+    <p style="margin-top:26px"><a class="btn ghost" href="desks.html">All desks in detail <i class="ar">→</i></a></p>
   </div>
 </section>
 
-<section id="demo">
-  <div class="wrap">
+<section id="pipeline" data-title="Watch it work">
+  <div class="wrap pipe">
+    <div class="pipe-bar"><i></i></div>
+    <div>
+      <div class="eyebrow">Watch it work</div>
+      <div class="pipe-count">01 / 05</div>
+      <div class="pipe-steps">
+        <div class="pstep"><span class="n">01</span><h2>A lead comes <b>in</b>.</h2><p>A form, an email, a WhatsApp. It lands with Hermes — the orchestrator — which reads it, checks your rules, and plans the work.</p><div class="who"><span class="hermes">Hermes</span></div></div>
+        <div class="pstep"><span class="n">02</span><h2>Hermes delegates — in <b>parallel</b>.</h2><p>Research digs into who they are. Writer drafts the reply in your tone. CRM checks history. QA stands by. All at once, not one after another.</p><div class="who"><span class="research">Research</span><span class="writer">Writer</span><span class="crm">CRM</span><span class="qa">QA</span></div></div>
+        <div class="pstep"><span class="n">03</span><h2>The work comes back, <b>reviewed</b>.</h2><p>Hermes assembles the pieces. QA checks facts, tone and policy and its edits get applied. Anything weak goes back for another pass.</p><div class="who"><span class="qa">QA</span><span class="hermes">Hermes</span></div></div>
+        <div class="pstep"><span class="n">04</span><h2>You approve. Nothing sends <b>without you</b>.</h2><p>The finished draft waits in your queue. Approve, edit or reject in seconds. Your notes tune the agents for next time.</p><div class="who"><span class="you">You</span></div></div>
+        <div class="pstep"><span class="n">05</span><h2>Sent, logged, <b>reported</b>.</h2><p>The email goes, the CRM updates, the follow-up is scheduled. Every step is on the audit trail and in your monthly report.</p><div class="who"><span class="crm">CRM</span><span class="hermes">Hermes</span></div></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="demo" class="scene" data-title="Live demo">
+  <div class="wrap demo-head">
     <div class="eyebrow">See it in action</div>
     <h2>The desk your team actually <b>uses</b>.</h2>
     <p class="lead">A working prototype of the AI Sales Desk. Leads come in, agents do the work, you approve from one queue. Runs in demo mode with scripted agents so you can click through it — the same pipeline runs on live models for clients.</p>
-    <div class="cta" style="margin:26px 0 10px;display:flex;gap:14px;flex-wrap:wrap"><a class="btn primary" href="/desk" target="_blank">Open the live demo ↗</a><a class="btn ghost" href="contact.html#form">Book a scoping call</a></div>
-    <div class="shots">
-      <figure class="rv"><img src="img/desk_dash.jpg" alt="Hermes Desk dashboard" loading="lazy"><figcaption><b>Dashboard</b> — leads handled, what's waiting for approval, live agent activity.</figcaption></figure>
-      <figure class="rv"><img src="img/desk_approvals.jpg" alt="Approval queue" loading="lazy"><figcaption><b>Approvals</b> — every outbound email drafted by the agents waits here. Edit, approve, reject. Your notes tune the agents.</figcaption></figure>
-      <figure class="rv"><img src="img/desk_runs.jpg" alt="Run log" loading="lazy"><figcaption><b>Runs</b> — Hermes plans, delegates to Research / Writer / CRM in parallel, reviews, queues. Every step logged.</figcaption></figure>
-      <figure class="rv"><img src="img/desk_crm.jpg" alt="CRM" loading="lazy"><figcaption><b>CRM</b> — contacts and stages kept clean by the desk; you can override any time.</figcaption></figure>
-      <figure class="rv"><img src="img/desk_report.jpg" alt="Monthly report" loading="lazy"><figcaption><b>Monthly report</b> — volume, approval rate, time saved, model cost, what we changed.</figcaption></figure>
-    </div>
+    <div class="cta" style="margin:26px 0 0;display:flex;gap:14px;flex-wrap:wrap"><a class="btn primary" href="/desk" target="_blank">Open the live demo <i class="ar">↗</i></a><a class="btn ghost" href="contact.html#form">Book a scoping call</a></div>
+  </div>
+  <div class="shots-track">
+    <figure><img src="img/desk_dash.jpg" alt="Hermes Desk dashboard" loading="lazy"><figcaption><em>01</em><b>Dashboard</b><span>leads handled, what's waiting for approval, live agent activity.</span></figcaption></figure>
+    <figure><img src="img/desk_approvals.jpg" alt="Approval queue" loading="lazy"><figcaption><em>02</em><b>Approvals</b><span>every outbound email drafted by the agents waits here. Edit, approve, reject. Your notes tune the agents.</span></figcaption></figure>
+    <figure><img src="img/desk_runs.jpg" alt="Run log" loading="lazy"><figcaption><em>03</em><b>Runs</b><span>Hermes plans, delegates to Research / Writer / CRM in parallel, reviews, queues. Every step logged.</span></figcaption></figure>
+    <figure><img src="img/desk_crm.jpg" alt="CRM" loading="lazy"><figcaption><em>04</em><b>CRM</b><span>contacts and stages kept clean by the desk; you can override any time.</span></figcaption></figure>
+    <figure><img src="img/desk_report.jpg" alt="Monthly report" loading="lazy"><figcaption><em>05</em><b>Monthly report</b><span>volume, approval rate, time saved, model cost, what we changed.</span></figcaption></figure>
   </div>
 </section>
 
-<section id="how">
+<section id="how" class="scene" data-title="How it works">
   <div class="wrap">
     <div class="eyebrow">How it works</div>
     <h2>A repeatable operating system, not a one-off <b>build</b>.</h2>
     <div class="steps">
-      <div class="step rv"><h3>Map the process</h3><p>We sit with you and write down how the function actually runs today — inputs, decisions, hand-offs, what "good" looks like.</p></div>
-      <div class="step rv"><h3>Connect your accounts</h3><p>Email, calendar, CRM, forms, WhatsApp, Slack, your documents. Your data stays in your accounts.</p></div>
-      <div class="step rv"><h3>Configure the desk</h3><p>Specialised agents with your tone, rules and templates. Approval rules for anything sensitive.</p></div>
-      <div class="step rv"><h3>Run with approvals</h3><p>Agents work the queue. You approve, edit or reject from one inbox. Nothing risky goes out on its own.</p></div>
-      <div class="step rv"><h3>Monitor &amp; improve</h3><p>We watch failures, tune prompts and workflows, and add capability monthly. You get a report and a roadmap.</p></div>
+      <div class="step"><h3>Map the process</h3><p>We sit with you and write down how the function actually runs today — inputs, decisions, hand-offs, what "good" looks like.</p></div>
+      <div class="step"><h3>Connect your accounts</h3><p>Email, calendar, CRM, forms, WhatsApp, Slack, your documents. Your data stays in your accounts.</p></div>
+      <div class="step"><h3>Configure the desk</h3><p>Specialised agents with your tone, rules and templates. Approval rules for anything sensitive.</p></div>
+      <div class="step"><h3>Run with approvals</h3><p>Agents work the queue. You approve, edit or reject from one inbox. Nothing risky goes out on its own.</p></div>
+      <div class="step"><h3>Monitor &amp; improve</h3><p>We watch failures, tune prompts and workflows, and add capability monthly. You get a report and a roadmap.</p></div>
+    </div>
+    <p style="margin-top:26px"><a class="btn ghost" href="how-it-works.html">Control, trust and the stack <i class="ar">→</i></a></p>
+  </div>
+</section>
+
+<section class="tight scene" id="start" data-title="Start">
+  <div class="wrap">
+    <div class="band">
+      <div><div class="eyebrow">Start small, prove it, expand</div><h2>One desk in 30 <b>days</b>.</h2></div>
+      <a class="btn primary" href="contact.html#form">Book a scoping call <i class="ar">→</i></a>
     </div>
   </div>
 </section>
 
-<section class="tight">
-  <div class="wrap">
-    <div class="band rv">
-      <div><div class="eyebrow">Start small, prove it, expand</div><h2>One desk in 30 <b>days</b>.</h2></div>
-      <a class="btn primary" href="contact.html#form">Book a scoping call →</a>
-    </div>
-  </div>
-</section>
 <footer class="site">
   <div class="wrap">
     <div class="fcols">
@@ -124,7 +151,12 @@
     <div class="fbar"><span>© <span id="yr"></span> <span data-brand>Hermes Ops</span></span><a href="mailto:hello@hermesops.co" data-email>hello@hermesops.co</a></div>
   </div>
 </footer>
-<script src="silk.js"></script>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/ScrollTrigger.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/lenis@1.1.18/dist/lenis.min.js"></script>
+<script src="orbit.js"></script>
 <script src="script.js"></script>
+<script src="cinema.js"></script>
 </body>
 </html>

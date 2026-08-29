@@ -13,8 +13,10 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="cinema.css">
 </head>
 <body>
+<canvas class="orbit" data-orbit='{"alpha":0.42,"zoom":0.92}' aria-hidden="true"></canvas>
 <!-- multipage -->
 <nav class="nav">
   <div class="wrap">
@@ -38,13 +40,13 @@
     <h2>Setup fee + subscription + <b>usage</b>.</h2>
     <p class="lead">Priced per desk. Model usage is passed through at cost with a monthly cap you set. Cheaper than one hire; more consistent than a freelancer.</p>
     <div class="plans">
-      <div class="plan rv"><h3>Starter</h3><div class="price">£1,200<small>/month</small></div><div class="setup">+ £2,500 one-off setup</div>
+      <div class="plan"><h3>Starter</h3><div class="price">£1,200<small>/month</small></div><div class="setup">+ £2,500 one-off setup</div>
         <ul><li>1 desk, up to 3 connected tools</li><li>Approval queue &amp; audit log</li><li>Monthly report &amp; tuning</li><li>Email support</li><li>Usage cap: £150/mo included</li></ul>
         <a class="btn ghost" href="contact.html#form">Start with one desk</a></div>
       <div class="plan hot rv"><span class="badge">Most chosen</span><h3>Growth</h3><div class="price">£2,800<small>/month</small></div><div class="setup">+ £5,000 one-off setup</div>
         <ul><li>2–3 desks, up to 8 connected tools</li><li>Custom workflows &amp; templates</li><li>Fortnightly ops review call</li><li>Priority support (same day)</li><li>Usage cap: £400/mo included</li></ul>
         <a class="btn primary" href="contact.html#form">Book a scoping call</a></div>
-      <div class="plan rv"><h3>Scale</h3><div class="price">Custom</div><div class="setup">Multi-site, multi-brand, or regulated</div>
+      <div class="plan"><h3>Scale</h3><div class="price">Custom</div><div class="setup">Multi-site, multi-brand, or regulated</div>
         <ul><li>Unlimited desks &amp; integrations</li><li>Dedicated operations lead</li><li>Private deployment options</li><li>SLA, DPA &amp; security review</li><li>Quarterly roadmap</li></ul>
         <a class="btn ghost" href="contact.html#form">Talk to us</a></div>
     </div>
@@ -55,17 +57,17 @@
   <div class="wrap">
     <div class="eyebrow">What a first month looks like</div>
     <div class="quotes">
-      <div class="quote rv"><p>Week 1 — process mapped, accounts connected, agents configured on your real templates and tone.</p><footer>Onboarding</footer></div>
-      <div class="quote rv"><p>Weeks 2–4 — supervised launch. Every output goes through your approval queue; we tune on your edits.</p><footer>Supervised launch</footer></div>
-      <div class="quote rv"><p>Month 2+ — routine work runs on its own, sensitive work still waits for you. Monthly report: volume, approval rate, time saved, what we changed.</p><footer>Steady state</footer></div>
+      <div class="quote"><p>Week 1 — process mapped, accounts connected, agents configured on your real templates and tone.</p><footer>Onboarding</footer></div>
+      <div class="quote"><p>Weeks 2–4 — supervised launch. Every output goes through your approval queue; we tune on your edits.</p><footer>Supervised launch</footer></div>
+      <div class="quote"><p>Month 2+ — routine work runs on its own, sensitive work still waits for you. Monthly report: volume, approval rate, time saved, what we changed.</p><footer>Steady state</footer></div>
     </div>
   </div>
 </section>
 <section class="tight">
   <div class="wrap">
-    <div class="band rv">
+    <div class="band">
       <div><div class="eyebrow">Start small, prove it, expand</div><h2>One desk in 30 <b>days</b>.</h2></div>
-      <a class="btn primary" href="contact.html#form">Book a scoping call →</a>
+      <a class="btn primary" href="contact.html#form">Book a scoping call <i class="ar">→</i></a>
     </div>
   </div>
 </section>
@@ -80,7 +82,12 @@
     <div class="fbar"><span>© <span id="yr"></span> <span data-brand>Hermes Ops</span></span><a href="mailto:hello@hermesops.co" data-email>hello@hermesops.co</a></div>
   </div>
 </footer>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/ScrollTrigger.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/lenis@1.1.18/dist/lenis.min.js"></script>
 <script src="silk.js"></script>
+<script src="orbit.js"></script>
 <script src="script.js"></script>
+<script src="cinema.js"></script>
 </body>
 </html>

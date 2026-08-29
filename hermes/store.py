@@ -1,6 +1,11 @@
-"""SQLite run history."""
+"""SQLite store: runs/events, CRM contacts, approval queue, leads, users and desks.
+
+Multi-tenant: every business object belongs to a desk (`desk_id`). `Store.for_desk(desk_id)` returns a
+`DeskStore` view that pre-binds the desk so the orchestrator and the API never pass it explicitly.
+"""
 from __future__ import annotations
 
+import json
 import sqlite3
 import threading
 import time
@@ -13,28 +18,44 @@ DB_PATH = DATA_DIR / "hermes.db"
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS runs (
   id TEXT PRIMARY KEY, created REAL, task TEXT, mode TEXT, status TEXT,
-  summary TEXT, tokens_in INTEGER DEFAULT 0, tokens_out INTEGER DEFAULT 0, run_dir TEXT
+  summary TEXT, tokens_in INTEGER DEFAULT 0, tokens_out INTEGER DEFAULT 0, run_dir TEXT, desk_id INTEGER DEFAULT 1
 );
 CREATE TABLE IF NOT EXISTS events (
   run_id TEXT, ts REAL, kind TEXT, agent TEXT, text TEXT
 );
 CREATE INDEX IF NOT EXISTS ix_events_run ON events(run_id);
 CREATE TABLE IF NOT EXISTS contacts (
-  id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, company TEXT, email TEXT UNIQUE, phone TEXT,
-  stage TEXT DEFAULT 'New', notes TEXT DEFAULT '', next_action TEXT DEFAULT '', updated REAL
+  id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, company TEXT, email TEXT, phone TEXT,
+  stage TEXT DEFAULT 'New', notes TEXT DEFAULT '', next_action TEXT DEFAULT '', updated REAL, desk_id INTEGER DEFAULT 1
 );
 CREATE TABLE IF NOT EXISTS actions (
   id INTEGER PRIMARY KEY AUTOINCREMENT, run_id TEXT, created REAL, agent TEXT, kind TEXT, "to" TEXT,
-  subject TEXT, body TEXT, reason TEXT, status TEXT DEFAULT 'pending', decided_at REAL, decided_by TEXT, note TEXT
+  subject TEXT, body TEXT, reason TEXT, status TEXT DEFAULT 'pending', decided_at REAL, decided_by TEXT, note TEXT,
+  flags TEXT DEFAULT '', desk_id INTEGER DEFAULT 1
 );
 CREATE TABLE IF NOT EXISTS users (
   id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT UNIQUE, name TEXT, company TEXT, pw_hash TEXT, created REAL, last_login REAL
 );
+CREATE TABLE IF NOT EXISTS desks (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, owner_id INTEGER, name TEXT, template TEXT, tier TEXT DEFAULT 'free',
+  config TEXT DEFAULT '{}', created REAL
+);
 CREATE TABLE IF NOT EXISTS leads (
   id INTEGER PRIMARY KEY AUTOINCREMENT, created REAL, name TEXT, company TEXT, email TEXT, phone TEXT,
-  source TEXT, notes TEXT, status TEXT DEFAULT 'new', run_id TEXT
+  source TEXT, notes TEXT, status TEXT DEFAULT 'new', run_id TEXT, desk_id INTEGER DEFAULT 1
 );
 """
+
+# columns added after the first release — applied idempotently on open
+_MIGRATIONS = [
+    ("runs", "desk_id", "INTEGER DEFAULT 1"),
+    ("contacts", "desk_id", "INTEGER DEFAULT 1"),
+    ("actions", "desk_id", "INTEGER DEFAULT 1"),
+    ("actions", "flags", "TEXT DEFAULT ''"),
+    ("leads", "desk_id", "INTEGER DEFAULT 1"),
+]
+
+STAGES = ("New", "Contacted", "Qualified", "Proposal", "Won", "Lost")
 
 
 def _rows(cur) -> list[dict[str, Any]]:
@@ -43,17 +64,84 @@ def _rows(cur) -> list[dict[str, Any]]:
 
 
 class Store:
+    STAGES = STAGES
+
     def __init__(self, path=DB_PATH):
         self._lock = threading.Lock()
         self._conn = sqlite3.connect(str(path), check_same_thread=False)
         self._conn.executescript(_SCHEMA)
+        for table, col, decl in _MIGRATIONS:
+            have = {r[1] for r in self._conn.execute(f"PRAGMA table_info({table})")}
+            if col not in have:
+                self._conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {decl}")
+        # the old schema had a UNIQUE index on contacts.email; drop it so two desks can hold the same person
+        for r in self._conn.execute("PRAGMA index_list(contacts)").fetchall():
+            if r[2] == 1 and r[1].startswith("sqlite_autoindex"):
+                self._rebuild_contacts()
+                break
         self._conn.commit()
 
-    def create_run(self, run_id: str, task: str, mode: str, run_dir: str) -> None:
+    def _rebuild_contacts(self):
+        c = self._conn
+        c.executescript("""
+        CREATE TABLE contacts_new (
+          id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, company TEXT, email TEXT, phone TEXT,
+          stage TEXT DEFAULT 'New', notes TEXT DEFAULT '', next_action TEXT DEFAULT '', updated REAL, desk_id INTEGER DEFAULT 1);
+        INSERT INTO contacts_new(id,name,company,email,phone,stage,notes,next_action,updated,desk_id)
+          SELECT id,name,company,email,phone,stage,notes,next_action,updated,desk_id FROM contacts;
+        DROP TABLE contacts; ALTER TABLE contacts_new RENAME TO contacts;""")
+
+    def for_desk(self, desk_id: int) -> "DeskStore":
+        return DeskStore(self, int(desk_id))
+
+    # ------------------------------------------------------------------ desks
+    def add_desk(self, owner_id: int, name: str, template: str, tier: str, config: dict[str, Any]) -> dict[str, Any]:
+        with self._lock:
+            cur = self._conn.execute("INSERT INTO desks(owner_id,name,template,tier,config,created) VALUES(?,?,?,?,?,?)",
+                                     (owner_id, name.strip(), template, tier, json.dumps(config), time.time()))
+            self._conn.commit()
+            return self.desk(cur.lastrowid)  # type: ignore[return-value]
+
+    def desk(self, desk_id: int) -> dict[str, Any] | None:
+        rows = _rows(self._conn.execute("SELECT * FROM desks WHERE id=?", (desk_id,)))
+        if not rows:
+            return None
+        d = rows[0]
+        d["config"] = json.loads(d.get("config") or "{}")
+        return d
+
+    def desks_for(self, owner_id: int) -> list[dict[str, Any]]:
+        out = []
+        for d in _rows(self._conn.execute("SELECT * FROM desks WHERE owner_id=? ORDER BY created", (owner_id,))):
+            d["config"] = json.loads(d.get("config") or "{}")
+            out.append(d)
+        return out
+
+    def update_desk(self, desk_id: int, **fields) -> None:
+        fields = {k: v for k, v in fields.items() if k in ("name", "template", "tier", "config")}
+        if "config" in fields and not isinstance(fields["config"], str):
+            fields["config"] = json.dumps(fields["config"])
+        if not fields:
+            return
+        with self._lock:
+            self._conn.execute(f"UPDATE desks SET {', '.join(f'{k}=?' for k in fields)} WHERE id=?", (*fields.values(), desk_id))
+            self._conn.commit()
+
+    def delete_desk_data(self, desk_id: int) -> None:
+        with self._lock:
+            run_ids = [r[0] for r in self._conn.execute("SELECT id FROM runs WHERE desk_id=?", (desk_id,)).fetchall()]
+            for rid in run_ids:
+                self._conn.execute("DELETE FROM events WHERE run_id=?", (rid,))
+            for t in ("runs", "actions", "leads", "contacts"):
+                self._conn.execute(f"DELETE FROM {t} WHERE desk_id=?", (desk_id,))
+            self._conn.commit()
+
+    # ------------------------------------------------------------------ runs
+    def create_run(self, run_id: str, task: str, mode: str, run_dir: str, desk_id: int = 1) -> None:
         with self._lock:
             self._conn.execute(
-                "INSERT OR REPLACE INTO runs(id,created,task,mode,status,summary,run_dir) VALUES(?,?,?,?,?,?,?)",
-                (run_id, time.time(), task, mode, "running", "", run_dir))
+                "INSERT OR REPLACE INTO runs(id,created,task,mode,status,summary,run_dir,desk_id) VALUES(?,?,?,?,?,?,?,?)",
+                (run_id, time.time(), task, mode, "running", "", run_dir, desk_id))
             self._conn.commit()
 
     def finish_run(self, run_id: str, status: str, summary: str, tin: int, tout: int) -> None:
@@ -67,12 +155,17 @@ class Store:
             self._conn.execute("INSERT INTO events VALUES(?,?,?,?,?)", (run_id, time.time(), kind, agent, text))
             self._conn.commit()
 
-    def runs(self, limit: int = 200) -> list[dict[str, Any]]:
-        cur = self._conn.execute(
-            "SELECT id,created,task,mode,status,summary,tokens_in,tokens_out,run_dir FROM runs ORDER BY created DESC LIMIT ?",
-            (limit,))
-        cols = [c[0] for c in cur.description]
-        return [dict(zip(cols, r)) for r in cur.fetchall()]
+    def runs(self, limit: int = 200, desk_id: int | None = None) -> list[dict[str, Any]]:
+        q = "SELECT id,created,task,mode,status,summary,tokens_in,tokens_out,run_dir,desk_id FROM runs"
+        args: tuple = ()
+        if desk_id is not None:
+            q += " WHERE desk_id=?"
+            args = (desk_id,)
+        return _rows(self._conn.execute(q + " ORDER BY created DESC LIMIT ?", (*args, limit)))
+
+    def run(self, run_id: str) -> dict[str, Any] | None:
+        rows = _rows(self._conn.execute("SELECT * FROM runs WHERE id=?", (run_id,)))
+        return rows[0] if rows else None
 
     def events(self, run_id: str) -> list[dict[str, Any]]:
         cur = self._conn.execute("SELECT ts,kind,agent,text FROM events WHERE run_id=? ORDER BY ts", (run_id,))
@@ -85,28 +178,28 @@ class Store:
             self._conn.commit()
 
     # ------------------------------------------------------------------ contacts (CRM)
-    STAGES = ("New", "Contacted", "Qualified", "Proposal", "Won", "Lost")
-
-    def contacts(self, query: str = "") -> list[dict[str, Any]]:
+    def contacts(self, query: str = "", desk_id: int = 1) -> list[dict[str, Any]]:
         q = f"%{query.strip()}%"
         cur = self._conn.execute(
-            "SELECT * FROM contacts WHERE name LIKE ? OR company LIKE ? OR email LIKE ? ORDER BY updated DESC", (q, q, q))
+            "SELECT * FROM contacts WHERE desk_id=? AND (name LIKE ? OR company LIKE ? OR email LIKE ?) ORDER BY updated DESC",
+            (desk_id, q, q, q))
         return _rows(cur)
 
-    def upsert_contact(self, contact: str, fields: dict[str, Any]) -> dict[str, Any]:
+    def upsert_contact(self, contact: str, fields: dict[str, Any], desk_id: int = 1) -> dict[str, Any]:
         contact = (contact or "").strip()
         fields = {k: v for k, v in (fields or {}).items() if k in ("name", "company", "email", "phone", "stage", "notes", "next_action")}
-        if "stage" in fields and fields["stage"] not in self.STAGES:
+        if "stage" in fields and fields["stage"] not in STAGES:
             fields["stage"] = "New"
         with self._lock:
-            row = self._conn.execute("SELECT * FROM contacts WHERE email=? OR name=? LIMIT 1", (contact, contact)).fetchone()
+            row = self._conn.execute("SELECT id FROM contacts WHERE desk_id=? AND (email=? OR name=?) LIMIT 1",
+                                     (desk_id, contact, contact)).fetchone()
             if row is None:
                 email = fields.get("email") or (contact if "@" in contact else "")
                 name = fields.get("name") or ("" if "@" in contact else contact)
                 self._conn.execute(
-                    "INSERT INTO contacts(name,company,email,phone,stage,notes,next_action,updated) VALUES(?,?,?,?,?,?,?,?)",
+                    "INSERT INTO contacts(name,company,email,phone,stage,notes,next_action,updated,desk_id) VALUES(?,?,?,?,?,?,?,?,?)",
                     (name, fields.get("company", ""), email or None, fields.get("phone", ""), fields.get("stage", "New"),
-                     fields.get("notes", ""), fields.get("next_action", ""), time.time()))
+                     fields.get("notes", ""), fields.get("next_action", ""), time.time(), desk_id))
                 cid = self._conn.execute("SELECT last_insert_rowid()").fetchone()[0]
             else:
                 cid = row[0]
@@ -117,21 +210,28 @@ class Store:
         return _rows(self._conn.execute("SELECT * FROM contacts WHERE id=?", (cid,)))[0]
 
     # ------------------------------------------------------------------ approval queue
-    def add_action(self, run_id: str, agent: str, kind: str, to: str, subject: str, body: str, reason: str) -> int:
+    def add_action(self, run_id: str, agent: str, kind: str, to: str, subject: str, body: str, reason: str,
+                   desk_id: int = 1, flags: str = "") -> int:
         with self._lock:
             self._conn.execute(
-                'INSERT INTO actions(run_id,created,agent,kind,"to",subject,body,reason) VALUES(?,?,?,?,?,?,?,?)',
-                (run_id, time.time(), agent, kind, to, subject, body, reason))
+                'INSERT INTO actions(run_id,created,agent,kind,"to",subject,body,reason,desk_id,flags) VALUES(?,?,?,?,?,?,?,?,?,?)',
+                (run_id, time.time(), agent, kind, to, subject, body, reason, desk_id, flags))
             aid = self._conn.execute("SELECT last_insert_rowid()").fetchone()[0]
             self._conn.commit()
         return aid
 
-    def actions(self, status: str = "", limit: int = 200) -> list[dict[str, Any]]:
+    def actions(self, status: str = "", limit: int = 200, desk_id: int | None = None) -> list[dict[str, Any]]:
+        where, args = [], []
         if status:
-            cur = self._conn.execute("SELECT * FROM actions WHERE status=? ORDER BY created DESC LIMIT ?", (status, limit))
-        else:
-            cur = self._conn.execute("SELECT * FROM actions ORDER BY created DESC LIMIT ?", (limit,))
-        return _rows(cur)
+            where.append("status=?"); args.append(status)
+        if desk_id is not None:
+            where.append("desk_id=?"); args.append(desk_id)
+        q = "SELECT * FROM actions" + (" WHERE " + " AND ".join(where) if where else "") + " ORDER BY created DESC LIMIT ?"
+        return _rows(self._conn.execute(q, (*args, limit)))
+
+    def action(self, aid: int) -> dict[str, Any] | None:
+        rows = _rows(self._conn.execute("SELECT * FROM actions WHERE id=?", (aid,)))
+        return rows[0] if rows else None
 
     def decide_action(self, aid: int, status: str, by: str = "owner", note: str = "", body: str | None = None,
                       subject: str | None = None) -> dict[str, Any] | None:
@@ -143,20 +243,21 @@ class Store:
             self._conn.execute("UPDATE actions SET status=?, decided_at=?, decided_by=?, note=? WHERE id=?",
                                (status, time.time(), by, note, aid))
             self._conn.commit()
-        rows = _rows(self._conn.execute("SELECT * FROM actions WHERE id=?", (aid,)))
-        return rows[0] if rows else None
+        return self.action(aid)
 
     # ------------------------------------------------------------------ leads
-    def add_lead(self, name: str, company: str, email: str, phone: str, source: str, notes: str) -> int:
+    def add_lead(self, name: str, company: str, email: str, phone: str, source: str, notes: str, desk_id: int = 1) -> int:
         with self._lock:
-            self._conn.execute("INSERT INTO leads(created,name,company,email,phone,source,notes) VALUES(?,?,?,?,?,?,?)",
-                               (time.time(), name, company, email, phone, source, notes))
+            self._conn.execute("INSERT INTO leads(created,name,company,email,phone,source,notes,desk_id) VALUES(?,?,?,?,?,?,?,?)",
+                               (time.time(), name, company, email, phone, source, notes, desk_id))
             lid = self._conn.execute("SELECT last_insert_rowid()").fetchone()[0]
             self._conn.commit()
         return lid
 
-    def leads(self, limit: int = 200) -> list[dict[str, Any]]:
-        return _rows(self._conn.execute("SELECT * FROM leads ORDER BY created DESC LIMIT ?", (limit,)))
+    def leads(self, limit: int = 200, desk_id: int | None = None) -> list[dict[str, Any]]:
+        if desk_id is None:
+            return _rows(self._conn.execute("SELECT * FROM leads ORDER BY created DESC LIMIT ?", (limit,)))
+        return _rows(self._conn.execute("SELECT * FROM leads WHERE desk_id=? ORDER BY created DESC LIMIT ?", (desk_id, limit)))
 
     def lead(self, lid: int) -> dict[str, Any] | None:
         rows = _rows(self._conn.execute("SELECT * FROM leads WHERE id=?", (lid,)))
@@ -194,21 +295,60 @@ class Store:
     def user_count(self) -> int:
         return self._conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
 
-    def all_events(self, limit: int = 300) -> list[dict[str, Any]]:
-        return _rows(self._conn.execute("SELECT run_id,ts,kind,agent,text FROM events ORDER BY ts DESC LIMIT ?", (limit,)))
+    # ------------------------------------------------------------------ reporting
+    def all_events(self, limit: int = 300, desk_id: int | None = None) -> list[dict[str, Any]]:
+        if desk_id is None:
+            return _rows(self._conn.execute("SELECT run_id,ts,kind,agent,text FROM events ORDER BY ts DESC LIMIT ?", (limit,)))
+        return _rows(self._conn.execute(
+            "SELECT e.run_id,e.ts,e.kind,e.agent,e.text FROM events e JOIN runs r ON r.id=e.run_id WHERE r.desk_id=? "
+            "ORDER BY e.ts DESC LIMIT ?", (desk_id, limit)))
 
-    def stats(self) -> dict[str, Any]:
+    def stats(self, desk_id: int | None = None) -> dict[str, Any]:
         c = self._conn
-        one = lambda q, *a: c.execute(q, a).fetchone()[0]
+        w = "" if desk_id is None else f" WHERE desk_id={int(desk_id)}"
+        a = " AND" if w else " WHERE"
+        one = lambda q: c.execute(q).fetchone()[0]
         return {
-            "leads": one("SELECT COUNT(*) FROM leads"),
-            "runs": one("SELECT COUNT(*) FROM runs"),
-            "runs_done": one("SELECT COUNT(*) FROM runs WHERE status='done'"),
-            "pending": one("SELECT COUNT(*) FROM actions WHERE status='pending'"),
-            "approved": one("SELECT COUNT(*) FROM actions WHERE status IN ('approved','sent')"),
-            "rejected": one("SELECT COUNT(*) FROM actions WHERE status='rejected'"),
-            "contacts": one("SELECT COUNT(*) FROM contacts"),
-            "qualified": one("SELECT COUNT(*) FROM contacts WHERE stage IN ('Qualified','Proposal','Won')"),
-            "tokens_in": one("SELECT COALESCE(SUM(tokens_in),0) FROM runs"),
-            "tokens_out": one("SELECT COALESCE(SUM(tokens_out),0) FROM runs"),
+            "leads": one(f"SELECT COUNT(*) FROM leads{w}"),
+            "runs": one(f"SELECT COUNT(*) FROM runs{w}"),
+            "runs_done": one(f"SELECT COUNT(*) FROM runs{w}{a} status='done'"),
+            "pending": one(f"SELECT COUNT(*) FROM actions{w}{a} status='pending'"),
+            "approved": one(f"SELECT COUNT(*) FROM actions{w}{a} status IN ('approved','sent')"),
+            "rejected": one(f"SELECT COUNT(*) FROM actions{w}{a} status='rejected'"),
+            "contacts": one(f"SELECT COUNT(*) FROM contacts{w}"),
+            "qualified": one(f"SELECT COUNT(*) FROM contacts{w}{a} stage IN ('Qualified','Proposal','Won')"),
+            "tokens_in": one(f"SELECT COALESCE(SUM(tokens_in),0) FROM runs{w}"),
+            "tokens_out": one(f"SELECT COALESCE(SUM(tokens_out),0) FROM runs{w}"),
         }
+
+
+class DeskStore:
+    """Store view bound to one desk. Same method names the orchestrator and API use, desk pre-filled."""
+    STAGES = STAGES
+
+    def __init__(self, store: Store, desk_id: int):
+        self.s = store
+        self.desk_id = desk_id
+
+    # passthroughs that carry the desk
+    def create_run(self, run_id, task, mode, run_dir): return self.s.create_run(run_id, task, mode, run_dir, self.desk_id)
+    def finish_run(self, *a, **k): return self.s.finish_run(*a, **k)
+    def add_event(self, *a, **k): return self.s.add_event(*a, **k)
+    def runs(self, limit=200): return self.s.runs(limit, self.desk_id)
+    def run(self, run_id): return self.s.run(run_id)
+    def events(self, run_id): return self.s.events(run_id)
+    def contacts(self, query=""): return self.s.contacts(query, self.desk_id)
+    def upsert_contact(self, contact, fields): return self.s.upsert_contact(contact, fields, self.desk_id)
+    def add_action(self, run_id, agent, kind, to, subject, body, reason, flags=""):
+        return self.s.add_action(run_id, agent, kind, to, subject, body, reason, self.desk_id, flags)
+    def actions(self, status="", limit=200): return self.s.actions(status, limit, self.desk_id)
+    def action(self, aid): return self.s.action(aid)
+    def decide_action(self, *a, **k): return self.s.decide_action(*a, **k)
+    def add_lead(self, name, company, email, phone, source, notes):
+        return self.s.add_lead(name, company, email, phone, source, notes, self.desk_id)
+    def leads(self, limit=200): return self.s.leads(limit, self.desk_id)
+    def lead(self, lid): return self.s.lead(lid)
+    def set_lead(self, lid, **f): return self.s.set_lead(lid, **f)
+    def all_events(self, limit=300): return self.s.all_events(limit, self.desk_id)
+    def stats(self): return self.s.stats(self.desk_id)
+    def reset(self): return self.s.delete_desk_data(self.desk_id)
