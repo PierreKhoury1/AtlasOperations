@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Contact — Hermes Ops</title>
+<meta name="description" content="Book a 30-minute scoping call or send us a message.">
+<meta property="og:title" content="Contact — Hermes Ops">
+<meta property="og:description" content="Book a 30-minute scoping call or send us a message.">
+<meta property="og:type" content="website">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<!-- multipage -->
+<nav class="nav">
+  <div class="wrap">
+    <a class="brand" href="index.html"><i></i><span data-brand>Hermes Ops</span></a>
+    <ul id="menu"><li><a href="index.html">Home</a></li><li><a href="desks.html">Desks</a></li><li><a href="how-it-works.html">How it works</a></li><li><a href="pricing.html">Pricing</a></li><li><a href="about.html">About</a></li><li><a href="contact.html" class="on">Contact</a></li><li><a href="/desk" class="live">Live demo ↗</a></li><li><a href="contact.html#form" class="btn primary sm">Book a scoping call</a></li></ul>
+    <button class="burger" id="burger" aria-label="menu">☰</button>
+  </div>
+</nav>
+<header class="phero">
+  <canvas class="silk" data-silk='{"ribbons":6,"alpha":1}' aria-hidden="true"></canvas>
+  <div class="wrap">
+    <h1>Contact</h1>
+    <p class="lead">Let's connect — we're here to help you scope the first desk.</p>
+    <div class="crumb"><a href="index.html">Home</a><span>/</span><b>Contact</b></div>
+  </div>
+</header>
+
+<section class="tight">
+  <div class="wrap">
+    <div class="eyebrow center">Our information</div>
+    <h2 class="center">Contact information &amp; <b>details</b></h2>
+    <div class="cards info">
+      <div class="card"><div class="ic">✉</div><h3>Email us</h3><p><a href="mailto:hello@hermesops.co" data-email>hello@hermesops.co</a><br>Replies within one working day.</p></div>
+      <div class="card"><div class="ic">◷</div><h3>Scoping calls</h3><p>30 minutes, video or phone.<br>Weekdays 9am–6pm UK time.</p></div>
+      <div class="card"><div class="ic">◈</div><h3>Based in</h3><p>London, United Kingdom.<br>Working with clients across the UK and Europe.</p></div>
+    </div>
+  </div>
+</section>
+<section id="form">
+  <div class="wrap">
+    <div class="eyebrow center">Get in touch</div>
+    <h2 class="center">Have a question?<br>Send us a <b>message</b></h2>
+    <p class="lead center" style="margin:0 auto 34px">Tell us which function hurts most. We'll tell you honestly whether a desk pays back — and what it would cost. You leave with a one-page desk proposal within 48 hours.</p>
+    <div class="formwrap"><form id="scopeForm">
+      <div class="f2">
+        <div><label>Name</label><input name="name" required placeholder="Your name"></div>
+        <div><label>Company</label><input name="company" required placeholder="Company"></div>
+      </div>
+      <div class="f2">
+        <div><label>Email</label><input name="email" type="email" required placeholder="you@company.com"></div>
+        <div><label>Phone / WhatsApp</label><input name="phone" placeholder="+44…"></div>
+      </div>
+      <div><label>Which desk?</label>
+        <select name="desk"><option>AI Sales Desk</option><option>Support &amp; Booking Desk</option><option>Content &amp; Outreach Desk</option><option>Research &amp; Documents Desk</option><option>Not sure yet</option></select></div>
+      <div><label>What does this function look like today?</label><textarea name="notes" placeholder="Who does it, which tools, what goes wrong, what you'd want it to do."></textarea></div>
+      <button class="btn primary" type="submit">Request scoping call →</button>
+      <p class="note" id="formNote">Opens your email client with the details pre-filled. Nothing is stored on this site.</p>
+    </form></div>
+  </div>
+</section>
+<footer class="site">
+  <div class="wrap">
+    <div class="fcols">
+      <div><a class="brand" href="index.html"><i></i><span data-brand>Hermes Ops</span></a><p class="muted" style="margin-top:12px;max-width:320px">AI operations desks, installed and run for you. One function at a time, done properly.</p></div>
+      <div><b>Company</b><a href="about.html">About</a><a href="how-it-works.html">How it works</a><a href="pricing.html">Pricing</a><a href="contact.html">Contact</a></div>
+      <div><b>Desks</b><a href="desks.html#sales">AI Sales Desk</a><a href="desks.html#support">Support &amp; Booking</a><a href="desks.html#content">Content &amp; Outreach</a><a href="desks.html#research">Research &amp; Documents</a></div>
+      <div><b>Product</b><a href="/desk">Live demo</a><a href="index.html#demo">Screenshots</a><a href="privacy.html">Privacy</a><a href="privacy.html#terms">Terms</a></div>
+    </div>
+    <div class="fbar"><span>© <span id="yr"></span> <span data-brand>Hermes Ops</span></span><a href="mailto:hello@hermesops.co" data-email>hello@hermesops.co</a></div>
+  </div>
+</footer>
+<script src="silk.js"></script>
+<script src="script.js"></script>
+</body>
+</html>

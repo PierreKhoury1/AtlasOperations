@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Desks — Hermes Ops</title>
+<meta name="description" content="The four AI desks we install and operate: Sales, Support & Booking, Content & Outreach, Research & Documents.">
+<meta property="og:title" content="Desks — Hermes Ops">
+<meta property="og:description" content="The four AI desks we install and operate: Sales, Support & Booking, Content & Outreach, Research & Documents.">
+<meta property="og:type" content="website">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<!-- multipage -->
+<nav class="nav">
+  <div class="wrap">
+    <a class="brand" href="index.html"><i></i><span data-brand>Hermes Ops</span></a>
+    <ul id="menu"><li><a href="index.html">Home</a></li><li><a href="desks.html" class="on">Desks</a></li><li><a href="how-it-works.html">How it works</a></li><li><a href="pricing.html">Pricing</a></li><li><a href="about.html">About</a></li><li><a href="contact.html">Contact</a></li><li><a href="/desk" class="live">Live demo ↗</a></li><li><a href="contact.html#form" class="btn primary sm">Book a scoping call</a></li></ul>
+    <button class="burger" id="burger" aria-label="menu">☰</button>
+  </div>
+</nav>
+<header class="phero">
+  <canvas class="silk" data-silk='{"ribbons":6,"alpha":1}' aria-hidden="true"></canvas>
+  <div class="wrap">
+    <h1>Desks</h1>
+    <p class="lead">One desk is a team of AI agents built around one job in your business — with an approval queue for you.</p>
+    <div class="crumb"><a href="index.html">Home</a><span>/</span><b>Desks</b></div>
+  </div>
+</header>
+
+<section id="desks">
+  <div class="wrap">
+    <div class="eyebrow">What we install</div>
+    <h2>One desk. One function. Fully <b>operated</b>.</h2>
+    <p class="lead">A desk is a team of AI agents built around one job in your business — an orchestrator that plans and delegates, specialists that do the work, and an approval queue for you. We start with the desk that pays back fastest.</p>
+    <div class="cards">
+      <div id="sales" class="card rv"><div class="ic">📈</div><h3>AI Sales Desk</h3><p>Finds leads, researches them, drafts personalised outreach, updates your CRM and prepares follow-ups — you approve before anything is sent.</p>
+        <ul><li>Lead sourcing &amp; enrichment</li><li>Personalised email / WhatsApp drafts</li><li>CRM hygiene &amp; follow-up cadence</li><li>Weekly pipeline report</li></ul><div class="for">Estate agents · B2B services</div></div>
+      <div id="support" class="card rv"><div class="ic">📅</div><h3>Support &amp; Booking Desk</h3><p>Answers enquiries, books and reschedules appointments, sends reminders, escalates anything it shouldn't decide.</p>
+        <ul><li>Email / chat / WhatsApp triage</li><li>Calendar booking &amp; reminders</li><li>FAQ &amp; policy answers from your docs</li><li>Escalation with full context</li></ul><div class="for">Clinics · Salons · Trades</div></div>
+      <div id="content" class="card rv"><div class="ic">✍️</div><h3>Content &amp; Outreach Desk</h3><p>Plans and drafts content, product copy, email flows and partner outreach, then reports on what moved the numbers.</p>
+        <ul><li>Content calendar &amp; drafts</li><li>Product / collection copy</li><li>Email &amp; promo campaigns</li><li>Monthly performance report</li></ul><div class="for">E-commerce · Agencies</div></div>
+      <div id="research" class="card rv"><div class="ic">📚</div><h3>Research &amp; Documents Desk</h3><p>Turns a brief into research, strategy, pricing and a client-ready proposal, reviewed by a QA agent before it reaches you.</p>
+        <ul><li>Market &amp; client research briefs</li><li>Proposals, SOWs, reports</li><li>Pricing &amp; business cases</li><li>Partner-level QA pass</li></ul><div class="for">Consultancies · Professional services</div></div>
+    </div>
+  </div>
+</section>
+<section id="stack">
+  <div class="wrap">
+    <div class="eyebrow">Under the hood</div>
+    <h2>Boring, proven infrastructure. Our advantage is the <b>workflows</b>.</h2>
+    <p class="lead">We're not selling a framework. We're selling industry-specific workflows, integrations, accumulated operating data and human quality control — built on components that already run in production elsewhere.</p>
+    <div class="stack">
+      <div class="layer rv"><small>Intelligence</small><b>Frontier models, multi-provider</b><p>Best model per task; cheaper models for routine steps. Swappable — you're not locked to one vendor.</p></div>
+      <div class="layer rv"><small>Agent runtime</small><b>Orchestrator + specialists</b><p>One planner agent delegates to role-based specialists with tools, handoffs, guardrails and tracing.</p></div>
+      <div class="layer rv"><small>Workflows</small><b>Durable, checkpointed pipelines</b><p>Long-running jobs with retries and deterministic branches for the steps that must not improvise.</p></div>
+      <div class="layer rv"><small>Integrations</small><b>Your existing tools</b><p>CRM, email, calendars, forms, WhatsApp, Slack, spreadsheets — connected through an automation layer, not rebuilt.</p></div>
+      <div class="layer rv"><small>System of record</small><b>Postgres: tasks, permissions, audit</b><p>Every task, approval and output stored with who/what/when. Exportable.</p></div>
+      <div class="layer rv"><small>People</small><b>Human QA &amp; monthly ops review</b><p>We read the failures, fix the workflow, and report what changed.</p></div>
+    </div>
+  </div>
+</section>
+<section class="tight">
+  <div class="wrap">
+    <div class="band rv">
+      <div><div class="eyebrow">Start small, prove it, expand</div><h2>One desk in 30 <b>days</b>.</h2></div>
+      <a class="btn primary" href="contact.html#form">Book a scoping call →</a>
+    </div>
+  </div>
+</section>
+<footer class="site">
+  <div class="wrap">
+    <div class="fcols">
+      <div><a class="brand" href="index.html"><i></i><span data-brand>Hermes Ops</span></a><p class="muted" style="margin-top:12px;max-width:320px">AI operations desks, installed and run for you. One function at a time, done properly.</p></div>
+      <div><b>Company</b><a href="about.html">About</a><a href="how-it-works.html">How it works</a><a href="pricing.html">Pricing</a><a href="contact.html">Contact</a></div>
+      <div><b>Desks</b><a href="desks.html#sales">AI Sales Desk</a><a href="desks.html#support">Support &amp; Booking</a><a href="desks.html#content">Content &amp; Outreach</a><a href="desks.html#research">Research &amp; Documents</a></div>
+      <div><b>Product</b><a href="/desk">Live demo</a><a href="index.html#demo">Screenshots</a><a href="privacy.html">Privacy</a><a href="privacy.html#terms">Terms</a></div>
+    </div>
+    <div class="fbar"><span>© <span id="yr"></span> <span data-brand>Hermes Ops</span></span><a href="mailto:hello@hermesops.co" data-email>hello@hermesops.co</a></div>
+  </div>
+</footer>
+<script src="silk.js"></script>
+<script src="script.js"></script>
+</body>
+</html>

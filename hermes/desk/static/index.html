@@ -4,98 +4,109 @@
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Hermes Desk</title>
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
-<link href="https://fonts.googleapis.com/css2?family=Anton&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
-:root{--bg:#0b0b0e;--bg2:#111117;--panel:#16161d;--panel2:#1d1d26;--line:#262633;--text:#f2f2f5;--muted:#9a9aa6;--accent:#f5c542;--blue:#4f8cff;--ok:#3ddc97;--danger:#ff6b6b;--r:12px}
+:root{--bg:#07030f;--bg2:#0c0618;--panel:rgba(24,13,52,.72);--panel2:#1a0f38;--line:rgba(168,85,247,.22);--line2:rgba(168,85,247,.45);--text:#f4f0ff;--muted:#b7a9e3;--accent:#a855f7;--accent2:#c084fc;--blue:#60a5fa;--ok:#3ddc97;--danger:#ff6b8a;--r:10px;--grad:linear-gradient(135deg,#9b4dff 0%,#6d28d9 100%);--glow:rgba(139,92,246,.45);--ink:#0a0518}
 *{box-sizing:border-box;margin:0;padding:0}
-body{font-family:Inter,system-ui,sans-serif;background:var(--bg);color:var(--text);font-size:14px;line-height:1.5}
+body{font-family:Quicksand,system-ui,sans-serif;background:var(--bg);color:var(--text);font-size:14px;line-height:1.55;font-weight:500;background-image:radial-gradient(55% 40% at 80% 0%,rgba(124,58,237,.30),transparent 70%),radial-gradient(40% 35% at 0% 60%,rgba(88,28,135,.22),transparent 70%),radial-gradient(45% 35% at 75% 100%,rgba(124,58,237,.16),transparent 70%);background-attachment:fixed}
 a{color:inherit;text-decoration:none}
-.layout{display:grid;grid-template-columns:220px 1fr;min-height:100vh}
-aside{background:var(--bg2);border-right:1px solid var(--line);padding:18px 14px;position:sticky;top:0;height:100vh}
-.brand{font-family:Anton,sans-serif;font-size:22px;letter-spacing:.04em;text-transform:uppercase;display:flex;align-items:center;gap:8px;margin-bottom:6px}
-.brand i{width:10px;height:10px;background:var(--accent);transform:rotate(45deg);display:inline-block}
+.silkbg{position:fixed;top:0;left:0;width:100%;height:46vh;pointer-events:none;z-index:0;opacity:.75;-webkit-mask-image:linear-gradient(to bottom,#000 30%,transparent);mask-image:linear-gradient(to bottom,#000 30%,transparent)}
+.layout{display:grid;grid-template-columns:232px 1fr;min-height:100vh;position:relative;z-index:1}
+aside{background:rgba(9,4,20,.62);backdrop-filter:blur(18px);border-right:1px solid var(--line);padding:22px 16px;position:sticky;top:0;height:100vh}
+.brand{font-weight:700;font-size:21px;letter-spacing:-.01em;display:flex;align-items:center;gap:10px;margin-bottom:6px}
+.brand i{width:22px;height:22px;border-radius:5px;background:var(--grad);display:inline-block;position:relative;box-shadow:0 0 16px var(--glow);flex:0 0 auto}
+.brand i::after{content:"";position:absolute;inset:6px;border-radius:2px;background:var(--ink)}
 .sub{color:var(--muted);font-size:12px;margin-bottom:22px}
-nav button{display:flex;justify-content:space-between;width:100%;background:none;border:0;color:var(--muted);padding:10px 12px;border-radius:8px;font:inherit;cursor:pointer;text-align:left;margin-bottom:4px}
-nav button:hover{background:var(--panel)}nav button.on{background:var(--accent);color:#111;font-weight:600}
-nav button .pill{background:#2a2a36;color:var(--text);border-radius:99px;padding:0 8px;font-size:11px}
-nav button.on .pill{background:#111;color:var(--accent)}
-.mode{margin-top:auto;position:absolute;bottom:18px;left:14px;right:14px;font-size:12px;color:var(--muted);border-top:1px solid var(--line);padding-top:12px}
-.mode b{color:var(--accent)}
-main{padding:26px 30px;max-width:1300px}
-h1{font-family:Anton,sans-serif;font-weight:400;font-size:34px;text-transform:uppercase;letter-spacing:.02em;margin-bottom:4px}
-h2{font-size:16px;font-weight:600;margin-bottom:10px}
+nav button{display:flex;justify-content:space-between;align-items:center;width:100%;background:none;border:1px solid transparent;color:var(--muted);padding:10px 14px;border-radius:6px;font:inherit;font-weight:600;cursor:pointer;text-align:left;margin-bottom:4px;transition:.18s}
+nav button:hover{background:rgba(168,85,247,.10);color:var(--text)}
+nav button.on{background:var(--grad);color:#fff;box-shadow:0 6px 18px rgba(139,92,246,.3),inset 0 1px 0 rgba(255,255,255,.18)}
+nav button .pill{background:rgba(168,85,247,.18);color:var(--text);border-radius:4px;padding:0 8px;font-size:11px}
+nav button.on .pill{background:rgba(255,255,255,.22);color:#fff}
+.mode{margin-top:auto;position:absolute;bottom:18px;left:16px;right:16px;font-size:12px;color:var(--muted);border-top:1px solid var(--line);padding-top:12px}
+.mode b{color:var(--accent2)}
+main{padding:30px 34px;max-width:1300px}
+h1{font-weight:400;font-size:38px;letter-spacing:-.012em;line-height:1.1;margin-bottom:4px}
+h1 b{font-weight:700}
+h2{font-size:16px;font-weight:700;margin-bottom:10px}
 .lead{color:var(--muted);margin-bottom:22px}
 .grid{display:grid;gap:14px}.g4{grid-template-columns:repeat(4,1fr)}.g2{grid-template-columns:1fr 1fr}.g3{grid-template-columns:repeat(3,1fr)}
-.card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:18px}
-.kpi b{font-family:Anton,sans-serif;font-size:36px;display:block;line-height:1}.kpi span{color:var(--muted);font-size:12px;letter-spacing:.1em;text-transform:uppercase}
-.btn{display:inline-flex;align-items:center;gap:8px;padding:9px 14px;border-radius:8px;border:1px solid var(--line);background:var(--panel2);color:var(--text);font:inherit;font-weight:600;cursor:pointer}
-.btn.p{background:var(--accent);color:#111;border-color:var(--accent)}.btn.ok{background:var(--ok);color:#111;border-color:var(--ok)}.btn.d{color:var(--danger)}.btn.sm{padding:6px 10px;font-size:12px}
+.card{background:linear-gradient(160deg,rgba(30,16,64,.72),rgba(12,6,28,.78));border:1px solid var(--line);border-radius:var(--r);padding:20px;box-shadow:inset 0 1px 0 rgba(255,255,255,.06);backdrop-filter:blur(10px)}
+.kpi b{font-weight:700;font-size:38px;display:block;line-height:1;letter-spacing:-.02em}.kpi span{color:var(--muted);font-size:12px;letter-spacing:.08em;text-transform:uppercase;font-weight:600}
+.btn{display:inline-flex;align-items:center;gap:8px;padding:10px 18px;border-radius:6px;border:1px solid var(--line);background:rgba(255,255,255,.04);color:var(--text);font:inherit;font-weight:700;cursor:pointer;transition:.18s}
+.btn:hover{border-color:var(--accent2)}
+.btn.p{background:var(--grad);color:#fff;border-color:transparent;box-shadow:0 8px 24px var(--glow),inset 0 1px 0 rgba(255,255,255,.25)}.btn.p:hover{transform:translateY(-1px)}
+.btn.ok{background:linear-gradient(135deg,#34d399,#0f9f6e);color:#04120c;border-color:transparent;box-shadow:0 8px 24px rgba(52,211,153,.35)}
+.btn.d{color:var(--danger)}.btn.sm{padding:6px 12px;font-size:12px}
+.btn.on{border-color:var(--accent2);color:var(--text);background:rgba(168,85,247,.14)}
 .btn:disabled{opacity:.5;cursor:default}
-input,select,textarea{width:100%;background:var(--panel2);border:1px solid var(--line);color:var(--text);padding:10px 12px;border-radius:8px;font:inherit}
+input,select,textarea{width:100%;background:rgba(20,10,44,.75);border:1px solid var(--line);color:var(--text);padding:10px 14px;border-radius:6px;font:inherit}
+input::placeholder,textarea::placeholder{color:#7d6fb0}
+input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent2);box-shadow:0 0 0 3px rgba(168,85,247,.18)}
 textarea{min-height:90px;resize:vertical}
-label{display:block;font-size:12px;color:var(--muted);margin:8px 0 4px}
+label{display:block;font-size:12px;color:var(--muted);margin:8px 0 4px;font-weight:600}
 table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:10px 8px;border-bottom:1px solid var(--line);vertical-align:top}th{color:var(--muted);font-size:11px;letter-spacing:.1em;text-transform:uppercase}
-tr.click{cursor:pointer}tr.click:hover{background:var(--panel2)}
-.tag{display:inline-block;padding:2px 8px;border-radius:6px;font-size:11px;letter-spacing:.06em;text-transform:uppercase;background:#262633;color:var(--muted)}
-.tag.running{color:var(--blue)}.tag.done,.tag.processed,.tag.sent,.tag.Won{color:var(--ok)}.tag.error,.tag.rejected,.tag.Lost{color:var(--danger)}.tag.pending,.tag.new{color:var(--accent)}
-.log{background:#0d0d11;border:1px solid var(--line);border-radius:var(--r);padding:14px;font-family:Consolas,monospace;font-size:12.5px;max-height:520px;overflow:auto;white-space:pre-wrap}
-.log .ag{font-weight:700}.log .t{color:#666;margin-right:8px}
-.appr{border-left:4px solid var(--accent)}
+tr.click{cursor:pointer}tr.click:hover{background:rgba(168,85,247,.08)}
+.tag{display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;letter-spacing:.06em;text-transform:uppercase;background:rgba(168,85,247,.14);color:var(--muted);font-weight:700}
+.tag.running{color:var(--blue)}.tag.done,.tag.processed,.tag.sent,.tag.Won{color:var(--ok)}.tag.error,.tag.rejected,.tag.Lost{color:var(--danger)}.tag.pending,.tag.new{color:var(--accent2)}
+.log{background:rgba(6,3,14,.8);border:1px solid var(--line);border-radius:var(--r);padding:14px;font-family:Consolas,monospace;font-size:12.5px;max-height:520px;overflow:auto;white-space:pre-wrap}
+.log .ag{font-weight:700}.log .t{color:#6b5f96;margin-right:8px}
+.appr{border-left:3px solid var(--accent2)}
 .appr .meta{color:var(--muted);font-size:12px;margin-bottom:6px}
 .appr textarea{min-height:150px;font-size:13px}
 .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 .spacer{flex:1}
-.empty{color:var(--muted);padding:30px;text-align:center;border:1px dashed var(--line);border-radius:var(--r)}
+.empty{color:var(--muted);padding:30px;text-align:center;border:1px dashed var(--line2);border-radius:var(--r)}
 .md{white-space:pre-wrap;font-size:13px;line-height:1.55}
 .hide{display:none}
-.toast{position:fixed;bottom:18px;right:18px;background:var(--panel);border:1px solid var(--line);padding:12px 16px;border-radius:10px;box-shadow:0 10px 30px rgba(0,0,0,.5);opacity:0;transition:.2s}
+.toast{position:fixed;bottom:18px;right:18px;background:rgba(24,13,52,.95);border:1px solid var(--line2);padding:12px 18px;border-radius:6px;box-shadow:0 10px 30px rgba(0,0,0,.5),0 0 30px -10px var(--glow);opacity:0;transition:.2s;backdrop-filter:blur(10px)}
 .toast.on{opacity:1}
 .agentline{display:flex;gap:8px;align-items:center;margin:6px 0}.agentline i{width:10px;height:10px;border-radius:50%;display:inline-block}
-.stepper{display:flex;gap:6px;margin:8px 0 14px;flex-wrap:wrap}.stepper span{padding:5px 10px;border-radius:6px;background:var(--panel2);font-size:12px;color:var(--muted);border:1px solid var(--line)}.stepper span.on{border-color:var(--accent);color:var(--text)}
+.stepper{display:flex;gap:6px;margin:8px 0 14px;flex-wrap:wrap}.stepper span{padding:5px 12px;border-radius:6px;background:rgba(168,85,247,.10);font-size:12px;color:var(--muted);border:1px solid var(--line)}.stepper span.on{border-color:var(--accent2);color:var(--text)}
 /* ---- live desk ---- */
 .livebar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:14px}
-.livebar select{width:auto;min-width:260px}
-.livebar .kv{font-family:Consolas,monospace;font-size:12px;color:var(--muted);background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:6px 10px}
+.livebar select{width:auto;min-width:260px;border-radius:6px}
+.livebar .kv{font-family:Consolas,monospace;font-size:12px;color:var(--muted);background:rgba(20,10,44,.7);border:1px solid var(--line);border-radius:6px;padding:6px 12px}
 .livebar .kv b{color:var(--text);font-variant-numeric:tabular-nums}
 .dot{width:8px;height:8px;border-radius:50%;background:var(--muted);display:inline-block}
 .dot.live{background:var(--ok);box-shadow:0 0 0 0 rgba(61,220,151,.6);animation:pulse 1.4s infinite}
 @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(61,220,151,.6)}100%{box-shadow:0 0 0 9px rgba(61,220,151,0)}}
-.stage{position:relative;background:#0d0d11;border:1px solid var(--line);border-radius:var(--r);padding:18px;min-height:560px}
+.stage{position:relative;background:linear-gradient(160deg,rgba(18,9,40,.6),rgba(6,3,14,.7));border:1px solid var(--line);border-radius:12px;padding:18px;min-height:560px;box-shadow:inset 0 1px 0 rgba(255,255,255,.05)}
 .stage svg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
-.stage .edge{fill:none;stroke:#2a2a36;stroke-width:2}
-.stage .edge.on{stroke:var(--c,var(--accent));stroke-width:2.5;stroke-dasharray:6 8;animation:flow .7s linear infinite}
-.stage .edge.done{stroke:var(--c,var(--accent));opacity:.45}
+.stage .edge{fill:none;stroke:rgba(168,85,247,.22);stroke-width:2}
+.stage .edge.on{stroke:var(--c,var(--accent2));stroke-width:2.5;stroke-dasharray:6 8;animation:flow .7s linear infinite;filter:drop-shadow(0 0 6px var(--c,var(--accent2)))}
+.stage .edge.done{stroke:var(--c,var(--accent2));opacity:.45}
 @keyframes flow{to{stroke-dashoffset:-14}}
 .sgrid{position:relative;display:grid;grid-template-columns:minmax(300px,1.1fr) 1fr 1fr;gap:18px 40px;align-items:stretch}
-.node{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 14px;display:flex;flex-direction:column;min-height:150px;position:relative;transition:border-color .25s,box-shadow .25s}
+.node{background:linear-gradient(160deg,rgba(30,16,64,.85),rgba(12,6,28,.9));border:1px solid var(--line);border-radius:10px;padding:12px 14px;display:flex;flex-direction:column;min-height:150px;position:relative;transition:border-color .25s,box-shadow .25s;box-shadow:inset 0 1px 0 rgba(255,255,255,.06)}
 .node.hermes{grid-row:1 / span 2}
-.node.busy{border-color:var(--c);box-shadow:0 0 0 1px var(--c),0 0 28px -8px var(--c)}
+.node.busy{border-color:var(--c);box-shadow:0 0 0 1px var(--c),0 0 34px -8px var(--c),inset 0 1px 0 rgba(255,255,255,.08)}
 .node.fin{border-color:color-mix(in srgb,var(--c) 45%,var(--line))}
 .node .nh{display:flex;align-items:center;gap:8px;margin-bottom:8px}
-.node .nh i{width:10px;height:10px;border-radius:50%;background:var(--c);display:inline-block}
-.node .nh b{font-weight:600}
+.node .nh i{width:10px;height:10px;border-radius:50%;background:var(--c);display:inline-block;box-shadow:0 0 10px var(--c)}
+.node .nh b{font-weight:700}
 .node .nh .role{color:var(--muted);font-size:12px}
-.node .st{margin-left:auto;font-size:10px;letter-spacing:.1em;text-transform:uppercase;padding:2px 8px;border-radius:6px;background:#262633;color:var(--muted)}
-.node.busy .st{background:var(--c);color:#111}
+.node .st{margin-left:auto;font-size:10px;letter-spacing:.1em;text-transform:uppercase;padding:2px 10px;border-radius:4px;background:rgba(168,85,247,.14);color:var(--muted);font-weight:700}
+.node.busy .st{background:var(--c);color:#0a0518}
 .node .chips{display:flex;gap:6px;flex-wrap:wrap;min-height:20px;margin-bottom:6px}
-.chip{font-family:Consolas,monospace;font-size:11px;padding:2px 8px;border-radius:6px;background:#1f1f2a;color:var(--muted);border:1px solid var(--line)}
+.chip{font-family:Consolas,monospace;font-size:11px;padding:2px 8px;border-radius:4px;background:rgba(168,85,247,.10);color:var(--muted);border:1px solid var(--line)}
 .chip.new{border-color:var(--c);color:var(--text);animation:chipin .35s ease-out}
 @keyframes chipin{from{transform:scale(.7);opacity:0}to{transform:none;opacity:1}}
-.stream{flex:1;background:#09090c;border:1px solid var(--line);border-radius:8px;padding:10px;font-family:Consolas,monospace;font-size:12px;line-height:1.5;white-space:pre-wrap;overflow:auto;max-height:230px;min-height:80px;color:#d5d5dd}
+.stream{flex:1;background:rgba(5,2,12,.85);border:1px solid var(--line);border-radius:6px;padding:10px;font-family:Consolas,monospace;font-size:12px;line-height:1.5;white-space:pre-wrap;overflow:auto;max-height:230px;min-height:80px;color:#ddd6f3}
 .node.hermes .stream{max-height:430px}
-.stream .think{color:#6f6f80;font-style:italic}
-.stream .caret{display:inline-block;width:7px;height:13px;background:var(--c,var(--accent));vertical-align:-2px;margin-left:2px;animation:blink 1s steps(2) infinite}
+.stream .think{color:#7d6fb0;font-style:italic}
+.stream .caret{display:inline-block;width:7px;height:13px;background:var(--c,var(--accent2));vertical-align:-2px;margin-left:2px;animation:blink 1s steps(2) infinite}
 @keyframes blink{to{opacity:0}}
 .node .nf{display:flex;gap:12px;margin-top:8px;font-size:11px;color:var(--muted);font-family:Consolas,monospace}
 .ticker{margin-top:14px}
 .ticker .log{max-height:200px}
-.approval-flash{border-left:4px solid var(--accent);background:#1a1710}
+.approval-flash{border-left:3px solid var(--accent2);background:rgba(168,85,247,.10)}
 @media(max-width:1100px){.sgrid{grid-template-columns:1fr 1fr}.node.hermes{grid-column:1 / span 2;grid-row:auto}.stage svg{display:none}}
 @media(prefers-reduced-motion:reduce){.stage .edge.on,.dot.live,.stream .caret{animation:none}}
 @media(max-width:900px){.layout{grid-template-columns:1fr}aside{position:static;height:auto}.g4,.g3,.g2{grid-template-columns:1fr 1fr}main{padding:16px}}
 </style>
 </head>
 <body>
+<canvas class="silkbg" data-silk='{"ribbons":5,"alpha":.9}' aria-hidden="true"></canvas>
 <div class="layout">
 <aside>
   <div class="brand"><i></i>Hermes Desk</div>
@@ -117,7 +128,7 @@ tr.click{cursor:pointer}tr.click:hover{background:var(--panel2)}
 
 <!-- DASHBOARD -->
 <section id="p-dash">
-  <h1>Dashboard</h1><p class="lead">What the desk did, what's waiting for you.</p>
+  <h1><b>Dashboard</b></h1><p class="lead">What the desk did, what's waiting for you.</p>
   <div class="grid g4" style="margin-bottom:18px">
     <div class="card kpi"><b id="k-leads">0</b><span>Leads handled</span></div>
     <div class="card kpi"><b id="k-pending" style="color:var(--accent)">0</b><span>Awaiting approval</span></div>
@@ -144,7 +155,7 @@ tr.click{cursor:pointer}tr.click:hover{background:var(--panel2)}
 
 <!-- LIVE DESK -->
 <section id="p-live" class="hide">
-  <h1>Live desk</h1><p class="lead">Watch the agents work in real time — every token as the model writes it, every hand-off, every tool call.</p>
+  <h1>Live <b>desk</b></h1><p class="lead">Watch the agents work in real time — every token as the model writes it, every hand-off, every tool call.</p>
   <div class="livebar">
     <select id="live-run" onchange="pickLive(this.value)"></select>
     <span class="kv"><span class="dot" id="live-dot"></span> <span id="live-status">idle</span></span>
@@ -162,7 +173,7 @@ tr.click{cursor:pointer}tr.click:hover{background:var(--panel2)}
 
 <!-- LEADS -->
 <section id="p-leads" class="hide">
-  <h1>Leads</h1><p class="lead">Every inbound lead becomes a run. Add one manually or seed demo leads.</p>
+  <h1><b>Leads</b></h1><p class="lead">Every inbound lead becomes a run. Add one manually or seed demo leads.</p>
   <div class="grid g2">
     <div class="card">
       <h2>New lead</h2>
@@ -179,46 +190,47 @@ tr.click{cursor:pointer}tr.click:hover{background:var(--panel2)}
 
 <!-- APPROVALS -->
 <section id="p-approvals" class="hide">
-  <h1>Approvals</h1><p class="lead">Outbound actions the agents want to take. Edit, approve or reject. Approved = sent (simulated in demo) and logged.</p>
+  <h1><b>Approvals</b></h1><p class="lead">Outbound actions the agents want to take. Edit, approve or reject. Approved = sent (simulated in demo) and logged.</p>
   <div class="row" style="margin-bottom:14px"><button class="btn sm on" data-f="pending" onclick="setAf('pending')">Pending</button><button class="btn sm" onclick="setAf('sent')">Sent</button><button class="btn sm" onclick="setAf('rejected')">Rejected</button><button class="btn sm" onclick="setAf('')">All</button></div>
   <div id="approvals" class="grid"></div>
 </section>
 
 <!-- CRM -->
 <section id="p-crm" class="hide">
-  <h1>CRM</h1><p class="lead">Contacts the desk maintains. Stage moves as work happens.</p>
+  <h1><b>CRM</b></h1><p class="lead">Contacts the desk maintains. Stage moves as work happens.</p>
   <div class="row" style="margin-bottom:12px"><input id="crm-q" placeholder="search name / company / email" style="max-width:320px" oninput="loadCrm()"></div>
   <div class="card" id="crm-table"></div>
 </section>
 
 <!-- RUNS -->
 <section id="p-runs" class="hide">
-  <h1>Runs</h1><p class="lead">One run per task. Click to see every agent step, tool call and deliverable.</p>
+  <h1><b>Runs</b></h1><p class="lead">One run per task. Click to see every agent step, tool call and deliverable.</p>
   <div class="card" style="margin-bottom:14px"><h2>Ad-hoc task</h2><div class="row"><input id="r-task" placeholder="e.g. Draft a follow-up sequence for landlords who went quiet" style="flex:1"><select id="r-mode" style="width:200px"></select><button class="btn p" onclick="runTask()">Run</button></div></div>
   <div class="grid g2"><div class="card" id="runs-table"></div><div class="card" id="run-detail"><div class="empty">Select a run</div></div></div>
 </section>
 
 <!-- AUDIT -->
 <section id="p-audit" class="hide">
-  <h1>Audit log</h1><p class="lead">Every agent action, tool call, approval and send — who, what, when.</p>
+  <h1>Audit <b>log</b></h1><p class="lead">Every agent action, tool call, approval and send — who, what, when.</p>
   <div class="card" id="audit-table"></div>
 </section>
 
 <!-- REPORT -->
 <section id="p-report" class="hide">
-  <h1>Monthly report</h1><p class="lead">What you get every month: volume, approval rate, time saved, cost, what we changed.</p>
+  <h1>Monthly <b>report</b></h1><p class="lead">What you get every month: volume, approval rate, time saved, cost, what we changed.</p>
   <div id="report"></div>
 </section>
 
 <!-- SETUP -->
 <section id="p-setup" class="hide">
-  <h1>Desk setup</h1><p class="lead">Business profile, agents and workflows this desk runs on. Edited by your ops lead; shown here for transparency.</p>
+  <h1>Desk <b>setup</b></h1><p class="lead">Business profile, agents and workflows this desk runs on. Edited by your ops lead; shown here for transparency.</p>
   <div class="grid g2"><div class="card" id="setup-biz"></div><div class="card" id="setup-agents"></div></div>
 </section>
 
 </main></div>
 <div class="toast" id="toast"></div>
 
+<script src="/silk.js"></script>
 <script>
 window.addEventListener('hashchange', ()=>{const h=location.hash.slice(1); if(document.getElementById('p-'+h)) go(h);});
 const $ = s => document.querySelector(s);
@@ -233,15 +245,15 @@ document.querySelectorAll('#nav button').forEach(b=>b.onclick=()=>go(b.dataset.p
 
 async function init(){
   CFG = await api('/config');
-  colors = Object.fromEntries(CFG.agents.map(a=>[a.id, a.color || '#8ab4f8']));
+  colors = Object.fromEntries(CFG.agents.map(a=>[a.id, a.color || '#60a5fa']));
   $('#bizname').textContent = CFG.business.name + ' · ' + (CFG.business.tagline || '');
   $('#mode').textContent = CFG.mode.toUpperCase();
   $('#modehint').textContent = CFG.mode==='demo' ? 'scripted agents, no API key — same pipeline' : 'live models';
-  $('#agents').innerHTML = CFG.agents.map(a=>`<div class="agentline"><i style="background:${a.color||'#8ab4f8'}"></i><b>${esc(a.name)}</b><span style="color:var(--muted)">— ${esc(a.role)}</span></div>`).join('');
+  $('#agents').innerHTML = CFG.agents.map(a=>`<div class="agentline"><i style="background:${a.color||'#60a5fa'}"></i><b>${esc(a.name)}</b><span style="color:var(--muted)">— ${esc(a.role)}</span></div>`).join('');
   const modes = ['<option value="auto">auto (Hermes decides)</option>'].concat(CFG.workflows.map(w=>`<option value="${w.id}">${esc(w.name)}</option>`)).join('');
   $('#l-mode').innerHTML = modes; $('#r-mode').innerHTML = modes;
   $('#setup-biz').innerHTML = `<h2>Business</h2><div class="md">${esc(Object.entries(CFG.business).map(([k,v])=>`${k}: ${Array.isArray(v)?v.join(', '):v}`).join('\n'))}</div>`;
-  $('#setup-agents').innerHTML = `<h2>Agents &amp; tools</h2>` + CFG.agents.map(a=>`<div style="margin-bottom:10px"><div class="agentline"><i style="background:${a.color||'#8ab4f8'}"></i><b>${esc(a.name)}</b> <span class="tag">${a.id}</span></div><div style="color:var(--muted);font-size:12px;margin-left:18px">${esc(a.role)}<br>tools: ${a.tools.map(t=>`<span class="tag">${t}</span>`).join(' ')}</div></div>`).join('') + `<h2 style="margin-top:14px">Workflows</h2>` + CFG.workflows.map(w=>`<div><b>${esc(w.name)}</b> <span style="color:var(--muted)">— ${esc(w.description)}</span></div>`).join('');
+  $('#setup-agents').innerHTML = `<h2>Agents &amp; tools</h2>` + CFG.agents.map(a=>`<div style="margin-bottom:10px"><div class="agentline"><i style="background:${a.color||'#60a5fa'}"></i><b>${esc(a.name)}</b> <span class="tag">${a.id}</span></div><div style="color:var(--muted);font-size:12px;margin-left:18px">${esc(a.role)}<br>tools: ${a.tools.map(t=>`<span class="tag">${t}</span>`).join(' ')}</div></div>`).join('') + `<h2 style="margin-top:14px">Workflows</h2>` + CFG.workflows.map(w=>`<div><b>${esc(w.name)}</b> <span style="color:var(--muted)">— ${esc(w.description)}</span></div>`).join('');
   const h=location.hash.slice(1); if(h && document.getElementById('p-'+h)) go(h); else refresh(); setInterval(refresh, 2500);
 }
 
@@ -261,7 +273,7 @@ async function refresh(){
 }
 
 function evLine(e){
-  const col = e.agent==='owner' ? 'var(--ok)' : (colors[e.agent] || (e.agent==='system' ? '#9aa0a6' : '#8ab4f8'));
+  const col = e.agent==='owner' ? 'var(--ok)' : (colors[e.agent] || (e.agent==='system' ? '#9aa0a6' : '#60a5fa'));
   const icon = {tool:'⚙ ', approval:'⏸ ', error:'✖ ', deliverable:'📄 ', done:'✔ ', sent:'📤 ', rejected:'✖ ', agent_start:'→ ', agent_end:'← '}[e.kind] || '';
   return `<div><span class="t">${hms(e.ts)}</span><span class="ag" style="color:${col}">[${esc(e.agent)}]</span> ${icon}${esc(e.text)}</div>`;
 }
@@ -284,7 +296,7 @@ function setAf(f){ af=f; document.querySelectorAll('#p-approvals .btn.sm').forEa
 async function loadApprovals(){
   const A = await api('/actions' + (af?`?status=${af}`:''));
   $('#approvals').innerHTML = A.length ? A.map(a=>`<div class="card appr" id="a${a.id}">
-    <div class="row"><span class="tag ${a.status}">${a.status}</span><span class="tag">${esc(a.kind)}</span><b>to ${esc(a.to)}</b><span class="spacer"></span><span class="meta">queued ${when(a.created)} by <span style="color:${colors[a.agent]||'#fff'}">${esc(a.agent)}</span> · run ${esc(a.run_id)}</span></div>
+    <div class="row"><span class="tag ${a.status}">${a.status}</span><span class="tag">${esc(a.kind)}</span><b>to ${esc(a.to)}</b><span class="spacer"></span><span class="meta">queued ${when(a.created)} by <span style="color:${colors[a.agent]||'var(--text)'}">${esc(a.agent)}</span> · run ${esc(a.run_id)}</span></div>
     ${a.reason?`<div class="meta" style="margin-top:6px">⚠ ${esc(a.reason)}</div>`:''}
     <label>Subject</label><input id="s${a.id}" value="${esc(a.subject)}" ${a.status!=='pending'?'disabled':''}>
     <label>Body</label><textarea id="b${a.id}" ${a.status!=='pending'?'disabled':''}>${esc(a.body)}</textarea>
@@ -313,12 +325,12 @@ async function loadRun(id, quiet){
   const el = $('#run-detail'); const atBottom = true;
   el.innerHTML = `<div class="row"><span class="tag ${r.active?'running':r.status}">${r.active?'running':r.status}</span><b>${esc(r.id)}</b><span class="spacer"></span>${r.active?`<button class="btn sm" onclick="liveWant='${r.id}';go('live')">▶ watch live</button> <button class="btn sm d" onclick="api('/runs/${r.id}/cancel',{method:'POST',body:{}})">stop</button>`:''}</div>
     <div class="md" style="color:var(--muted);margin:8px 0">${esc(r.task).slice(0,400)}</div>
-    <div class="log" id="runlog">${r.events.map(evLine).join('')}${r.active?'<div style="color:var(--blue)">… working</div>':''}</div>
+    <div class="log" id="runlog">${r.events.map(evLine).join('')}${r.active?'<div style="color:var(--accent2)">… working</div>':''}</div>
     ${r.summary?`<h2 style="margin-top:14px">Summary</h2><div class="md">${esc(r.summary)}</div>`:''}
     ${r.deliverables.map(d=>`<details style="margin-top:10px"><summary style="cursor:pointer;font-weight:600">📄 ${esc(d.name)}</summary><div class="md" style="margin-top:8px;background:var(--panel2);padding:12px;border-radius:8px">${esc(d.content)}</div></details>`).join('')}`;
   const lg = $('#runlog'); if (lg) lg.scrollTop = 1e9;
 }
-async function loadAudit(){ const ev = await api('/audit'); $('#audit-table').innerHTML = ev.length ? `<table><tr><th>When</th><th>Run</th><th>Agent</th><th>Kind</th><th>Detail</th></tr>` + ev.map(e=>`<tr><td>${when(e.ts)}</td><td style="color:var(--muted);font-size:12px">${esc(e.run_id)}</td><td style="color:${colors[e.agent]||'#fff'}">${esc(e.agent)}</td><td><span class="tag">${e.kind}</span></td><td class="md" style="max-width:600px">${esc(e.text).slice(0,300)}</td></tr>`).join('') + '</table>' : '<div class="empty">Empty</div>'; }
+async function loadAudit(){ const ev = await api('/audit'); $('#audit-table').innerHTML = ev.length ? `<table><tr><th>When</th><th>Run</th><th>Agent</th><th>Kind</th><th>Detail</th></tr>` + ev.map(e=>`<tr><td>${when(e.ts)}</td><td style="color:var(--muted);font-size:12px">${esc(e.run_id)}</td><td style="color:${colors[e.agent]||'var(--text)'}">${esc(e.agent)}</td><td><span class="tag">${e.kind}</span></td><td class="md" style="max-width:600px">${esc(e.text).slice(0,300)}</td></tr>`).join('') + '</table>' : '<div class="empty">Empty</div>'; }
 async function loadReport(){
   const r = await api('/report');
   $('#report').innerHTML = `<div class="grid g4" style="margin-bottom:14px">
@@ -373,12 +385,12 @@ async function pickLive(id){
 
 function agentState(id){
   const s = liveState.agents;
-  if (!s[id]) { const a = CFG.agents.find(x => x.id === id); s[id] = { id, name: a ? a.name : id, role: a ? a.role : '', color: colors[id] || '#8ab4f8', status: 'idle', text: '', think: '', chips: [], iters: 0, chars: 0, done: false }; }
+  if (!s[id]) { const a = CFG.agents.find(x => x.id === id); s[id] = { id, name: a ? a.name : id, role: a ? a.role : '', color: colors[id] || '#60a5fa', status: 'idle', text: '', think: '', chips: [], iters: 0, chars: 0, done: false }; }
   return s[id];
 }
 
 function applyLive(e, live){
-  const S = liveState; S.n++;
+  const S = liveState; S.n++; e.data = e.data || {};
   if (e.kind === 'usage') { S.tin = e.data.tokens_in; S.tout = e.data.tokens_out; return; }
   if (e.agent !== 'system' && e.agent !== 'owner') {
     const a = agentState(e.agent);
@@ -407,7 +419,7 @@ function applyLive(e, live){
 function buildStage(){
   const g = $('#sgrid');
   const order = [...CFG.agents.filter(a => a.id === 'hermes'), ...CFG.agents.filter(a => a.id !== 'hermes')];
-  g.innerHTML = order.map(a => `<div class="node ${a.id === 'hermes' ? 'hermes' : ''}" id="node-${a.id}" style="--c:${a.color || '#8ab4f8'}">
+  g.innerHTML = order.map(a => `<div class="node ${a.id === 'hermes' ? 'hermes' : ''}" id="node-${a.id}" style="--c:${a.color || '#60a5fa'}">
     <div class="nh"><i></i><b>${esc(a.name)}</b><span class="role">${esc(a.role)}</span><span class="st" id="st-${a.id}">idle</span></div>
     <div class="chips" id="chips-${a.id}"></div>
     <div class="stream" id="stream-${a.id}"></div>
