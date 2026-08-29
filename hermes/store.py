@@ -27,6 +27,9 @@ CREATE TABLE IF NOT EXISTS actions (
   id INTEGER PRIMARY KEY AUTOINCREMENT, run_id TEXT, created REAL, agent TEXT, kind TEXT, "to" TEXT,
   subject TEXT, body TEXT, reason TEXT, status TEXT DEFAULT 'pending', decided_at REAL, decided_by TEXT, note TEXT
 );
+CREATE TABLE IF NOT EXISTS users (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT UNIQUE, name TEXT, company TEXT, pw_hash TEXT, created REAL, last_login REAL
+);
 CREATE TABLE IF NOT EXISTS leads (
   id INTEGER PRIMARY KEY AUTOINCREMENT, created REAL, name TEXT, company TEXT, email TEXT, phone TEXT,
   source TEXT, notes TEXT, status TEXT DEFAULT 'new', run_id TEXT
@@ -166,6 +169,30 @@ class Store:
         with self._lock:
             self._conn.execute(f"UPDATE leads SET {', '.join(f'{k}=?' for k in fields)} WHERE id=?", (*fields.values(), lid))
             self._conn.commit()
+
+    # ------------------------------------------------------------------ users
+    def add_user(self, email: str, name: str, company: str, pw_hash: str) -> dict[str, Any]:
+        with self._lock:
+            cur = self._conn.execute("INSERT INTO users(email,name,company,pw_hash,created) VALUES(?,?,?,?,?)",
+                                     (email.strip().lower(), name.strip(), company.strip(), pw_hash, time.time()))
+            self._conn.commit()
+            return self.user(cur.lastrowid)  # type: ignore[return-value]
+
+    def user(self, uid: int) -> dict[str, Any] | None:
+        rows = _rows(self._conn.execute("SELECT id,email,name,company,created,last_login FROM users WHERE id=?", (uid,)))
+        return rows[0] if rows else None
+
+    def user_by_email(self, email: str) -> dict[str, Any] | None:
+        rows = _rows(self._conn.execute("SELECT * FROM users WHERE email=?", (email.strip().lower(),)))
+        return rows[0] if rows else None
+
+    def touch_login(self, uid: int) -> None:
+        with self._lock:
+            self._conn.execute("UPDATE users SET last_login=? WHERE id=?", (time.time(), uid))
+            self._conn.commit()
+
+    def user_count(self) -> int:
+        return self._conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
 
     def all_events(self, limit: int = 300) -> list[dict[str, Any]]:
         return _rows(self._conn.execute("SELECT run_id,ts,kind,agent,text FROM events ORDER BY ts DESC LIMIT ?", (limit,)))

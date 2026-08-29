@@ -5,7 +5,7 @@ services:
     plan: free
     buildCommand: pip install -r requirements.txt
     startCommand: gunicorn -w 1 --threads 8 -b 0.0.0.0:$PORT hermes.desk.app:app
-    healthCheckPath: /api/stats
+    healthCheckPath: /api/health
     envVars:
       - key: DESK_MODE
         value: demo

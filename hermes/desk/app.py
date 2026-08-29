@@ -1,4 +1,4 @@
-"""Hermes Desk portal (Flask).
+﻿"""Hermes Desk portal (Flask).
 
   /            marketing site (hermes/site)
   /desk        client portal SPA
@@ -7,13 +7,15 @@
 Run:  py -m hermes.desk            (PORT env, default 8094)
 Env:  DESK_TEMPLATE=sales_desk     business-model template to run the desk on
       DESK_MODE=demo|live|auto     demo = scripted provider (no API key needed); auto = live if key present
-      DESK_PASSWORD=...            optional; protects /desk and /api
+      DESK_SECRET=...              session-cookie secret (auto-generated into data/secret.key if unset)
+      DESK_OPEN=1                  skip accounts entirely (portal public) â€” local dev only
       ANTHROPIC_API_KEY=...        live mode
 """
 from __future__ import annotations
 
 import hashlib
 import os
+import secrets
 import threading
 import time
 from pathlib import Path
@@ -21,7 +23,8 @@ from typing import Any
 
 import json
 
-from flask import Flask, Response, abort, jsonify, make_response, redirect, request, send_from_directory
+from flask import Flask, Response, abort, jsonify, make_response, redirect, request, send_from_directory, session
+from werkzeug.security import check_password_hash, generate_password_hash
 
 from .. import config as cfg
 from .. import templates
@@ -35,6 +38,22 @@ DB_PATH = cfg.DATA_DIR / "desk.db"
 
 app = Flask(__name__, static_folder=None)
 store = Store(DB_PATH)
+
+
+def _secret() -> str:
+    env = os.environ.get("DESK_SECRET", "").strip()
+    if env:
+        return env
+    f = cfg.DATA_DIR / "secret.key"
+    if not f.exists():
+        f.write_text(secrets.token_hex(32), encoding="utf-8")
+    return f.read_text(encoding="utf-8").strip()
+
+
+app.secret_key = _secret()
+app.config.update(SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE="Lax",
+                  SESSION_COOKIE_SECURE=bool(os.environ.get("RENDER")), PERMANENT_SESSION_LIFETIME=30 * 86400)
+OPEN = os.environ.get("DESK_OPEN", "").strip() in ("1", "true", "yes")
 _runs: dict[str, dict[str, Any]] = {}          # run_id -> {"events": [...], "thread":..., "orch":...}
 _runs_lock = threading.Lock()
 _feed: list[dict[str, Any]] = []               # global live feed (all runs, incl. token deltas) for /api/stream
@@ -60,7 +79,6 @@ def _feed_after(seq: int) -> list[dict[str, Any]]:
         lo = max(0, len(_feed) - (_feed[-1]["seq"] - seq))   # seqs are contiguous, so index by offset
         return _feed[lo:]
 TEMPLATE = os.environ.get("DESK_TEMPLATE", "sales_desk")
-PASSWORD = os.environ.get("DESK_PASSWORD", "").strip()
 
 
 # ---------------------------------------------------------------------------- config / mode
@@ -104,35 +122,113 @@ def build_configs() -> dict[str, Any]:
     }
 
 
-# ---------------------------------------------------------------------------- auth (optional)
-def _token() -> str:
-    return hashlib.sha256(("desk:" + PASSWORD).encode()).hexdigest() if PASSWORD else ""
+# ---------------------------------------------------------------------------- auth (accounts)
+PUBLIC_API = {"/api/health", "/api/stats", "/api/me"}
+
+
+def current_user() -> dict[str, Any] | None:
+    uid = session.get("uid")
+    return store.user(int(uid)) if uid else None
 
 
 @app.before_request
 def _guard():
-    if not PASSWORD:
+    if OPEN:
         return None
     p = request.path
-    if p.startswith("/api") or p.startswith("/desk"):
-        if p == "/desk/login":
-            return None
-        if request.cookies.get("desk_auth") != _token():
-            if p.startswith("/api"):
-                abort(401)
-            return redirect("/desk/login")
+    if p.startswith("/api") and p not in PUBLIC_API:
+        if not current_user():
+            abort(401)
+    elif p.startswith("/desk") and not p.startswith("/desk/static/") and p != "/desk/login":
+        if not current_user():
+            return redirect("/login?next=" + p)
     return None
 
 
+def _esc(s: str) -> str:
+    return s.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;').replace('"', '&quot;')
+
+
+def _page(template: str, **vars_) -> str:
+    html = (STATIC_DIR / template).read_text(encoding="utf-8")
+    for k, v in vars_.items():
+        html = html.replace("{{%s}}" % k, _esc(str(v)))
+    return html
+
+
+@app.route("/login", methods=["GET", "POST"])
 @app.route("/desk/login", methods=["GET", "POST"])
 def login():
     if request.method == "POST":
-        if request.form.get("password", "") == PASSWORD:
-            r = make_response(redirect("/desk"))
-            r.set_cookie("desk_auth", _token(), httponly=True, samesite="Lax", max_age=30 * 86400)
-            return r
-        time.sleep(1)
-    return (STATIC_DIR / "login.html").read_text(encoding="utf-8")
+        d = request.form if request.form else (request.get_json(silent=True) or {})
+        email = (d.get("email") or "").strip().lower()
+        pw = d.get("password") or ""
+        u = store.user_by_email(email) if email else None
+        if not u or not check_password_hash(u["pw_hash"], pw):
+            time.sleep(0.8)   # slow down guessing
+            if request.is_json:
+                return jsonify({"error": "wrong email or password"}), 401
+            return _page("login.html", error="Wrong email or password.", email=email), 401
+        session.clear()
+        session.permanent = True
+        session["uid"] = u["id"]
+        store.touch_login(u["id"])
+        if request.is_json:
+            return jsonify({"ok": True})
+        nxt = request.args.get("next", "/desk")
+        return redirect(nxt if nxt.startswith("/desk") else "/desk")
+    if current_user():
+        return redirect("/desk")
+    return _page("login.html", error="", email="")
+
+
+@app.route("/signup", methods=["GET", "POST"])
+def signup():
+    if request.method == "POST":
+        d = request.form if request.form else (request.get_json(silent=True) or {})
+        name = (d.get("name") or "").strip()
+        company = (d.get("company") or "").strip()
+        email = (d.get("email") or "").strip().lower()
+        pw = d.get("password") or ""
+        err = ""
+        if not name or not email or "@" not in email:
+            err = "Name and a valid email are required."
+        elif len(pw) < 8:
+            err = "Password must be at least 8 characters."
+        elif store.user_by_email(email):
+            err = "An account with that email already exists â€” log in instead."
+        if err:
+            if request.is_json:
+                return jsonify({"error": err}), 400
+            return _page("signup.html", error=err, name=name, company=company, email=email), 400
+        u = store.add_user(email, name, company, generate_password_hash(pw))
+        session.clear()
+        session.permanent = True
+        session["uid"] = u["id"]
+        store.add_event("", "signup", "system", f"{name} ({email}) created an account")
+        if request.is_json:
+            return jsonify({"ok": True})
+        return redirect("/desk")
+    if current_user():
+        return redirect("/desk")
+    return _page("signup.html", error="", name="", company="", email="")
+
+
+@app.route("/logout", methods=["GET", "POST"])
+def logout():
+    session.clear()
+    return redirect("/")
+
+
+@app.get("/api/me")
+def api_me():
+    u = current_user()
+    return jsonify(u or {"id": None, "name": "Guest", "email": "", "company": "", "open": OPEN})
+
+
+@app.get("/api/health")
+def api_health():
+    return jsonify({"ok": True, "mode": _mode()})
 
 
 # ---------------------------------------------------------------------------- static
@@ -173,7 +269,7 @@ def api_config():
         "agents": [{"id": a["id"], "name": a["name"], "role": a.get("role", ""), "color": a.get("color", ""),
                     "tools": a.get("tools", [])} for a in c["agents"]],
         "workflows": [{"id": w["id"], "name": w["name"], "description": w.get("description", "")} for w in c["workflows"]],
-        "protected": bool(PASSWORD),
+        "protected": not OPEN,
     })
 
 
@@ -186,7 +282,7 @@ def api_stats():
 
 # ---------------------------------------------------------------------------- api: leads + runs
 def _lead_task(lead: dict[str, Any]) -> str:
-    return (f"New inbound lead — handle end to end.\n"
+    return (f"New inbound lead â€” handle end to end.\n"
             f"Name: {lead['name']}\nCompany: {lead['company'] or '(individual)'}\nEmail: {lead['email']}\n"
             f"Phone: {lead['phone'] or '-'}\nSource: {lead['source']}\n\nEnquiry:\n{lead['notes']}")
 
@@ -375,11 +471,11 @@ def api_decide(aid):
     if status == "approved":
         # Simulated dispatch. Wire a real sender (SMTP / WhatsApp API) here when a client goes live.
         row = store.decide_action(aid, "sent", by=d.get("by", "owner"), note=(d.get("note", "") + " [simulated send]").strip())
-        store.add_event(row["run_id"], "sent", "owner", f"{row['kind']} sent to {row['to']} — {row['subject']}")
+        store.add_event(row["run_id"], "sent", "owner", f"{row['kind']} sent to {row['to']} â€” {row['subject']}")
         if "@" in (row["to"] or ""):
             store.upsert_contact(row["to"], {"stage": "Contacted", "next_action": "Follow up in 3 days if no reply"})
     else:
-        store.add_event(row["run_id"], "rejected", "owner", f"{row['kind']} to {row['to']} rejected — {d.get('note','')}")
+        store.add_event(row["run_id"], "rejected", "owner", f"{row['kind']} to {row['to']} rejected â€” {d.get('note','')}")
     return jsonify(row)
 
 
@@ -432,7 +528,7 @@ SAMPLE_LEADS = [
     {"name": "Tom Okafor", "company": "Okafor Property Ltd", "email": "tom@okaforproperty.example.com", "phone": "+44 7700 900102", "source": "Rightmove enquiry",
      "notes": "Thinking of selling a 2-bed in Walworth in the next 3 months. Asked for a rough price range."},
     {"name": "Hannah Weiss", "company": "", "email": "hannah.weiss@example.com", "phone": "", "source": "referral",
-     "notes": "Relocating to London in October, needs a 1-bed rental near Elephant & Castle, budget ~£1,600."},
+     "notes": "Relocating to London in October, needs a 1-bed rental near Elephant & Castle, budget ~Â£1,600."},
 ]
 
 

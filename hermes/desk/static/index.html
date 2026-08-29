@@ -122,7 +122,7 @@ tr.click{cursor:pointer}tr.click:hover{background:rgba(168,85,247,.08)}
     <button data-p="report">Monthly report</button>
     <button data-p="setup">Desk setup</button>
   </nav>
-  <div class="mode">Mode: <b id="mode">…</b><br><span id="modehint"></span><br><a href="/" style="color:var(--muted)">← marketing site</a></div>
+  <div class="mode"><div id="who" style="color:var(--text);font-weight:700;margin-bottom:2px"></div><div id="whoco" style="margin-bottom:8px"></div>Mode: <b id="mode">…</b> · <span id="modehint"></span><br><a href="/" style="color:var(--muted)">← site</a> · <a href="/logout" style="color:var(--accent2)">log out</a></div>
 </aside>
 <main>
 
@@ -234,7 +234,7 @@ tr.click{cursor:pointer}tr.click:hover{background:rgba(168,85,247,.08)}
 <script>
 window.addEventListener('hashchange', ()=>{const h=location.hash.slice(1); if(document.getElementById('p-'+h)) go(h);});
 const $ = s => document.querySelector(s);
-const api = async (p, opt) => { const r = await fetch('/api' + p, opt ? {headers:{'Content-Type':'application/json'}, ...opt, body: opt.body ? JSON.stringify(opt.body) : undefined} : undefined); if (r.status === 401) { location.href = '/desk/login'; return; } return r.json(); };
+const api = async (p, opt) => { const r = await fetch('/api' + p, opt ? {headers:{'Content-Type':'application/json'}, ...opt, body: opt.body ? JSON.stringify(opt.body) : undefined} : undefined); if (r.status === 401) { location.href = '/login?next=/desk'; return; } return r.json(); };
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const when = ts => new Date(ts * 1000).toLocaleString('en-GB', {day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit'});
 const hms = ts => new Date(ts * 1000).toLocaleTimeString('en-GB');
@@ -245,10 +245,11 @@ document.querySelectorAll('#nav button').forEach(b=>b.onclick=()=>go(b.dataset.p
 
 async function init(){
   CFG = await api('/config');
+  const me = await api('/me'); if (me && me.id) { $('#who').textContent = me.name; $('#whoco').textContent = me.company || me.email; } else { $('#who').textContent = 'Guest'; }
   colors = Object.fromEntries(CFG.agents.map(a=>[a.id, a.color || '#60a5fa']));
   $('#bizname').textContent = CFG.business.name + ' · ' + (CFG.business.tagline || '');
   $('#mode').textContent = CFG.mode.toUpperCase();
-  $('#modehint').textContent = CFG.mode==='demo' ? 'scripted agents, no API key — same pipeline' : 'live models';
+  $('#modehint').textContent = CFG.mode==='demo' ? 'scripted agents' : 'live models';
   $('#agents').innerHTML = CFG.agents.map(a=>`<div class="agentline"><i style="background:${a.color||'#60a5fa'}"></i><b>${esc(a.name)}</b><span style="color:var(--muted)">— ${esc(a.role)}</span></div>`).join('');
   const modes = ['<option value="auto">auto (Hermes decides)</option>'].concat(CFG.workflows.map(w=>`<option value="${w.id}">${esc(w.name)}</option>`)).join('');
   $('#l-mode').innerHTML = modes; $('#r-mode').innerHTML = modes;
