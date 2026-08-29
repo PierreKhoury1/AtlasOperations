@@ -166,6 +166,14 @@ class Orchestrator:
             if resp.refusal:
                 self.emit("error", agent_id, resp.refusal)
                 return f"{agent['name']} could not complete: {resp.refusal}"
+            if not resp.text and not resp.tool_calls:
+                # empty reply (free-tier models do this under load): nudge once, then give up cleanly
+                if not messages or messages[-1] is not None and not getattr(self, "_nudged", {}).get(agent_id):
+                    self._nudged = {**getattr(self, "_nudged", {}), agent_id: True}
+                    self.emit("log", agent_id, "(empty reply from model — retrying once)")
+                    messages.append(provider.user_message("Your last reply was empty. Continue the task now, using tools where needed."))
+                    time.sleep(2)
+                    continue
             if resp.text:
                 self.emit("log", agent_id, resp.text)
                 final_text = resp.text

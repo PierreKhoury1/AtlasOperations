@@ -45,7 +45,7 @@ DEFAULT_PROVIDERS: dict[str, Any] = {
             "base_url": "https://openrouter.ai/api/v1",
             "api_key": "",
             "default_model": "anthropic/claude-sonnet-4.5",
-            "fallback_model": "minimax/minimax-m3:free",
+            "fallback_model": "nvidia/nemotron-3-super-120b-a12b:free",
             "temperature": 0.2,
             "max_tokens": 8000,
             "timeout": 600,
