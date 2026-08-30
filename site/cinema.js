@@ -5,7 +5,6 @@
 (function () {
   const rm = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   const G = window.gsap, ST = window.ScrollTrigger;
-  const fine = window.matchMedia && window.matchMedia("(hover:hover) and (pointer:fine)").matches;
   window.Cinema = { ready: false };
 
   // ---- chrome: progress bar, nav glass, section dots ----------------------------
@@ -27,7 +26,14 @@
   const HEAD = "section .eyebrow, section h2, section p.lead, .phero h1, .phero .lead, .phero .crumb";
 
   // ---- fallback --------------------------------------------------------------------
+  document.querySelectorAll(".film video").forEach((v) => { if (rm) { v.remove(); return; } });
   if (!G || !ST || rm) {
+    document.querySelectorAll(".film video").forEach((v) => {
+      const webm = v.dataset.srcWebm, mp4 = v.dataset.srcMp4;
+      if (webm && v.canPlayType("video/webm")) { const s = document.createElement("source"); s.src = webm; s.type = "video/webm"; v.appendChild(s); }
+      if (mp4) { const s = document.createElement("source"); s.src = mp4; s.type = "video/mp4"; v.appendChild(s); }
+      v.addEventListener("canplay", () => { v.classList.add("on"); v.play().catch(() => {}); }, { once: true }); v.load(); v.play().catch(() => {});
+    });
     const els = document.querySelectorAll(REVEAL + "," + HEAD);
     els.forEach((el) => el.classList.add("rv"));
     const io = new IntersectionObserver((es) => es.forEach((e) => e.isIntersecting && e.target.classList.add("in")), { threshold: 0.1 });
@@ -95,18 +101,17 @@
   const hero = document.querySelector(".hero.cine");
   if (hero) {
     G.from(hero.querySelectorAll(".h-in > *"), { opacity: 0, y: 44, stagger: 0.11, duration: 1.1, ease: "power3.out", delay: 0.15 });
-    G.from(hero.querySelector(".desk"), { opacity: 0, y: 70, rotateX: 10, duration: 1.4, ease: "power3.out", delay: 0.45 });
+    G.from(hero.querySelector(".desk"), { opacity: 0, y: 70, duration: 1.4, ease: "power3.out", delay: 0.45 });
     G.from(hero.querySelector(".scroll-hint"), { opacity: 0, y: -10, duration: 1, delay: 1.4 });
     G.to(hero.querySelector(".wrap"), { y: -140, opacity: 0, scale: 0.94, ease: "none", scrollTrigger: { trigger: hero, start: "top top", end: "bottom 25%", scrub: true } });
     G.to(hero.querySelector(".scroll-hint"), { opacity: 0, ease: "none", scrollTrigger: { trigger: hero, start: "top top", end: "20% top", scrub: true } });
     ST.create({ trigger: hero, start: "top top", end: "bottom top", pin: true, pinSpacing: false });
-    G.to(".shade", { opacity: 0, ease: "none", scrollTrigger: { trigger: hero, start: "top top", end: "60% top", scrub: true } });
     // desk mockup: rows arrive one by one, loop
     const rows = hero.querySelectorAll(".desk .row");
     if (rows.length) {
       const tl = G.timeline({ repeat: -1, repeatDelay: 2.2, delay: 1.6 });
       tl.from(rows, { autoAlpha: 0, x: -18, duration: 0.55, stagger: 0.7, ease: "power2.out" })
-        .to(hero.querySelector(".desk .row.approve"), { boxShadow: "0 0 0 1px rgba(192,132,252,.8), 0 0 30px rgba(168,85,247,.45)", duration: 0.5, yoyo: true, repeat: 3 }, "+=0.4")
+        .to(hero.querySelector(".desk .row.approve"), { borderColor: "#0f1216", duration: 0.5, yoyo: true, repeat: 3 }, "+=0.4")
         .to(hero.querySelector(".desk .row.approve .a span:first-child"), { scale: 0.92, duration: 0.12, yoyo: true, repeat: 1 })
         .to(hero.querySelector(".desk .sent"), { autoAlpha: 1, y: 0, duration: 0.5 })
         .to(rows, { autoAlpha: 0, x: 18, duration: 0.4, stagger: 0.06 }, "+=1.8")
@@ -159,33 +164,15 @@
     y: () => (1 - parseFloat(el.dataset.speed)) * -220, ease: "none",
     scrollTrigger: { trigger: el, start: "top bottom", end: "bottom top", scrub: true },
   }));
-  const bgimg = document.getElementById("bgimg");
-  if (bgimg) {
-    const im = new Image();
-    im.onload = () => { bgimg.style.backgroundImage = "url(" + im.src + ")"; bgimg.classList.add("on"); };
-    im.src = bgimg.dataset.src || "img/hero.jpg";
-    G.to(bgimg, { yPercent: 12, ease: "none", scrollTrigger: { start: 0, end: "max", scrub: 0.5 } });
-  }
-
-  // ---- buttons: magnetic + sheen; cards: tilt + spotlight -------------------------
-  if (fine) {
-    document.querySelectorAll(".btn").forEach((b) => {
-      b.addEventListener("mousemove", (e) => {
-        const r = b.getBoundingClientRect(), dx = e.clientX - (r.left + r.width / 2), dy = e.clientY - (r.top + r.height / 2);
-        G.to(b, { x: dx * 0.22, y: dy * 0.28, duration: 0.35, ease: "power2.out" });
-      });
-      b.addEventListener("mouseleave", () => G.to(b, { x: 0, y: 0, duration: 0.8, ease: "elastic.out(1,.45)" }));
-    });
-    document.querySelectorAll(".card,.plan,.step,.quote,.layer,.guard,.desk,.shots figure").forEach((c) => {
-      c.classList.add("tilt");
-      c.addEventListener("mousemove", (e) => {
-        const r = c.getBoundingClientRect(), px = (e.clientX - r.left) / r.width, py = (e.clientY - r.top) / r.height;
-        c.style.setProperty("--mx", px * 100 + "%"); c.style.setProperty("--my", py * 100 + "%");
-        G.to(c, { rotateY: (px - 0.5) * 7, rotateX: (0.5 - py) * 7, transformPerspective: 900, duration: 0.4, ease: "power2.out" });
-      });
-      c.addEventListener("mouseleave", () => G.to(c, { rotateY: 0, rotateX: 0, duration: 0.7, ease: "power3.out" }));
-    });
-  }
+  // ---- background film: load lazily, fade in when it can play; parallax drift ------
+  document.querySelectorAll(".film video").forEach((v) => {
+    const webm = v.dataset.srcWebm, mp4 = v.dataset.srcMp4;
+    if (webm && v.canPlayType("video/webm")) { const s = document.createElement("source"); s.src = webm; s.type = "video/webm"; v.appendChild(s); }
+    if (mp4) { const s = document.createElement("source"); s.src = mp4; s.type = "video/mp4"; v.appendChild(s); }
+    v.addEventListener("canplay", () => { v.classList.add("on"); v.play().catch(() => {}); }, { once: true });
+    v.load(); v.play().catch(() => {});
+    G.to(v, { yPercent: 10, ease: "none", scrollTrigger: { trigger: v.closest("header, section"), start: "top top", end: "bottom top", scrub: 0.5 } });
+  });
 
   window.addEventListener("load", () => ST.refresh());
   window.Cinema.ready = true;
