@@ -1,4 +1,4 @@
-/* Hermes Ops — light, plain, professional. White paper, hairline borders, one blue accent. */
+/* Atlas Ops — light, plain, professional. White paper, hairline borders, one blue accent. */
 :root {
   --bg: #ffffff;
   --bg2: #f6f7f9;
@@ -93,7 +93,7 @@ section.alt { background: var(--bg2); border-top: 1px solid var(--line); border-
 .row .tag.research { color: var(--accent); background: var(--accent-soft); border-color: transparent; }
 .row .tag.writer { color: var(--warn); background: var(--warn-soft); border-color: transparent; }
 .row .tag.crm { color: var(--ok); background: var(--ok-soft); border-color: transparent; }
-.row .tag.hermes { color: #fff; background: var(--ink); border-color: var(--ink); }
+.row .tag.atlas { color: #fff; background: var(--ink); border-color: var(--ink); }
 .row.approve { border-color: var(--line2); background: var(--bg2); }
 .row .a { display: flex; gap: 6px; margin-top: 8px; }
 .row .a span { padding: 5px 11px; border-radius: 4px; font-size: 11px; font-weight: 500; background: var(--ink); color: #fff; }

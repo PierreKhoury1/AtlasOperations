@@ -9,7 +9,7 @@ from typing import Any
 
 from .config import TEMPLATES_DIR
 
-_BASE_HERMES_PROMPT = """You are Hermes, the orchestrator and engagement lead for this business.
+_BASE_ATLAS_PROMPT = """You are Atlas, the orchestrator and engagement lead for this business.
 
 You receive a task from the owner. You decide how to get it done using the specialist agents available to you.
 Work like a strong principal: understand what the deliverable actually needs to be, delegate focused sub-tasks
@@ -21,7 +21,7 @@ with a concise summary of what was produced and any open questions for the owner
 
 _SPECIALIST_SUFFIX = """
 
-You receive a task from Hermes (the orchestrator). Produce your deliverable directly and completely in your reply —
+You receive a task from Atlas (the orchestrator). Produce your deliverable directly and completely in your reply —
 it will be passed back verbatim. State assumptions explicitly. If information is genuinely missing, say what you assumed."""
 
 
@@ -31,14 +31,14 @@ def _agent(id_: str, name: str, role: str, prompt: str, tools: list[str] | None 
         "id": id_, "name": name, "role": role, "enabled": True,
         "provider": provider, "model": model,
         "tools": tools or ["read_file", "list_files"],
-        "system_prompt": prompt.strip() + ("" if id_ == "hermes" else _SPECIALIST_SUFFIX),
+        "system_prompt": prompt.strip() + ("" if id_ == "atlas" else _SPECIALIST_SUFFIX),
         "color": color,
     }
 
 
-def _hermes(extra: str = "") -> dict[str, Any]:
-    return _agent("hermes", "Hermes", "Orchestrator / Engagement Lead",
-                  _BASE_HERMES_PROMPT + ("\n\n" + extra if extra else ""),
+def _atlas(extra: str = "") -> dict[str, Any]:
+    return _agent("atlas", "Atlas", "Orchestrator / Engagement Lead",
+                  _BASE_ATLAS_PROMPT + ("\n\n" + extra if extra else ""),
                   tools=["delegate", "list_agents", "save_deliverable", "read_file", "list_files",
                          "crm_lookup", "crm_update", "queue_action", "list_connectors", "http_request", "schedule_task", "calendar_free_slots", "calendar_book",
                          "mcp", "run_python", "remember", "recall"],
@@ -60,7 +60,7 @@ CONSULTANCY: dict[str, Any] = {
         "extra_context": "",
     },
     "agents": [
-        _hermes(),
+        _atlas(),
         _agent("research", "Research Analyst", "Market & client research",
                "You are a research analyst at a consultancy. You build fast, structured briefs: market size and trends, competitor landscape, client background, risks and open questions. Cite what you know vs what is inferred.",
                tools=["read_file", "list_files", "web_fetch", "run_python"], color="#60a5fa"),
@@ -127,7 +127,7 @@ AGENCY: dict[str, Any] = {
         "extra_context": "",
     },
     "agents": [
-        _hermes(),
+        _atlas(),
         _agent("research", "Audience & Market Research", "Audience, competitor, channel research",
                "You research audiences, competitors and channels for a marketing agency. Output structured briefs with personas, positioning gaps and channel opportunities.", tools=["read_file", "list_files", "web_fetch"], color="#60a5fa"),
         _agent("creative", "Creative Director", "Concepts, copy, campaign ideas",
@@ -163,7 +163,7 @@ SAAS: dict[str, Any] = {
         "extra_context": "",
     },
     "agents": [
-        _hermes(),
+        _atlas(),
         _agent("research", "Market Analyst", "Market, competitor, ICP research",
                "You research markets, competitors and ideal customer profiles for a B2B SaaS. Structured briefs with sources vs inferences flagged.", tools=["read_file", "list_files", "web_fetch"], color="#60a5fa"),
         _agent("product", "Product Manager", "Specs, roadmaps, PRDs",
@@ -198,7 +198,7 @@ ECOMMERCE: dict[str, Any] = {
         "extra_context": "",
     },
     "agents": [
-        _hermes(),
+        _atlas(),
         _agent("research", "Market & Product Research", "Trends, competitors, sourcing",
                "You research product trends, competitors, pricing and suppliers for an e-commerce brand.", tools=["read_file", "list_files", "web_fetch"], color="#60a5fa"),
         _agent("merch", "Merchandising & Copy", "Listings, collections, copy",
@@ -236,8 +236,8 @@ SALES_DESK: dict[str, Any] = {
         "availability": "Weekdays 9am-6pm and Saturday mornings; offer a morning or afternoon, never a specific time slot (the owner books the exact time).",
     },
     "agents": [
-        _agent("hermes", "Hermes", "Desk orchestrator",
-               _BASE_HERMES_PROMPT + "\n\nThis is an AI Sales Desk. For every lead: check the CRM (crm_lookup), get research and a drafted outreach from specialists, update the CRM (crm_update) with notes and next action — keep stage at New (it moves to Contacted automatically when the owner approves a send; only set Qualified/Proposal/Won/Lost when the lead's replies justify it), then queue the outreach with queue_action — never send directly. Finish with a summary for the owner.",
+        _agent("atlas", "Atlas", "Desk orchestrator",
+               _BASE_ATLAS_PROMPT + "\n\nThis is an AI Sales Desk. For every lead: check the CRM (crm_lookup), get research and a drafted outreach from specialists, update the CRM (crm_update) with notes and next action — keep stage at New (it moves to Contacted automatically when the owner approves a send; only set Qualified/Proposal/Won/Lost when the lead's replies justify it), then queue the outreach with queue_action — never send directly. Finish with a summary for the owner.",
                tools=["delegate", "list_agents", "crm_lookup", "crm_update", "queue_action", "save_deliverable", "read_file", "list_files",
                       "list_connectors", "http_request", "schedule_task", "mcp", "run_python", "remember", "recall"],
                color="#c084fc"),
@@ -255,7 +255,7 @@ SALES_DESK: dict[str, Any] = {
                color="#fbbf24"),
     ],
     "workflows": [
-        {"id": "new_lead", "name": "New lead → outreach", "description": "Research → draft → QA → Hermes queues for approval", "synthesize": True,
+        {"id": "new_lead", "name": "New lead → outreach", "description": "Research → draft → QA → Atlas queues for approval", "synthesize": True,
          "steps": [
              {"agent": "research", "task": "Research this lead:\n{task}"},
              {"agent": "writer", "task": "Draft the first-touch email.\n\nLead:\n{task}\n\nResearch:\n{previous}"},
@@ -356,8 +356,8 @@ SAMPLE_LEADS: dict[str, list[dict[str, str]]] = {
 # model tiers: which agents get the strong model. Provider stays whatever the desk runs on (OpenRouter by default).
 TIERS: dict[str, dict[str, Any]] = {
     "free":     {"label": "Free",     "strong": [],                                  "note": "Free OpenRouter model for every agent. Good for demos; writing is adequate."},
-    "balanced": {"label": "Balanced", "strong": ["hermes"],                          "note": "Claude Sonnet plans and reviews; specialists run free. About 5-10p per lead."},
-    "best":     {"label": "Best",     "strong": ["hermes", "qa", "writer", "proposal", "strategy", "review"], "note": "Claude Sonnet wherever judgement or client-facing text matters. About 15-30p per lead."},
+    "balanced": {"label": "Balanced", "strong": ["atlas"],                          "note": "Claude Sonnet plans and reviews; specialists run free. About 5-10p per lead."},
+    "best":     {"label": "Best",     "strong": ["atlas", "qa", "writer", "proposal", "strategy", "review"], "note": "Claude Sonnet wherever judgement or client-facing text matters. About 15-30p per lead."},
 }
 STRONG_MODEL = "anthropic/claude-sonnet-4.5"
 FREE_MODEL = "minimax/minimax-m3:free"

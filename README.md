@@ -1,23 +1,23 @@
-# Hermes — multi-agent orchestration for any business
+# Atlas — multi-agent orchestration for any business
 
-Desktop app (customtkinter, no browser). An orchestrator agent ("Hermes") plans, delegates to
+Desktop app (customtkinter, no browser). An orchestrator agent ("Atlas") plans, delegates to
 configurable specialist agents, reviews, and saves client-ready deliverables. Ships with a
 consultancy setup; switch business model with one click (agency / saas / ecommerce / your own).
 
 ## Run
 
-    Desktop\Hermes.bat            # or: cd hermes && py -m hermes
-    py -m hermes run "Draft a proposal for ..." --mode auto            # headless
-    py -m hermes run "..." --mode new_client_proposal                  # workflow
+    Desktop\Atlas.bat            # or: cd atlas && py -m atlas
+    py -m atlas run "Draft a proposal for ..." --mode auto            # headless
+    py -m atlas run "..." --mode new_client_proposal                  # workflow
 
 First run creates `config/*.json`. Set the Anthropic key in **Settings → Providers** (or export
 `ANTHROPIC_API_KEY`). Local models: point the OpenAI-compatible provider at Ollama / LM Studio.
 
 ## Modes
 
-- **auto** — Hermes decides: delegates (in parallel when independent), reviews, re-delegates, saves, finishes.
+- **auto** — Atlas decides: delegates (in parallel when independent), reviews, re-delegates, saves, finishes.
 - **workflow** — fixed step pipeline from `config/workflows.json`; `{task}` `{previous}` `{all}` placeholders;
-  optional Hermes synthesis at the end.
+  optional Atlas synthesis at the end.
 
 ## Everything is config
 
@@ -32,17 +32,17 @@ First run creates `config/*.json`. Set the Anthropic key in **Settings → Provi
 | `templates/*.json` | business-model templates (Business page → Save as template) |
 | `workspace/inputs/` | drop files here; agents read via `read_file` |
 | `workspace/runs/<id>/` | per-run deliverables, TASK.md, SUMMARY.md |
-| `data/hermes.db` | run history (History page) |
+| `data/atlas.db` | run history (History page) |
 
 Tools per agent: `delegate`, `list_agents`, `finish` (orchestrator), `save_deliverable`, `read_file`,
 `list_files`, `web_fetch`.
 
-## Hermes Desk — client portal + marketing site (web)
+## Atlas Desk — client portal + marketing site (web)
 
-    py -m hermes.desk                     # http://localhost:8094/  (site)  ·  /desk (portal)
+    py -m atlas.desk                     # http://localhost:8094/  (site)  ·  /desk (portal)
     DESK_MODE=demo|live|auto  DESK_TEMPLATE=sales_desk  DESK_PASSWORD=...  PORT=8094
 
-The portal runs the same engine for one *desk* (business-model template): leads → Hermes plans and
+The portal runs the same engine for one *desk* (business-model template): leads → Atlas plans and
 delegates (research / writer / CRM in parallel) → `crm_update` → `queue_action` → **approval queue**
 → owner approves → sent (simulated; wire SMTP/WhatsApp in `api_decide`) → audit log → monthly report.
 
@@ -69,7 +69,7 @@ Every outbound action still goes through the approval queue. Connectors decide w
 Inbound URLs (shown on the Integrations page, per desk):
 
 - `POST /hook/<token>` — web forms / Zapier / Make: JSON `{name, email, phone, company, notes, source}`.
-- `GET|POST /hook/<token>/whatsapp` — Meta WhatsApp webhook. GET answers the verification handshake using the connector's `verify_token`; POST turns each text message into a lead + run, and Hermes is told to reply on WhatsApp.
+- `GET|POST /hook/<token>/whatsapp` — Meta WhatsApp webhook. GET answers the verification handshake using the connector's `verify_token`; POST turns each text message into a lead + run, and Atlas is told to reply on WhatsApp.
 - `POST /hook/<token>/sms` — Twilio inbound (SMS or WhatsApp sandbox). Returns empty TwiML; the reply is drafted and queued for approval.
 
 Set-up crib sheet:
@@ -82,4 +82,4 @@ Set-up crib sheet:
 - **Google Calendar**: Google Cloud → enable Calendar API → OAuth client (Desktop) → get a refresh token once (OAuth Playground, scope `https://www.googleapis.com/auth/calendar`) → `client_id`, `client_secret`, `refresh_token`; optional `calendar_id`, `timezone`, `day_start`, `day_end`.
 - **Slack**: Slack app → Incoming Webhooks → add to channel → `webhook_url`.
 
-All providers are exercised in `tests/test_integrations.py` against a mock HTTP transport (swap `hermes.integrations._TRANSPORT`), including the portal path approve → real send → CRM mirror → Slack ping and the inbound WhatsApp/SMS hooks.
+All providers are exercised in `tests/test_integrations.py` against a mock HTTP transport (swap `atlas.integrations._TRANSPORT`), including the portal path approve → real send → CRM mirror → Slack ping and the inbound WhatsApp/SMS hooks.

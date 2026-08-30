@@ -1,10 +1,10 @@
-"""Hermes Desk portal (Flask).
+"""Atlas Desk portal (Flask).
 
-  /            marketing site (hermes/site)
+  /            marketing site (atlas/site)
   /desk        client portal SPA (accounts + one or more desks per account)
   /api/...     JSON API used by the portal — every data endpoint is scoped to the current desk
 
-Run:  py -m hermes.desk            (PORT env, default 8094)
+Run:  py -m atlas.desk            (PORT env, default 8094)
 Env:  DESK_MODE=demo|live|auto     demo = scripted provider (no API key needed); auto = live if key present
       DESK_PROVIDER=openrouter     live mode provider (default: providers.json default_provider)
       DESK_SECRET=...              session-cookie secret (auto-generated into data/secret.key if unset)
@@ -105,6 +105,9 @@ def desk_configs(desk: dict[str, Any]) -> dict[str, Any]:
     business = {**t["business"], **(over.get("business") or {})}
     agents = over.get("agents") or t["agents"]
     workflows = over.get("workflows") or t["workflows"]
+    for a in agents:                                   # desks built before the rename stored the orchestrator as "hermes"
+        if a.get("id") == "hermes":
+            a["id"], a["name"] = "atlas", "Atlas"
     mode = _mode()
     if mode == "demo":
         providers = {"default_provider": "demo", "providers": {"demo": {"type": "demo", "delay": float(os.environ.get("DEMO_DELAY", "0.6"))}}}
@@ -1153,7 +1156,7 @@ def hook_sms(token):
         return jsonify({"error": "From required"}), 400
     source = "twilio whatsapp" if frm.startswith("whatsapp:") else "sms"
     rid = _inbound_message(desk, frm.replace("whatsapp:", ""), f.get("ProfileName") or "", body, source)
-    return Response("<?xml version=\"1.0\" encoding=\"UTF-8\"?><Response></Response>", mimetype="application/xml", headers={"X-Hermes-Run": rid})
+    return Response("<?xml version=\"1.0\" encoding=\"UTF-8\"?><Response></Response>", mimetype="application/xml", headers={"X-Atlas-Run": rid})
 
 
 scheduler.start(store, _start_run, store.desk)
@@ -1161,7 +1164,7 @@ scheduler.start(store, _start_run, store.desk)
 
 def main():
     port = int(os.environ.get("PORT", "8094"))
-    print(f"Hermes Desk  mode={_mode()}  accounts={'off' if OPEN else 'on'}  http://localhost:{port}/desk")
+    print(f"Atlas Desk  mode={_mode()}  accounts={'off' if OPEN else 'on'}  http://localhost:{port}/desk")
     app.run(host="0.0.0.0", port=port, debug=False, threaded=True)
 
 

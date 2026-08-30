@@ -1,4 +1,4 @@
-"""`python -m hermes` launches the desktop UI; `python -m hermes run "task" [--mode auto|<workflow>]` runs headless."""
+"""`python -m atlas` launches the desktop UI; `python -m atlas run "task" [--mode auto|<workflow>]` runs headless."""
 from __future__ import annotations
 
 import argparse
@@ -6,7 +6,7 @@ import sys
 
 
 def main(argv: list[str] | None = None) -> int:
-    p = argparse.ArgumentParser(prog="hermes")
+    p = argparse.ArgumentParser(prog="atlas")
     sub = p.add_subparsers(dest="cmd")
     r = sub.add_parser("run", help="run a task headless in the terminal")
     r.add_argument("task")
@@ -18,7 +18,7 @@ def main(argv: list[str] | None = None) -> int:
     k.add_argument("key")
     k.add_argument("--provider", default="anthropic")
     k.add_argument("--workspace", default="", help="anthropic-workspace-id (identity-linked keys)")
-    sub.add_parser("eval", help="run the evaluation / capacity harness (see hermes/eval.py --help)", add_help=False)
+    sub.add_parser("eval", help="run the evaluation / capacity harness (see atlas/eval.py --help)", add_help=False)
     args, rest = p.parse_known_args(argv)
     if args.cmd == "eval":
         from .eval import main as eval_main

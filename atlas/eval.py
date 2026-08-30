@@ -1,7 +1,7 @@
 """Evaluation + capacity harness.
 
-    py -m hermes eval --template sales_desk --mode demo --n 3 --concurrency 3
-    py -m hermes eval --template sales_desk --mode live --n 2 --concurrency 2 --tier free
+    py -m atlas eval --template sales_desk --mode demo --n 3 --concurrency 3
+    py -m atlas eval --template sales_desk --mode live --n 2 --concurrency 2 --tier free
 
 Runs the template's sample leads through a throw-away desk store, N times each, with a given
 concurrency, and reports: completion, latency (p50/p90), tokens, tool errors, policy blocks,
@@ -76,7 +76,7 @@ def run_eval(template: str, mode: str, n: int, concurrency: int, tier: str, prov
     stamp = time.strftime("%Y%m%d-%H%M%S")
     out_dir = out_dir or (EVALS_DIR / f"{stamp}-{template}-{mode}-c{concurrency}")
     out_dir.mkdir(parents=True, exist_ok=True)
-    db = Path(tempfile.mkdtemp(prefix="hermes-eval-")) / "eval.db"
+    db = Path(tempfile.mkdtemp(prefix="atlas-eval-")) / "eval.db"
     store = Store(db)
     desk = store.add_desk(0, f"eval {template}", template, tier, templates.build_desk(template, {}))
     ds = store.for_desk(desk["id"])
@@ -154,7 +154,7 @@ def to_markdown(r: dict[str, Any]) -> str:
 
 
 def main(argv: list[str] | None = None) -> int:
-    ap = argparse.ArgumentParser(prog="hermes eval")
+    ap = argparse.ArgumentParser(prog="atlas eval")
     ap.add_argument("--template", default="sales_desk")
     ap.add_argument("--mode", default="demo", choices=["demo", "live"])
     ap.add_argument("--n", type=int, default=1, help="repeats per sample lead")

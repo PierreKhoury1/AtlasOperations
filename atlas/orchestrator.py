@@ -1,8 +1,8 @@
-"""Hermes orchestration core.
+"""Atlas orchestration core.
 
 Two modes:
-  * auto      — the Hermes agent plans, delegates (tool `delegate`), reviews and finishes.
-  * <workflow> — deterministic step pipeline from config/workflows.json, optional Hermes synthesis at the end.
+  * auto      — the Atlas agent plans, delegates (tool `delegate`), reviews and finishes.
+  * <workflow> — deterministic step pipeline from config/workflows.json, optional Atlas synthesis at the end.
 
 Everything reports through `emit(Event)` so any UI (or CLI) can render it.
 """
@@ -109,7 +109,7 @@ class Orchestrator:
             parts.append("\nAdditional context:\n" + b["extra_context"])
         return "\n".join(p for p in parts if p is not None).strip()
 
-    def roster_text(self, exclude: str = "hermes") -> str:
+    def roster_text(self, exclude: str = "atlas") -> str:
         lines = []
         for a in self.agents.values():
             if a["id"] == exclude:
@@ -119,7 +119,7 @@ class Orchestrator:
 
     def system_prompt(self, agent: dict[str, Any]) -> str:
         parts = [agent.get("system_prompt", "")]
-        if agent["id"] == "hermes" or self.orch.get("include_business_context_in_specialists", True):
+        if agent["id"] == "atlas" or self.orch.get("include_business_context_in_specialists", True):
             parts.append(self.business_context())
         if "delegate" in agent.get("tools", []):
             parts.append("Specialist agents available via delegate(agent_id, ...):\n" + self.roster_text(agent["id"]))
@@ -137,15 +137,15 @@ class Orchestrator:
         if not agent:
             if agent_id in T.SCHEMAS:
                 return (f"ERROR: '{agent_id}' is a TOOL, not an agent. Call the {agent_id} tool directly with its own "
-                        f"arguments. Agents you can delegate to: {', '.join(a for a in self.agents if a != 'hermes')}")
-            return f"ERROR: unknown agent '{agent_id}'. Agents you can delegate to: {', '.join(a for a in self.agents if a != 'hermes')}"
+                        f"arguments. Agents you can delegate to: {', '.join(a for a in self.agents if a != 'atlas')}")
+            return f"ERROR: unknown agent '{agent_id}'. Agents you can delegate to: {', '.join(a for a in self.agents if a != 'atlas')}"
         self._check()
         provider = self.pool.get(agent.get("provider") or "")
         model = agent.get("model") or provider.default_model
         tool_names = [t for t in agent.get("tools", []) if t in T.SCHEMAS]
         if depth >= int(self.orch.get("max_delegation_depth", 2)):
             tool_names = [t for t in tool_names if t != "delegate"]
-        if agent_id == "hermes" and "finish" not in tool_names:
+        if agent_id == "atlas" and "finish" not in tool_names:
             tool_names.append("finish")
         schemas = T.schema_for(tool_names)
         self._mcp_index: dict[str, tuple[dict, str]] = getattr(self, "_mcp_index", {})
@@ -153,7 +153,7 @@ class Orchestrator:
             mcp_schemas, idx = M.REGISTRY.schemas_for(self.store.connectors())
             schemas = schemas + mcp_schemas
             self._mcp_index.update(idx)
-        max_iter = int(self.orch.get("max_iterations", 24)) if agent_id == "hermes" \
+        max_iter = int(self.orch.get("max_iterations", 24)) if agent_id == "atlas" \
             else int(self.orch.get("specialist_max_iterations", 8))
 
         prompt = task if not context else f"{task}\n\n---\nContext:\n{context}"
@@ -195,7 +195,7 @@ class Orchestrator:
                 final_text = resp.text
             if not resp.tool_calls:
                 break
-            if spent_in > budget and agent_id != "hermes":
+            if spent_in > budget and agent_id != "atlas":
                 self.emit("log", agent_id, f"(token budget {budget:,} reached after {i + 1} turns — wrapping up with what I have)")
                 messages.append(resp.assistant_message)
                 messages.extend(provider.tool_results([(c.id, c.name, "SKIPPED: token budget reached. Write your final answer now from what you already have.", True) for c in resp.tool_calls]))
@@ -408,7 +408,7 @@ class Orchestrator:
         status, summary = "done", ""
         try:
             if mode == "auto":
-                summary = self.run_agent("hermes", task)
+                summary = self.run_agent("atlas", task)
             elif mode in self.workflows:
                 summary = self._run_workflow(self.workflows[mode], task)
             else:
@@ -443,10 +443,10 @@ class Orchestrator:
             previous = out
             assert self._ws is not None
             self._ws.save_deliverable(f"{i:02d}_{aid}.md", out)
-        if wf.get("synthesize") and "hermes" in self.agents:
+        if wf.get("synthesize") and "atlas" in self.agents:
             all_text = "\n\n".join(f"## {aid}\n{out}" for aid, out in outputs)
             return self.run_agent(
-                "hermes",
+                "atlas",
                 f"The workflow '{wf.get('name')}' has completed for this task:\n{task}\n\n"
                 "Below are all step outputs. Produce the final client-ready deliverable(s) — save them with "
                 "save_deliverable — applying any reviewer fixes, then call finish with a summary. "

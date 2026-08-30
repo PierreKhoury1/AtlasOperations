@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Hermes Desk</title>
+<title>Atlas Desk</title>
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
@@ -110,7 +110,7 @@ tr.click{cursor:pointer}tr.click:hover{background:var(--panel2)}
 @keyframes flow{to{stroke-dashoffset:-14}}
 .sgrid{position:relative;display:grid;grid-template-columns:minmax(300px,1.1fr) 1fr 1fr;gap:18px 40px;align-items:stretch}
 .node{background:var(--bg);border:1px solid var(--line);border-radius:var(--r);padding:12px 14px;display:flex;flex-direction:column;min-height:150px;position:relative;transition:border-color .2s}
-.node.hermes{grid-row:1 / span 2}
+.node.atlas{grid-row:1 / span 2}
 .node.busy{border-color:var(--c);box-shadow:0 0 0 1px var(--c)}
 .node.fin{border-color:color-mix(in srgb,var(--c) 45%,var(--line))}
 .node .nh{display:flex;align-items:center;gap:8px;margin-bottom:8px}
@@ -124,7 +124,7 @@ tr.click{cursor:pointer}tr.click:hover{background:var(--panel2)}
 .chip.new{border-color:var(--c);color:var(--text);animation:chipin .3s ease-out}
 @keyframes chipin{from{transform:scale(.8);opacity:0}to{transform:none;opacity:1}}
 .stream{flex:1;background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:10px;font-family:Consolas,"Cascadia Mono",monospace;font-size:12px;line-height:1.5;white-space:pre-wrap;overflow:auto;max-height:230px;min-height:80px;color:#d9d3ee}
-.node.hermes .stream{max-height:430px}
+.node.atlas .stream{max-height:430px}
 .stream .think{color:var(--faint);font-style:italic}
 .stream .caret{display:inline-block;width:7px;height:13px;background:var(--c,var(--accent2));vertical-align:-2px;margin-left:2px;animation:blink 1s steps(2) infinite}
 @keyframes blink{to{opacity:0}}
@@ -133,7 +133,7 @@ tr.click{cursor:pointer}tr.click:hover{background:var(--panel2)}
 .ticker .log{max-height:200px}
 .approval-flash{border-left:3px solid var(--warn);background:rgba(251,191,36,.06)}
 @media(max-width:1200px){.g5{grid-template-columns:repeat(3,1fr)}}
-@media(max-width:1100px){.sgrid{grid-template-columns:1fr 1fr}.node.hermes{grid-column:1 / span 2;grid-row:auto}.stage svg{display:none}}
+@media(max-width:1100px){.sgrid{grid-template-columns:1fr 1fr}.node.atlas{grid-column:1 / span 2;grid-row:auto}.stage svg{display:none}}
 @media(prefers-reduced-motion:reduce){.stage .edge.on,.dot.live,.stream .caret{animation:none}}
 @media(max-width:900px){.layout{grid-template-columns:1fr}aside{position:static;height:auto}.g5,.g4,.g3,.g2{grid-template-columns:1fr 1fr}main{padding:16px}}
 
@@ -166,7 +166,7 @@ tr.click{cursor:pointer}tr.click:hover{background:var(--panel2)}
 <body>
 <div class="layout">
 <aside>
-  <div class="brand"><i></i>Hermes Desk</div>
+  <div class="brand"><i></i>Atlas Desk</div>
   <div class="ws" title="Switch desk" onclick="toggleWs(event)"><div><b id="bizname">…</b><small id="wshint">sales desk</small></div><div class="wsmenu hide" id="wsmenu"></div><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m7 15 5 5 5-5M7 9l5-5 5 5"/></svg></div>
   <nav id="nav">
     <button data-p="design"><svg viewBox="0 0 24 24"><path d="M3 21v-4L16 4l4 4L7 21H3z"/><path d="m13 7 4 4"/><path d="M14 3h7v7"/></svg>Design studio</button>
@@ -215,7 +215,7 @@ tr.click{cursor:pointer}tr.click:hover{background:var(--panel2)}
     <div class="panel">
       <div class="cv-toolbar"><span class="lg"><i style="background:#c084fc"></i>orchestrator</span><span class="lg"><i style="background:#60a5fa"></i>specialist</span><span class="lg"><i style="border:1px solid var(--blue);background:none"></i>trigger</span><span class="lg"><i class="dash"></i>connector</span><span class="spacer"></span><span id="ds-readyhint" class="hint">Sketch appears as the design forms. Click any node to adjust it.</span><button class="btn sm" onclick="agAdd()">+ Agent</button><button class="btn sm" id="ds-approve" onclick="approveBuild()" disabled>Approve &amp; build</button></div>
       <div class="cv-wrap" id="ds-cv" onclick="closeInsp()"><svg id="ds-svg" xmlns="http://www.w3.org/2000/svg"></svg>
-        <div class="cv-empty" id="cv-empty"><div><b>Blueprint canvas</b>Hermes and the specialist agents will be drawn here as you describe the work.</div></div>
+        <div class="cv-empty" id="cv-empty"><div><b>Blueprint canvas</b>Atlas and the specialist agents will be drawn here as you describe the work.</div></div>
         <div class="insp" id="ds-insp" onclick="event.stopPropagation()"></div>
       </div>
     </div>
@@ -264,7 +264,7 @@ tr.click{cursor:pointer}tr.click:hover{background:var(--panel2)}
     <div class="panel"><div class="ph"><h2>Agents on this desk</h2><button class="link" onclick="go('setup')">Explore ›</button></div><div class="pb" id="agents"></div></div>
   </div>
   <div class="panel" style="margin-top:14px"><div class="ph"><h2>How a lead flows</h2><span style="color:var(--faint);font-size:12px">Nothing leaves without approval — email, WhatsApp, SMS, publishing, refunds, contracts</span></div>
-    <div class="pb"><div class="stepper" id="flow"><span>Lead in</span><span>Hermes plans</span><span>Research</span><span>Draft</span><span>QA</span><span>CRM update</span><span>Approval queue</span><span>You approve</span><span>Sent + logged</span></div></div></div>
+    <div class="pb"><div class="stepper" id="flow"><span>Lead in</span><span>Atlas plans</span><span>Research</span><span>Draft</span><span>QA</span><span>CRM update</span><span>Approval queue</span><span>You approve</span><span>Sent + logged</span></div></div></div>
 </section>
 
 <!-- LIVE DESK -->
@@ -335,7 +335,7 @@ tr.click{cursor:pointer}tr.click:hover{background:var(--panel2)}
         <div class="row"><input id="wa-hook-url" readonly style="flex:1;font-family:Consolas,monospace;font-size:12px"><button class="btn sm" onclick="navigator.clipboard.writeText($('#wa-hook-url').value);toast('Copied')">Copy</button></div>
         <label style="margin-top:12px">Twilio inbound URL (SMS or WhatsApp sandbox, HTTP POST)</label>
         <div class="row"><input id="sms-hook-url" readonly style="flex:1;font-family:Consolas,monospace;font-size:12px"><button class="btn sm" onclick="navigator.clipboard.writeText($('#sms-hook-url').value);toast('Copied')">Copy</button></div>
-        <p class="hint" style="margin-top:6px">Replies from prospects come in as leads with the channel noted; Hermes answers on the same channel through your approval queue.</p>
+        <p class="hint" style="margin-top:6px">Replies from prospects come in as leads with the channel noted; Atlas answers on the same channel through your approval queue.</p>
       </div></div>
     </div>
     <div class="panel"><div class="ph"><h2>Add a connector</h2></div><div class="pb">
@@ -358,7 +358,7 @@ tr.click{cursor:pointer}tr.click:hover{background:var(--panel2)}
     <div class="panel"><div class="ph"><h2>New automation</h2></div><div class="pb">
       <label>What kind?</label><select id="j-kind" onchange="jobFields()"></select>
       <label>Name</label><input id="j-name" placeholder="Morning pipeline review">
-      <div id="j-task-wrap"><label>Task for Hermes</label><textarea id="j-task" placeholder="Review every contact at Qualified, draft a next-step email for each and queue for approval."></textarea></div>
+      <div id="j-task-wrap"><label>Task for Atlas</label><textarea id="j-task" placeholder="Review every contact at Qualified, draft a next-step email for each and queue for approval."></textarea></div>
       <div id="j-poll-wrap" class="hide"><label>Connector name</label><input id="j-conn" placeholder="crm-api"><label>Path</label><input id="j-path" placeholder="/v1/orders?status=new"><label>What to do with the result</label><textarea id="j-prompt" placeholder="For every new order, draft a confirmation email and queue it."></textarea></div>
       <div id="j-days-wrap" class="hide"><label>Chase after (days)</label><input id="j-days" type="number" value="3"></div>
       <div class="grid g2"><div><label>Every (minutes, 0 = once)</label><input id="j-every" type="number" value="60"></div><div><label>First run in (minutes)</label><input id="j-in" type="number" value="0"></div></div>
@@ -415,7 +415,7 @@ async function loadCfg(){
   $('#mode').textContent = CFG.mode.toUpperCase();
   $('#modehint').textContent = CFG.mode==='demo' ? 'scripted agents' : 'live models';
   $('#agents').innerHTML = CFG.agents.map(a=>`<div class="agentline"><i style="background:${a.color||'#60a5fa'}"></i><b>${esc(a.name)}</b><span style="color:var(--muted);margin-left:auto;text-align:right;font-size:12px">${esc(a.role)}</span></div>`).join('');
-  const modes = ['<option value="auto">auto (Hermes decides)</option>'].concat(CFG.workflows.map(w=>`<option value="${w.id}">${esc(w.name)}</option>`)).join('');
+  const modes = ['<option value="auto">auto (Atlas decides)</option>'].concat(CFG.workflows.map(w=>`<option value="${w.id}">${esc(w.name)}</option>`)).join('');
   $('#l-mode').innerHTML = modes; $('#r-mode').innerHTML = modes;
   $('#setup-biz').innerHTML = `<h2>Business</h2><div class="md">${esc(Object.entries(CFG.business).map(([k,v])=>`${k}: ${Array.isArray(v)?v.join(', '):v}`).join('\n'))}</div>`;
   $('#setup-agents').innerHTML = `<h2>Agents &amp; tools</h2>` + CFG.agents.map(a=>`<div style="margin-bottom:10px"><div class="agentline"><i style="background:${a.color||'#60a5fa'}"></i><b>${esc(a.name)}</b> <span class="tag">${a.id}</span></div><div style="color:var(--muted);font-size:12px;margin-left:18px">${esc(a.role)} <span class="model">· ${esc(a.model||'')}</span><br>tools: ${a.tools.map(t=>`<span class="tag">${t}</span>`).join(' ')}</div></div>`).join('') + `<h2 style="margin-top:14px">Workflows</h2>` + CFG.workflows.map(w=>`<div><b>${esc(w.name)}</b> <span style="color:var(--muted)">— ${esc(w.description)}</span></div>`).join('');
@@ -606,8 +606,8 @@ function applyLive(e, live){
 
 function buildStage(){
   const g = $('#sgrid');
-  const order = [...CFG.agents.filter(a => a.id === 'hermes'), ...CFG.agents.filter(a => a.id !== 'hermes')];
-  g.innerHTML = order.map(a => `<div class="node ${a.id === 'hermes' ? 'hermes' : ''}" id="node-${a.id}" style="--c:${a.color || '#60a5fa'}">
+  const order = [...CFG.agents.filter(a => a.id === 'atlas'), ...CFG.agents.filter(a => a.id !== 'atlas')];
+  g.innerHTML = order.map(a => `<div class="node ${a.id === 'atlas' ? 'atlas' : ''}" id="node-${a.id}" style="--c:${a.color || '#60a5fa'}">
     <div class="nh"><i></i><b>${esc(a.name)}</b><span class="role">${esc(a.role)}</span><span class="st" id="st-${a.id}">idle</span></div>
     <div class="chips" id="chips-${a.id}"></div>
     <div class="stream" id="stream-${a.id}"></div>
@@ -617,10 +617,10 @@ function buildStage(){
 
 function drawEdges(){
   const svg = $('#edges'), stage = $('#stage'); if (!svg || !liveState) return;
-  const sr = stage.getBoundingClientRect(); const h = $('#node-hermes'); if (!h) return;
+  const sr = stage.getBoundingClientRect(); const h = $('#node-atlas'); if (!h) return;
   const hr = h.getBoundingClientRect();
   svg.setAttribute('viewBox', `0 0 ${sr.width} ${sr.height}`);
-  svg.innerHTML = CFG.agents.filter(a => a.id !== 'hermes').map(a => {
+  svg.innerHTML = CFG.agents.filter(a => a.id !== 'atlas').map(a => {
     const n = $('#node-' + a.id); if (!n) return '';
     const r = n.getBoundingClientRect();
     const x1 = hr.right - sr.left, y1 = hr.top - sr.top + hr.height/2, x2 = r.left - sr.left, y2 = r.top - sr.top + r.height/2;

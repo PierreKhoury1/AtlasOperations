@@ -200,7 +200,7 @@ def test_imap(cfg: dict[str, Any]) -> str:
 
 # ---------------------------------------------------------------------------- generic HTTP API
 def _headers(cfg: dict[str, Any]) -> tuple[dict[str, str], dict[str, str], tuple | None]:
-    headers: dict[str, str] = {"User-Agent": "Hermes/0.2 (+desk agent)"}
+    headers: dict[str, str] = {"User-Agent": "Atlas/0.2 (+desk agent)"}
     params: dict[str, str] = {}
     auth = None
     raw = cfg.get("headers")
@@ -330,7 +330,7 @@ _TRANSPORT = None
 
 def _http(method: str, url: str, *, headers: dict[str, str] | None = None, params: dict[str, Any] | None = None,
           json_body: Any = None, data: dict[str, Any] | None = None, auth: tuple | None = None, timeout: float = 30) -> Any:
-    h = {"User-Agent": "Hermes/0.3 (+desk agent)"}
+    h = {"User-Agent": "Atlas/0.3 (+desk agent)"}
     h.update(headers or {})
     with httpx.Client(timeout=timeout, transport=_TRANSPORT, follow_redirects=True) as c:
         r = c.request(method, url, headers=h, params=params, json=json_body, data=data, auth=auth)
@@ -483,7 +483,7 @@ def hubspot_upsert(cfg: dict[str, Any], contact: dict[str, Any]) -> str:
     if note:
         _http("POST", f"{HS}/crm/v3/objects/notes", headers=h,
               json_body={"properties": {"hs_timestamp": str(int(_dt.datetime.now(tz=_dt.timezone.utc).timestamp() * 1000)),
-                                        "hs_note_body": ("[Hermes] " + note)[:2000]},
+                                        "hs_note_body": ("[Atlas] " + note)[:2000]},
                          "associations": [{"to": {"id": cid}, "types": [{"associationCategory": "HUBSPOT_DEFINED", "associationTypeId": 202}]}]})
     return f"HubSpot: {action} contact {cid}"
 
@@ -522,7 +522,7 @@ def pipedrive_upsert(cfg: dict[str, Any], contact: dict[str, Any]) -> str:
                                   f"company={contact['company']}" if contact.get("company") else "",
                                   contact.get("notes") or "", ("next: " + contact["next_action"]) if contact.get("next_action") else "") if x)
     if note and pid != "?":
-        _http("POST", f"{base}/notes", params=qp, json_body={"content": ("[Hermes] " + note)[:4000], "person_id": pid})
+        _http("POST", f"{base}/notes", params=qp, json_body={"content": ("[Atlas] " + note)[:4000], "person_id": pid})
     return f"Pipedrive: {action} person {pid}"
 
 
@@ -609,7 +609,7 @@ def gcal_create_event(cfg: dict[str, Any], title: str, start_iso: str, end_iso: 
     h, cal, tz = _gcal_ctx(cfg)
     start = _parse_when(start_iso, tz)
     end = _parse_when(end_iso, tz) if end_iso else start + _dt.timedelta(minutes=30)
-    body: dict[str, Any] = {"summary": title or "Appointment", "description": description or "Booked by Hermes desk",
+    body: dict[str, Any] = {"summary": title or "Appointment", "description": description or "Booked by Atlas desk",
                             "start": {"dateTime": start.isoformat(), "timeZone": str(tz)}, "end": {"dateTime": end.isoformat(), "timeZone": str(tz)}}
     if attendee_email and "@" in attendee_email:
         body["attendees"] = [{"email": attendee_email}]
@@ -634,7 +634,7 @@ def slack_notify(cfg: dict[str, Any], text: str) -> str:
 
 
 def test_slack(cfg: dict[str, Any]) -> str:
-    slack_notify(cfg, ":white_check_mark: Hermes desk connected — you'll get a ping here for approvals and sends.")
+    slack_notify(cfg, ":white_check_mark: Atlas desk connected — you'll get a ping here for approvals and sends.")
     return "posted a test message to Slack"
 
 

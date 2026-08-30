@@ -2,7 +2,7 @@
 
 Flow
   1. The owner chats with the designer. Every designer reply carries a hidden machine block
-     <hermes-design>{...}</hermes-design> with suggestion chips and the current blueprint draft.
+     <atlas-design>{...}</atlas-design> with suggestion chips and the current blueprint draft.
   2. The blueprint (agents, hierarchy, tools, workflows, connectors, policy) grows turn by turn and is drawn
      live on the sketch canvas in the portal.
   3. `blueprint_to_desk` converts the approved blueprint into the desk config the engine runs.
@@ -19,20 +19,20 @@ from typing import Any, Callable
 from . import templates as T
 from . import tools as TL
 
-_BLOCK = re.compile(r"<hermes-design>\s*(\{.*?\})\s*</hermes-design>", re.S)
+_BLOCK = re.compile(r"<atlas-design>\s*(\{.*?\})\s*</atlas-design>", re.S)
 _FENCE = re.compile(r"```(?:json)?\s*(\{.*?\})\s*```", re.S)
 
 SPECIALIST_TOOLS = ["read_file", "list_files", "web_fetch", "run_python", "save_deliverable"]
-HERMES_TOOLS = ["delegate", "list_agents", "save_deliverable", "read_file", "list_files", "crm_lookup", "crm_update",
+ATLAS_TOOLS = ["delegate", "list_agents", "save_deliverable", "read_file", "list_files", "crm_lookup", "crm_update",
                 "queue_action", "list_connectors", "http_request", "schedule_task", "mcp", "run_python", "remember", "recall"]
 PALETTE = ["#60a5fa", "#f472b6", "#34d399", "#fbbf24", "#22d3ee", "#a78bfa", "#fb923c", "#4ade80", "#e879f9", "#38bdf8"]
 STATUS_MARK = "\x00"                      # on_token prefix for a status line instead of prose
 CONNECTOR_KINDS = ("smtp", "imap", "http", "mcp", "webhook")
 TRIGGER_KINDS = ("webhook", "inbox", "schedule", "manual")
 
-DESIGNER_SYSTEM = """You are the Hermes solutions designer at Hermes Ops, an AI-operations consultancy. You are on a scoping call
+DESIGNER_SYSTEM = """You are the Atlas solutions designer at Atlas Ops, an AI-operations consultancy. You are on a scoping call
 with a business owner. Your job: understand their business, find the highest-value processes to automate, and design
-a "desk" — a team of AI agents run by an orchestrator called Hermes — that will do that work for them.
+a "desk" — a team of AI agents run by an orchestrator called Atlas — that will do that work for them.
 
 How to run the conversation
 - Professional, plain English, no hype. 40-110 words per turn. One focused question per turn.
@@ -44,12 +44,12 @@ How to run the conversation
   and press Approve & build.
 
 Design rules
-- Hermes (id "hermes") is always the root orchestrator; every other agent has "reports_to": "hermes".
+- Atlas (id "atlas") is always the root orchestrator; every other agent has "reports_to": "atlas".
 - 2-6 specialist agents. Each agent: short id (a-z, _), name, role (3-6 words), goal (1-2 sentences: what it produces
   and the quality bar), tools (subset of: read_file, list_files, web_fetch, run_python, save_deliverable), and
   "strong": true only if the role needs top-tier judgement or client-facing writing.
 - Workflows: 1-3, each with an id, name, trigger {"kind": webhook|inbox|schedule|manual, "detail": text} and ordered
-  "steps": list of agent ids. Hermes reviews and approves outbound messages implicitly; do not list hermes in steps.
+  "steps": list of agent ids. Atlas reviews and approves outbound messages implicitly; do not list atlas in steps.
 - Connectors the desk needs: kinds smtp (send email), imap (watch inbox), http (any REST API), mcp (tool server:
   Slack, Notion, Google Sheets, GitHub...), webhook (web forms, Zapier, Make). Each: {"kind", "name", "purpose", "required": bool}.
 - Policy: {"no_money_figures": bool, "max_words": int, "banned_phrases": [..]}. Default no_money_figures true for
@@ -61,12 +61,12 @@ Output format — MANDATORY on every turn
 Write your reply to the owner as plain prose first (no markdown headings, no bullet spam). Then, on a new line, append
 exactly one machine block and nothing after it:
 
-<hermes-design>{"suggestions": ["3-4 short reply options for the owner, max 8 words each"], "ready": false, "blueprint": { "business": {...}, "agents": [...], "workflows": [...], "connectors": [...], "policy": {...} }}</hermes-design>
+<atlas-design>{"suggestions": ["3-4 short reply options for the owner, max 8 words each"], "ready": false, "blueprint": { "business": {...}, "agents": [...], "workflows": [...], "connectors": [...], "policy": {...} }}</atlas-design>
 
 The blueprint must be COMPLETE each time (full current state, not a diff). On the very first turn, before the owner
 has said anything substantive, "blueprint" may be null."""
 
-GREETING = ("Welcome. I design AI desks for businesses — a small team of agents, run by Hermes, that takes a whole process "
+GREETING = ("Welcome. I design AI desks for businesses — a small team of agents, run by Atlas, that takes a whole process "
             "off your plate. Tell me what your business does and which task eats the most time each week: answering "
             "enquiries, writing proposals, chasing invoices, watching an inbox, anything repetitive. I will sketch the "
             "team as we talk.")
@@ -133,9 +133,9 @@ def split_reply(raw: str) -> tuple[str, dict[str, Any] | None]:
                     prose = (raw[: last.start()] + raw[last.end():]).strip()
             except json.JSONDecodeError:
                 pass
-        if data is None and "<hermes-design>" in raw:          # opened but never closed (cut off)
-            prose = raw.split("<hermes-design>", 1)[0].strip()
-    prose = re.sub(r"</?hermes-design>", "", prose).strip()
+        if data is None and "<atlas-design>" in raw:          # opened but never closed (cut off)
+            prose = raw.split("<atlas-design>", 1)[0].strip()
+    prose = re.sub(r"</?atlas-design>", "", prose).strip()
     return prose, data if isinstance(data, dict) else None
 
 
@@ -193,11 +193,11 @@ def normalise(bp: dict[str, Any] | None, prev: dict[str, Any] | None = None) -> 
             "name": str(a.get("name") or aid.replace("_", " ").title())[:40],
             "role": str(a.get("role") or "Specialist")[:60],
             "goal": str(a.get("goal") or a.get("description") or "")[:600],
-            "tools": tools if aid != "hermes" else list(HERMES_TOOLS),
-            "reports_to": "hermes" if aid != "hermes" else "",
+            "tools": tools if aid != "atlas" else list(ATLAS_TOOLS),
+            "reports_to": "atlas" if aid != "atlas" else "",
             "strong": bool(a.get("strong")),
         })
-    agents = [a for a in agents if a["id"] != "hermes"][:8]
+    agents = [a for a in agents if a["id"] != "atlas"][:8]
     for i, a in enumerate(agents):
         a["color"] = PALETTE[i % len(PALETTE)]
     out["agents"] = agents
@@ -312,7 +312,7 @@ def _live_turn(session: DesignSession, providers_cfg: dict[str, Any] | None, mod
         if not gate["open"]:
             return
         joined = "".join(buf)
-        cut = joined.find("<hermes")
+        cut = joined.find("<atlas")
         if cut >= 0:                                   # machine block starts: stop streaming prose
             gate["open"] = False
             on_token(STATUS_MARK + "Sketching the blueprint")
@@ -343,22 +343,22 @@ def _live_turn(session: DesignSession, providers_cfg: dict[str, Any] | None, mod
             time.sleep(2.0)
     if not raw and err:
         return (f"The model did not answer ({err}). Say that again in a moment — the sketch so far is kept."
-                + chr(10) + '<hermes-design>{"suggestions": ["Continue"], "ready": false, "blueprint": null}</hermes-design>')
+                + chr(10) + '<atlas-design>{"suggestions": ["Continue"], "ready": false, "blueprint": null}</atlas-design>')
     if not raw.strip():
         raw = ("Understood. Could you tell me a little more about who your customers are and how they reach you?"
-               + chr(10) + '<hermes-design>{"suggestions": ["Mostly by email", "Through our website form", "Phone and WhatsApp"], "ready": false, "blueprint": null}</hermes-design>')
+               + chr(10) + '<atlas-design>{"suggestions": ["Mostly by email", "Through our website form", "Phone and WhatsApp"], "ready": false, "blueprint": null}</atlas-design>')
     # repair pass: the prose came back without a usable machine block -> ask for the block alone (not streamed)
     _, data = split_reply(raw)
     if session.turn >= 1 and not (data and isinstance(data.get("blueprint"), dict)):
         try:
             fix = prov.chat(system, msgs + [{"role": "assistant", "content": raw},
-                                           prov.user_message("Output ONLY the <hermes-design>{...}</hermes-design> block, nothing else. "
+                                           prov.user_message("Output ONLY the <atlas-design>{...}</atlas-design> block, nothing else. "
                                                              "Include your best FIRST-DRAFT blueprint for what has been said so far (make reasonable "
                                                              "assumptions; the owner can adjust it on the canvas). Keep the same suggestions.")],
                             [], model or "")
             _, data2 = split_reply(fix.text or "")
             if data2:
-                raw = split_reply(raw)[0] + chr(10) + "<hermes-design>" + json.dumps(data2, ensure_ascii=False) + "</hermes-design>"
+                raw = split_reply(raw)[0] + chr(10) + "<atlas-design>" + json.dumps(data2, ensure_ascii=False) + "</atlas-design>"
         except Exception:
             pass
     return raw
@@ -458,7 +458,7 @@ def _demo_turn(session: DesignSession, text: str, on_token: Callable[[str], None
     turn = session.turn
     label = {"sales": "inbound enquiry desk", "proposal": "proposal desk", "inbox": "inbox triage desk", "orders": "order-care desk"}[kind]
     scripts = {
-        1: (f"Understood — that points to an {label}. I have sketched the core: Hermes orchestrating, a researcher and a writer. "
+        1: (f"Understood — that points to an {label}. I have sketched the core: Atlas orchestrating, a researcher and a writer. "
             f"Every outbound message will wait for your approval, and the policy layer blocks prices and placeholders. "
             f"Who are your customers, and how do enquiries usually arrive — web form, email, phone?",
             ["Mostly through our website form", "By email to one inbox", "Phone and WhatsApp mostly", "A mix of all of these"]),
@@ -479,7 +479,7 @@ def _demo_turn(session: DesignSession, text: str, on_token: Callable[[str], None
         for w in prose.split(" "):
             on_token(w + " ")
             time.sleep(0.018)
-    return prose + "\n<hermes-design>" + json.dumps({"suggestions": sugg, "ready": turn >= 3, "blueprint": bp}) + "</hermes-design>"
+    return prose + "\n<atlas-design>" + json.dumps({"suggestions": sugg, "ready": turn >= 3, "blueprint": bp}) + "</atlas-design>"
 
 
 # ---------------------------------------------------------------------------- blueprint -> desk config
@@ -507,9 +507,9 @@ def blueprint_to_desk(bp: dict[str, Any], tier: str = "free") -> dict[str, Any]:
     b["policy"] = {"no_money_figures": bool(pol.get("no_money_figures", True)), "max_words": int(pol.get("max_words") or 220),
                    "banned_phrases": list(pol.get("banned_phrases") or [])}
     roster = "\n".join(f"- {a['id']}: {a['name']} — {a['role']}" for a in bp.get("agents") or [])
-    hermes_extra = ("Specialists on this desk:\n" + roster + "\n\nEvery customer-facing message goes through queue_action for owner "
+    atlas_extra = ("Specialists on this desk:\n" + roster + "\n\nEvery customer-facing message goes through queue_action for owner "
                     "approval. Keep CRM up to date with crm_update.") if roster else ""
-    agents = [T._hermes(hermes_extra)]
+    agents = [T._atlas(atlas_extra)]
     for a in bp.get("agents") or []:
         agents.append(T._agent(a["id"], a["name"], a["role"], _agent_prompt(a, b), tools=a["tools"], color=a["color"]))
         agents[-1]["strong"] = bool(a.get("strong"))

@@ -13,8 +13,8 @@ os.environ["DESK_MODE"] = "demo"
 os.environ["DEMO_DELAY"] = "0"
 os.environ.pop("DESK_OPEN", None)
 os.environ["DESK_SECRET"] = "test-secret"
-_TMP = Path(tempfile.mkdtemp(prefix="hermes-tests-"))
-os.environ["HERMES_DATA_DIR"] = str(_TMP)
+_TMP = Path(tempfile.mkdtemp(prefix="atlas-tests-"))
+os.environ["ATLAS_DATA_DIR"] = str(_TMP)
 
 
 @pytest.fixture(scope="session")
@@ -24,13 +24,13 @@ def tmp_dir():
 
 @pytest.fixture()
 def store(tmp_path):
-    from hermes.store import Store
+    from atlas.store import Store
     return Store(tmp_path / "t.db")
 
 
 @pytest.fixture(scope="session")
 def app_client():
-    import hermes.desk.app as A
+    import atlas.desk.app as A
     A.store.__init__(_TMP / "desk.db")           # fresh DB for the session
     A.app.config["TESTING"] = True
     return A.app.test_client()

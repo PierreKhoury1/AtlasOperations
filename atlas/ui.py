@@ -1,4 +1,4 @@
-"""Hermes desktop UI (customtkinter). Everything visual is driven by config/ui.json."""
+"""Atlas desktop UI (customtkinter). Everything visual is driven by config/ui.json."""
 from __future__ import annotations
 
 import json
@@ -298,7 +298,7 @@ class App(ctk.CTk):
         top = ctk.CTkFrame(f, fg_color="transparent")
         top.grid(row=0, column=0, sticky="ew")
         top.grid_columnconfigure(0, weight=1)
-        ctk.CTkLabel(top, text=f"{self.configs['business'].get('name','')} — task for Hermes",
+        ctk.CTkLabel(top, text=f"{self.configs['business'].get('name','')} — task for Atlas",
                      font=self.font(bold=True, delta=2), anchor="w").grid(row=0, column=0, sticky="w")
         self.task_box = ctk.CTkTextbox(f, height=110, wrap="word", font=self.font(), corner_radius=self.radius())
         self.task_box.grid(row=1, column=0, sticky="ew", pady=(6, 8))
@@ -450,7 +450,7 @@ class App(ctk.CTk):
             self._append_log("system", "deliverable", Path(p).name)
         elif k == "done":
             self.current_run_dir = ev.data.get("run_dir", "")
-            self._append_log("system", "hermes", f"=== {ev.data.get('status','done').upper()} ===\n{ev.text}")
+            self._append_log("system", "atlas", f"=== {ev.data.get('status','done').upper()} ===\n{ev.text}")
             self.run_btn.configure(state="normal")
             self.toast(f"{ev.data.get('status')} — tokens in {ev.data.get('tokens_in',0):,} / out {ev.data.get('tokens_out',0):,}")
 
@@ -488,7 +488,7 @@ class App(ctk.CTk):
         form.section("Agent" if agent_id else "New agent")
         form.entry("id", "ID (unique, no spaces)", a["id"])
         form.entry("name", "Name", a["name"])
-        form.entry("role", "Role (shown to Hermes)", a.get("role", ""))
+        form.entry("role", "Role (shown to Atlas)", a.get("role", ""))
         form.switch("enabled", "Enabled", a.get("enabled", True))
         form.option("provider", "Provider", providers, a.get("provider") or "(default)")
         form.entry("model", "Model (blank = provider default)", a.get("model", ""))
@@ -564,7 +564,7 @@ class App(ctk.CTk):
             "id": "", "name": "", "description": "", "synthesize": True,
             "steps": [{"agent": "research", "task": "Research:\n{task}"}]}
         agents = {a["id"]: a for a in self.configs["agents"]}
-        specialist_ids = [a for a in agents if a != "hermes"] or list(agents) or ["research"]
+        specialist_ids = [a for a in agents if a != "atlas"] or list(agents) or ["research"]
         sel: dict[str, int | None] = {"i": 0 if draft["steps"] else None}
 
         h = self.wf_holder
@@ -589,7 +589,7 @@ class App(ctk.CTk):
         def toggle_syn():
             draft["synthesize"] = v_syn.get()
             refresh()
-        ctk.CTkSwitch(head, text="Hermes synthesis at end", variable=v_syn, command=toggle_syn,
+        ctk.CTkSwitch(head, text="Atlas synthesis at end", variable=v_syn, command=toggle_syn,
                       font=self.font(), progress_color=self.accent()).grid(row=0, column=6, padx=6)
 
         # ---- graph
@@ -957,7 +957,7 @@ class App(ctk.CTk):
         o = self.configs["orchestration"]
         form = Form(self, f)
         form.frame.grid(row=0, column=0, sticky="nsew")
-        form.number("max_iterations", "Hermes max iterations", o.get("max_iterations", 24))
+        form.number("max_iterations", "Atlas max iterations", o.get("max_iterations", 24))
         form.number("specialist_max_iterations", "Specialist max iterations", o.get("specialist_max_iterations", 8))
         form.number("max_delegation_depth", "Max delegation depth", o.get("max_delegation_depth", 2))
         form.switch("include_business_context_in_specialists", "Give specialists the business profile", o.get("include_business_context_in_specialists", True))
@@ -1029,7 +1029,7 @@ class App(ctk.CTk):
                 form.switch(f"panel_{k}", k, u.get("panels", {}).get(k, True))
         form.entry("panel_order", "Panel order (comma separated)", ", ".join(u.get("panel_order", PAGE_KEYS)))
         form.section("Labels")
-        form.entry("lbl_app_title", "App title", u.get("labels", {}).get("app_title", "Hermes"))
+        form.entry("lbl_app_title", "App title", u.get("labels", {}).get("app_title", "Atlas"))
         for k in PAGE_KEYS:
             form.entry(f"lbl_{k}", f"Label: {k}", u.get("labels", {}).get(k, k.title()))
 
@@ -1040,7 +1040,7 @@ class App(ctk.CTk):
             u["panels"] = {k: (True if k == "settings" else v[f"panel_{k}"]) for k in PAGE_KEYS}
             order = [s.strip() for s in v["panel_order"].split(",") if s.strip() in PAGE_KEYS]
             u["panel_order"] = order + [k for k in PAGE_KEYS if k not in order]
-            u["labels"] = {"app_title": v["lbl_app_title"] or "Hermes", **{k: v[f"lbl_{k}"] or k.title() for k in PAGE_KEYS}}
+            u["labels"] = {"app_title": v["lbl_app_title"] or "Atlas", **{k: v[f"lbl_{k}"] or k.title() for k in PAGE_KEYS}}
             if save_too:
                 cfg.save("ui", u)
             self.active_page = "settings"

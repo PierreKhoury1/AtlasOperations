@@ -1,10 +1,10 @@
 services:
   - type: web
-    name: hermes-ops
+    name: atlas-ops
     runtime: python
     plan: free
     buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn -w 1 --threads 32 --timeout 120 -b 0.0.0.0:$PORT hermes.desk.app:app
+    startCommand: gunicorn -w 1 --threads 32 --timeout 120 -b 0.0.0.0:$PORT atlas.desk.app:app
     healthCheckPath: /api/health
     envVars:
       - key: DESK_MODE

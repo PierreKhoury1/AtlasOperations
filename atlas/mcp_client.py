@@ -63,7 +63,7 @@ class MCPServer:
         threading.Thread(target=self._drain_stderr, daemon=True).start()
         self._id = 0
         res = self._request("initialize", {"protocolVersion": PROTOCOL, "capabilities": {},
-                                           "clientInfo": {"name": "hermes-desk", "version": "0.2"}}, timeout=60)
+                                           "clientInfo": {"name": "atlas-desk", "version": "0.2"}}, timeout=60)
         self._notify("notifications/initialized", {})
         self.server_info = res.get("serverInfo", {})
         self.tools = self._request("tools/list", {}, timeout=60).get("tools", [])

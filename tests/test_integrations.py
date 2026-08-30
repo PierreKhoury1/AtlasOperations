@@ -6,7 +6,7 @@ import time
 import httpx
 import pytest
 
-from hermes import integrations as I
+from atlas import integrations as I
 
 
 def J(resp):
@@ -33,7 +33,7 @@ class Fake:
         if "api.resend.com/emails" in url:
             return httpx.Response(200, json={"id": "re_123"})
         if "api.resend.com/domains" in url:
-            return httpx.Response(200, json={"data": [{"name": "hermesops.co"}]})
+            return httpx.Response(200, json={"data": [{"name": "atlasops.co"}]})
         if "graph.facebook.com" in url and url.endswith("/messages"):
             return httpx.Response(200, json={"messages": [{"id": "wamid.ABC"}]})
         if "graph.facebook.com" in url:
@@ -94,11 +94,11 @@ def test_phone_and_mask():
 
 
 def test_resend_send_and_test(fake):
-    out = I.send_resend({"api_key": "re_k", "from_email": "desk@hermesops.co", "from_name": "Hermes"}, "lead@x.com", "Hi", "Body")
+    out = I.send_resend({"api_key": "re_k", "from_email": "desk@atlasops.co", "from_name": "Atlas"}, "lead@x.com", "Hi", "Body")
     assert "re_123" in out
     m, url, body = fake.sent("emails")[0]
-    assert body["from"] == "Hermes <desk@hermesops.co>" and body["to"] == ["lead@x.com"] and body["text"] == "Body"
-    assert "hermesops.co" in I.test_resend({"api_key": "re_k"})
+    assert body["from"] == "Atlas <desk@atlasops.co>" and body["to"] == ["lead@x.com"] and body["text"] == "Body"
+    assert "atlasops.co" in I.test_resend({"api_key": "re_k"})
     with pytest.raises(RuntimeError):
         I.send_resend({"api_key": ""}, "a@b.c", "s", "b")
 
@@ -137,7 +137,7 @@ def test_hubspot_create_then_update(fake):
     create = [c for c in fake.calls if c[0] == "POST" and c[1].endswith("/objects/contacts")][0][2]["properties"]
     assert create == {"email": "hannah@x.com", "firstname": "Hannah", "lastname": "Weiss", "company": "Weiss Ltd", "phone": "0770", "hs_lead_status": "ATTEMPTED_TO_CONTACT"}
     note = fake.sent("/objects/notes")[0][2]
-    assert note["properties"]["hs_note_body"] == "[Hermes] warm · next: call" and note["associations"][0]["to"]["id"] == "901"
+    assert note["properties"]["hs_note_body"] == "[Atlas] warm · next: call" and note["associations"][0]["to"]["id"] == "901"
     fake.hubspot_hits = [{"id": "555"}]
     assert I.hubspot_upsert(cfg, contact) == "HubSpot: updated contact 555"
     assert [c for c in fake.calls if c[0] == "PATCH"][0][1].endswith("/contacts/555")
@@ -150,7 +150,7 @@ def test_pipedrive_upsert(fake):
     assert I.pipedrive_upsert(cfg, contact) == "Pipedrive: created person 77"
     post = [c for c in fake.calls if c[0] == "POST" and c[1].split("?")[0].endswith("/persons")][0]
     assert "api_token=pdt" in post[1] and post[2]["email"][0]["value"] == "tom@x.com"
-    assert fake.sent("/notes")[0][2]["content"].startswith("[Hermes] stage=New · company=Okafor & Co · n")
+    assert fake.sent("/notes")[0][2]["content"].startswith("[Atlas] stage=New · company=Okafor & Co · n")
     fake.pd_hits = [{"item": {"id": 12}}]
     assert I.pipedrive_upsert(cfg, contact) == "Pipedrive: updated person 12"
     assert "Pierre" in I.test_pipedrive(cfg)
@@ -228,7 +228,7 @@ def test_portal_real_send_crm_mirror_slack(app_client, fake):
     assert set(R["kinds"]) >= {"resend", "whatsapp", "twilio", "hubspot", "pipedrive", "gcal", "slack"}
     assert R["channels"] == {"email": False, "whatsapp": False, "sms": False, "booking": False}
     assert R["whatsapp_hook_url"].endswith("/whatsapp") and R["sms_hook_url"].endswith("/sms")
-    for kind, name, cfg in [("resend", "resend", {"api_key": "re_k", "from_email": "desk@hermesops.co", "from_name": "Maya"}),
+    for kind, name, cfg in [("resend", "resend", {"api_key": "re_k", "from_email": "desk@atlasops.co", "from_name": "Maya"}),
                             ("hubspot", "hubspot", {"access_token": "pat"}),
                             ("slack", "slack", {"webhook_url": "https://hooks.slack.com/services/T/B/X"})]:
         r = J(c.post("/api/connectors", json={"kind": kind, "name": name, "config": cfg}))
@@ -245,9 +245,9 @@ def test_portal_real_send_crm_mirror_slack(app_client, fake):
     slack_before = len(fake.sent("hooks.slack.com"))
     assert slack_before >= 1                                          # approval ping from the orchestrator
     row = J(c.post(f"/api/actions/{pend[0]['id']}/decide", json={"status": "approved", "note": "go"}))
-    assert row["status"] == "sent" and "sent via Resend as desk@hermesops.co" in row["note"], row["note"]
+    assert row["status"] == "sent" and "sent via Resend as desk@atlasops.co" in row["note"], row["note"]
     sent = fake.sent("api.resend.com/emails")[-1][2]
-    assert sent["to"] == ["hannah@x.com"] and sent["from"] == "Maya <desk@hermesops.co>"
+    assert sent["to"] == ["hannah@x.com"] and sent["from"] == "Maya <desk@atlasops.co>"
     assert len(fake.sent("hooks.slack.com")) == slack_before + 1      # "Sent" ping
     assert fake.sent("/objects/contacts/search"), "contact should be mirrored to HubSpot on send"
     detail = J(c.get(f"/api/runs/{row['run_id']}"))
@@ -279,7 +279,7 @@ def test_inbound_whatsapp_and_sms_hooks(app_client, fake):
     assert "kind=whatsapp" in task and "+447700900555" in task
     # Twilio SMS inbound → TwiML + lead
     r2 = c.post(f"/hook/{token}/sms", data={"From": "+447700900777", "Body": "Call me back", "ProfileName": "Tom"})
-    assert r2.status_code == 200 and b"<Response></Response>" in r2.data and r2.headers["X-Hermes-Run"]
+    assert r2.status_code == 200 and b"<Response></Response>" in r2.data and r2.headers["X-Atlas-Run"]
     lead2 = next(l for l in J(c.get("/api/leads")) if l["phone"] == "+447700900777")
     assert lead2["source"] == "sms" and lead2["name"] == "Tom"
     assert c.post(f"/hook/{token}/sms", data={"Body": "no sender"}).status_code == 400

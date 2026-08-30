@@ -72,7 +72,7 @@ section.scene { background: #fff; }
 .pstep .who { display: flex; gap: 8px; flex-wrap: wrap; }
 .pstep .who span { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; font-weight: 600; padding: 5px 10px 5px 8px; border-radius: 4px; background: #fff; border: 1px solid var(--line); color: var(--text2); display: inline-flex; align-items: center; gap: 7px; }
 .pstep .who span::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--line2); }
-.pstep .who .research::before { background: var(--accent); } .pstep .who .writer::before { background: var(--warn); } .pstep .who .qa::before { background: #8a5cf6; } .pstep .who .crm::before { background: var(--ok); } .pstep .who .hermes::before { background: var(--ink); } .pstep .who .you::before { background: var(--text); box-shadow: 0 0 0 3px var(--line); }
+.pstep .who .research::before { background: var(--accent); } .pstep .who .writer::before { background: var(--warn); } .pstep .who .qa::before { background: #8a5cf6; } .pstep .who .crm::before { background: var(--ok); } .pstep .who .atlas::before { background: var(--ink); } .pstep .who .you::before { background: var(--text); box-shadow: 0 0 0 3px var(--line); }
 @media (max-width: 960px) { .pipe { grid-template-columns: 24px 1fr; } .pstep .n { font-size: 44px; } }
 
 /* gallery scene (horizontal on desktop) */

@@ -148,7 +148,7 @@ SCHEMAS: dict[str, dict[str, Any]] = {
     },
     "schedule_task": {
         "name": "schedule_task",
-        "description": "Schedule work for later: a one-off task in N minutes (e.g. a follow-up check) or a recurring task every N minutes. The task text is handed to Hermes when it fires.",
+        "description": "Schedule work for later: a one-off task in N minutes (e.g. a follow-up check) or a recurring task every N minutes. The task text is handed to Atlas when it fires.",
         "parameters": {
             "type": "object",
             "properties": {
@@ -253,7 +253,7 @@ class WorkspaceTools:
             return "error: only http(s) URLs"
         try:
             r = httpx.get(url, follow_redirects=True, timeout=30,
-                          headers={"User-Agent": "Hermes/0.1 (+desktop research agent)"})
+                          headers={"User-Agent": "Atlas/0.1 (+desktop research agent)"})
         except Exception as exc:
             return f"error: {type(exc).__name__}: {exc}"
         ctype = r.headers.get("content-type", "")

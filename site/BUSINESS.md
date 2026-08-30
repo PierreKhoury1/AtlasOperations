@@ -1,4 +1,4 @@
-# Hermes Ops — business one-pager
+# Atlas Ops — business one-pager
 
 **What it is.** An AI-operations consultancy. Clients bring a business and a process; we install and *operate* an AI desk (a team of specialised agents + approval queue) for one function, then improve it monthly. Not "AI runs your company" — one function, done properly, human approval on anything sensitive.
 
@@ -33,7 +33,7 @@ Unit economics target: ~£150–400 model spend per desk/month → 70–85% gros
 
 ## Stack (hybrid, per the architecture decision)
 
-- Agent runtime: OpenAI Agents SDK (tools, handoffs, guardrails, tracing) — or the in-house **Hermes** orchestrator (`C:\Users\pierr\hermes`) for internal delivery of the Research & Documents Desk.
+- Agent runtime: OpenAI Agents SDK (tools, handoffs, guardrails, tracing) — or the in-house **Atlas** orchestrator (`C:\Users\pierr\atlas`) for internal delivery of the Research & Documents Desk.
 - Durable workflows: LangGraph / Temporal when steps need checkpoints and retries.
 - Integrations: n8n (email, CRM, calendar, forms, WhatsApp, Slack).
 - System of record: Postgres — tasks, permissions, approvals, audit.
@@ -45,13 +45,13 @@ Not the framework. Industry-specific workflows, integrations, accumulated operat
 
 ## First 90 days
 
-- Wk 1–2: finish site, pick 1 industry (estate agents), build the Sales Desk demo on Hermes/n8n with fake data, record a 3-min walkthrough.
+- Wk 1–2: finish site, pick 1 industry (estate agents), build the Sales Desk demo on Atlas/n8n with fake data, record a 3-min walkthrough.
 - Wk 3–6: 3 pilot clients at Starter (discount setup to £1,000 for a case study). Reuse BOOKLI outreach batch machinery for cold email.
 - Wk 7–12: case study + pricing validation; second desk (Support & Booking for clinics); systemise onboarding checklist.
 
 ## Before launch — replace placeholders
 
 - Legal entity, address, company number in `privacy.html`
-- Real inbox for `BRAND.email` in `script.js` (currently `hello@hermesops.co`, domain not registered)
+- Real inbox for `BRAND.email` in `script.js` (currently `hello@atlasops.co`, domain not registered)
 - Decide final brand name (change `BRAND.name` + `<title>`/OG tags)
 - Host: Render static site (same flow as BOOKLI) or Netlify — no backend needed

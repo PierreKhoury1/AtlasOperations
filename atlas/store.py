@@ -13,7 +13,7 @@ from typing import Any
 
 from .config import DATA_DIR
 
-DB_PATH = DATA_DIR / "hermes.db"
+DB_PATH = DATA_DIR / "atlas.db"
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS runs (

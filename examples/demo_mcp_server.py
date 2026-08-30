@@ -1,5 +1,5 @@
-"""Tiny MCP server (stdio) used to verify the Hermes MCP client. Tools: echo, add, create_note.
-Run: py workspace/inputs/demo_mcp_server.py   (Hermes starts it for you as a connector command)."""
+"""Tiny MCP server (stdio) used to verify the Atlas MCP client. Tools: echo, add, create_note.
+Run: py workspace/inputs/demo_mcp_server.py   (Atlas starts it for you as a connector command)."""
 import json
 import sys
 import time

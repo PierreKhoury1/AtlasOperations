@@ -388,7 +388,7 @@ class DemoProvider(Provider):
                                stop, 350 + len(task) // 4, 120 + len(text) // 4, self.default_model)
 
         if "delegate" in names:  # ---- orchestrator script
-            roster = [r for r in self._roster(system) if r not in ("hermes",)]
+            roster = [r for r in self._roster(system) if r not in ("atlas",)]
             if n_user == 1:
                 targets = [r for r in roster if r != "qa"][:3] or roster[:1]
                 calls = [ToolCall(f"d{i}", "delegate", {"agent_id": r,

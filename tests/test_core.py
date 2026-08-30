@@ -5,9 +5,9 @@ from pathlib import Path
 
 import pytest
 
-from hermes import policy as P
-from hermes import templates
-from hermes.store import Store
+from atlas import policy as P
+from atlas import templates
+from atlas.store import Store
 
 
 # ---------------------------------------------------------------- store isolation
@@ -24,7 +24,7 @@ def test_desks_are_isolated(store: Store):
     assert a.contacts()[0]["stage"] == "New" and b.contacts()[0]["stage"] == "Won"
     a.create_run("r1", "t", "auto", "/tmp")
     assert [r["id"] for r in a.runs()] == ["r1"] and b.runs() == []
-    qid = a.add_action("r1", "hermes", "email", "ann@x.com", "s", "b", "r")
+    qid = a.add_action("r1", "atlas", "email", "ann@x.com", "s", "b", "r")
     assert a.action(qid)["desk_id"] == d1["id"] and b.actions() == []
     assert a.stats()["leads"] == 1 and b.stats()["leads"] == 1
     a.reset()
@@ -87,7 +87,7 @@ def test_policy_signoff_and_length():
 
 # ---------------------------------------------------------------- tools
 def test_workspace_tools(tmp_path):
-    from hermes.tools import WorkspaceTools
+    from atlas.tools import WorkspaceTools
     w = WorkspaceTools(tmp_path / "run")
     assert "saved" in w.call("save_deliverable", {"name": "x.md", "markdown": "# hi"})      # alias mapping
     assert "hi" in w.call("read_file", {"file": "x.md"})
@@ -99,9 +99,9 @@ def test_workspace_tools(tmp_path):
 
 
 def test_run_python_timeout(tmp_path):
-    from hermes.tools import WorkspaceTools
+    from atlas.tools import WorkspaceTools
     w = WorkspaceTools(tmp_path / "run")
-    import hermes.tools as T
+    import atlas.tools as T
     # keep the real test fast: patch the timeout via a tiny script that sleeps longer than allowed
     out = w.run_python("import time; time.sleep(0.2); print('ok')")
     assert "ok" in out
@@ -109,7 +109,7 @@ def test_run_python_timeout(tmp_path):
 
 # ---------------------------------------------------------------- MCP
 def test_mcp_client_roundtrip():
-    from hermes import mcp_client as M
+    from atlas import mcp_client as M
     root = Path(__file__).resolve().parents[1]
     srv = M.MCPServer("demo", {"command": f"py {root / 'examples' / 'demo_mcp_server.py'}"})
     try:
@@ -133,7 +133,7 @@ def _configs(template="sales_desk"):
 
 
 def test_orchestrator_demo_run_queues_approval(store: Store):
-    from hermes.orchestrator import Orchestrator
+    from atlas.orchestrator import Orchestrator
     d = store.add_desk(1, "Acme", "sales_desk", "free", templates.build_desk("sales_desk", {}))
     ds = store.for_desk(d["id"])
     evs = []
@@ -149,15 +149,15 @@ def test_orchestrator_demo_run_queues_approval(store: Store):
 
 def test_orchestrator_policy_flags_after_repeats(store: Store):
     """A body that keeps violating gets bounced twice, then queued with flags."""
-    from hermes.orchestrator import Orchestrator
-    from hermes.providers import ToolCall
+    from atlas.orchestrator import Orchestrator
+    from atlas.providers import ToolCall
     d = store.add_desk(1, "Acme", "sales_desk", "free", {"business": {"policy": {"no_money_figures": True}}})
     ds = store.for_desk(d["id"])
     orch = Orchestrator(_configs(), ds, lambda e: None)
     orch.run_id = "r-test"; ds.create_run("r-test", "t", "auto", "/x")
     call = ToolCall("1", "queue_action", {"kind": "email", "to": "a@x.com", "subject": "s", "body": "Fee is £500. Sam"})
-    r1 = orch._tool({"id": "hermes"}, call, 0)
-    r2 = orch._tool({"id": "hermes"}, call, 0)
-    r3 = orch._tool({"id": "hermes"}, call, 0)
+    r1 = orch._tool({"id": "atlas"}, call, 0)
+    r2 = orch._tool({"id": "atlas"}, call, 0)
+    r3 = orch._tool({"id": "atlas"}, call, 0)
     assert r1.startswith("POLICY BLOCK") and r2.startswith("POLICY BLOCK") and "queued for approval" in r3
     assert ds.actions("pending")[0]["flags"]

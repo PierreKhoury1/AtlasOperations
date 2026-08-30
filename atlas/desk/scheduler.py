@@ -109,7 +109,7 @@ def start(store, start_run: Callable, desk_for: Callable) -> None:
     if _thread and _thread.is_alive():
         return
     _stop.clear()
-    _thread = threading.Thread(target=_loop, args=(store, start_run, desk_for), daemon=True, name="hermes-scheduler")
+    _thread = threading.Thread(target=_loop, args=(store, start_run, desk_for), daemon=True, name="atlas-scheduler")
     _thread.start()
 
 

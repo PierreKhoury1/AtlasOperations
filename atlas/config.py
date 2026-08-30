@@ -12,7 +12,7 @@ TEMPLATES_DIR = ROOT / "templates"
 WORKSPACE_DIR = ROOT / "workspace"
 INPUTS_DIR = WORKSPACE_DIR / "inputs"
 RUNS_DIR = WORKSPACE_DIR / "runs"
-DATA_DIR = Path(os.environ["HERMES_DATA_DIR"]) if os.environ.get("HERMES_DATA_DIR") else ROOT / "data"
+DATA_DIR = Path(os.environ["ATLAS_DATA_DIR"]) if os.environ.get("ATLAS_DATA_DIR") else ROOT / "data"
 
 for _d in (CONFIG_DIR, TEMPLATES_DIR, INPUTS_DIR, RUNS_DIR, DATA_DIR):
     _d.mkdir(parents=True, exist_ok=True)
@@ -79,12 +79,12 @@ DEFAULT_UI: dict[str, Any] = {
     },
     "panel_order": ["run", "agents", "workflows", "business", "history", "settings"],
     "labels": {
-        "app_title": "Hermes",
+        "app_title": "Atlas",
         "run": "Run", "agents": "Agents", "workflows": "Workflows",
         "business": "Business", "history": "History", "settings": "Settings",
     },
     "agent_colors": {
-        "hermes": "#f5c542", "system": "#9aa0a6", "tool": "#7fd1b9",
+        "atlas": "#f5c542", "system": "#9aa0a6", "tool": "#7fd1b9",
         "error": "#ff6b6b", "user": "#cfd8dc", "default": "#8ab4f8",
     },
     "show_token_usage": True,

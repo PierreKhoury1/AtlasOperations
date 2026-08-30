@@ -1,6 +1,6 @@
 """Workflow node graph (tk.Canvas) — visual twin of the workflow JSON.
 
-Nodes: TASK input -> step nodes (one per JSON step, coloured by agent) -> optional HERMES synthesis -> OUTPUT.
+Nodes: TASK input -> step nodes (one per JSON step, coloured by agent) -> optional ATLAS synthesis -> OUTPUT.
 Edges: solid = sequential ({previous}); dashed = fan-in from earlier steps when a task uses {all}.
 Click a node to select it (callback gets the step index, or None for non-step nodes).
 """
@@ -58,8 +58,8 @@ class WorkflowGraph(ctk.CTkFrame):
                 "missing": s.get("agent", "") not in self.agents,
             })
         if self.wf.get("synthesize"):
-            h = self.agents.get("hermes", {})
-            nodes.append({"kind": "synth", "idx": None, "title": "Hermes synthesis",
+            h = self.agents.get("atlas", {})
+            nodes.append({"kind": "synth", "idx": None, "title": "Atlas synthesis",
                           "sub": "final deliverable(s)", "color": h.get("color") or "#f5c542", "uses_all": True})
         nodes.append({"kind": "output", "idx": None, "title": "OUTPUT", "sub": "workspace/runs/<id>/",
                       "color": self._c("#43a047", "#66bb6a")})

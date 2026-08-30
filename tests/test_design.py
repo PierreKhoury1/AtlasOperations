@@ -1,7 +1,7 @@
 """Design Studio: designer parsing/normalising, demo conversation, blueprint -> desk, and the HTTP flow."""
 import json
 
-from hermes import designer as D
+from atlas import designer as D
 
 
 def J(r):
@@ -9,32 +9,32 @@ def J(r):
 
 
 def test_split_reply_variants():
-    prose, data = D.split_reply('Hello there.\n<hermes-design>{"suggestions": ["a"], "ready": false, "blueprint": null}</hermes-design>')
+    prose, data = D.split_reply('Hello there.\n<atlas-design>{"suggestions": ["a"], "ready": false, "blueprint": null}</atlas-design>')
     assert prose == "Hello there." and data["suggestions"] == ["a"]
     # fenced json fallback
     prose, data = D.split_reply('Hi.\n```json\n{"suggestions": ["b"], "blueprint": null}\n```')
     assert prose == "Hi." and data["suggestions"] == ["b"]
     # cut-off block -> prose only, no crash
-    prose, data = D.split_reply('Hi.\n<hermes-design>{"suggestions": ["c"], "blueprint": {"agents": [')
+    prose, data = D.split_reply('Hi.\n<atlas-design>{"suggestions": ["c"], "blueprint": {"agents": [')
     assert prose == "Hi."
     # truncated but repairable json
-    prose, data = D.split_reply('Ok.\n<hermes-design>{"suggestions": ["d"], "ready": true, "blueprint": {"agents": []}</hermes-design>')
+    prose, data = D.split_reply('Ok.\n<atlas-design>{"suggestions": ["d"], "ready": true, "blueprint": {"agents": []}</atlas-design>')
     assert data and data["suggestions"] == ["d"]
 
 
 def test_normalise_coerces_shapes():
     bp = D.normalise({
         "business": {"name": "Acme", "services": "A, B"},
-        "agents": [{"id": "Hermes", "name": "Hermes"}, {"id": "Lead Researcher!", "role": "x", "tools": ["web_fetch", "delegate", "bogus"]},
+        "agents": [{"id": "Atlas", "name": "Atlas"}, {"id": "Lead Researcher!", "role": "x", "tools": ["web_fetch", "delegate", "bogus"]},
                    {"name": "Writer", "strong": True}, "junk"],
-        "workflows": [{"name": "Inbound", "trigger": "form", "steps": ["lead_researcher", "writer", "hermes", "nope"]}],
+        "workflows": [{"name": "Inbound", "trigger": "form", "steps": ["lead_researcher", "writer", "atlas", "nope"]}],
         "connectors": ["email", {"kind": "gmail", "name": "Inbox"}, {"kind": "carrier_pigeon"}],
         "policy": {"banned_phrases": "guaranteed, cheapest", "max_words": "150"},
     })
     ids = [a["id"] for a in bp["agents"]]
-    assert ids == ["lead_researcher", "writer"]                      # hermes stripped, ids slugged
+    assert ids == ["lead_researcher", "writer"]                      # atlas stripped, ids slugged
     assert bp["agents"][0]["tools"] == ["web_fetch"]                # orchestrator/unknown tools dropped
-    assert bp["agents"][1]["strong"] is True and bp["agents"][1]["reports_to"] == "hermes"
+    assert bp["agents"][1]["strong"] is True and bp["agents"][1]["reports_to"] == "atlas"
     wf = bp["workflows"][0]
     assert wf["trigger"]["kind"] == "webhook" and wf["steps"] == ["lead_researcher", "writer"]
     assert [c["kind"] for c in bp["connectors"]] == ["smtp", "imap"]
@@ -54,18 +54,18 @@ def test_demo_conversation_grows_blueprint_and_builds_desk():
     assert len(r2["blueprint"]["agents"]) == 3
     r3 = D.reply(s, "Warm tone, never quote prices")
     assert r3["ready"] is True and len(r3["blueprint"]["agents"]) == 4
-    assert "<hermes-design>" not in r3["text"]
+    assert "<atlas-design>" not in r3["text"]
     conf = D.blueprint_to_desk(r3["blueprint"], "best")
     agent_ids = [a["id"] for a in conf["agents"]]
-    assert agent_ids[0] == "hermes" and set(agent_ids) >= {"research", "writer", "crm", "qa"}
+    assert agent_ids[0] == "atlas" and set(agent_ids) >= {"research", "writer", "crm", "qa"}
     strong = {a["id"] for a in conf["agents"] if a["model"].startswith("anthropic/")}
-    assert {"hermes", "writer", "qa"} <= strong and "research" not in strong
+    assert {"atlas", "writer", "qa"} <= strong and "research" not in strong
     assert conf["business"]["policy"]["no_money_figures"] is True and conf["business"]["model"] == "custom"
     wf = conf["workflows"][0]
     assert [st["agent"] for st in wf["steps"]] == ["research", "writer", "qa", "crm"] and wf["trigger"]["kind"] == "webhook"
     # engine accepts the config end to end (demo provider)
-    from hermes.orchestrator import Orchestrator
-    from hermes import config as cfg
+    from atlas.orchestrator import Orchestrator
+    from atlas import config as cfg
     configs = {"providers": {"default_provider": "demo", "providers": {"demo": {"type": "demo", "delay": 0}}},
                "orchestration": dict(cfg.DEFAULT_ORCHESTRATION), "business": conf["business"], "agents": conf["agents"],
                "workflows": conf["workflows"], "ui": {}, "mode": "demo"}
@@ -101,7 +101,7 @@ def test_design_http_flow(app_client):
     kinds_needed = [x["kind"] for x in b["connect"]["connectors"]]
     assert "webhook" in kinds_needed and b["connect"]["hook_url"].endswith(b["connect"]["hook_url"].rsplit("/", 1)[-1])
     cfgd = J(c.get("/api/config"))
-    assert cfgd["template"] == "custom" and {a["id"] for a in cfgd["agents"]} >= {"hermes", "qa"}
+    assert cfgd["template"] == "custom" and {a["id"] for a in cfgd["agents"]} >= {"atlas", "qa"}
     assert cfgd["business"]["policy"]["no_money_figures"] is True
     # rebuild updates the same desk instead of creating another
     before = len(J(c.get("/api/desks"))["desks"])

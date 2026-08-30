@@ -118,22 +118,22 @@ function layout(bp, W) {
   const vw = Math.max(rowW + sideW + 120, 720);   // content-sized: the SVG scales up to fill the canvas width
   const cx = vw / 2;
   const nodes = [], edges = [], lanes = [];
-  const hermes = {key: 'hermes', type: 'hermes', x: cx - 110, y: 36, w: 220, h: 62, data: {id: 'hermes', name: 'Hermes', role: 'Orchestrator · approvals · CRM'}};
-  nodes.push(hermes);
+  const atlas = {key: 'atlas', type: 'atlas', x: cx - 110, y: 36, w: 220, h: 62, data: {id: 'atlas', name: 'Atlas', role: 'Orchestrator · approvals · CRM'}};
+  nodes.push(atlas);
   trigs.forEach((t, i) => {
     const n = {key: 'trig:' + t.wf, type: 'trig', x: 24, y: 36 + i * 66, w: COL, h: 50, data: t};
-    nodes.push(n); edges.push({key: 'e:' + n.key, cls: 'edge trig', d: elbow(n.x + n.w, n.y + n.h / 2, hermes.x, hermes.y + hermes.h / 2)});
+    nodes.push(n); edges.push({key: 'e:' + n.key, cls: 'edge trig', d: elbow(n.x + n.w, n.y + n.h / 2, atlas.x, atlas.y + atlas.h / 2)});
   });
   cons.forEach((c, i) => {
     const n = {key: 'conn:' + c.kind + ':' + i, type: 'conn', x: vw - 24 - COL, y: 36 + i * 66, w: COL, h: 50, data: c, idx: i};
-    nodes.push(n); edges.push({key: 'e:' + n.key, cls: 'edge conn', d: elbow(n.x, n.y + n.h / 2, hermes.x + hermes.w, hermes.y + hermes.h / 2)});
+    nodes.push(n); edges.push({key: 'e:' + n.key, cls: 'edge conn', d: elbow(n.x, n.y + n.h / 2, atlas.x + atlas.w, atlas.y + atlas.h / 2)});
   });
   const rowY = 190, startX = cx - rowW / 2;
   const pos = {};
   agents.forEach((a, i) => {
     const n = {key: 'ag:' + a.id, type: 'agent', x: startX + i * (AW + GAP), y: rowY, w: AW, h: AH + CHIP_H, data: a, idx: i};
     nodes.push(n); pos[a.id] = n;
-    edges.push({key: 'e:' + n.key, cls: 'edge', d: `M${hermes.x + hermes.w / 2},${hermes.y + hermes.h} C${hermes.x + hermes.w / 2},${rowY - 40} ${n.x + AW / 2},${rowY - 40} ${n.x + AW / 2},${rowY}`});
+    edges.push({key: 'e:' + n.key, cls: 'edge', d: `M${atlas.x + atlas.w / 2},${atlas.y + atlas.h} C${atlas.x + atlas.w / 2},${rowY - 40} ${n.x + AW / 2},${rowY - 40} ${n.x + AW / 2},${rowY}`});
   });
   let laneY = rowY + AH + CHIP_H + 42;
   wfs.forEach((w, k) => {
@@ -207,9 +207,9 @@ function renderCanvas() {
     const box = el('rect', {x: 0, y: 0, width: n.w, height: n.h, pathLength: 1}, 'box' + sk + skf);
     box.addEventListener('animationend', () => box.classList.remove('sk'), {once: true});
     g.appendChild(box);
-    if (n.type === 'hermes') {
+    if (n.type === 'atlas') {
       g.appendChild(el('rect', {x: 0, y: 0, width: 4, height: n.h, fill: '#c084fc'}, 'bar' + skt));
-      g.appendChild(txt(16, 26, 'Hermes', skt.trim()));
+      g.appendChild(txt(16, 26, 'Atlas', skt.trim()));
       g.appendChild(txt(16, 45, n.data.role, 'role' + skt));
       g.appendChild(txt(n.w - 12, 18, 'ORCHESTRATOR', 'badge' + skt)).setAttribute('text-anchor', 'end');
     } else if (n.type === 'agent') {
@@ -243,8 +243,8 @@ function selectNode(key) {
   DSG.sel = key; renderCanvas();
   const I = $('#ds-insp'); I.classList.add('on');
   const bp = DSG.bp;
-  if (key === 'hermes') {
-    I.innerHTML = `<h3><i style="background:#c084fc"></i>Hermes${xbtn()}</h3><p class="hint" style="margin:6px 0 10px">Orchestrator. Plans each task, delegates to the specialists, reviews their work, updates the CRM and queues every outbound message for your approval. Always present; configured by Hermes Ops.</p>
+  if (key === 'atlas') {
+    I.innerHTML = `<h3><i style="background:#c084fc"></i>Atlas${xbtn()}</h3><p class="hint" style="margin:6px 0 10px">Orchestrator. Plans each task, delegates to the specialists, reviews their work, updates the CRM and queues every outbound message for your approval. Always present; configured by Atlas Ops.</p>
       <label>Tools</label><div class="md" style="font-size:12px;color:var(--muted)">delegate · crm_lookup · crm_update · queue_action · http_request · schedule_task · mcp · run_python · remember · recall</div>
       <label>Specialists</label><div class="md" style="font-size:12px;color:var(--muted)">${esc(bp.agents.map(a => a.name).join(' · '))}</div>`;
     return;
@@ -288,7 +288,7 @@ function agRemove(id) { DSG.bp.agents = DSG.bp.agents.filter(x => x.id !== id); 
 function agAdd() {
   if (!DSG.bp) DSG.bp = {business: {}, agents: [], workflows: [], connectors: [], policy: {no_money_figures: true, max_words: 220, banned_phrases: []}};
   const n = DSG.bp.agents.length + 1; const id = 'agent_' + n;
-  DSG.bp.agents.push({id, name: 'New agent ' + n, role: 'Specialist', goal: '', tools: ['read_file', 'list_files'], reports_to: 'hermes', strong: false, color: ['#60a5fa', '#f472b6', '#34d399', '#fbbf24', '#22d3ee', '#a78bfa'][(n - 1) % 6]});
+  DSG.bp.agents.push({id, name: 'New agent ' + n, role: 'Specialist', goal: '', tools: ['read_file', 'list_files'], reports_to: 'atlas', strong: false, color: ['#60a5fa', '#f472b6', '#34d399', '#fbbf24', '#22d3ee', '#a78bfa'][(n - 1) % 6]});
   if (DSG.bp.workflows[0]) DSG.bp.workflows[0].steps.push(id);
   $('#cv-empty').classList.add('hide'); if (DSG.stage < 2) setStage(2); $('#ds-approve').disabled = false;
   bpChanged(); selectNode('ag:' + id);

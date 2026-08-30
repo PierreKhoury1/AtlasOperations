@@ -38,7 +38,7 @@
 /* svg pieces */
 .node{cursor:pointer}
 .node rect.box{fill:var(--panel);stroke:var(--line2);stroke-width:1.2;rx:4}
-.node.hermes rect.box{stroke:var(--accent)}
+.node.atlas rect.box{stroke:var(--accent)}
 .node:hover rect.box,.node.sel rect.box{stroke:var(--accent2);stroke-width:1.6}
 .node .bar{rx:0}
 .node text{fill:var(--text);font-weight:700;font-size:13px}
