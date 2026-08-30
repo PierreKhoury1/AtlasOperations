@@ -620,8 +620,11 @@ def api_decide(aid):
             result = _dispatch(desk, row)
             row = dstore.decide_action(aid, "sent", by=by, note=(note + " " + result).strip())
             dstore.add_event(row["run_id"], "sent", "owner", f"{row['kind']} → {row['to']} — {row['subject']} ({result})")
-            if row["kind"] == "email" and "@" in (row["to"] or ""):
-                dstore.upsert_contact(row["to"], {"stage": "Contacted", "next_action": "Follow up in 3 days if no reply"})
+            if row["kind"] in ("email", "whatsapp", "sms") and row["to"]:
+                contact = dstore.upsert_contact(row["to"], {"stage": "Contacted", "next_action": "Follow up in 3 days if no reply"})
+                for m in I.crm_sync(dstore.connectors(), contact):
+                    dstore.add_event(row["run_id"], "tool", "owner", f"crm sync → {m}")
+            I.notify(dstore.connectors(), f":outbox_tray: *Sent* — {row['kind']} → {row['to']}: {row['subject'] or (row['body'] or '')[:80]} {result}")
         except Exception as exc:
             err = f"{type(exc).__name__}: {str(exc)[:300]}"
             row = dstore.decide_action(aid, "failed", by=by, note=(note + " send failed: " + err).strip())
@@ -752,11 +755,11 @@ def _dispatch(desk: dict[str, Any], row: dict[str, Any]) -> str:
     """Perform an approved action for real when a connector exists; otherwise simulate and say so."""
     dstore = store.for_desk(desk["id"])
     kind = row["kind"]
-    if kind == "email":
-        conn = next((c for c in dstore.connectors() if c["kind"] == "smtp"), None)
+    if kind in I.CHANNELS:
+        conn = I.outbound_connector(dstore.connectors(), kind)
         if not conn:
-            return "[simulated send — no SMTP connector]"
-        return "[" + I.send_email(conn["config"], row["to"], row["subject"] or "", row["body"] or "") + "]"
+            return f"[simulated {kind} — no {' / '.join(I.CHANNELS[kind])} connector; add one under Integrations]"
+        return "[" + I.deliver(conn, kind, row["to"], row["subject"] or "", row["body"] or "") + "]"
     if kind == "api_call":
         conn = dstore.connector_by_name(row["to"])
         if not conn:
@@ -779,8 +782,10 @@ def _conn_public(c: dict[str, Any]) -> dict[str, Any]:
 @app.get("/api/connectors")
 def api_connectors():
     desk = need_desk()
+    hook = request.host_url.rstrip("/") + "/hook/" + store.ensure_hook_token(desk["id"])
     return jsonify({"connectors": [_conn_public(c) for c in store.connectors(desk["id"])],
-                    "kinds": I.KINDS, "hook_url": request.host_url.rstrip("/") + "/hook/" + store.ensure_hook_token(desk["id"])})
+                    "kinds": I.KINDS, "hook_url": hook, "whatsapp_hook_url": hook + "/whatsapp", "sms_hook_url": hook + "/sms",
+                    "channels": {k: bool(I.outbound_connector(store.connectors(desk["id"]), k)) for k in I.CHANNELS}})
 
 
 @app.post("/api/connectors")
@@ -1104,6 +1109,51 @@ def hook(token):
         dstore.upsert_contact(email_, {"name": name, "company": d.get("company", ""), "email": email_, "phone": d.get("phone", ""), "stage": "New", "notes": "Inbound via webhook"})
     rid = _start_run(desk, _lead_task(dstore.lead(lid)), "auto", lid)
     return jsonify({"ok": True, "lead_id": lid, "run_id": rid})
+
+
+def _inbound_message(desk: dict[str, Any], phone: str, name: str, text: str, source: str) -> str:
+    """A WhatsApp / SMS message from a prospect: new lead + run (existing contact keeps its name/company)."""
+    dstore = store.for_desk(desk["id"])
+    phone = "+" + I._digits(phone) if phone else ""
+    known = next((c for c in dstore.contacts(phone) if c.get("phone") == phone), None) if phone else None
+    name = name or (known or {}).get("name") or (phone or "unknown")
+    lid = dstore.add_lead(name, (known or {}).get("company", ""), (known or {}).get("email", "") or "", phone, source, text)
+    key = (known or {}).get("email") or name
+    dstore.upsert_contact(key, {"name": name, "phone": phone, "stage": (known or {}).get("stage") or "New",
+                                "notes": f"Inbound via {source}: {text[:200]}"})
+    task = _lead_task(dstore.lead(lid)) + f"\n\nThis arrived by {source}. Reply on the same channel (queue_action kind={'whatsapp' if 'whatsapp' in source else 'sms'}, to={phone}) — keep it short."
+    return _start_run(desk, task, "auto", lid)
+
+
+@app.route("/hook/<token>/whatsapp", methods=["GET", "POST"])
+def hook_whatsapp(token):
+    desk = store.desk_by_token(token)
+    if not desk:
+        abort(404)
+    conn = next((c for c in store.connectors(desk["id"]) if c["kind"] == "whatsapp"), None)
+    if request.method == "GET":                      # Meta verification handshake
+        want = (conn or {}).get("config", {}).get("verify_token") or ""
+        if request.args.get("hub.mode") == "subscribe" and want and request.args.get("hub.verify_token") == want:
+            return request.args.get("hub.challenge", ""), 200
+        return jsonify({"error": "verify_token mismatch or no WhatsApp connector"}), 403
+    msgs = I.parse_whatsapp_webhook(request.get_json(silent=True) or {})
+    runs = [_inbound_message(desk, m["from"], m["name"], m["text"], "whatsapp") for m in msgs if m.get("from")]
+    return jsonify({"ok": True, "messages": len(msgs), "runs": runs})
+
+
+@app.post("/hook/<token>/sms")
+def hook_sms(token):
+    """Twilio inbound webhook (SMS or WhatsApp sandbox): form fields From, Body, ProfileName."""
+    desk = store.desk_by_token(token)
+    if not desk:
+        abort(404)
+    f = request.form.to_dict() if request.form else (request.get_json(silent=True) or {})
+    frm, body = (f.get("From") or f.get("from") or ""), (f.get("Body") or f.get("body") or "")
+    if not frm:
+        return jsonify({"error": "From required"}), 400
+    source = "twilio whatsapp" if frm.startswith("whatsapp:") else "sms"
+    rid = _inbound_message(desk, frm.replace("whatsapp:", ""), f.get("ProfileName") or "", body, source)
+    return Response("<?xml version=\"1.0\" encoding=\"UTF-8\"?><Response></Response>", mimetype="application/xml", headers={"X-Hermes-Run": rid})
 
 
 scheduler.start(store, _start_run, store.desk)

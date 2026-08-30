@@ -117,6 +117,35 @@ SCHEMAS: dict[str, dict[str, Any]] = {
             "required": ["connector", "method", "path"],
         },
     },
+    "calendar_free_slots": {
+        "name": "calendar_free_slots",
+        "description": "List free appointment slots on the connected Google Calendar between two dates (working hours, weekdays). Read-only, runs immediately. Returns ISO start times.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "from_date": {"type": "string", "description": "YYYY-MM-DD (or ISO datetime)."},
+                "to_date": {"type": "string", "description": "YYYY-MM-DD (or ISO datetime)."},
+                "duration_minutes": {"type": "integer", "description": "Slot length, default 30."},
+            },
+            "required": ["from_date", "to_date"],
+        },
+    },
+    "calendar_book": {
+        "name": "calendar_book",
+        "description": "Book an appointment on the connected Google Calendar. Goes to the owner's approval queue unless the calendar connector allows writes; the attendee gets a Google invite when it is created.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "title": {"type": "string"},
+                "start": {"type": "string", "description": "ISO datetime, e.g. 2026-09-03T10:30"},
+                "end": {"type": "string", "description": "ISO datetime; default start + 30 min."},
+                "attendee_email": {"type": "string"},
+                "description": {"type": "string"},
+                "reason": {"type": "string", "description": "Why this booking / what the owner should check."},
+            },
+            "required": ["title", "start"],
+        },
+    },
     "schedule_task": {
         "name": "schedule_task",
         "description": "Schedule work for later: a one-off task in N minutes (e.g. a follow-up check) or a recurring task every N minutes. The task text is handed to Hermes when it fires.",
@@ -159,7 +188,8 @@ SCHEMAS: dict[str, dict[str, Any]] = {
 
 ALL_TOOL_NAMES = list(SCHEMAS.keys())
 ORCHESTRATOR_ONLY = {"delegate", "list_agents", "finish", "queue_action", "crm_lookup", "crm_update",
-                     "list_connectors", "http_request", "schedule_task", "remember", "recall"}
+                     "list_connectors", "http_request", "schedule_task", "remember", "recall",
+                     "calendar_free_slots", "calendar_book"}
 
 
 def schema_for(names: list[str]) -> list[dict[str, Any]]:

@@ -40,7 +40,7 @@ def _hermes(extra: str = "") -> dict[str, Any]:
     return _agent("hermes", "Hermes", "Orchestrator / Engagement Lead",
                   _BASE_HERMES_PROMPT + ("\n\n" + extra if extra else ""),
                   tools=["delegate", "list_agents", "save_deliverable", "read_file", "list_files",
-                         "crm_lookup", "crm_update", "queue_action", "list_connectors", "http_request", "schedule_task",
+                         "crm_lookup", "crm_update", "queue_action", "list_connectors", "http_request", "schedule_task", "calendar_free_slots", "calendar_book",
                          "mcp", "run_python", "remember", "recall"],
                   color="#c084fc")
 

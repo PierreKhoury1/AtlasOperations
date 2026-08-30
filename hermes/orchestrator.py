@@ -236,6 +236,20 @@ class Orchestrator:
                 return list(ex.map(one, calls))
         return [one(c) for c in calls]
 
+    def _connectors(self) -> list[dict[str, Any]]:
+        if not self.store or not hasattr(self.store, "connectors"):
+            return []
+        try:
+            return self.store.connectors()
+        except Exception:
+            return []
+
+    def _notify(self, text: str) -> None:
+        try:
+            I.notify(self._connectors(), text)
+        except Exception:
+            pass
+
     def _tool(self, agent: dict[str, Any], call: ToolCall, depth: int) -> str:
         args = call.args or {}
         name = call.name
@@ -268,6 +282,7 @@ class Orchestrator:
                 self.emit("policy", aid, f"flagged {kind} → {to} after repeated violations: " + flags, violations=violations)
             qid = self.store.add_action(self.run_id, aid, kind, to, subject, body, reason, flags=flags)
             self.emit("approval", aid, f"{kind} → {to}: {subject or body[:60]}", action_id=qid, action_kind=kind, to=to)
+            self._notify(f":hourglass_flowing_sand: *Approval needed* — {kind} → {to}: {subject or body[:80]} (queue #{qid})")
             return f"queued for approval (id={qid}). It will only be sent after the owner approves."
         if name == "crm_lookup":
             if not self.store:
@@ -282,7 +297,31 @@ class Orchestrator:
                 return "no CRM in this context"
             row = self.store.upsert_contact(str(args.get("contact", "")), dict(args.get("fields") or {}))
             self.emit("tool", aid, f"crm_update → {row['name'] or row['email']} stage={row['stage']}")
-            return f"updated contact #{row['id']} ({row['name'] or row['email']}) stage={row['stage']}"
+            synced = I.crm_sync(self._connectors(), row)
+            for m in synced:
+                self.emit("tool", aid, f"crm sync → {m}")
+            return (f"updated contact #{row['id']} ({row['name'] or row['email']}) stage={row['stage']}"
+                    + (" · " + "; ".join(synced) if synced else ""))
+        if name in ("calendar_free_slots", "calendar_book"):
+            conn = next((c for c in self._connectors() if c["kind"] == "gcal"), None)
+            if not conn:
+                return "no calendar connected — ask the owner to add a Google Calendar connector under Integrations"
+            if name == "calendar_free_slots":
+                slots = I.gcal_free_slots(conn["config"], str(args.get("from_date", "")), str(args.get("to_date", "")),
+                                          int(args.get("duration_minutes") or 30))
+                self.emit("tool", aid, f"calendar_free_slots {args.get('from_date')}→{args.get('to_date')}: {len(slots)} free")
+                return "\n".join(slots) if slots else "no free slots in that range"
+            spec = {"title": str(args.get("title", "")), "start": str(args.get("start", "")), "end": str(args.get("end", "") or ""),
+                    "attendee_email": str(args.get("attendee_email", "") or ""), "description": str(args.get("description", "") or "")}
+            if conn.get("auto"):
+                res = I.gcal_create_event(conn["config"], spec["title"], spec["start"], spec["end"], spec["attendee_email"], spec["description"])
+                self.emit("tool", aid, f"calendar_book → {res}")
+                return res
+            qid = self.store.add_action(self.run_id, aid, "booking", spec["attendee_email"] or conn["name"], spec["title"],
+                                        json.dumps(spec, indent=1), str(args.get("reason", "") or "calendar booking"))
+            self.emit("approval", aid, f"booking → {spec['attendee_email'] or conn['name']}: {spec['title']} {spec['start']}", action_id=qid, action_kind="booking", to=spec["attendee_email"])
+            self._notify(f":calendar: *Booking awaiting approval* — {spec['title']} {spec['start']} (queue #{qid})")
+            return f"queued for approval (id={qid}): booking '{spec['title']}' at {spec['start']} — the owner must approve before it lands on the calendar."
         if name.startswith("mcp__"):
             hit = self._mcp_index.get(name)
             if not hit:
