@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import secrets
 import threading
 import time
@@ -98,6 +99,11 @@ def _mode() -> str:
     return "live" if key else "demo"
 
 
+_LEGACY_COLOURS = {"#c084fc": "#0b5fcb", "#60a5fa": "#7c3aed", "#f472b6": "#db2777", "#34d399": "#1f9d63", "#fbbf24": "#b45309",
+                   "#f87171": "#dc2626", "#fb923c": "#ea580c", "#a855f7": "#0b5fcb", "#22d3ee": "#0e7490", "#a78bfa": "#6d28d9",
+                   "#4ade80": "#15803d", "#e879f9": "#a21caf", "#38bdf8": "#0369a1"}   # dark-theme palette -> light-theme palette
+
+
 def desk_configs(desk: dict[str, Any]) -> dict[str, Any]:
     """Engine config for one desk: template + the desk's stored overrides + model tier + provider."""
     t = templates.get(desk.get("template") or DEFAULT_TEMPLATE)
@@ -108,6 +114,7 @@ def desk_configs(desk: dict[str, Any]) -> dict[str, Any]:
     for a in agents:                                   # desks built before the rename stored the orchestrator as "hermes"
         if a.get("id") == "hermes":
             a["id"], a["name"] = "atlas", "Atlas"
+        a["color"] = _LEGACY_COLOURS.get((a.get("color") or "").lower(), a.get("color"))
     mode = _mode()
     if mode == "demo":
         providers = {"default_provider": "demo", "providers": {"demo": {"type": "demo", "delay": float(os.environ.get("DEMO_DELAY", "0.6"))}}}
@@ -180,7 +187,9 @@ def ds():
 
 @app.before_request
 def _guard():
-    if OPEN:
+    if OPEN:                                   # open test mode: no accounts anywhere, auth pages go straight to the desk
+        if request.method == "GET" and request.path in ("/login", "/signup", "/desk/login"):
+            return redirect("/desk")
         return None
     p = request.path
     if p.startswith("/hook/"):
@@ -280,20 +289,33 @@ def api_health():
 
 
 # ---------------------------------------------------------------------------- static
+def _site_page(name: str):
+    """Serve a marketing page. In open test mode every Log in / Sign up link opens the desk directly."""
+    if not OPEN or not name.endswith(".html"):
+        return send_from_directory(SITE_DIR, name)
+    html = (SITE_DIR / name).read_text(encoding="utf-8")
+    html = re.sub(r'href="/(?:login|signup)(?:\?[^"]*)?"', 'href="/desk"', html)
+    html = re.sub(r">\s*Log in\s*<", ">Open desk<", html)
+    html = re.sub(r">\s*Sign up(?: free)?\s*<", ">Open the desk<", html)
+    resp = Response(html, mimetype="text/html")
+    resp.headers["Cache-Control"] = "no-cache"
+    return resp
+
+
 @app.route("/")
 def site_index():
-    return send_from_directory(SITE_DIR, "index.html")
+    return _site_page("index.html")
 
 
 @app.route("/site/<path:path>")
 def site_files(path):
-    return send_from_directory(SITE_DIR, path)
+    return _site_page(path) if (SITE_DIR / path).is_file() else abort(404)
 
 
 @app.route("/<path:path>")
 def site_root_files(path):
     if (SITE_DIR / path).is_file():
-        return send_from_directory(SITE_DIR, path)
+        return _site_page(path)
     abort(404)
 
 

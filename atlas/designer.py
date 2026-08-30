@@ -25,7 +25,7 @@ _FENCE = re.compile(r"```(?:json)?\s*(\{.*?\})\s*```", re.S)
 SPECIALIST_TOOLS = ["read_file", "list_files", "web_fetch", "run_python", "save_deliverable"]
 ATLAS_TOOLS = ["delegate", "list_agents", "save_deliverable", "read_file", "list_files", "crm_lookup", "crm_update",
                 "queue_action", "list_connectors", "http_request", "schedule_task", "mcp", "run_python", "remember", "recall"]
-PALETTE = ["#60a5fa", "#f472b6", "#34d399", "#fbbf24", "#22d3ee", "#a78bfa", "#fb923c", "#4ade80", "#e879f9", "#38bdf8"]
+PALETTE = ["#7c3aed", "#db2777", "#1f9d63", "#b45309", "#0e7490", "#6d28d9", "#ea580c", "#15803d", "#a21caf", "#0369a1"]
 STATUS_MARK = "\x00"                      # on_token prefix for a status line instead of prose
 CONNECTOR_KINDS = ("smtp", "imap", "http", "mcp", "webhook")
 TRIGGER_KINDS = ("webhook", "inbox", "schedule", "manual")

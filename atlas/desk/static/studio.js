@@ -1,7 +1,7 @@
 /* Design Studio: chat with the solutions designer -> live sketch of the agent hierarchy -> connect data -> launch.
    Depends on globals from index.html: $, api, esc, toast, go, loadDesks. */
 const SPECIALIST_TOOLS = ['read_file', 'list_files', 'web_fetch', 'run_python', 'save_deliverable'];
-const WF_COLORS = ['#a855f7', '#60a5fa', '#34d399', '#fbbf24'];
+const WF_COLORS = ['#0b5fcb', '#7c3aed', '#1f9d63', '#b45309'];
 const KIND_LABEL = {smtp: 'EMAIL OUT', imap: 'INBOX', http: 'API', mcp: 'TOOL SERVER', webhook: 'WEB FORM'};
 const TRIG_LABEL = {webhook: 'WEBHOOK', inbox: 'INBOX', schedule: 'SCHEDULE', manual: 'MANUAL'};
 const DSG = {sid: null, bp: null, ready: false, stage: 1, deskId: null, plan: null, sel: null, els: new Map(), busy: false, tiers: [], mode: 'demo', saveT: null, jobs: []};
@@ -208,16 +208,16 @@ function renderCanvas() {
     box.addEventListener('animationend', () => box.classList.remove('sk'), {once: true});
     g.appendChild(box);
     if (n.type === 'atlas') {
-      g.appendChild(el('rect', {x: 0, y: 0, width: 4, height: n.h, fill: '#c084fc'}, 'bar' + skt));
+      g.appendChild(el('rect', {x: 0, y: 0, width: 4, height: n.h, fill: '#0b5fcb'}, 'bar' + skt));
       g.appendChild(txt(16, 26, 'Atlas', skt.trim()));
       g.appendChild(txt(16, 45, n.data.role, 'role' + skt));
       g.appendChild(txt(n.w - 12, 18, 'ORCHESTRATOR', 'badge' + skt)).setAttribute('text-anchor', 'end');
     } else if (n.type === 'agent') {
       const a = n.data;
-      g.appendChild(el('rect', {x: 0, y: 0, width: 4, height: n.h, fill: a.color || '#60a5fa'}, 'bar' + skt));
+      g.appendChild(el('rect', {x: 0, y: 0, width: 4, height: n.h, fill: a.color || '#7c3aed'}, 'bar' + skt));
       g.appendChild(txt(16, 24, clip(a.name, 20), skt.trim()));
       g.appendChild(txt(16, 42, clip(a.role, 30), 'role' + skt));
-      if (a.strong) { const b = txt(n.w - 10, 16, 'STRONG', 'badge' + skt); b.setAttribute('text-anchor', 'end'); b.setAttribute('fill', '#fbbf24'); g.appendChild(b); }
+      if (a.strong) { const b = txt(n.w - 10, 16, 'STRONG', 'badge' + skt); b.setAttribute('text-anchor', 'end'); b.setAttribute('fill', '#b45309'); g.appendChild(b); }
       let cx = 12; const cy = 54;
       for (const t of (a.tools || []).slice(0, 4)) {
         const label = t.replace('_', ' '); const w = label.length * 5.6 + 10; if (cx + w > n.w - 8) break;
@@ -229,7 +229,7 @@ function renderCanvas() {
     } else if (n.type === 'conn') {
       g.appendChild(txt(12, 18, KIND_LABEL[n.data.kind] || n.data.kind.toUpperCase(), 'k' + skt));
       g.appendChild(txt(12, 36, clip(n.data.name, 22), 'role' + skt));
-      const dot = el('circle', {cx: n.w - 12, cy: 12, fill: n.data.status === 'ok' ? '#34d399' : (n.data.status === 'error' ? '#fb7185' : '#3a2c5e')}, 'dot');
+      const dot = el('circle', {cx: n.w - 12, cy: 12, fill: n.data.status === 'ok' ? '#1f9d63' : (n.data.status === 'error' ? '#fb7185' : '#3a2c5e')}, 'dot');
       g.appendChild(dot);
       if (!n.data.required) { const b = txt(n.w - 22, 16, 'OPTIONAL', 'badge' + skt); b.setAttribute('text-anchor', 'end'); g.appendChild(b); }
     }
@@ -244,7 +244,7 @@ function selectNode(key) {
   const I = $('#ds-insp'); I.classList.add('on');
   const bp = DSG.bp;
   if (key === 'atlas') {
-    I.innerHTML = `<h3><i style="background:#c084fc"></i>Atlas${xbtn()}</h3><p class="hint" style="margin:6px 0 10px">Orchestrator. Plans each task, delegates to the specialists, reviews their work, updates the CRM and queues every outbound message for your approval. Always present; configured by Atlas Ops.</p>
+    I.innerHTML = `<h3><i style="background:#0b5fcb"></i>Atlas${xbtn()}</h3><p class="hint" style="margin:6px 0 10px">Orchestrator. Plans each task, delegates to the specialists, reviews their work, updates the CRM and queues every outbound message for your approval. Always present; configured by Atlas Ops.</p>
       <label>Tools</label><div class="md" style="font-size:12px;color:var(--muted)">delegate · crm_lookup · crm_update · queue_action · http_request · schedule_task · mcp · run_python · remember · recall</div>
       <label>Specialists</label><div class="md" style="font-size:12px;color:var(--muted)">${esc(bp.agents.map(a => a.name).join(' · '))}</div>`;
     return;
@@ -288,7 +288,7 @@ function agRemove(id) { DSG.bp.agents = DSG.bp.agents.filter(x => x.id !== id); 
 function agAdd() {
   if (!DSG.bp) DSG.bp = {business: {}, agents: [], workflows: [], connectors: [], policy: {no_money_figures: true, max_words: 220, banned_phrases: []}};
   const n = DSG.bp.agents.length + 1; const id = 'agent_' + n;
-  DSG.bp.agents.push({id, name: 'New agent ' + n, role: 'Specialist', goal: '', tools: ['read_file', 'list_files'], reports_to: 'atlas', strong: false, color: ['#60a5fa', '#f472b6', '#34d399', '#fbbf24', '#22d3ee', '#a78bfa'][(n - 1) % 6]});
+  DSG.bp.agents.push({id, name: 'New agent ' + n, role: 'Specialist', goal: '', tools: ['read_file', 'list_files'], reports_to: 'atlas', strong: false, color: ['#7c3aed', '#db2777', '#1f9d63', '#b45309', '#0e7490', '#6d28d9'][(n - 1) % 6]});
   if (DSG.bp.workflows[0]) DSG.bp.workflows[0].steps.push(id);
   $('#cv-empty').classList.add('hide'); if (DSG.stage < 2) setStage(2); $('#ds-approve').disabled = false;
   bpChanged(); selectNode('ag:' + id);
