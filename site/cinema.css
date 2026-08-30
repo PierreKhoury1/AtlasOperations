@@ -6,10 +6,10 @@ html.lenis { scroll-behavior: auto; }
 
 /* background film: a blurred loop of the desk's functions, washed to white so type stays crisp */
 .film { position: absolute; inset: 0; z-index: 0; overflow: hidden; pointer-events: none; background: var(--bg2); }
-.film video { position: absolute; inset: -6%; width: 112%; height: 112%; object-fit: cover; filter: saturate(.9); opacity: 0; transition: opacity 1.6s ease; }
+.film video { position: absolute; inset: -6%; width: 112%; height: 112%; object-fit: cover; filter: saturate(.95) contrast(1.02); opacity: 0; transition: opacity 1.6s ease; }
 .film video.on { opacity: 1; }
 .film::after { content: ""; position: absolute; inset: 0; background:
-  linear-gradient(90deg, rgba(255,255,255,.93) 0%, rgba(255,255,255,.78) 36%, rgba(255,255,255,.3) 60%, rgba(255,255,255,.05) 100%),
+  linear-gradient(90deg, rgba(255,255,255,.9) 0%, rgba(255,255,255,.72) 36%, rgba(255,255,255,.22) 60%, rgba(255,255,255,0) 100%),
   linear-gradient(180deg, rgba(255,255,255,.7) 0%, rgba(255,255,255,0) 26%, rgba(255,255,255,0) 72%, #fff 100%); }
 .phero .film::after { background: linear-gradient(90deg, rgba(255,255,255,.95) 0%, rgba(255,255,255,.82) 42%, rgba(255,255,255,.35) 100%), linear-gradient(180deg, rgba(255,255,255,.55), rgba(255,255,255,0) 40%, #fff 100%); }
 @media (max-width: 960px) { .film::after, .phero .film::after { background: rgba(255,255,255,.9); } }

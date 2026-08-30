@@ -30,8 +30,8 @@
   if (!G || !ST || rm) {
     document.querySelectorAll(".film video").forEach((v) => {
       const webm = v.dataset.srcWebm, mp4 = v.dataset.srcMp4;
-      if (webm && v.canPlayType("video/webm")) { const s = document.createElement("source"); s.src = webm; s.type = "video/webm"; v.appendChild(s); }
       if (mp4) { const s = document.createElement("source"); s.src = mp4; s.type = "video/mp4"; v.appendChild(s); }
+      if (webm) { const s = document.createElement("source"); s.src = webm; s.type = "video/webm"; v.appendChild(s); }
       v.addEventListener("canplay", () => { v.classList.add("on"); v.play().catch(() => {}); }, { once: true }); v.load(); v.play().catch(() => {});
     });
     const els = document.querySelectorAll(REVEAL + "," + HEAD);
@@ -167,8 +167,8 @@
   // ---- background film: load lazily, fade in when it can play; parallax drift ------
   document.querySelectorAll(".film video").forEach((v) => {
     const webm = v.dataset.srcWebm, mp4 = v.dataset.srcMp4;
-    if (webm && v.canPlayType("video/webm")) { const s = document.createElement("source"); s.src = webm; s.type = "video/webm"; v.appendChild(s); }
     if (mp4) { const s = document.createElement("source"); s.src = mp4; s.type = "video/mp4"; v.appendChild(s); }
+    if (webm) { const s = document.createElement("source"); s.src = webm; s.type = "video/webm"; v.appendChild(s); }
     v.addEventListener("canplay", () => { v.classList.add("on"); v.play().catch(() => {}); }, { once: true });
     v.load(); v.play().catch(() => {});
     G.to(v, { yPercent: 10, ease: "none", scrollTrigger: { trigger: v.closest("header, section"), start: "top top", end: "bottom top", scrub: 0.5 } });
