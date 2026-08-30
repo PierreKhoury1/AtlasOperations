@@ -25,6 +25,7 @@ from flask import Flask, Response, abort, jsonify, redirect, request, send_from_
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from .. import config as cfg
+from .. import designer as DS
 from .. import integrations as I
 from .. import metrics as MX
 from .. import templates
@@ -301,7 +302,9 @@ def desk_index():
 
 @app.route("/desk/static/<path:path>")
 def desk_static(path):
-    return send_from_directory(STATIC_DIR, path)
+    resp = send_from_directory(STATIC_DIR, path)
+    resp.headers["Cache-Control"] = "no-cache"
+    return resp
 
 
 # ---------------------------------------------------------------------------- api: desks (onboarding + switching)
@@ -928,6 +931,159 @@ def api_delete_job(jid):
 
 
 # ---------------------------------------------------------------------------- inbound webhook (public, token-addressed)
+# ---------------------------------------------------------------------------- api: design studio
+def _providers_cfg() -> dict[str, Any]:
+    providers = cfg.load("providers", cfg.DEFAULT_PROVIDERS)
+    for name, pc in cfg.DEFAULT_PROVIDERS["providers"].items():
+        providers.setdefault("providers", {}).setdefault(name, dict(pc))
+    prov = os.environ.get("DESK_PROVIDER", "").strip() or providers.get("default_provider", "openrouter")
+    providers["default_provider"] = prov
+    return providers
+
+
+def _design_session(sid: str) -> DS.DesignSession:
+    s = DS.SESSIONS.get(sid)
+    if not s:
+        abort(Response(json.dumps({"error": "no_session"}), 404, mimetype="application/json"))
+    return s
+
+
+@app.post("/api/design/start")
+def api_design_start():
+    u = current_user()
+    if not u and not OPEN:
+        abort(401)
+    d = request.get_json(silent=True) or {}
+    tier = d.get("tier") if d.get("tier") in templates.TIERS else "free"
+    s = DS.new_session(_mode(), tier)
+    if u and u.get("company"):
+        s.transcript[0]["text"] = s.transcript[0]["text"].replace("Tell me what your business does", f"Tell me what {u['company']} does")
+    return jsonify(s.public())
+
+
+@app.get("/api/design/<sid>")
+def api_design_get(sid):
+    return jsonify(_design_session(sid).public())
+
+
+@app.post("/api/design/<sid>/say")
+def api_design_say(sid):
+    """One designer turn, streamed as SSE: {"t":"tok","d":...}* then {"t":"done", ...result}."""
+    s = _design_session(sid)
+    d = request.get_json(force=True) or {}
+    text = str(d.get("text") or "").strip()[:4000]
+    if not text:
+        return jsonify({"error": "empty"}), 400
+    import queue
+    q: "queue.Queue[dict[str, Any] | None]" = queue.Queue()
+    providers = None if s.mode == "demo" else _providers_cfg()
+    model = ""
+    if providers and providers.get("default_provider") == "openrouter":
+        model = templates.STRONG_MODEL if s.tier != "free" else templates.FREE_MODEL
+
+    def work():
+        try:
+            def on_tok(t: str):
+                if t.startswith(DS.STATUS_MARK):
+                    q.put({"t": "status", "d": t[1:]})
+                else:
+                    q.put({"t": "tok", "d": t})
+            res = DS.reply(s, text, on_token=on_tok, providers_cfg=providers, designer_model=model)
+            q.put({"t": "done", **res})
+        except Exception as exc:
+            q.put({"t": "error", "error": f"{type(exc).__name__}: {exc}"})
+        q.put(None)
+
+    threading.Thread(target=work, daemon=True).start()
+
+    def gen():
+        yield "retry: 1000\n\n"
+        while True:
+            try:
+                item = q.get(timeout=15)
+            except queue.Empty:
+                yield ": ping\n\n"
+                continue
+            if item is None:
+                break
+            yield f"data: {json.dumps(item, ensure_ascii=False)}\n\n"
+
+    return Response(gen(), mimetype="text/event-stream",
+                    headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no", "Connection": "keep-alive"})
+
+
+@app.post("/api/design/<sid>/blueprint")
+def api_design_blueprint(sid):
+    """Owner edits from the sketch canvas (rename, tools, add/remove agent, triggers)."""
+    s = _design_session(sid)
+    d = request.get_json(force=True) or {}
+    bp = DS.normalise(d.get("blueprint"), s.blueprint)
+    if bp:
+        s.blueprint = bp
+        s.ready = bool(bp.get("agents"))
+    return jsonify({"blueprint": s.blueprint, "ready": s.ready})
+
+
+@app.post("/api/design/<sid>/build")
+def api_design_build(sid):
+    """Approve the blueprint: create the desk, schedule its triggers, return what still needs connecting."""
+    s = _design_session(sid)
+    u = current_user()
+    if not u and not OPEN:
+        abort(401)
+    d = request.get_json(force=True) or {}
+    bp = DS.normalise(d.get("blueprint"), s.blueprint) or s.blueprint
+    if not bp or not bp.get("agents"):
+        return jsonify({"error": "The blueprint has no agents yet - keep talking to the designer first."}), 400
+    tier = d.get("tier") if d.get("tier") in templates.TIERS else s.tier
+    conf = DS.blueprint_to_desk(bp, tier)
+    name = (d.get("name") or (bp.get("business") or {}).get("name") or "New desk").strip()
+    if s.desk_id and store.desk(s.desk_id):
+        store.update_desk(s.desk_id, name=name, tier=tier, config=conf)
+        desk = store.desk(s.desk_id)
+    else:
+        desk = store.add_desk(u["id"] if u else 0, name, "custom", tier, conf)
+        s.desk_id = desk["id"]
+    session["desk"] = desk["id"]
+    s.blueprint = bp
+    # triggers -> automations
+    existing = {j["name"] for j in store.jobs(desk["id"])}
+    jobs = []
+    for w in bp.get("workflows") or []:
+        t = w.get("trigger") or {}
+        jname = f"{w['name']} ({t.get('kind')})"
+        if jname in existing:
+            continue
+        if t.get("kind") == "schedule":
+            jobs.append(store.add_job(desk["id"], "task", jname, f"Run workflow '{w['name']}': {t.get('detail') or 'scheduled sweep'}. Mode: {w['id']}", 1440, time.time() + 86400))
+        elif t.get("kind") == "inbox":
+            jobs.append(store.add_job(desk["id"], "inbox_watch", jname, "", 2, time.time() + 120))
+    return jsonify({"desk": _desk_public(desk), "connect": _connect_plan(desk, bp), "jobs": jobs})
+
+
+def _connect_plan(desk: dict[str, Any], bp: dict[str, Any]) -> dict[str, Any]:
+    have = store.connectors(desk["id"])
+    by_kind: dict[str, list[dict[str, Any]]] = {}
+    for c in have:
+        by_kind.setdefault(c["kind"], []).append(c)
+    items = []
+    for c in bp.get("connectors") or []:
+        match = (by_kind.get(c["kind"]) or [None])[0]
+        items.append({**c, "fields": I.KINDS[c["kind"]]["fields"], "hint": I.KINDS[c["kind"]]["hint"],
+                      "connector_id": match["id"] if match else None, "status": (match or {}).get("status") or ("built-in" if c["kind"] == "webhook" else "not connected")})
+    return {"connectors": items, "hook_url": request.host_url.rstrip("/") + "/hook/" + store.ensure_hook_token(desk["id"]),
+            "kinds": I.KINDS}
+
+
+@app.get("/api/design/<sid>/connect")
+def api_design_connect(sid):
+    s = _design_session(sid)
+    if not s.desk_id or not store.desk(s.desk_id):
+        return jsonify({"error": "not built"}), 400
+    return jsonify(_connect_plan(store.desk(s.desk_id), s.blueprint or {}))
+
+
+
 @app.route("/hook/<token>", methods=["GET", "POST"])
 def hook(token):
     desk = store.desk_by_token(token)

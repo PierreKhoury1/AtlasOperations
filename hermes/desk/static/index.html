@@ -161,6 +161,7 @@ tr.click{cursor:pointer}tr.click:hover{background:var(--panel2)}
 .flag{background:rgba(251,113,133,.10);border:1px solid rgba(251,113,133,.4);color:#ffb3c2;padding:8px 10px;border-radius:6px;font-size:12px;margin:8px 0}
 .model{font-family:Consolas,"Cascadia Mono",monospace;font-size:11px;color:var(--faint)}
 </style>
+<link rel="stylesheet" href="/desk/static/studio.css">
 </head>
 <body>
 <div class="layout">
@@ -168,6 +169,7 @@ tr.click{cursor:pointer}tr.click:hover{background:var(--panel2)}
   <div class="brand"><i></i>Hermes Desk</div>
   <div class="ws" title="Switch desk" onclick="toggleWs(event)"><div><b id="bizname">…</b><small id="wshint">sales desk</small></div><div class="wsmenu hide" id="wsmenu"></div><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m7 15 5 5 5-5M7 9l5-5 5 5"/></svg></div>
   <nav id="nav">
+    <button data-p="design"><svg viewBox="0 0 24 24"><path d="M3 21v-4L16 4l4 4L7 21H3z"/><path d="m13 7 4 4"/><path d="M14 3h7v7"/></svg>Design studio</button>
     <button data-p="dash" class="on"><svg viewBox="0 0 24 24"><path d="M3 12 12 3l9 9"/><path d="M5 10v10h14V10"/></svg>Dashboard</button>
     <button data-p="live"><svg viewBox="0 0 24 24"><path d="M3 12h4l3-8 4 16 3-8h4"/></svg>Live desk <span class="dot" id="n-live"></span></button>
     <button data-p="leads"><svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c0-3.5 3-6 6.5-6s6.5 2.5 6.5 6"/><path d="M17 8h5M19.5 5.5v5"/></svg>Leads <span class="pill" id="n-leads">0</span></button>
@@ -189,6 +191,36 @@ tr.click{cursor:pointer}tr.click:hover{background:var(--panel2)}
   </div>
 </aside>
 <main>
+
+<!-- DESIGN STUDIO -->
+<section id="p-design" class="hide">
+  <div class="phead"><div><h1>Design studio</h1><p class="lead">Describe what you want off your plate. The designer proposes the team, sketches it live, then you connect your data and launch.</p></div>
+    <div class="ctl"><div class="stepper" id="ds-steps"><div class="on"><i>1</i>Describe</div><div><i>2</i>Blueprint</div><div><i>3</i>Connect</div><div><i>4</i>Launch</div></div>
+      <select id="ds-tier" style="width:auto;font-size:12px;padding:6px 9px"></select><button class="btn sm" onclick="openStudio(true)" title="Start a new design">Restart</button></div></div>
+  <div class="studio">
+    <div class="panel">
+      <div id="ds-chatwrap" class="ds-col">
+        <div class="ph"><h2>Solutions designer</h2><span class="tag" id="ds-modetag">…</span></div>
+        <div class="ds-msgs" id="ds-msgs"></div>
+        <div class="ds-sugg" id="ds-sugg"></div>
+        <div class="ds-in"><textarea id="ds-input" rows="2" placeholder="Tell the designer about your business and the work you want automated…" onkeydown="dsKey(event)"></textarea><button class="btn p" id="ds-sendbtn" onclick="dsSend()">Send</button></div>
+      </div>
+      <div id="ds-connwrap" class="ds-col hide">
+        <div class="ph"><h2>Connect your data</h2><span class="tag">live tests</span></div>
+        <div class="cn-list" id="cn-list"></div>
+        <div id="cn-jobs"></div>
+        <div class="cn-foot"><button class="btn p" onclick="dsTestLead()">Run sample leads →</button><button class="btn" onclick="dsLaunch()">Open dashboard</button><span class="hint" style="align-self:center">Optional connectors can be added later under Integrations.</span></div>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="cv-toolbar"><span class="lg"><i style="background:#c084fc"></i>orchestrator</span><span class="lg"><i style="background:#60a5fa"></i>specialist</span><span class="lg"><i style="border:1px solid var(--blue);background:none"></i>trigger</span><span class="lg"><i class="dash"></i>connector</span><span class="spacer"></span><span id="ds-readyhint" class="hint">Sketch appears as the design forms. Click any node to adjust it.</span><button class="btn sm" onclick="agAdd()">+ Agent</button><button class="btn sm" id="ds-approve" onclick="approveBuild()" disabled>Approve &amp; build</button></div>
+      <div class="cv-wrap" id="ds-cv" onclick="closeInsp()"><svg id="ds-svg" xmlns="http://www.w3.org/2000/svg"></svg>
+        <div class="cv-empty" id="cv-empty"><div><b>Blueprint canvas</b>Hermes and the specialist agents will be drawn here as you describe the work.</div></div>
+        <div class="insp" id="ds-insp" onclick="event.stopPropagation()"></div>
+      </div>
+    </div>
+  </div>
+</section>
 
 <!-- ONBOARDING -->
 <section id="p-onboard" class="hide">
@@ -212,7 +244,7 @@ tr.click{cursor:pointer}tr.click:hover{background:var(--panel2)}
       <div class="full"><label style="display:flex;gap:8px;align-items:center;margin-top:4px"><input type="checkbox" id="ob-nofig" style="width:auto" checked> Block any money or fee figure in outbound messages (policy layer)</label></div>
     </div></div>
     <div class="panel step"><div class="ph"><h2><span class="num">4</span>Which brain?</h2><span class="hint" id="ob-modehint"></span></div><div class="pb"><div class="choices" id="ob-tiers"></div></div></div>
-    <div class="row"><button class="btn p" onclick="createDesk()">Create desk →</button><span class="hint">You can seed three sample leads right after and watch the desk run.</span></div>
+    <div class="row"><button class="btn p" onclick="createDesk()">Create desk →</button><span class="hint">You can seed three sample leads right after and watch the desk run.</span><button class="btn sm" onclick="openStudio(true)">Use the Design studio instead</button></div>
   </div>
 </section>
 
@@ -362,12 +394,13 @@ const when = ts => new Date(ts * 1000).toLocaleString('en-GB', {day:'2-digit', m
 const hms = ts => new Date(ts * 1000).toLocaleTimeString('en-GB');
 let CFG = {}, colors = {}, af = 'pending', curRun = null, page = 'dash';
 function toast(m){ const t=$('#toast'); t.textContent=m; t.classList.add('on'); setTimeout(()=>t.classList.remove('on'), 2600); }
-function go(p){ page=p; if(location.hash!=='#'+p) history.replaceState(null,'','#'+p); document.querySelectorAll('main > section').forEach(s=>s.classList.toggle('hide', s.id!=='p-'+p)); document.querySelectorAll('#nav button').forEach(b=>b.classList.toggle('on', b.dataset.p===p)); refresh(); }
+function go(p){ if(p==='design'){ page=p; openStudio(false); return; } page=p; if(location.hash!=='#'+p) history.replaceState(null,'','#'+p); document.querySelectorAll('main > section').forEach(s=>s.classList.toggle('hide', s.id!=='p-'+p)); document.querySelectorAll('#nav button').forEach(b=>b.classList.toggle('on', b.dataset.p===p)); refresh(); }
 document.querySelectorAll('#nav button').forEach(b=>b.onclick=()=>go(b.dataset.p));
 
-async function init(){
+async function init(){ if (!(await loadCfg())) return; const h=location.hash.slice(1); if(h && document.getElementById('p-'+h)) go(h); else refresh(); setInterval(refresh, 2500); }
+async function loadCfg(){
   CFG = await api('/config');
-  if (CFG && CFG.needs_desk) { await showOnboarding(); return; }
+  if (CFG && CFG.needs_desk) { await showOnboarding(); return false; }
   loadDesks();
   const me = await api('/me'); if (me && me.id) { $('#who').textContent = me.name; $('#whoco').textContent = me.company || me.email; $('#whoav').textContent = (me.name||'?').trim()[0].toUpperCase(); } else { $('#who').textContent = 'Guest'; }
   colors = Object.fromEntries(CFG.agents.map(a=>[a.id, a.color || '#60a5fa']));
@@ -379,7 +412,7 @@ async function init(){
   $('#l-mode').innerHTML = modes; $('#r-mode').innerHTML = modes;
   $('#setup-biz').innerHTML = `<h2>Business</h2><div class="md">${esc(Object.entries(CFG.business).map(([k,v])=>`${k}: ${Array.isArray(v)?v.join(', '):v}`).join('\n'))}</div>`;
   $('#setup-agents').innerHTML = `<h2>Agents &amp; tools</h2>` + CFG.agents.map(a=>`<div style="margin-bottom:10px"><div class="agentline"><i style="background:${a.color||'#60a5fa'}"></i><b>${esc(a.name)}</b> <span class="tag">${a.id}</span></div><div style="color:var(--muted);font-size:12px;margin-left:18px">${esc(a.role)} <span class="model">· ${esc(a.model||'')}</span><br>tools: ${a.tools.map(t=>`<span class="tag">${t}</span>`).join(' ')}</div></div>`).join('') + `<h2 style="margin-top:14px">Workflows</h2>` + CFG.workflows.map(w=>`<div><b>${esc(w.name)}</b> <span style="color:var(--muted)">— ${esc(w.description)}</span></div>`).join('');
-  const h=location.hash.slice(1); if(h && document.getElementById('p-'+h)) go(h); else refresh(); setInterval(refresh, 2500);
+  return true;
 }
 
 async function refresh(){
@@ -624,8 +657,9 @@ async function loadDesks(){
 function toggleWs(ev){ ev.stopPropagation(); $('#wsmenu').classList.toggle('hide'); }
 document.addEventListener('click', () => { const m = $('#wsmenu'); if (m) m.classList.add('hide'); });
 async function switchDesk(id, ev){ ev.stopPropagation(); await api(`/desks/${id}/select`, {method:'POST', body:{}}); location.hash = '#dash'; location.reload(); }
-function newDesk(ev){ ev.stopPropagation(); showOnboarding(); }
-async function showOnboarding(){
+function newDesk(ev){ ev.stopPropagation(); openStudio(true); }
+async function showOnboarding(){ return openStudio(true); }
+async function showOnboardingForm(){
   const T = await api('/templates'); OB.types = T.desks; OB.tiers = T.tiers;
   document.querySelectorAll('main > section').forEach(s=>s.classList.toggle('hide', s.id!=='p-onboard'));
   document.querySelectorAll('#nav button').forEach(b=>b.classList.remove('on'));
@@ -701,5 +735,6 @@ async function loadMem(){ const M = await api('/memory'); if(!M) return; $('#mem
 async function addMem(){ const k=$('#m-key').value.trim(), v=$('#m-val').value.trim(); if(!k) return; await api('/memory',{method:'POST',body:{key:k,value:v}}); $('#m-key').value=''; $('#m-val').value=''; loadMem(); }
 init();
 </script>
+<script src="/desk/static/studio.js"></script>
 </body>
 </html>

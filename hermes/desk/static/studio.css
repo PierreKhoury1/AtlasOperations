@@ -1,0 +1,106 @@
+/* Design Studio — flat, sharp. Chat column + sketch canvas + connect stage. */
+.stepper{display:flex;gap:2px;border:1px solid var(--line);border-radius:6px;overflow:hidden;background:var(--panel)}
+.stepper div{padding:7px 14px;font-size:12px;font-weight:700;color:var(--faint);display:flex;align-items:center;gap:8px;border-right:1px solid var(--line)}
+.stepper div:last-child{border-right:0}
+.stepper div i{width:16px;height:16px;border:1px solid var(--line2);border-radius:3px;display:grid;place-items:center;font-style:normal;font-size:10px;color:var(--muted)}
+.stepper div.on{color:var(--text);background:rgba(168,85,247,.10)}
+.stepper div.on i{background:var(--accent);border-color:var(--accent);color:#fff}
+.stepper div.done{color:var(--muted)}
+.stepper div.done i{border-color:var(--ok);color:var(--ok)}
+.studio{display:grid;grid-template-columns:400px 1fr;gap:14px;min-height:calc(100vh - 150px)}
+.studio .panel{display:flex;flex-direction:column;min-height:0}
+.studio .panel .pb{flex:1;min-height:0}
+.ds-col{display:flex;flex-direction:column;flex:1;min-height:0}
+.ds-col.hide{display:none}
+/* chat */
+.ds-msgs{flex:1;overflow:auto;padding:16px 20px;display:flex;flex-direction:column;gap:14px;min-height:0;max-height:calc(100vh - 330px)}
+.msg{max-width:92%;font-size:13.5px;line-height:1.55;white-space:pre-wrap}
+.msg.a{border-left:2px solid var(--accent);padding:2px 0 2px 12px;color:var(--text)}
+.msg.a .who{display:block;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--accent2);font-weight:700;margin-bottom:4px}
+.msg.u{align-self:flex-end;background:var(--panel2);border:1px solid var(--line);padding:9px 12px;border-radius:4px}
+.msg.a.typing::after{content:"";display:inline-block;width:7px;height:13px;background:var(--accent2);margin-left:2px;vertical-align:-2px;animation:blink 1s steps(1) infinite}
+@keyframes blink{50%{opacity:0}}
+.ds-sugg{display:flex;flex-wrap:wrap;gap:6px;padding:0 20px 10px}
+.ds-sugg button{background:var(--bg);border:1px solid var(--line2);color:var(--muted);font:inherit;font-size:12px;font-weight:600;padding:5px 10px;border-radius:4px;cursor:pointer}
+.ds-sugg button:hover{border-color:var(--accent);color:var(--text)}
+.ds-in{display:flex;gap:8px;padding:12px 20px 16px;border-top:1px solid var(--line)}
+.ds-in textarea{min-height:44px;max-height:140px;resize:none;font-size:13.5px}
+/* canvas */
+.cv-wrap{position:relative;flex:1;min-height:560px;background:var(--bg);background-image:linear-gradient(rgba(58,44,94,.28) 1px,transparent 1px),linear-gradient(90deg,rgba(58,44,94,.28) 1px,transparent 1px);background-size:28px 28px;overflow:hidden}
+.cv-wrap svg{width:100%;height:100%;display:block;font-family:Quicksand,system-ui,sans-serif}
+.cv-empty{position:absolute;inset:0;display:grid;place-items:center;color:var(--faint);font-size:13px;text-align:center;pointer-events:none}
+.cv-empty b{display:block;color:var(--muted);font-size:14px;margin-bottom:4px}
+.cv-empty.hide{display:none}
+.cv-toolbar{display:flex;gap:8px;align-items:center;padding:10px 20px;border-bottom:1px solid var(--line);font-size:12px;color:var(--muted)}
+.cv-toolbar .lg{display:inline-flex;align-items:center;gap:5px;margin-right:6px}
+.cv-toolbar .lg i{width:9px;height:9px;border-radius:2px;display:inline-block}
+.cv-toolbar .lg i.dash{border:1px dashed var(--line2);background:none}
+/* svg pieces */
+.node{cursor:pointer}
+.node rect.box{fill:var(--panel);stroke:var(--line2);stroke-width:1.2;rx:4}
+.node.hermes rect.box{stroke:var(--accent)}
+.node:hover rect.box,.node.sel rect.box{stroke:var(--accent2);stroke-width:1.6}
+.node .bar{rx:0}
+.node text{fill:var(--text);font-weight:700;font-size:13px}
+.node text.role{fill:var(--muted);font-weight:600;font-size:11px}
+.node text.badge{fill:var(--faint);font-size:10px;font-weight:700;letter-spacing:.06em}
+.node .chip rect{fill:var(--panel2);stroke:var(--line);rx:2}
+.node .chip text{fill:var(--muted);font-size:10px;font-weight:600}
+.node.trig rect.box{fill:var(--bg);stroke:var(--line2);stroke-dasharray:none}
+.node.trig text.k{fill:var(--blue);font-size:10px;letter-spacing:.08em;font-weight:700}
+.node.conn rect.box{fill:var(--bg);stroke-dasharray:4 3}
+.node.conn.ok rect.box{stroke:var(--ok);stroke-dasharray:none}
+.node.conn text.k{fill:var(--ok);font-size:10px;letter-spacing:.08em;font-weight:700}
+.node .dot{r:3.5;stroke:none}
+.edge{fill:none;stroke:var(--line2);stroke-width:1.3}
+.edge.conn{stroke-dasharray:4 3}
+.edge.trig{stroke:var(--blue);opacity:.7}
+.edge.wf{stroke-width:1.6;opacity:.85}
+.wflabel{fill:var(--muted);font-size:10.5px;font-weight:700;letter-spacing:.06em}
+.wfnum circle{stroke-width:1.2;fill:var(--bg)}
+.wfnum text{font-size:9.5px;font-weight:700}
+.arrow{fill:var(--line2)}
+/* sketch-in animation: elements carry pathLength=1 so dasharray 1 works everywhere */
+.sk{stroke-dasharray:1;stroke-dashoffset:1;animation:draw .55s cubic-bezier(.4,0,.2,1) forwards}
+.sk-fill{fill-opacity:0;animation:fillin .35s ease .45s forwards}
+.sk-txt{opacity:0;animation:fadein .3s ease .5s forwards}
+@keyframes draw{to{stroke-dashoffset:0}}
+@keyframes fillin{to{fill-opacity:1}}
+@keyframes fadein{to{opacity:1}}
+.node,.edge,.wfnum,.wflabel{transition:transform .5s cubic-bezier(.4,0,.2,1)}
+/* inspector */
+.insp{position:absolute;top:0;right:0;bottom:0;width:320px;background:var(--panel);border-left:1px solid var(--line);padding:16px 18px;overflow:auto;transform:translateX(100%);transition:transform .25s ease;display:flex;flex-direction:column;gap:2px}
+.insp.on{transform:none}
+.insp h3{font-size:14px;font-weight:700;display:flex;align-items:center;gap:8px}
+.insp h3 i{width:10px;height:10px;border-radius:2px;display:inline-block}
+.insp .x{margin-left:auto;background:none;border:0;color:var(--muted);cursor:pointer;font-size:16px}
+.insp .tools{display:grid;grid-template-columns:1fr 1fr;gap:4px 10px;font-size:12px;color:var(--muted)}
+.insp .tools label{display:flex;gap:6px;align-items:center;margin:0}
+.insp .tools input{width:auto}
+.insp .foot{margin-top:auto;display:flex;gap:8px;padding-top:12px;border-top:1px solid var(--line)}
+/* connect stage */
+.cn-list{display:flex;flex-direction:column;gap:10px;padding:16px 20px;overflow:auto;max-height:calc(100vh - 260px)}
+.cn{border:1px solid var(--line);border-radius:6px;background:var(--bg)}
+.cn .h{display:flex;align-items:center;gap:10px;padding:10px 12px;cursor:pointer}
+.cn .h b{font-size:13px;white-space:nowrap}
+.cn .h small{color:var(--muted);font-size:11.5px;display:block}
+.cn .h .st{margin-left:auto;font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--faint);display:flex;align-items:center;gap:6px}
+.cn .h .st i{width:8px;height:8px;border-radius:2px;background:var(--line2);display:inline-block}
+.cn.ok .h .st{color:var(--ok)}.cn.ok .h .st i{background:var(--ok)}
+.cn.err .h .st{color:var(--danger)}.cn.err .h .st i{background:var(--danger)}
+.cn .b{display:none;padding:4px 12px 12px;border-top:1px solid var(--line)}
+.cn.open .b{display:block}
+.cn .b .hint{font-size:11.5px;color:var(--faint);margin:6px 0 2px;line-height:1.45}
+.cn .b .row{margin-top:10px}
+.cn .b input{font-size:12.5px;padding:6px 9px}
+.cn .b label{margin:6px 0 2px;font-size:11.5px}
+.cn .out{font-family:Consolas,"Cascadia Mono",monospace;font-size:11.5px;color:var(--muted);margin-top:8px;white-space:pre-wrap;max-height:90px;overflow:auto}
+.cn-foot{padding:12px 20px 16px;border-top:1px solid var(--line);display:flex;gap:8px;flex-wrap:wrap}
+.sk{animation-delay:var(--d,0s)}
+.sk-fill{animation-delay:calc(var(--d,0s) + .45s)}
+.sk-txt{animation-delay:calc(var(--d,0s) + .5s)}
+.sk.sk-fill{animation:draw .55s cubic-bezier(.4,0,.2,1) forwards,fillin .35s ease forwards;animation-delay:var(--d,0s),calc(var(--d,0s) + .45s)}
+.msg .st{display:block;margin-top:8px;font-size:11.5px;color:var(--accent2);font-weight:700;letter-spacing:.04em}
+.msg .st::after{content:"…";display:inline-block;width:14px;text-align:left;animation:dots 1.2s steps(3,end) infinite}
+@keyframes dots{0%{content:""}33%{content:"."}66%{content:".."}100%{content:"..."}}
+.msg.a.typing:has(.st)::after{display:none}
