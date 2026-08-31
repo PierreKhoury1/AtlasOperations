@@ -27,7 +27,7 @@ ATLAS_TOOLS = ["delegate", "list_agents", "save_deliverable", "read_file", "list
                 "queue_action", "list_connectors", "http_request", "schedule_task", "mcp", "run_python", "remember", "recall"]
 PALETTE = ["#7c3aed", "#db2777", "#1f9d63", "#b45309", "#0e7490", "#6d28d9", "#ea580c", "#15803d", "#a21caf", "#0369a1"]
 STATUS_MARK = "\x00"                      # on_token prefix for a status line instead of prose
-CONNECTOR_KINDS = ("smtp", "imap", "http", "mcp", "webhook")
+CONNECTOR_KINDS = ("smtp", "imap", "http", "mcp", "webhook", "hermes_agent")
 TRIGGER_KINDS = ("webhook", "inbox", "schedule", "manual")
 
 DESIGNER_SYSTEM = """You are the Atlas solutions designer at Atlas Ops, an AI-operations consultancy. You are on a scoping call
@@ -88,12 +88,27 @@ class DesignSession:
         self.ready = False
         self.desk_id: int | None = None
         self.turn = 0
+        self.links: list[str] = []
+        self.profile: dict[str, Any] | None = None       # company profile from the pre-study of their links
         self.lock = threading.Lock()
 
     def public(self) -> dict[str, Any]:
         return {"sid": self.id, "mode": self.mode, "tier": self.tier, "transcript": self.transcript,
                 "blueprint": self.blueprint, "suggestions": self.suggestions, "ready": self.ready,
-                "desk_id": self.desk_id, "turn": self.turn}
+                "desk_id": self.desk_id, "turn": self.turn, "links": self.links, "profile": self.profile}
+
+    def apply_profile(self, profile: dict[str, Any]) -> None:
+        """Seed the conversation from a study of the owner's links: opening message, chips, first-draft blueprint."""
+        self.profile = profile
+        opening = profile.get("opening_message") or GREETING
+        self.transcript = [{"role": "assistant", "text": opening}]
+        self.messages = [{"role": "assistant", "content": opening}]
+        self.suggestions = [str(x)[:60] for x in (profile.get("suggestions") or GREETING_SUGGESTIONS)][:4]
+        bp = normalise(profile.get("blueprint"), None) if isinstance(profile.get("blueprint"), dict) else None
+        if bp and not bp["business"].get("name") and profile.get("name"):
+            bp["business"]["name"] = profile["name"]
+        if bp and bp.get("agents"):
+            self.blueprint = bp
 
 
 SESSIONS: dict[str, DesignSession] = {}
@@ -196,6 +211,7 @@ def normalise(bp: dict[str, Any] | None, prev: dict[str, Any] | None = None) -> 
             "tools": tools if aid != "atlas" else list(ATLAS_TOOLS),
             "reports_to": "atlas" if aid != "atlas" else "",
             "strong": bool(a.get("strong")),
+            "engine": "hermes_agent" if str(a.get("engine") or "").lower() in ("hermes_agent", "hermes") else "atlas",
         })
     agents = [a for a in agents if a["id"] != "atlas"][:8]
     for i, a in enumerate(agents):
@@ -247,7 +263,7 @@ def normalise(bp: dict[str, Any] | None, prev: dict[str, Any] | None = None) -> 
     return out
 
 
-T_KIND_LABEL = {"smtp": "Email sending", "imap": "Inbox", "http": "API", "mcp": "Tool server", "webhook": "Web form"}
+T_KIND_LABEL = {"smtp": "Email sending", "imap": "Inbox", "http": "API", "mcp": "Tool server", "webhook": "Web form", "hermes_agent": "Hermes Agent"}
 
 
 # ---------------------------------------------------------------------------- the turn
@@ -327,6 +343,11 @@ def _live_turn(session: DesignSession, providers_cfg: dict[str, Any] | None, mod
         on_token(held + text)
 
     system = DESIGNER_SYSTEM
+    if session.profile:
+        prof = {k: session.profile.get(k) for k in ("name", "summary", "sector", "services", "locations", "customers", "team_hint",
+                                                   "channels", "tech", "tone", "opportunities") if session.profile.get(k)}
+        system += ("\n\nYou already studied the owner's public links (" + ", ".join(session.links[:3]) + "). Company profile - treat as known facts, "
+                   "do not ask for them again, reference them naturally:\n" + json.dumps(prof, ensure_ascii=False)[:3500])
     if session.blueprint:
         system += "\n\nCurrent blueprint (update it, keep what still holds):\n" + json.dumps(session.blueprint, ensure_ascii=False)
     msgs = [prov.user_message(m["content"]) if m["role"] == "user" else {"role": "assistant", "content": m["content"]}
@@ -513,6 +534,7 @@ def blueprint_to_desk(bp: dict[str, Any], tier: str = "free") -> dict[str, Any]:
     for a in bp.get("agents") or []:
         agents.append(T._agent(a["id"], a["name"], a["role"], _agent_prompt(a, b), tools=a["tools"], color=a["color"]))
         agents[-1]["strong"] = bool(a.get("strong"))
+        agents[-1]["engine"] = a.get("engine") or "atlas"
     strong_ids = {a["id"] for a in bp.get("agents") or [] if a.get("strong")}
     T.apply_tier(agents, tier)
     if tier == "best":

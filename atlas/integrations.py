@@ -29,6 +29,11 @@ KINDS = {
              "hint": "Any REST API. auth_type: bearer | header | query | basic | none. `notes` tells the agents what the API does and which paths exist."},
     "mcp": {"label": "MCP server (any tool provider)", "fields": ["command", "env", "notes"],
             "hint": "Model Context Protocol server started as a subprocess. e.g. `npx -y @modelcontextprotocol/server-filesystem C:/clients/acme`, `npx -y @modelcontextprotocol/server-github` (env GITHUB_PERSONAL_ACCESS_TOKEN=...), Slack, Notion, Postgres, Gmail... Every tool the server offers becomes an agent tool. Writes need approval unless auto."},
+    "hermes_agent": {"label": "Hermes Agent instance (Nous Research)", "fields": ["base_url", "api_key", "session_prefix", "notes"],
+                     "hint": "A running Hermes Agent with its API server on (hermes gateway; API_SERVER_ENABLED=true). base_url e.g. "
+                             "http://your-vps:8642 — one-click on Hostinger VPS or `curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash`. "
+                             "Any desk agent can then run ON Hermes Agent (its 40+ tools: terminal, browser, web search, memory, skills, MCP) "
+                             "instead of the built-in specialist loop. Atlas keeps orchestration, policy and approvals."},
     "webhook": {"label": "Inbound webhook", "fields": [],
                 "hint": "POST JSON {name, email, phone, company, notes, source} to the desk's hook URL — web forms, Zapier, Make, Typeform."},
     "resend": {"label": "Email sending (Resend API)", "fields": ["api_key", "from_email", "from_name"],
@@ -259,6 +264,34 @@ def test_http(cfg: dict[str, Any]) -> str:
     return f"HTTP {r['status']} from {r['url']}"
 
 
+def hermes_agent_headers(cfg: dict[str, Any], session_key: str = "") -> dict[str, str]:
+    h = {"Authorization": f"Bearer {str(cfg.get('api_key') or '').strip()}", "Content-Type": "application/json"}
+    if session_key:
+        h["X-Hermes-Session-Key"] = (str(cfg.get("session_prefix") or "atlas") + ":" + session_key)[:256]
+    return h
+
+
+def test_hermes_agent(cfg: dict[str, Any]) -> str:
+    """GET /health (unauthenticated) then /v1/capabilities (authenticated) on a Hermes Agent API server."""
+    import httpx
+    base = str(cfg.get("base_url") or "").strip().rstrip("/")
+    if not re.match(r"^https?://", base):
+        raise ValueError("base_url must start with http:// or https://")
+    with httpx.Client(timeout=15, transport=_TRANSPORT) as c:
+        h = c.get(base + "/health")
+        if h.status_code >= 400:
+            raise RuntimeError(f"/health HTTP {h.status_code}")
+        info = h.json() if "json" in h.headers.get("content-type", "") else {}
+        cap = c.get(base + "/v1/capabilities", headers=hermes_agent_headers(cfg))
+        if cap.status_code == 401:
+            raise RuntimeError("API key rejected (401) - check API_SERVER_KEY on the instance")
+        if cap.status_code >= 400:
+            raise RuntimeError(f"/v1/capabilities HTTP {cap.status_code}")
+        cj = cap.json() if "json" in cap.headers.get("content-type", "") else {}
+    return (f"Hermes Agent {info.get('version', '?')} reachable; model alias {cj.get('model', 'hermes-agent')}; "
+            f"runtime {json.dumps(cj.get('runtime', {}))[:120]}")
+
+
 def test_connector(kind: str, cfg: dict[str, Any]) -> str:
     if kind == "smtp":
         return test_smtp(cfg)
@@ -271,6 +304,8 @@ def test_connector(kind: str, cfg: dict[str, Any]) -> str:
         return mcp_client.test_server(cfg)
     if kind == "webhook":
         return "webhook connectors need no test — POST to the hook URL"
+    if kind == "hermes_agent":
+        return test_hermes_agent(cfg)
     if kind == "resend":
         return test_resend(cfg)
     if kind == "whatsapp":

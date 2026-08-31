@@ -140,6 +140,21 @@ def desk_configs(desk: dict[str, Any]) -> dict[str, Any]:
         else:
             for a in agents:
                 a["model"] = ""
+    # agents flagged engine=hermes_agent run ON the desk's Hermes Agent instance (its own tools, memory, skills).
+    # Works in demo mode too when a connector exists (the connector decides), otherwise the flag is ignored.
+    if any(a.get("engine") == "hermes_agent" for a in agents):
+        hconn = next((c for c in store.connectors(desk["id"]) if c["kind"] == "hermes_agent"), None)
+        for a in agents:
+            if a.get("engine") != "hermes_agent":
+                continue
+            if not hconn:
+                a["engine_note"] = "no Hermes Agent connector on this desk - running on the built-in engine"
+                continue
+            pname = f"hermes_agent_{a['id']}"
+            providers.setdefault("providers", {})[pname] = {"type": "hermes_agent", "base_url": hconn["config"].get("base_url", ""),
+                                                             "api_key": hconn["config"].get("api_key", ""),
+                                                             "session_key": f"{hconn['config'].get('session_prefix') or 'atlas'}:desk{desk['id']}:{a['id']}"}
+            a["provider"], a["model"], a["tools"] = pname, "hermes-agent", []
     return {"providers": providers, "orchestration": cfg.load("orchestration", cfg.DEFAULT_ORCHESTRATION),
             "business": business, "agents": agents, "workflows": workflows, "ui": {}, "mode": mode,
             "desk_id": desk["id"]}
@@ -1135,7 +1150,64 @@ def api_design_start():
     s = DS.new_session(_mode(), tier)
     if u and u.get("company"):
         s.transcript[0]["text"] = s.transcript[0]["text"].replace("Tell me what your business does", f"Tell me what {u['company']} does")
+    links = d.get("links") or []
+    if isinstance(links, str):
+        links = re.split(r"[\s,]+", links)
+    s.links = [str(x).strip() for x in links if str(x).strip()][:4]
     return jsonify(s.public())
+
+
+@app.post("/api/design/<sid>/study")
+def api_design_study(sid):
+    """Read the owner's links (website, socials, booking page), stream progress, then seed the designer with a company
+    profile + first-draft blueprint. SSE: {"t":"status","d":...}* then {"t":"done", profile, transcript, suggestions, blueprint}."""
+    from .. import study as ST
+    s = _design_session(sid)
+    d = request.get_json(silent=True) or {}
+    links = d.get("links") or s.links
+    if isinstance(links, str):
+        links = re.split(r"[\s,]+", links)
+    links = [str(x).strip() for x in links if str(x).strip()][:4]
+    if not links:
+        return jsonify({"error": "no links"}), 400
+    s.links = links
+    import queue
+    q: "queue.Queue[dict[str, Any] | None]" = queue.Queue()
+    providers = None if s.mode == "demo" else _providers_cfg()
+
+    def work():
+        try:
+            prov, model = None, ""
+            if providers:
+                from ..providers import ProviderPool
+                prov = ProviderPool(providers).get()
+                if providers.get("default_provider") == "openrouter":
+                    model = templates.STRONG_MODEL if s.tier != "free" else templates.FREE_MODEL
+            profile = ST.study(links, on_status=lambda t: q.put({"t": "status", "d": t}), provider=prov, model=model)
+            with s.lock:
+                s.apply_profile(profile)
+            q.put({"t": "done", "profile": profile, "transcript": s.transcript, "suggestions": s.suggestions,
+                   "blueprint": s.blueprint, "ready": s.ready})
+        except Exception as exc:
+            q.put({"t": "error", "error": f"{type(exc).__name__}: {exc}"})
+        q.put(None)
+
+    threading.Thread(target=work, daemon=True).start()
+
+    def gen():
+        yield "retry: 1000\n\n"
+        while True:
+            try:
+                item = q.get(timeout=15)
+            except queue.Empty:
+                yield ": ping\n\n"
+                continue
+            if item is None:
+                break
+            yield f"data: {json.dumps(item, ensure_ascii=False)}\n\n"
+
+    return Response(gen(), mimetype="text/event-stream",
+                    headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no", "Connection": "keep-alive"})
 
 
 @app.get("/api/design/<sid>")
@@ -1244,7 +1316,11 @@ def _connect_plan(desk: dict[str, Any], bp: dict[str, Any]) -> dict[str, Any]:
     for c in have:
         by_kind.setdefault(c["kind"], []).append(c)
     items = []
-    for c in bp.get("connectors") or []:
+    wanted = list(bp.get("connectors") or [])
+    if any(a.get("engine") == "hermes_agent" for a in bp.get("agents") or []) and not any(c["kind"] == "hermes_agent" for c in wanted):
+        who = ", ".join(a["name"] for a in bp["agents"] if a.get("engine") == "hermes_agent")
+        wanted.append({"kind": "hermes_agent", "name": "Hermes Agent", "purpose": f"Runs {who}", "required": True})
+    for c in wanted:
         match = (by_kind.get(c["kind"]) or [None])[0]
         items.append({**c, "fields": I.KINDS[c["kind"]]["fields"], "hint": I.KINDS[c["kind"]]["hint"],
                       "connector_id": match["id"] if match else None, "status": (match or {}).get("status") or ("built-in" if c["kind"] == "webhook" else "not connected")})

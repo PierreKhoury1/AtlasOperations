@@ -207,6 +207,7 @@ class OpenAICompatProvider(Provider):
         headers = {"Content-Type": "application/json"}
         if self.api_key:
             headers["Authorization"] = f"Bearer {self.api_key}"
+        headers.update(getattr(self, "_extra_headers", None) or {})
         if on_token:
             payload["stream"] = True
             payload["stream_options"] = {"include_usage": True}
@@ -482,12 +483,37 @@ class DemoProvider(Provider):
         return [{"role": "user", "content": [{"type": "tool_result", "tool_use_id": c, "content": o} for c, _n, o, _e in results]}]
 
 
+class HermesAgentProvider(OpenAICompatProvider):
+    """A running Hermes Agent (Nous Research) API server used as an *engine*: the agent runs its own tool loop
+    (terminal, browser, web search, memory, skills, MCP) server-side and returns the final answer.
+
+    Client-side tool schemas are therefore not sent - Atlas keeps orchestration, CRM, policy and approvals on our side
+    and treats the Hermes-backed agent as a very capable specialist. Long-term memory is scoped per desk+agent via
+    X-Hermes-Session-Key, so the agent remembers a client's business between runs."""
+    name = "hermes_agent"
+
+    def __init__(self, pcfg: dict[str, Any]):
+        pcfg = {**pcfg, "type": "openai_compatible", "base_url": str(pcfg.get("base_url") or "").rstrip("/") + "/v1",
+                "default_model": pcfg.get("default_model") or "hermes-agent", "max_tokens": int(pcfg.get("max_tokens", 4096)),
+                "first_token_s": float(pcfg.get("first_token_s", 240)), "call_max_s": float(pcfg.get("call_max_s", 900)),
+                "timeout": float(pcfg.get("timeout", 900))}
+        super().__init__(pcfg)
+        self.session_key = str(pcfg.get("session_key") or "")
+
+    def chat(self, system, messages, tools, model="", on_token=None):
+        # Hermes ignores client tools and runs its own; never advertise ours (they would be unusable server-side).
+        self._extra_headers = {"X-Hermes-Session-Key": self.session_key} if self.session_key else {}
+        return super().chat(system, messages, [], model or self.default_model, on_token=on_token)
+
+
 def make_provider(pcfg: dict[str, Any]) -> Provider:
     t = (pcfg.get("type") or "anthropic").lower()
     if t == "demo":
         return DemoProvider(pcfg)
     if t == "anthropic":
         return AnthropicProvider(pcfg)
+    if t == "hermes_agent":
+        return HermesAgentProvider(pcfg)
     return OpenAICompatProvider(pcfg)
 
 

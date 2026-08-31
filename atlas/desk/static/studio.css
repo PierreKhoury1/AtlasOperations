@@ -104,3 +104,16 @@
 .msg .st::after{content:"…";display:inline-block;width:14px;text-align:left;animation:dots 1.2s steps(3,end) infinite}
 @keyframes dots{0%{content:""}33%{content:"."}66%{content:".."}100%{content:"..."}}
 .msg.a.typing:has(.st)::after{display:none}
+/* pre-study of the owner's links */
+.ds-links{padding:14px 20px 12px;border-bottom:1px solid var(--line);background:var(--panel2)}
+.ds-links textarea{min-height:52px;font-size:12.5px;background:#fff}
+.ds-study{margin-top:10px;font-size:12.5px}
+.st-line{color:var(--muted);padding:2px 0 2px 16px;position:relative}
+.st-line::before{content:"";position:absolute;left:2px;top:9px;width:6px;height:6px;border-radius:50%;background:var(--line2)}
+.st-line.on::before{background:var(--accent);animation:blink 1s steps(2) infinite}
+.st-line.done::before{background:var(--ok)}
+.ds-study .profile{margin-top:10px;border:1px solid var(--line);background:#fff;border-radius:6px;padding:10px 12px;line-height:1.5}
+.ds-study .profile b{display:block;font-size:13px;margin-bottom:2px}
+.ds-study .profile .kv{display:grid;grid-template-columns:96px 1fr;gap:8px;margin-top:6px;color:var(--text2)}
+.ds-study .profile .kv span{color:var(--faint);font-size:11px;letter-spacing:.06em;text-transform:uppercase;font-weight:600;padding-top:2px}
+.ds-study .profile i{color:var(--faint);font-style:normal}

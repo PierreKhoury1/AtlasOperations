@@ -2,7 +2,7 @@
    Depends on globals from index.html: $, api, esc, toast, go, loadDesks. */
 const SPECIALIST_TOOLS = ['read_file', 'list_files', 'web_fetch', 'run_python', 'save_deliverable'];
 const WF_COLORS = ['#0b5fcb', '#7c3aed', '#1f9d63', '#b45309'];
-const KIND_LABEL = {smtp: 'EMAIL OUT', imap: 'INBOX', http: 'API', mcp: 'TOOL SERVER', webhook: 'WEB FORM'};
+const KIND_LABEL = {smtp: 'EMAIL OUT', imap: 'INBOX', http: 'API', mcp: 'TOOL SERVER', webhook: 'WEB FORM', hermes_agent: 'HERMES AGENT'};
 const TRIG_LABEL = {webhook: 'WEBHOOK', inbox: 'INBOX', schedule: 'SCHEDULE', manual: 'MANUAL'};
 const DSG = {sid: null, bp: null, ready: false, stage: 1, deskId: null, plan: null, sel: null, els: new Map(), busy: false, tiers: [], mode: 'demo', saveT: null, jobs: []};
 
@@ -26,6 +26,11 @@ async function openStudio(fresh) {
   $('#ds-svg').innerHTML = ''; $('#cv-empty').classList.remove('hide');
   $('#ds-chatwrap').classList.remove('hide'); $('#ds-connwrap').classList.add('hide');
   $('#ds-approve').classList.remove('hide'); $('#ds-approve').textContent = 'Approve & build';
+  // links / pre-study panel: fresh session shows the input; a restored session with a profile shows the summary only
+  const L = $('#ds-links'); L.classList.remove('hide'); $('#ds-study').classList.add('hide'); $('#ds-study').innerHTML = '';
+  $('#ds-linkbox').classList.remove('hide'); $('#ds-links label').classList.remove('hide'); document.querySelector('#ds-links .row').classList.remove('hide');
+  if (S.profile) { onStudyDone({profile: S.profile, transcript: [], suggestions: S.suggestions, blueprint: null}, () => {}); $('#ds-study').classList.remove('hide'); }
+  else if (S.transcript.length > 1) L.classList.add('hide');
   $('#ds-msgs').innerHTML = '';
   for (const m of S.transcript) addMsg(m.role === 'user' ? 'u' : 'a', m.text);
   setSugg(S.suggestions);
@@ -36,6 +41,56 @@ async function openStudio(fresh) {
     const P = await api(`/design/${S.sid}/connect`);
     if (P && !P.error) { DSG.plan = P; setStage(3); $('#ds-chatwrap').classList.add('hide'); $('#ds-connwrap').classList.remove('hide'); $('#ds-approve').classList.add('hide'); renderConnect(); }
   }
+  $('#ds-input').focus();
+}
+
+/* ---------------------------------------------------------------- pre-study of the owner's links */
+function dsSkipStudy() { $('#ds-links').classList.add('hide'); $('#ds-input').focus(); }
+async function dsStudy() {
+  const links = $('#ds-linkbox').value.split(/[\s,]+/).map(s => s.trim()).filter(Boolean);
+  if (!links.length) { toast('Paste at least one link'); $('#ds-linkbox').focus(); return; }
+  if (DSG.busy) return;
+  DSG.busy = true; $('#ds-studybtn').disabled = true;
+  const box = $('#ds-study'); box.classList.remove('hide'); box.innerHTML = '<div class="st-line on">Opening ' + esc(links[0].replace(/^https?:\/\//, '')) + '…</div>';
+  const lines = [];
+  const push = (t, done) => { if (lines.length) lines[lines.length - 1].cls = 'done'; lines.push({t, cls: done ? 'done' : 'on'}); box.innerHTML = lines.map(l => `<div class="st-line ${l.cls}">${esc(l.t)}</div>`).join(''); };
+  try {
+    const r = await fetch(`/api/design/${DSG.sid}/study`, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({links})});
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const rd = r.body.getReader(); const dec = new TextDecoder(); let buf = '';
+    while (true) {
+      const {value, done} = await rd.read(); if (done) break;
+      buf += dec.decode(value, {stream: true});
+      let i;
+      while ((i = buf.indexOf('\n\n')) >= 0) {
+        const chunk = buf.slice(0, i); buf = buf.slice(i + 2);
+        for (const line of chunk.split('\n')) {
+          if (!line.startsWith('data: ')) continue;
+          const ev = JSON.parse(line.slice(6));
+          if (ev.t === 'status') push(ev.d);
+          else if (ev.t === 'error') push('Study failed: ' + ev.error, true);
+          else if (ev.t === 'done') onStudyDone(ev, push);
+        }
+      }
+    }
+  } catch (e) { push('Connection error: ' + e.message, true); }
+  DSG.busy = false; $('#ds-studybtn').disabled = false;
+}
+function onStudyDone(ev, push) {
+  const p = ev.profile || {};
+  push(`Read ${p.pages_read || 0} page(s) · ${p.sector || 'business'}${p.channels && p.channels.length ? ' · found ' + p.channels.slice(0, 4).join(', ') : ''}${p.source === 'model' ? '' : ' · quick scan'}`, true);
+  const box = $('#ds-study');
+  box.innerHTML += `<div class="profile"><b>${esc(p.name || 'Your business')}</b>${p.summary ? '<div>' + esc(p.summary) + '</div>' : ''}` +
+    (p.services && p.services.length ? `<div class="kv"><span>Services</span>${esc(p.services.slice(0, 6).join(' · '))}</div>` : '') +
+    (p.locations && p.locations.length ? `<div class="kv"><span>Where</span>${esc(p.locations.join(', '))}</div>` : '') +
+    (p.channels && p.channels.length ? `<div class="kv"><span>Channels</span>${esc(p.channels.join(', '))}</div>` : '') +
+    (p.tech && p.tech.length ? `<div class="kv"><span>Tech</span>${esc(p.tech.join(', '))}</div>` : '') +
+    (p.opportunities && p.opportunities.length ? `<div class="kv"><span>Automate first</span>${p.opportunities.slice(0, 3).map(o => esc(o.title) + (o.effort ? ' <i>(' + esc(o.effort) + ')</i>' : '')).join('<br>')}</div>` : '') + `</div>`;
+  $('#ds-msgs').innerHTML = '';
+  for (const m of ev.transcript || []) addMsg(m.role === 'user' ? 'u' : 'a', m.text);
+  setSugg(ev.suggestions);
+  if (ev.blueprint && (ev.blueprint.agents || []).length) { DSG.bp = ev.blueprint; setStage(2); renderCanvas(); $('#ds-approve').disabled = false; }
+  document.querySelector('#ds-links .row').classList.add('hide'); $('#ds-linkbox').classList.add('hide'); $('#ds-links label').classList.add('hide');
   $('#ds-input').focus();
 }
 
@@ -217,7 +272,8 @@ function renderCanvas() {
       g.appendChild(el('rect', {x: 0, y: 0, width: 4, height: n.h, fill: a.color || '#7c3aed'}, 'bar' + skt));
       g.appendChild(txt(16, 24, clip(a.name, 20), skt.trim()));
       g.appendChild(txt(16, 42, clip(a.role, 30), 'role' + skt));
-      if (a.strong) { const b = txt(n.w - 10, 16, 'STRONG', 'badge' + skt); b.setAttribute('text-anchor', 'end'); b.setAttribute('fill', '#b45309'); g.appendChild(b); }
+      if (a.engine === 'hermes_agent') { const b = txt(n.w - 10, 16, 'HERMES', 'badge' + skt); b.setAttribute('text-anchor', 'end'); b.setAttribute('fill', '#0b5fcb'); g.appendChild(b); }
+      else if (a.strong) { const b = txt(n.w - 10, 16, 'STRONG', 'badge' + skt); b.setAttribute('text-anchor', 'end'); b.setAttribute('fill', '#b45309'); g.appendChild(b); }
       let cx = 12; const cy = 54;
       for (const t of (a.tools || []).slice(0, 4)) {
         const label = t.replace('_', ' '); const w = label.length * 5.6 + 10; if (cx + w > n.w - 8) break;
@@ -257,6 +313,8 @@ function selectNode(key) {
       <label>Goal &amp; quality bar</label><textarea style="min-height:110px" oninput="agEdit('${a.id}','goal',this.value)">${esc(a.goal || '')}</textarea>
       <label>Tools</label><div class="tools">${SPECIALIST_TOOLS.map(t => `<label><input type="checkbox" ${a.tools.includes(t) ? 'checked' : ''} onchange="agTool('${a.id}','${t}',this.checked)">${t.replace('_', ' ')}</label>`).join('')}</div>
       <label>Model</label><label style="display:flex;gap:8px;align-items:center;margin:2px 0 0;color:var(--text);font-weight:600"><input type="checkbox" style="width:auto" ${a.strong ? 'checked' : ''} onchange="agEdit('${a.id}','strong',this.checked)"> Strong model for this agent (on the Best tier)</label>
+      <label>Engine</label><select onchange="agEdit('${a.id}','engine',this.value)"><option value="atlas" ${a.engine !== 'hermes_agent' ? 'selected' : ''}>Built-in specialist loop (fast, cheap)</option><option value="hermes_agent" ${a.engine === 'hermes_agent' ? 'selected' : ''}>Hermes Agent instance (terminal, browser, memory, skills)</option></select>
+      <p class="hint" style="margin-top:4px">Hermes Agent needs a connector to a running instance (added in the Connect step). Atlas still orchestrates, checks policy and holds approvals.</p>
       <div class="foot"><button class="btn sm d" onclick="agRemove('${a.id}')">Remove agent</button></div>`;
     return;
   }
@@ -338,7 +396,8 @@ function cnPlaceholder(kind, f) {
   const P = {smtp: {host: 'smtp.gmail.com', port: '587', user: 'you@yourdomain.com', password: 'app password', from_email: 'you@yourdomain.com', from_name: 'Your name, Company'},
     imap: {host: 'imap.gmail.com', port: '993', user: 'you@yourdomain.com', password: 'app password', folder: 'INBOX'},
     http: {base_url: 'https://api.example.com', auth_type: 'bearer | header | query | basic | none', token: 'API key', headers: '{"X-Api-Version":"2"}', notes: 'What the API does, which paths matter'},
-    mcp: {command: 'npx -y @modelcontextprotocol/server-github', env: 'GITHUB_PERSONAL_ACCESS_TOKEN=...', notes: 'What this server is for'}};
+    mcp: {command: 'npx -y @modelcontextprotocol/server-github', env: 'GITHUB_PERSONAL_ACCESS_TOKEN=...', notes: 'What this server is for'},
+    hermes_agent: {base_url: 'http://your-vps-ip:8642', api_key: 'API_SERVER_KEY from ~/.hermes/.env', session_prefix: 'atlas', notes: 'Hostinger one-click VPS or self-hosted'}};
   return (P[kind] || {})[f] || '';
 }
 async function cnSave(i) {

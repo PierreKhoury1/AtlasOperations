@@ -202,6 +202,12 @@ tr.click{cursor:pointer}tr.click:hover{background:var(--panel2)}
     <div class="panel">
       <div id="ds-chatwrap" class="ds-col">
         <div class="ph"><h2>Solutions designer</h2><span class="tag" id="ds-modetag">…</span></div>
+        <div class="ds-links" id="ds-links">
+          <label style="margin:0 0 4px">Business links <span class="hint" style="display:inline;margin:0">— website, booking page, Google profile, socials. The designer studies them first.</span></label>
+          <textarea id="ds-linkbox" rows="2" placeholder="https://www.yourbusiness.co.uk&#10;https://instagram.com/yourbusiness"></textarea>
+          <div class="row" style="margin-top:8px"><button class="btn p sm" id="ds-studybtn" onclick="dsStudy()">Study my business →</button><button class="btn sm" onclick="dsSkipStudy()">Skip, I'll describe it</button></div>
+          <div class="ds-study hide" id="ds-study"></div>
+        </div>
         <div class="ds-msgs" id="ds-msgs"></div>
         <div class="ds-sugg" id="ds-sugg"></div>
         <div class="ds-in"><textarea id="ds-input" rows="2" placeholder="Tell the designer about your business and the work you want automated…" onkeydown="dsKey(event)"></textarea><button class="btn p" id="ds-sendbtn" onclick="dsSend()">Send</button></div>
