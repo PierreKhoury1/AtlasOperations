@@ -83,3 +83,22 @@ Set-up crib sheet:
 - **Slack**: Slack app → Incoming Webhooks → add to channel → `webhook_url`.
 
 All providers are exercised in `tests/test_integrations.py` against a mock HTTP transport (swap `atlas.integrations._TRANSPORT`), including the portal path approve → real send → CRM mirror → Slack ping and the inbound WhatsApp/SMS hooks.
+
+## Running desk agents on Hermes Agent (Nous Research)
+
+Any agent in a desk can run on a [Hermes Agent](https://hermes-agent.nousresearch.com) instance instead of the
+built-in specialist loop. Atlas still orchestrates, applies policy and holds approvals; the Hermes-backed agent
+brings its own tools (terminal, browser, web search, memory, skills, MCP servers).
+
+1. Deploy an instance: Hostinger "Hermes Agent" one-click VPS, or on any Linux box
+   `curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash`.
+2. In `~/.hermes/.env` set `API_SERVER_ENABLED=true`, `API_SERVER_KEY=<secret>`, `API_SERVER_PORT=8642`,
+   `API_SERVER_HOST=0.0.0.0` and a model key (e.g. `OPENROUTER_API_KEY`); pick the model with
+   `hermes config set model.provider openrouter` / `hermes config set model.default <model>`; run `hermes gateway`.
+   Production: put it behind HTTPS and use a sandboxed terminal backend (Docker), not `local`.
+3. In the portal: Integrations -> add connector kind **Hermes Agent instance** (base_url, api_key) -> Test.
+4. In the Design Studio inspector (or Desk setup) set an agent's **Engine** to *Hermes Agent instance*.
+   Its long-term memory is scoped per desk + agent via `X-Hermes-Session-Key`.
+
+Optional: expose the desk's own tools (CRM, approvals, connectors) to Hermes Agent as an MCP server in its
+`~/.hermes/config.yaml` under `mcp_servers:` so it can queue actions through the same approval gate.
