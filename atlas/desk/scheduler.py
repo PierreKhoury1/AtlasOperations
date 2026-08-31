@@ -87,15 +87,20 @@ def _loop(store, start_run, desk_for):
         try:
             now = time.time()
             for job in store.due_jobs(now):
+                status = "ok"
                 try:
                     result = _run_job(store, job, start_run, desk_for)
+                    if result.startswith(("no IMAP", "desk missing", "connector ", "task must", "unknown job")):
+                        status = "skipped"
                 except Exception as exc:
                     result = f"ERROR {type(exc).__name__}: {str(exc)[:300]}"
+                    status = "error"
                     traceback.print_exc()
                 every = int(job.get("every_min") or 0)
-                fields = {"last_run": time.time(), "last_result": result}
+                fields = {"last_run": time.time(), "last_result": result, "last_status": status}
                 if every > 0:
-                    fields["next_run"] = time.time() + every * 60
+                    # a skipped job (nothing to poll) backs off to hourly instead of hammering every tick
+                    fields["next_run"] = time.time() + (max(every, 60) if status == "skipped" else every) * 60
                 else:
                     fields["enabled"] = 0
                 store.update_job(job["id"], **fields)

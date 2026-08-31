@@ -218,19 +218,24 @@ class OpenAICompatProvider(Provider):
                 msg = err.get("message", msg) if isinstance(err, dict) else (err or msg)
             except Exception:
                 pass
+            if "free-models-per-day" in str(msg):
+                msg = f"{msg} [daily free-model quota exhausted on this OpenRouter account - resets 00:00 UTC; add credits or switch tier]"
             raise RuntimeError(f"HTTP {r.status_code}: {msg}")
 
         fallback = (self.cfg.get("fallback_model") or "").strip()
+        # Wall-clock limits for streamed calls. OpenRouter keeps a queued request alive with ": PROCESSING"
+        # comments, so the socket read timeout alone never fires - without these a throttled model hangs a run forever.
+        limits = {"first_token_s": float(self.cfg.get("first_token_s", 120)), "call_max_s": float(self.cfg.get("call_max_s", 420))}
         with self._httpx.Client(base_url=self.base_url, headers=headers,
                                 timeout=float(self.cfg.get("timeout", 300))) as client:
             try:
-                body = self._once(client, payload, on_token, _raise)
+                body = self._once(client, payload, on_token, _raise, limits)
             except RuntimeError as exc:
                 code = str(exc)[:9]
                 retryable = any(code.startswith(f"HTTP {c}") for c in ("402", "429", "500", "502", "503", "529"))
                 if fallback and fallback != model and retryable:
                     payload["model"] = fallback
-                    body = self._once(client, payload, on_token, _raise)
+                    body = self._once(client, payload, on_token, _raise, limits)
                     body["_fallback_from"] = model
                 else:
                     raise
@@ -255,17 +260,24 @@ class OpenAICompatProvider(Provider):
             model=body.get("model") or model,
         )
 
-    def _once(self, client, payload, on_token, _raise) -> dict[str, Any]:
+    def _once(self, client, payload, on_token, _raise, limits=None) -> dict[str, Any]:
         if not on_token:
             r = client.post("/chat/completions", json=payload)
             if r.status_code >= 400:
                 _raise(r)
             return r.json()
-        return self._stream(client, payload, on_token, _raise)
+        return self._stream(client, payload, on_token, _raise, limits or {})
 
     @staticmethod
-    def _stream(client, payload, on_token, _raise) -> dict[str, Any]:
-        """Consume an OpenAI-style SSE stream; rebuild the same `body` shape the non-stream path returns."""
+    def _stream(client, payload, on_token, _raise, limits=None) -> dict[str, Any]:
+        """Consume an OpenAI-style SSE stream; rebuild the same `body` shape the non-stream path returns.
+        Enforces wall-clock limits: no first token within `first_token_s`, or `call_max_s` overall -> HTTP 504 (retryable)."""
+        import time as _t
+        limits = limits or {}
+        first_s = float(limits.get("first_token_s") or 120)
+        max_s = float(limits.get("call_max_s") or 420)
+        t0 = _t.time()
+        got_any = False
         text_parts: list[str] = []
         calls: dict[int, dict[str, str]] = {}
         finish, usage, model_used = "", {}, ""
@@ -274,8 +286,14 @@ class OpenAICompatProvider(Provider):
                 r.read()
                 _raise(r)
             for line in r.iter_lines():
+                waited = _t.time() - t0
+                if not got_any and waited > first_s:
+                    raise RuntimeError(f"HTTP 504: model stalled - no output after {int(waited)}s (queued or throttled upstream)")
+                if waited > max_s:
+                    raise RuntimeError(f"HTTP 504: model call exceeded {int(max_s)}s")
                 if not line or not line.startswith("data:"):
                     continue
+                got_any = True
                 data = line[5:].strip()
                 if data == "[DONE]":
                     break
@@ -363,6 +381,16 @@ class DemoProvider(Provider):
 
     def chat(self, system, messages, tools, model="", on_token=None):
         import time as _t
+        fault = float(self.cfg.get("fault_rate") or 0)          # soak testing: inject provider failures / stalls
+        if fault > 0:
+            import random
+            roll = random.random()
+            if roll < fault * 0.5:
+                raise RuntimeError("HTTP 429: injected fault - rate limit exceeded (soak)")
+            if roll < fault * 0.8:
+                raise RuntimeError("HTTP 500: injected fault - upstream error (soak)")
+            if roll < fault:
+                _t.sleep(float(self.cfg.get("fault_sleep") or 8))
         _t.sleep(self.delay)
         r = self._chat(system, messages, tools)
         if on_token and r.text:   # simulate token streaming so the live view behaves like a real model

@@ -65,6 +65,10 @@ _feed: list[dict[str, Any]] = []               # global live feed (all desks, in
 _feed_lock = threading.Lock()
 _feed_seq = 0
 _FEED_MAX = 30000
+_last_error: dict[int, dict[str, Any]] = {}     # desk_id -> most recent error event (surfaced on the health panel)
+_alert_sent: dict[str, float] = {}              # alert key -> last notification time (rate limit)
+RUN_MAX_S = float(os.environ.get("RUN_MAX_S", "900"))          # watchdog: a run older than this is killed and marked failed
+_BOOT_TS = time.time()
 
 
 # ---------------------------------------------------------------------------- live feed
@@ -117,7 +121,9 @@ def desk_configs(desk: dict[str, Any]) -> dict[str, Any]:
         a["color"] = _LEGACY_COLOURS.get((a.get("color") or "").lower(), a.get("color"))
     mode = _mode()
     if mode == "demo":
-        providers = {"default_provider": "demo", "providers": {"demo": {"type": "demo", "delay": float(os.environ.get("DEMO_DELAY", "0.6"))}}}
+        providers = {"default_provider": "demo", "providers": {"demo": {"type": "demo", "delay": float(os.environ.get("DEMO_DELAY", "0.6")),
+                                                                        "fault_rate": float(os.environ.get("DEMO_FAULT_RATE", "0") or 0),
+                                                                        "fault_sleep": float(os.environ.get("DEMO_FAULT_SLEEP", "8") or 8)}}}
         for a in agents:
             a["provider"] = "demo"
             a["model"] = ""
@@ -452,16 +458,29 @@ def _start_run(desk: dict[str, Any], task: str, mode: str, lead_id: int | None =
     def emit(ev: Event):
         if ev.kind != "token":                     # deltas are live-only; the full text arrives as a `log` event
             events.append({"ts": ev.ts, "kind": ev.kind, "agent": ev.agent, "text": ev.text, "data": ev.data})
+        if ev.kind == "error":
+            _last_error[desk["id"]] = {"ts": ev.ts, "run_id": orch.run_id, "text": (ev.text or "")[:400]}
         _push_feed(orch.run_id, desk["id"], ev)
 
     orch = Orchestrator(configs, dstore, emit)
     holder: dict[str, Any] = {"events": events, "orch": orch, "task": task, "desk_id": desk["id"], "started": time.time()}
 
     def work():
-        res = orch.run(task, mode)
+        try:
+            res = orch.run(task, mode)
+            status = res.status
+        except BaseException as exc:               # the orchestrator already catches run errors; this is the last line of defence
+            status = "error"
+            msg = f"{type(exc).__name__}: {str(exc)[:300]}"
+            try:
+                dstore.finish_run(orch.run_id, "error", "crashed: " + msg, orch.tokens_in, orch.tokens_out)
+            except Exception:
+                pass
+            _push_feed(orch.run_id, desk["id"], Event(kind="error", agent="system", text="run crashed: " + msg))
+            _push_feed(orch.run_id, desk["id"], Event(kind="done", agent="system", text=msg, data={"status": "error"}))
         holder["ended"] = time.time()
         if lead_id is not None:
-            dstore.set_lead(lead_id, status=("processed" if res.status == "done" else res.status), run_id=res.run_id)
+            dstore.set_lead(lead_id, status=("processed" if status == "done" else status), run_id=orch.run_id)
 
     th = threading.Thread(target=work, daemon=True)
     holder["thread"] = th
@@ -692,6 +711,134 @@ def api_metrics():
 def api_capacity():
     active = sum(1 for r in _runs.values() if r["thread"].is_alive())
     return jsonify(MX.capacity(store, active))
+
+
+# ---------------------------------------------------------------------------- ops: health, alerts, watchdog
+def _health(desk_id: int | None, window_h: float = 24.0) -> dict[str, Any]:
+    now = time.time()
+    since = now - window_h * 3600
+    runs = store.runs_between(since, desk_id)
+    by = {}
+    for r in runs:
+        by[r["status"]] = by.get(r["status"], 0) + 1
+    finished = [r for r in runs if r["status"] in ("done", "error", "failed", "interrupted", "cancelled")]
+    bad = [r for r in finished if r["status"] in ("error", "failed", "interrupted")]
+    durs = sorted((r["ended"] or now) - r["created"] for r in finished if r.get("ended"))
+    p = lambda q: round(durs[min(len(durs) - 1, int(q * len(durs)))], 1) if durs else None
+    with _runs_lock:
+        live = [h for h in _runs.values() if h["thread"].is_alive() and (desk_id is None or h["desk_id"] == desk_id)]
+        stalled = [h for h in live if now - h["started"] > RUN_MAX_S * 0.75]
+    zombies = [r for r in store.running_runs(RUN_MAX_S) if desk_id is None or r["desk_id"] == desk_id]
+    oldest = store.oldest_pending_action(desk_id)
+    jobs = store.jobs(desk_id) if desk_id is not None else []
+    cons = store.connectors(desk_id) if desk_id is not None else []
+    tokens = sum((r["tokens_in"] or 0) + (r["tokens_out"] or 0) for r in runs)
+    err = _last_error.get(desk_id) if desk_id is not None else (max(_last_error.values(), key=lambda e: e["ts"]) if _last_error else None)
+    alerts: list[dict[str, str]] = []
+    if zombies:
+        alerts.append({"level": "critical", "key": "zombie", "text": f"{len(zombies)} run(s) stuck in 'running' beyond the watchdog limit"})
+    if stalled:
+        alerts.append({"level": "warn", "key": "stalled", "text": f"{len(stalled)} live run(s) older than {int(RUN_MAX_S * 0.75 / 60)} min - watchdog will kill at {int(RUN_MAX_S / 60)} min"})
+    if len(finished) >= 5 and len(bad) / len(finished) > 0.2:
+        alerts.append({"level": "critical", "key": "failure_rate", "text": f"failure rate {len(bad)}/{len(finished)} in the last {int(window_h)}h"})
+    elif bad:
+        alerts.append({"level": "warn", "key": "failures", "text": f"{len(bad)} failed run(s) in the last {int(window_h)}h"})
+    if oldest and now - oldest > 24 * 3600:
+        alerts.append({"level": "warn", "key": "approval_age", "text": f"oldest pending approval is {round((now - oldest) / 3600)}h old"})
+    for j in jobs:
+        if j.get("enabled") and j.get("last_status") == "error":
+            alerts.append({"level": "warn", "key": f"job:{j['id']}", "text": f"automation '{j['name']}' failing: {str(j.get('last_result'))[:120]}"})
+    for c in cons:
+        if str(c.get("status") or "").startswith("error"):
+            alerts.append({"level": "warn", "key": f"conn:{c['id']}", "text": f"connector '{c['name']}' unhealthy: {str(c['status'])[:120]}"})
+    if err and now - err["ts"] < 3600:
+        alerts.append({"level": "warn", "key": "provider", "text": "recent error: " + err["text"][:160]})
+    return {
+        "ok": not any(a["level"] == "critical" for a in alerts), "window_h": window_h, "uptime_s": round(now - _BOOT_TS),
+        "runs": {"total": len(runs), "by_status": by, "failure_rate": round(len(bad) / len(finished), 3) if finished else 0.0,
+                 "p50_s": p(0.5), "p90_s": p(0.9), "active": len(live), "stalled": len(stalled), "zombies": len(zombies)},
+        "tokens": tokens, "cost_gbp": round(tokens / 1e6 * 5 * 0.78, 2),
+        "queue": {"pending": len(store.actions("pending", desk_id=desk_id)) if desk_id is not None else None,
+                  "oldest_pending_h": round((now - oldest) / 3600, 1) if oldest else 0},
+        "jobs": [{"id": j["id"], "name": j["name"], "kind": j["kind"], "enabled": bool(j.get("enabled")), "last_status": j.get("last_status") or "",
+                  "last_run": j.get("last_run"), "last_result": (j.get("last_result") or "")[:160]} for j in jobs],
+        "connectors": [{"id": c["id"], "name": c["name"], "kind": c["kind"], "status": (c.get("status") or "untested")[:80]} for c in cons],
+        "last_error": err, "alerts": alerts, "watchdog_s": RUN_MAX_S,
+    }
+
+
+@app.get("/api/health/full")
+def api_health_full():
+    desk = need_desk()
+    return jsonify(_health(desk["id"], float(request.args.get("hours") or 24)))
+
+
+@app.get("/api/health/all")
+def api_health_all():
+    """Cross-desk view for the soak monitor and ops dashboards (open mode / operator only)."""
+    if not OPEN and not current_user():
+        abort(401)
+    return jsonify(_health(None, float(request.args.get("hours") or 24)))
+
+
+def _notify_alerts(desk: dict[str, Any], alerts: list[dict[str, str]]) -> None:
+    """Push critical alerts out through the desk's Slack / email connectors, at most once per hour per alert key."""
+    now = time.time()
+    due = [a for a in alerts if a["level"] == "critical" and now - _alert_sent.get(f"{desk['id']}:{a['key']}", 0) > 3600]
+    if not due:
+        return
+    for a in due:
+        _alert_sent[f"{desk['id']}:{a['key']}"] = now
+    text = f"[Atlas Desk] {desk.get('name')}: " + " | ".join(a["text"] for a in due)
+    try:
+        cons = store.connectors(desk["id"])
+        I.notify(cons, text)
+        to = os.environ.get("ALERT_EMAIL", "").strip()
+        smtp = next((c for c in cons if c["kind"] == "smtp"), None)
+        if to and smtp:
+            I.send_email(smtp["config"], to, "Atlas Desk alert", text)
+    except Exception as exc:
+        print("alert delivery failed:", exc)
+
+
+def _watchdog_loop() -> None:
+    """Every 15s: kill runs past RUN_MAX_S, mark orphaned DB rows failed, push critical alerts."""
+    while True:
+        try:
+            now = time.time()
+            with _runs_lock:
+                holders = list(_runs.items())
+            for rid, h in holders:
+                if h["thread"].is_alive() and now - h["started"] > RUN_MAX_S and not h.get("killed"):
+                    h["killed"] = True
+                    h["orch"].cancel()
+                    msg = f"watchdog: run exceeded {int(RUN_MAX_S)}s and was killed"
+                    store.finish_run(rid, "failed", msg, h["orch"].tokens_in, h["orch"].tokens_out)
+                    _push_feed(rid, h["desk_id"], Event(kind="error", agent="system", text=msg))
+                    _push_feed(rid, h["desk_id"], Event(kind="done", agent="system", text=msg, data={"status": "failed"}))
+                    _last_error[h["desk_id"]] = {"ts": now, "run_id": rid, "text": msg}
+                    h["ended"] = now
+            live_ids = {rid for rid, h in holders if h["thread"].is_alive()}
+            acted: dict[int, list[str]] = {}
+            for rid, h in holders:
+                if h.get("killed") and not h.get("reported"):
+                    h["reported"] = True
+                    acted.setdefault(h["desk_id"], []).append(f"killed {rid} after {int(RUN_MAX_S)}s")
+            for r in store.running_runs(RUN_MAX_S):
+                if r["id"] not in live_ids:                      # DB says running, nothing in memory owns it
+                    store.finish_run(r["id"], "failed", "lost: no worker owns this run (crashed or restarted)", 0, 0)
+                    _last_error[r["desk_id"]] = {"ts": now, "run_id": r["id"], "text": "lost run marked failed by watchdog"}
+                    acted.setdefault(r["desk_id"], []).append(f"marked lost run {r['id']} failed")
+            for d in store.all_desks():
+                hz = _health(d["id"], 24)
+                alerts = list(hz["alerts"])
+                if acted.get(d["id"]):
+                    alerts.append({"level": "critical", "key": "watchdog", "text": "watchdog acted: " + "; ".join(acted[d["id"]])})
+                if any(a["level"] == "critical" for a in alerts):
+                    _notify_alerts(d, alerts)
+        except Exception as exc:
+            print("watchdog error:", exc)
+        time.sleep(15)
 
 
 @app.get("/api/report")
@@ -1181,7 +1328,11 @@ def hook_sms(token):
     return Response("<?xml version=\"1.0\" encoding=\"UTF-8\"?><Response></Response>", mimetype="application/xml", headers={"X-Atlas-Run": rid})
 
 
+_n_interrupted = store.mark_interrupted()            # restart recovery: nothing can still be running from a previous process
+if _n_interrupted:
+    print(f"marked {_n_interrupted} orphaned run(s) as interrupted")
 scheduler.start(store, _start_run, store.desk)
+threading.Thread(target=_watchdog_loop, daemon=True, name="atlas-watchdog").start()
 
 
 def main():

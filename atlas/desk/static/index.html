@@ -30,6 +30,7 @@ nav button.on{background:var(--accent-soft);color:var(--accent)}
 nav button .pill{margin-left:auto;background:var(--panel2);color:var(--muted);border-radius:4px;padding:0 6px;font-size:11px;font-weight:600;min-width:20px;text-align:center}
 nav button.on .pill{background:#fff;color:var(--accent)}
 nav button .dot{margin-left:auto}
+nav button.alert::after{content:"";width:7px;height:7px;border-radius:50%;background:var(--danger);margin-left:auto}
 aside .mode{margin-top:auto;border-top:1px solid var(--line);padding:12px 10px 4px;font-size:12px;color:var(--muted)}
 aside .mode b{color:var(--accent)}
 aside .mode .u{display:flex;align-items:center;gap:9px;margin-bottom:10px}
@@ -263,6 +264,8 @@ tr.click{cursor:pointer}tr.click:hover{background:var(--panel2)}
     <div class="panel"><div class="ph"><h2>Live activity</h2><button class="link" onclick="go('audit')">Explore ›</button></div><div class="pb"><div class="log" id="dash-log" style="max-height:340px;border:0;padding:0;background:transparent">(nothing yet)</div></div></div>
     <div class="panel"><div class="ph"><h2>Agents on this desk</h2><button class="link" onclick="go('setup')">Explore ›</button></div><div class="pb" id="agents"></div></div>
   </div>
+  <div class="panel" style="margin-top:14px"><div class="ph"><h2>System health</h2><span id="hz-badge" class="tag">…</span></div>
+    <div class="pb" id="hz-body"><div class="empty">Loading…</div></div></div>
   <div class="panel" style="margin-top:14px"><div class="ph"><h2>How a lead flows</h2><span style="color:var(--faint);font-size:12px">Nothing leaves without approval — email, WhatsApp, SMS, publishing, refunds, contracts</span></div>
     <div class="pb"><div class="stepper" id="flow"><span>Lead in</span><span>Atlas plans</span><span>Research</span><span>Draft</span><span>QA</span><span>CRM update</span><span>Approval queue</span><span>You approve</span><span>Sent + logged</span></div></div></div>
 </section>
@@ -427,7 +430,7 @@ async function refresh(){
   $('#n-leads').textContent = s.leads; $('#n-pending').textContent = s.pending;
   $('#k-leads').textContent = s.leads; $('#k-pending').textContent = s.pending; $('#k-sent').textContent = s.approved; $('#k-qual').textContent = s.qualified; $('#k-active').textContent = s.active_runs; $('#d-dot').classList.toggle('live', s.active_runs > 0); $('#k-tok').textContent = ((s.tokens_in||0)+(s.tokens_out||0)).toLocaleString(); $('#k-cost').textContent = 'model cost £' + (((s.tokens_in||0)*5+(s.tokens_out||0)*25)/1e6*0.78).toFixed(2);
   $('#n-live').classList.toggle('live', s.active_runs > 0);
-  if (page==='dash') loadDashLog();
+  if (page==='dash') { loadDashLog(); loadHealth(); }
   if (page==='live') liveRefreshList();
   if (page==='leads') loadLeads();
   if (page==='approvals') loadApprovals();
@@ -741,6 +744,20 @@ async function addPreset(k){
   const r = await api('/jobs', {method:'POST', body}); if (r && !r.error) { toast(k==='inbox_watch' ? 'Inbox watcher on — needs an IMAP connector' : 'Follow-up chaser on'); loadJobs(); }
 }
 
+let _hzT = 0;
+async function loadHealth(){
+  if (Date.now() - _hzT < 10000) return; _hzT = Date.now();
+  const h = await api('/health/full'); if (!h || h.error) return;
+  const badge = $('#hz-badge'); badge.textContent = h.ok ? 'healthy' : 'attention'; badge.className = 'tag ' + (h.ok ? 'done' : 'error');
+  const navBtn = document.querySelector('#nav button[data-p="dash"]'); if (navBtn) navBtn.classList.toggle('alert', !h.ok);
+  const r = h.runs, fmt = v => v == null ? '–' : v + 's';
+  const stat = (k, v, sub) => `<div class="kpi"><span>${k}</span><b style="font-size:20px">${v}</b><small>${sub||''}</small></div>`;
+  const alerts = h.alerts.length ? h.alerts.map(a => `<div class="flag" style="${a.level==='critical'?'':'background:#fff8e6;border-color:#f1d27a;color:#7a5200'}">${esc(a.text)}</div>`).join('') : '<div class="hint" style="margin:0 0 10px">No alerts. Watchdog limit ' + Math.round(h.watchdog_s/60) + ' min per run; runs past it are killed and marked failed.</div>';
+  const jobs = h.jobs.length ? `<table style="margin-top:10px"><tr><th>Automation</th><th>Last</th><th>Result</th></tr>` + h.jobs.map(j => `<tr><td><b>${esc(j.name)}</b> <span class="model">${esc(j.kind)}${j.enabled?'':' · off'}</span></td><td><span class="tag ${j.last_status==='error'?'error':(j.last_status==='ok'?'done':'')}">${esc(j.last_status||'never')}</span> <span class="hint" style="margin:0">${j.last_run?hms(j.last_run):''}</span></td><td class="model">${esc(j.last_result)}</td></tr>`).join('') + '</table>' : '';
+  const cons = h.connectors.length ? `<div class="row" style="margin-top:10px">${h.connectors.map(c => `<span class="tag ${String(c.status).startsWith('ok')?'done':(String(c.status).startsWith('error')?'error':'')}">${esc(c.name)} · ${esc(String(c.status).split(':')[0])}</span>`).join('')}</div>` : '';
+  const err = h.last_error ? `<div class="hint" style="margin-top:10px">Last error ${hms(h.last_error.ts)} · run ${esc(h.last_error.run_id||'')}: <span class="model">${esc(h.last_error.text)}</span></div>` : '';
+  $('#hz-body').innerHTML = alerts + `<div class="grid g5">${stat('Runs · 24h', r.total, Object.entries(r.by_status).map(([k,v])=>k+' '+v).join(' · ') || 'none')}${stat('Failure rate', Math.round(r.failure_rate*100)+'%', `${r.zombies} zombie · ${r.stalled} stalled · ${r.active} live`)}${stat('Run time p50 / p90', fmt(r.p50_s)+' / '+fmt(r.p90_s), 'finished runs')}${stat('Approval queue', h.queue.pending ?? 0, 'oldest ' + h.queue.oldest_pending_h + 'h')}${stat('Tokens · 24h', (h.tokens||0).toLocaleString(), '≈ £' + h.cost_gbp + ' on Sonnet · up ' + Math.round(h.uptime_s/3600) + 'h')}</div>` + jobs + cons + err;
+}
 async function loadMem(){ const M = await api('/memory'); if(!M) return; $('#mem-list').innerHTML = M.length ? `<table><tr><th>Key</th><th>Value</th><th>Source</th><th></th></tr>` + M.map(m=>`<tr><td><b>${esc(m.key)}</b></td><td class="md">${esc(m.value)}</td><td class="hint">${esc(m.source||'')}</td><td><button class="btn sm d" onclick="api('/memory/${encodeURIComponent(m.key)}',{method:'DELETE',body:{}}).then(loadMem)">✕</button></td></tr>`).join('') + '</table>' : '<div class="empty">Nothing remembered yet.</div>'; }
 async function addMem(){ const k=$('#m-key').value.trim(), v=$('#m-val').value.trim(); if(!k) return; await api('/memory',{method:'POST',body:{key:k,value:v}}); $('#m-key').value=''; $('#m-val').value=''; loadMem(); }
 init();

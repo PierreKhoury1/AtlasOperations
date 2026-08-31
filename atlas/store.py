@@ -66,6 +66,8 @@ _MIGRATIONS = [
     ("actions", "flags", "TEXT DEFAULT ''"),
     ("leads", "desk_id", "INTEGER DEFAULT 1"),
     ("desks", "hook_token", "TEXT"),
+    ("jobs", "last_status", "TEXT DEFAULT ''"),
+    ("runs", "ended", "REAL"),
 ]
 
 STAGES = ("New", "Contacted", "Qualified", "Proposal", "Won", "Lost")
@@ -236,7 +238,7 @@ class Store:
         return _rows(self._conn.execute("SELECT * FROM jobs WHERE enabled=1 AND next_run IS NOT NULL AND next_run<=? ORDER BY next_run", (now,)))
 
     def update_job(self, jid: int, **fields) -> None:
-        fields = {k: v for k, v in fields.items() if k in ("name", "task", "every_min", "next_run", "last_run", "last_result", "enabled")}
+        fields = {k: v for k, v in fields.items() if k in ("name", "task", "every_min", "next_run", "last_run", "last_result", "last_status", "enabled")}
         if not fields:
             return
         with self._lock:
@@ -284,9 +286,34 @@ class Store:
 
     def finish_run(self, run_id: str, status: str, summary: str, tin: int, tout: int) -> None:
         with self._lock:
-            self._conn.execute("UPDATE runs SET status=?, summary=?, tokens_in=?, tokens_out=? WHERE id=?",
-                               (status, summary, tin, tout, run_id))
+            self._conn.execute("UPDATE runs SET status=?, summary=?, tokens_in=?, tokens_out=?, ended=? WHERE id=?",
+                               (status, summary, tin, tout, time.time(), run_id))
             self._conn.commit()
+
+    def running_runs(self, older_than_s: float = 0) -> list[dict[str, Any]]:
+        """Runs still marked running (optionally only those older than N seconds)."""
+        return _rows(self._conn.execute("SELECT id,created,task,mode,status,desk_id FROM runs WHERE status='running' AND created<=? ORDER BY created",
+                                        (time.time() - older_than_s,)))
+
+    def mark_interrupted(self, reason: str = "server restarted") -> int:
+        """Anything still 'running' when the process starts cannot be running - mark it so it never shows as live."""
+        with self._lock:
+            cur = self._conn.execute("UPDATE runs SET status='interrupted', summary=?, ended=? WHERE status='running'", (reason, time.time()))
+            self._conn.commit()
+            return cur.rowcount
+
+    def runs_between(self, since: float, desk_id: int | None = None) -> list[dict[str, Any]]:
+        q, args = "SELECT id,created,ended,status,tokens_in,tokens_out,desk_id,summary FROM runs WHERE created>=?", [since]
+        if desk_id is not None:
+            q += " AND desk_id=?"; args.append(desk_id)
+        return _rows(self._conn.execute(q + " ORDER BY created", args))
+
+    def oldest_pending_action(self, desk_id: int | None = None) -> float | None:
+        q, args = "SELECT MIN(created) FROM actions WHERE status='pending'", []
+        if desk_id is not None:
+            q += " AND desk_id=?"; args.append(desk_id)
+        v = self._conn.execute(q, args).fetchone()[0]
+        return float(v) if v else None
 
     def add_event(self, run_id: str, kind: str, agent: str, text: str) -> None:
         with self._lock:
