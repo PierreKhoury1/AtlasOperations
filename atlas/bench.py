@@ -104,7 +104,13 @@ def run_cell(prov, model: str, task: dict[str, Any], forced_tools, run_dir: Path
                     results.append((c.id, c.name, f"{type(exc).__name__}: {exc}", True))
             messages.extend(prov.tool_results(results))
         else:
-            err = "hit max turns"
+            # same rule as the production orchestrator: out of tool turns -> forced no-tools synthesis
+            err = "hit max turns (synthesised)"
+            r = prov.chat(task["system"], messages + [prov.user_message(
+                "You are out of tool turns. Write your best final answer NOW from what you gathered; say what you could not verify.")], [], model)
+            turns += 1
+            tin += r.input_tokens; tout += r.output_tokens
+            text = r.text
     except Exception as exc:
         err = f"{type(exc).__name__}: {str(exc)[:200]}"
     secs = round(time.time() - t0, 1)
