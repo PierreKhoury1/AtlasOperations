@@ -269,7 +269,7 @@ class Orchestrator:
             kind = str(args.get("kind", "other")); to = str(args.get("to", ""))
             subject = str(args.get("subject", "") or ""); body = str(args.get("body", ""))
             reason = str(args.get("reason", "") or "")
-            violations = P.check_outbound(kind, subject, body, self.business)
+            violations = P.check_outbound(kind, subject, body, self.business, known_text=getattr(self, "_task", ""))
             key = (kind, to)
             self._policy_hits[key] = self._policy_hits.get(key, 0) + (1 if violations else 0)
             flags = ""
@@ -388,6 +388,7 @@ class Orchestrator:
     # ------------------------------------------------------------------ entry
     def run(self, task: str, mode: str = "auto") -> RunResult:
         self._cancel.clear()
+        self._task = task
         self.tokens_in = self.tokens_out = 0
         self.deliverables = []
         self._policy_hits = {}

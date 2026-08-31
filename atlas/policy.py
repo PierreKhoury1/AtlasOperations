@@ -6,6 +6,7 @@ sensible defaults, so a desk template can tighten or relax them without touching
 """
 from __future__ import annotations
 
+import json
 import re
 from typing import Any
 
@@ -35,8 +36,16 @@ def rules_for(business: dict[str, Any]) -> dict[str, Any]:
     return r
 
 
-def check_outbound(kind: str, subject: str, body: str, business: dict[str, Any]) -> list[str]:
-    """Return a list of human-readable violations (empty = clean)."""
+_PHONE = re.compile(r"(?:\+44\s?\(?0?\)?\s?\d(?:[\s-]?\d){8,10}|\b0\d{3,4}[\s-]?\d{3}[\s-]?\d{3,4}\b|\b0\d{10}\b)")
+
+
+def _digits(s: str) -> str:
+    return re.sub(r"\D", "", s or "")
+
+
+def check_outbound(kind: str, subject: str, body: str, business: dict[str, Any], known_text: str = "") -> list[str]:
+    """Return a list of human-readable violations (empty = clean).
+    `known_text` (e.g. the task/lead text) whitelists phone numbers the recipient themselves supplied."""
     r = rules_for(business)
     text = f"{subject}\n{body}"
     out: list[str] = []
@@ -48,6 +57,13 @@ def check_outbound(kind: str, subject: str, body: str, business: dict[str, Any])
         m = _PLACEHOLDER.search(text)
         if m:
             out.append(f"placeholder left in: '{m.group(0)}' — fill it in or remove it")
+    # invented contact details: any phone number must come from the business profile or the conversation itself
+    known = _digits(json.dumps(business, ensure_ascii=False)) + " " + _digits(known_text)
+    for m in _PHONE.finditer(text):
+        d = _digits(m.group(0))
+        if len(d) >= 10 and d[-9:] not in known:
+            out.append(f"phone number not on file: '{m.group(0).strip()}' — never invent contact details; use the business number or leave it out")
+            break
     if r["plain_text"] and kind in ("email", "whatsapp", "sms"):
         m = _MARKDOWN.search(body)
         if m:
