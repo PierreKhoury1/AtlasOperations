@@ -266,6 +266,8 @@ tr.click{cursor:pointer}tr.click:hover{background:var(--panel2)}
     <div class="card kpi"><span>Qualified contacts</span><b id="k-qual">0</b><small>in CRM</small></div>
     <div class="card kpi"><span>Tokens used</span><b id="k-tok">0</b><small id="k-cost">model cost £0.00</small></div>
   </div>
+  <div class="panel" style="margin-bottom:14px"><div class="ph"><h2>Give the team a job</h2><span class="hint">any task — the agents plan, research, draft; anything outbound waits for your approval</span></div>
+    <div class="pb"><div class="row"><input id="d-task" placeholder="e.g. Research our 5 nearest competitors and draft a one-page comparison · Chase every quote that went quiet this month · Prepare Monday's client update" style="flex:1" onkeydown="if(event.key==='Enter')dashTask()"><button class="btn p" onclick="dashTask()">Deploy the team →</button></div></div></div>
   <div class="grid g2" style="grid-template-columns:1.5fr 1fr">
     <div class="panel"><div class="ph"><h2>Live activity</h2><button class="link" onclick="go('audit')">Explore ›</button></div><div class="pb"><div class="log" id="dash-log" style="max-height:340px;border:0;padding:0;background:transparent">(nothing yet)</div></div></div>
     <div class="panel"><div class="ph"><h2>Agents on this desk</h2><button class="link" onclick="go('setup')">Explore ›</button></div><div class="pb" id="agents"></div></div>
@@ -493,6 +495,7 @@ async function loadCrm(){
 }
 async function stage(contact, s){ await api('/contacts', {method:'POST', body:{contact, fields:{stage:s}}}); toast('Stage → '+s); }
 
+async function dashTask(){ const t=$('#d-task').value.trim(); if(!t) return; const r = await api('/runs', {method:'POST', body:{task:t, mode:'auto'}}); if(!r||r.error) return toast(r?.error||'failed'); $('#d-task').value=''; toast('Team deployed — watching live'); curRun=r.run_id; liveWant=r.run_id; go('live'); }
 async function runTask(){ const t=$('#r-task').value.trim(); if(!t) return; const r = await api('/runs', {method:'POST', body:{task:t, mode:$('#r-mode').value}}); $('#r-task').value=''; curRun=r.run_id; loadRuns(); loadRun(curRun); }
 async function loadRuns(){
   const R = await api('/runs');

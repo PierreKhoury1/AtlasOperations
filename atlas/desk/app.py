@@ -140,21 +140,32 @@ def desk_configs(desk: dict[str, Any]) -> dict[str, Any]:
         else:
             for a in agents:
                 a["model"] = ""
-    # agents flagged engine=hermes_agent run ON the desk's Hermes Agent instance (its own tools, memory, skills).
-    # Works in demo mode too when a connector exists (the connector decides), otherwise the flag is ignored.
-    if any(a.get("engine") == "hermes_agent" for a in agents):
-        hconn = next((c for c in store.connectors(desk["id"]) if c["kind"] == "hermes_agent"), None)
-        for a in agents:
-            if a.get("engine") != "hermes_agent":
-                continue
-            if not hconn:
-                a["engine_note"] = "no Hermes Agent connector on this desk - running on the built-in engine"
-                continue
-            pname = f"hermes_agent_{a['id']}"
-            providers.setdefault("providers", {})[pname] = {"type": "hermes_agent", "base_url": hconn["config"].get("base_url", ""),
-                                                             "api_key": hconn["config"].get("api_key", ""),
-                                                             "session_key": f"{hconn['config'].get('session_prefix') or 'atlas'}:desk{desk['id']}:{a['id']}"}
-            a["provider"], a["model"], a["tools"] = pname, "hermes-agent", []
+    # Hermes Agent engine (the real Nous Research agent, via its API server). Config comes from the desk's
+    # hermes_agent connector, or globally from HERMES_AGENT_URL / HERMES_AGENT_KEY env. When
+    # DESK_DEFAULT_ENGINE=hermes_agent, every specialist runs on it unless the agent explicitly says engine=atlas.
+    # Atlas itself stays on our loop - the API server executes its own tools and cannot call delegate/queue_action.
+    hcfg: dict[str, Any] | None = None
+    hconn = next((c for c in store.connectors(desk["id"]) if c["kind"] == "hermes_agent"), None)
+    if hconn:
+        hcfg = hconn["config"]
+    elif os.environ.get("HERMES_AGENT_URL", "").strip():
+        hcfg = {"base_url": os.environ["HERMES_AGENT_URL"].strip(), "api_key": os.environ.get("HERMES_AGENT_KEY", "").strip(),
+                "session_prefix": "atlas"}
+    default_hermes = os.environ.get("DESK_DEFAULT_ENGINE", "").strip().lower() == "hermes_agent" and mode != "demo"
+    for a in agents:
+        if a["id"] == "atlas":
+            continue
+        wants = a.get("engine") == "hermes_agent" or (default_hermes and a.get("engine") != "atlas")
+        if not wants:
+            continue
+        if not hcfg:
+            a["engine_note"] = "no Hermes Agent instance configured - running on the built-in engine"
+            continue
+        pname = f"hermes_agent_{a['id']}"
+        providers.setdefault("providers", {})[pname] = {"type": "hermes_agent", "base_url": hcfg.get("base_url", ""),
+                                                         "api_key": hcfg.get("api_key", ""),
+                                                         "session_key": f"{hcfg.get('session_prefix') or 'atlas'}:desk{desk['id']}:{a['id']}"}
+        a["provider"], a["model"], a["tools"], a["engine"] = pname, "hermes-agent", [], "hermes_agent"
     return {"providers": providers, "orchestration": cfg.load("orchestration", cfg.DEFAULT_ORCHESTRATION),
             "business": business, "agents": agents, "workflows": workflows, "ui": {}, "mode": mode,
             "desk_id": desk["id"]}

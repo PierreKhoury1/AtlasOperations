@@ -10,3 +10,4 @@ workspace/inputs/*
 templates/*.json
 *.png
 !site/img/*
+config/hermes_agent.key
