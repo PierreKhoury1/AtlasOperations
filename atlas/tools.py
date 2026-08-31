@@ -251,6 +251,10 @@ class WorkspaceTools:
         max_chars = min(max_chars, 12000)
         if not re.match(r"^https?://", url):
             return "error: only http(s) URLs"
+        from . import secure as SEC
+        reason = SEC.private_url_reason(url)
+        if reason:
+            return f"error: refused - {reason}. Agent fetches may only target public addresses."
         try:
             r = httpx.get(url, follow_redirects=True, timeout=30,
                           headers={"User-Agent": "Atlas/0.1 (+desktop research agent)"})

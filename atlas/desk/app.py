@@ -217,6 +217,37 @@ def ds():
     return store.for_desk(need_desk()["id"])
 
 
+from .. import secure as SEC
+
+_RL_HOOK = SEC.RateLimiter(int(os.environ.get("RL_HOOK_PER_MIN", "30")), 60)          # per token+IP
+_RL_AUTH = SEC.RateLimiter(int(os.environ.get("RL_AUTH_PER_10MIN", "20")), 600)       # per IP: login/signup attempts
+_RL_MODEL = SEC.RateLimiter(int(os.environ.get("RL_MODEL_PER_MIN", "20")), 60)        # per IP: model-backed design calls
+
+
+@app.after_request
+def _security_headers(resp):
+    resp.headers.setdefault("X-Content-Type-Options", "nosniff")
+    resp.headers.setdefault("X-Frame-Options", "DENY")
+    resp.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+    resp.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=()")
+    if os.environ.get("RENDER"):
+        resp.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+    return resp
+
+
+@app.before_request
+def _rate_limits():
+    ip = (request.headers.get("X-Forwarded-For", "").split(",")[0].strip() or request.remote_addr or "?")
+    p = request.path
+    if p.startswith("/hook/") and not _RL_HOOK.allow(f"{p}:{ip}"):
+        return Response(json.dumps({"error": "rate limited"}), 429, mimetype="application/json")
+    if request.method == "POST" and p in ("/login", "/signup", "/desk/login") and not _RL_AUTH.allow(ip):
+        return Response(json.dumps({"error": "too many attempts - wait a few minutes"}), 429, mimetype="application/json")
+    if request.method == "POST" and p.startswith("/api/design/") and (p.endswith("/say") or p.endswith("/study")) and not _RL_MODEL.allow(ip):
+        return Response(json.dumps({"error": "rate limited - slow down a little"}), 429, mimetype="application/json")
+    return None
+
+
 @app.before_request
 def _guard():
     if OPEN:                                   # open test mode: no accounts anywhere, auth pages go straight to the desk
@@ -1435,6 +1466,11 @@ def hook_sms(token):
 _n_interrupted = store.mark_interrupted()            # restart recovery: nothing can still be running from a previous process
 if _n_interrupted:
     print(f"marked {_n_interrupted} orphaned run(s) as interrupted")
+_n_enc = store.encrypt_legacy_connectors()           # secrets at rest: encrypt any plaintext connector rows from before
+if _n_enc:
+    print(f"encrypted {_n_enc} legacy connector config(s)")
+if OPEN and os.environ.get("RENDER"):
+    print("WARNING: DESK_OPEN=1 on a public deployment - the portal and every desk are reachable without login")
 scheduler.start(store, _start_run, store.desk)
 threading.Thread(target=_watchdog_loop, daemon=True, name="atlas-watchdog").start()
 

@@ -108,6 +108,10 @@ _BROWSER_UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KH
 def _fetch(url: str, timeout: float = 15.0) -> tuple[int, str, str]:
     """Honest UA first; many small-business hosts (Cloudflare, Wix, WAFs) 403 unknown agents, so retry as a browser."""
     import httpx
+    from . import secure as SEC
+    reason = SEC.private_url_reason(url)
+    if reason:
+        return 403, url, ""                      # never study internal address space
     hdrs = {"User-Agent": UA, "Accept": "text/html,*/*;q=0.8", "Accept-Language": "en-GB,en;q=0.9"}
     r = httpx.get(url, follow_redirects=True, timeout=timeout, headers=hdrs)
     if r.status_code in (401, 403, 406, 429, 503):

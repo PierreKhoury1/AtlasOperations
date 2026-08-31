@@ -156,26 +156,41 @@ class Store:
 
     # ------------------------------------------------------------------ connectors
     def add_connector(self, desk_id: int, kind: str, name: str, config: dict[str, Any], auto: bool = False) -> dict[str, Any]:
+        from . import secure as SEC
         with self._lock:
             cur = self._conn.execute("INSERT INTO connectors(desk_id,kind,name,config,auto,created) VALUES(?,?,?,?,?,?)",
-                                     (desk_id, kind, name.strip(), json.dumps(config), 1 if auto else 0, time.time()))
+                                     (desk_id, kind, name.strip(), SEC.encrypt_config(config), 1 if auto else 0, time.time()))
             self._conn.commit()
             return self.connector(cur.lastrowid)  # type: ignore[return-value]
 
     def connector(self, cid: int) -> dict[str, Any] | None:
+        from . import secure as SEC
         rows = _rows(self._conn.execute("SELECT * FROM connectors WHERE id=?", (cid,)))
         if not rows:
             return None
         c = rows[0]
-        c["config"] = json.loads(c.get("config") or "{}")
+        c["config"] = SEC.decrypt_config(c.get("config"))
         return c
 
     def connectors(self, desk_id: int) -> list[dict[str, Any]]:
+        from . import secure as SEC
         out = []
         for c in _rows(self._conn.execute("SELECT * FROM connectors WHERE desk_id=? ORDER BY created", (desk_id,))):
-            c["config"] = json.loads(c.get("config") or "{}")
+            c["config"] = SEC.decrypt_config(c.get("config"))
             out.append(c)
         return out
+
+    def encrypt_legacy_connectors(self) -> int:
+        """Boot migration: encrypt any connector row still stored as plaintext JSON. Returns rows converted."""
+        from . import secure as SEC
+        n = 0
+        with self._lock:
+            for cid, cfg in self._conn.execute("SELECT id, config FROM connectors").fetchall():
+                if cfg and not SEC.is_encrypted(cfg):
+                    self._conn.execute("UPDATE connectors SET config=? WHERE id=?", (SEC.encrypt_config(SEC.decrypt_config(cfg)), cid))
+                    n += 1
+            self._conn.commit()
+        return n
 
     def connector_by_name(self, desk_id: int, name: str) -> dict[str, Any] | None:
         n = (name or "").strip().lower()
@@ -183,8 +198,10 @@ class Store:
 
     def update_connector(self, cid: int, **fields) -> None:
         fields = {k: v for k, v in fields.items() if k in ("name", "config", "auto", "status", "last_test")}
-        if "config" in fields and not isinstance(fields["config"], str):
-            fields["config"] = json.dumps(fields["config"])
+        if "config" in fields:
+            from . import secure as SEC
+            cfg = fields["config"]
+            fields["config"] = SEC.encrypt_config(cfg if isinstance(cfg, dict) else SEC.decrypt_config(cfg))
         if not fields:
             return
         with self._lock:
