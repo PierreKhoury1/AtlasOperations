@@ -227,7 +227,20 @@ class Orchestrator:
                 final_text = finished[2]
                 break
         else:
-            self.emit("log", agent_id, f"(hit max iterations {max_iter})")
+            # ran out of turns mid-tool-use: never return nothing - one final no-tools call to synthesise what we have
+            self.emit("log", agent_id, f"(hit max iterations {max_iter} — synthesising from what was gathered)")
+            try:
+                resp3 = provider.chat(self.system_prompt(agent), messages + [provider.user_message(
+                    "You are out of tool turns. Write your best final answer NOW from what you already gathered. "
+                    "State clearly what you could not verify.")], [], model, on_token=on_token)
+                with self._usage_lock:
+                    self.tokens_in += resp3.input_tokens
+                    self.tokens_out += resp3.output_tokens
+                if resp3.text:
+                    self.emit("log", agent_id, resp3.text)
+                    final_text = resp3.text
+            except Exception as exc:
+                self.emit("error", agent_id, f"final synthesis failed: {exc}")
         preview = re.sub(r"\s+", " ", (final_text or "")).strip()[:400]
         self.emit("agent_end", agent_id, f"{agent['name']} done" + (f" — {preview}" if preview else ""), depth=depth)
         return final_text or "(no output)"

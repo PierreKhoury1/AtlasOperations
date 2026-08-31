@@ -198,6 +198,39 @@ def crawl(links: list[str], on_status: Callable[[str], None] | None = None) -> d
     return {"pages": pages, "signals": signals, "platform": platform, "nav": list(dict.fromkeys(nav_labels))[:30], "errors": errors}
 
 
+def _hermes_browse(links: list[str], say: Callable[[str], None]) -> list[dict[str, Any]]:
+    """Last-resort reader for bot-walled sites: a configured Hermes Agent opens the page with its own browser/tools
+    and returns the text. Uses HERMES_AGENT_URL/KEY env (the same instance that powers the hermes_agent engine)."""
+    import os
+    url = os.environ.get("HERMES_AGENT_URL", "").strip()
+    key = os.environ.get("HERMES_AGENT_KEY", "").strip()
+    if not url or not key:
+        return []
+    import httpx
+    pages = []
+    for raw in [_clean(x) for x in links][:2]:
+        if not raw:
+            continue
+        say(f"Site blocks crawlers — asking Hermes Agent to open {urlparse(raw).netloc}")
+        try:
+            r = httpx.post(url.rstrip("/") + "/v1/chat/completions",
+                           headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json",
+                                    "X-Hermes-Session-Key": "atlas:study"},
+                           timeout=180,
+                           json={"model": "hermes-agent", "messages": [{
+                               "role": "user",
+                               "content": (f"Open {raw} with your tools and return ONLY the page's visible text content "
+                                           f"(first ~4000 characters), starting with the page title on the first line. "
+                                           f"No commentary, no summary - the raw readable text.")}]})
+            txt = ((r.json().get("choices") or [{}])[0].get("message") or {}).get("content", "") if r.status_code < 400 else ""
+        except Exception:
+            txt = ""
+        if txt and len(txt) > 300:
+            lines = txt.strip().splitlines()
+            pages.append({"url": raw, "title": lines[0][:80], "text": txt[:PAGE_CHARS * 2], "home": True})
+    return pages
+
+
 def signal_labels(signals: dict[str, int]) -> list[str]:
     lab = {k: l for k, l, _ in SIGNALS}
     return [lab[k] for k in lab if k in signals]
@@ -274,6 +307,11 @@ def study(links: list[str], on_status: Callable[[str], None] | None = None, prov
     say = on_status or (lambda s: None)
     t0 = time.time()
     cr = crawl(links, say)
+    if not cr["pages"]:
+        hp = _hermes_browse(links, say)                # bot-walled site: let the Hermes Agent's own browser read it
+        if hp:
+            cr["pages"] = hp
+            cr["errors"].append("direct crawl blocked - pages read via Hermes Agent browser")
     base = heuristic_profile(cr, links)
     if not cr["pages"]:
         base["opening_message"] = ("I couldn't read those links (" + "; ".join(cr["errors"][:3]) + "). Tell me what the business does "
@@ -287,13 +325,22 @@ def study(links: list[str], on_status: Callable[[str], None] | None = None, prov
     corpus = "\n\n".join(f"### {p['title'] or p['url']} ({p['url']})\n{p['text'][:2500]}" for p in cr["pages"])[:14000]
     sig = ", ".join(signal_labels(cr["signals"])) or "none detected"
     user = (f"LINKS: {', '.join(links)}\nSIGNALS: {sig}\nPLATFORM: {cr['platform'] or 'unknown'}\nNAV: {', '.join(cr['nav'][:25])}\n\nPAGES:\n{corpus}")
+    data = None
     try:
         r = provider.chat(STUDY_PROMPT, [provider.user_message(user)], [], model or "")
         txt = (r.text or "").strip()
         m = re.search(r"\{.*\}", txt, re.S)
-        data = json.loads(m.group(0)) if m else None
+        if not m:
+            base["model_error"] = f"no JSON in profile reply ({len(txt)} chars): {txt[:120]!r}"
+        else:
+            try:
+                data = json.loads(m.group(0))
+            except json.JSONDecodeError as exc:
+                from .designer import _loose_json
+                data = _loose_json(m.group(0))
+                if data is None:
+                    base["model_error"] = f"profile JSON unparseable at char {exc.pos}: {m.group(0)[max(0, exc.pos - 60):exc.pos + 20]!r}"
     except Exception as exc:
-        data = None
         base["model_error"] = f"{type(exc).__name__}: {str(exc)[:160]}"
     if isinstance(data, dict) and data.get("opening_message"):
         for k in ("name", "summary", "sector", "services", "locations", "customers", "team_hint", "channels", "tech", "tone",

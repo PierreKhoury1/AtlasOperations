@@ -240,6 +240,8 @@ class OpenAICompatProvider(Provider):
                     body["_fallback_from"] = model
                 else:
                     raise
+        if not body.get("choices"):                     # OpenRouter can return 200 with an error body and no choices
+            raise RuntimeError(f"HTTP 502: provider returned no choices: {json.dumps(body)[:200]}")
         choice = body["choices"][0]
         message = choice["message"]
         calls = []
