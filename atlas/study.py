@@ -102,11 +102,44 @@ def _links(html: str, base: str) -> list[tuple[str, str]]:
     return out
 
 
+_BROWSER_UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36")
+
+
 def _fetch(url: str, timeout: float = 15.0) -> tuple[int, str, str]:
+    """Honest UA first; many small-business hosts (Cloudflare, Wix, WAFs) 403 unknown agents, so retry as a browser."""
     import httpx
-    r = httpx.get(url, follow_redirects=True, timeout=timeout, headers={"User-Agent": UA, "Accept": "text/html,*/*;q=0.8"})
+    hdrs = {"User-Agent": UA, "Accept": "text/html,*/*;q=0.8", "Accept-Language": "en-GB,en;q=0.9"}
+    r = httpx.get(url, follow_redirects=True, timeout=timeout, headers=hdrs)
+    if r.status_code in (401, 403, 406, 429, 503):
+        r = httpx.get(url, follow_redirects=True, timeout=timeout, headers={**hdrs, "User-Agent": _BROWSER_UA})
     ctype = r.headers.get("content-type", "")
-    return r.status_code, str(r.url), (r.text if ("html" in ctype or "text" in ctype) else "")
+    body = r.text if ("html" in ctype or "text" in ctype) else ""
+    if r.status_code in (403, 503) or _is_challenge(body):
+        # Cloudflare / bot-challenge page: fall back to a public reader service that renders the page for us
+        txt = _reader_fallback(url, timeout)
+        if txt:
+            return 200, url, "<html><head><title>" + _html.escape(txt.splitlines()[0][:80]) + "</title></head><body>" + _html.escape(txt) + "</body></html>"
+    return r.status_code, str(r.url), body
+
+
+def _is_challenge(html: str) -> bool:
+    h = (html or "")[:4000].lower()
+    return ("just a moment" in h and "cloudflare" in h) or "cf-chl" in h or "_cf_chl_opt" in h or "checking your browser" in h
+
+
+def _reader_fallback(url: str, timeout: float) -> str:
+    """r.jina.ai renders a public page and returns its text. Only used when direct fetch is blocked; opt out with STUDY_READER=0."""
+    import os
+    import httpx
+    if os.environ.get("STUDY_READER", "1") in ("0", "false", "no"):
+        return ""
+    try:
+        r = httpx.get("https://r.jina.ai/" + url, timeout=max(timeout, 25), headers={"User-Agent": UA, "X-Return-Format": "text"})
+        if r.status_code < 400 and len(r.text) > 200 and not _is_challenge(r.text):
+            return r.text[:60000]
+    except Exception:
+        pass
+    return ""
 
 
 def crawl(links: list[str], on_status: Callable[[str], None] | None = None) -> dict[str, Any]:

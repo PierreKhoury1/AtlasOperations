@@ -68,6 +68,10 @@ def check_outbound(kind: str, subject: str, body: str, business: dict[str, Any])
         if m:
             out.append(f"guarantee language: '{m.group(0)}'")
     for phrase in r.get("banned_phrases") or []:
-        if phrase and phrase.lower() in text.lower():
-            out.append(f"banned phrase: '{phrase}'")
+        p = str(phrase or "").strip()
+        if not p:
+            continue
+        # whole-word / whole-phrase match: 'AI' must not fire inside 'email' or 'detail'
+        if re.search(r"(?<![\w-])" + re.escape(p) + r"(?![\w-])", text, re.I):
+            out.append(f"banned phrase: '{p}'")
     return out
