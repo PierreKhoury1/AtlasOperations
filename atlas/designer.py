@@ -97,6 +97,19 @@ class DesignSession:
                 "blueprint": self.blueprint, "suggestions": self.suggestions, "ready": self.ready,
                 "desk_id": self.desk_id, "turn": self.turn, "links": self.links, "profile": self.profile}
 
+    def to_dict(self) -> dict[str, Any]:
+        return {"id": self.id, "mode": self.mode, "tier": self.tier, "created": self.created, "messages": self.messages,
+                "transcript": self.transcript, "blueprint": self.blueprint, "suggestions": self.suggestions,
+                "ready": self.ready, "desk_id": self.desk_id, "turn": self.turn, "links": self.links, "profile": self.profile}
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> "DesignSession":
+        s = cls(d.get("mode", "demo"), d.get("tier", "free"))
+        for k in ("id", "created", "messages", "transcript", "blueprint", "suggestions", "ready", "desk_id", "turn", "links", "profile"):
+            if k in d:
+                setattr(s, k, d[k])
+        return s
+
     def apply_profile(self, profile: dict[str, Any]) -> None:
         """Seed the conversation from a study of the owner's links: opening message, chips, first-draft blueprint."""
         self.profile = profile

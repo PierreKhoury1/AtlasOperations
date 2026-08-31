@@ -114,3 +114,10 @@ def test_design_http_flow(app_client):
     assert h["ok"] and h["run_id"]
     assert J(c.get(f"/api/design/{S['sid']}/connect"))["connectors"]
     assert c.get("/api/design/nope").status_code == 404
+    # design sessions survive a restart: drop the in-memory copy, the DB brings it back with full state
+    import atlas.desk.app as A
+    D.SESSIONS.pop(S["sid"], None)
+    revived = J(c.get(f"/api/design/{S['sid']}"))
+    assert revived["turn"] == 1 and revived["desk_id"] == b["desk"]["id"]
+    assert [a["name"] for a in revived["blueprint"]["agents"]][0] == "Lead Researcher"
+    assert A.store.load_design_session("never-existed") is None

@@ -48,6 +48,9 @@ CREATE TABLE IF NOT EXISTS jobs (
   id INTEGER PRIMARY KEY AUTOINCREMENT, desk_id INTEGER, kind TEXT, name TEXT, task TEXT DEFAULT '',
   every_min INTEGER DEFAULT 0, next_run REAL, last_run REAL, last_result TEXT DEFAULT '', enabled INTEGER DEFAULT 1, created REAL
 );
+CREATE TABLE IF NOT EXISTS design_sessions (
+  sid TEXT PRIMARY KEY, data TEXT, updated REAL
+);
 CREATE TABLE IF NOT EXISTS memories (
   id INTEGER PRIMARY KEY AUTOINCREMENT, desk_id INTEGER, key TEXT, value TEXT, source TEXT DEFAULT '', created REAL, updated REAL
 );
@@ -314,6 +317,20 @@ class Store:
             q += " AND desk_id=?"; args.append(desk_id)
         v = self._conn.execute(q, args).fetchone()[0]
         return float(v) if v else None
+
+    def save_design_session(self, sid: str, data: dict[str, Any]) -> None:
+        with self._lock:
+            self._conn.execute("INSERT OR REPLACE INTO design_sessions(sid,data,updated) VALUES(?,?,?)",
+                               (sid, json.dumps(data, ensure_ascii=False), time.time()))
+            self._conn.execute("DELETE FROM design_sessions WHERE updated < ?", (time.time() - 30 * 86400,))
+            self._conn.commit()
+
+    def load_design_session(self, sid: str) -> dict[str, Any] | None:
+        row = self._conn.execute("SELECT data FROM design_sessions WHERE sid=?", (sid,)).fetchone()
+        try:
+            return json.loads(row[0]) if row else None
+        except (TypeError, json.JSONDecodeError):
+            return None
 
     def add_event(self, run_id: str, kind: str, agent: str, text: str) -> None:
         with self._lock:

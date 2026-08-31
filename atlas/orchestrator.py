@@ -9,6 +9,7 @@ Everything reports through `emit(Event)` so any UI (or CLI) can render it.
 from __future__ import annotations
 
 import json
+import re
 import threading
 import time
 import traceback
@@ -73,6 +74,17 @@ class Orchestrator:
 
     # ------------------------------------------------------------------ events
     def emit(self, kind: str, agent: str = "system", text: str = "", **data):
+        # factual counters for the verified-summary footer (kept regardless of what the model claims it did)
+        c = getattr(self, "_counts", None)
+        if c is not None:
+            if kind == "approval":
+                c["queued"] += 1
+            elif kind == "sent":
+                c["sent"] += 1
+            elif kind == "tool" and text.startswith("crm_update"):
+                c["crm"] += 1
+            elif kind == "tool" and text.startswith("schedule_task"):
+                c["jobs"] += 1
         ev = Event(kind, agent, text, data)
         if self.store and self.run_id and kind not in ("usage", "token"):
             try:
@@ -216,7 +228,8 @@ class Orchestrator:
                 break
         else:
             self.emit("log", agent_id, f"(hit max iterations {max_iter})")
-        self.emit("agent_end", agent_id, f"{agent['name']} done", depth=depth)
+        preview = re.sub(r"\s+", " ", (final_text or "")).strip()[:400]
+        self.emit("agent_end", agent_id, f"{agent['name']} done" + (f" — {preview}" if preview else ""), depth=depth)
         return final_text or "(no output)"
 
     def _execute_tools(self, agent: dict[str, Any], calls: list[ToolCall], depth: int) -> list[tuple[str, str, str, bool]]:
@@ -392,6 +405,7 @@ class Orchestrator:
         self.tokens_in = self.tokens_out = 0
         self.deliverables = []
         self._policy_hits = {}
+        self._counts = {"queued": 0, "sent": 0, "crm": 0, "jobs": 0}
         self.run_id = time.strftime("%Y%m%d-%H%M%S") + "-" + uuid.uuid4().hex[:6]
         self.run_dir = RUNS_DIR / self.run_id
         self.run_dir.mkdir(parents=True, exist_ok=True)
@@ -420,6 +434,12 @@ class Orchestrator:
         except Exception as exc:
             status, summary = "error", f"{type(exc).__name__}: {exc}"
             self.emit("error", "system", summary + "\n" + traceback.format_exc()[-1500:])
+        if status == "done":
+            c = self._counts
+            summary = (summary or "").rstrip() + (
+                f"\n\n---\nVerified by the desk (not model-claimed): {c['queued']} action(s) queued for approval, "
+                f"{c['sent']} sent, {c['crm']} CRM update(s), {c['jobs']} task(s) scheduled, "
+                f"{len(self.deliverables)} deliverable(s) saved.")
         if summary:
             (self.run_dir / "SUMMARY.md").write_text(summary, encoding="utf-8")
         if self.store:

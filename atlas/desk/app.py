@@ -1147,8 +1147,20 @@ def _providers_cfg() -> dict[str, Any]:
 def _design_session(sid: str) -> DS.DesignSession:
     s = DS.SESSIONS.get(sid)
     if not s:
+        saved = store.load_design_session(sid)          # design chats survive restarts and deploys
+        if saved:
+            s = DS.DesignSession.from_dict(saved)
+            DS.SESSIONS[s.id] = s
+    if not s:
         abort(Response(json.dumps({"error": "no_session"}), 404, mimetype="application/json"))
     return s
+
+
+def _save_design(s: DS.DesignSession) -> None:
+    try:
+        store.save_design_session(s.id, s.to_dict())
+    except Exception as exc:
+        print("design session save failed:", exc)
 
 
 @app.post("/api/design/start")
@@ -1165,6 +1177,7 @@ def api_design_start():
     if isinstance(links, str):
         links = re.split(r"[\s,]+", links)
     s.links = [str(x).strip() for x in links if str(x).strip()][:4]
+    _save_design(s)
     return jsonify(s.public())
 
 
@@ -1197,6 +1210,7 @@ def api_design_study(sid):
             profile = ST.study(links, on_status=lambda t: q.put({"t": "status", "d": t}), provider=prov, model=model)
             with s.lock:
                 s.apply_profile(profile)
+            _save_design(s)
             q.put({"t": "done", "profile": profile, "transcript": s.transcript, "suggestions": s.suggestions,
                    "blueprint": s.blueprint, "ready": s.ready})
         except Exception as exc:
@@ -1249,6 +1263,7 @@ def api_design_say(sid):
                 else:
                     q.put({"t": "tok", "d": t})
             res = DS.reply(s, text, on_token=on_tok, providers_cfg=providers, designer_model=model)
+            _save_design(s)
             q.put({"t": "done", **res})
         except Exception as exc:
             q.put({"t": "error", "error": f"{type(exc).__name__}: {exc}"})
@@ -1281,6 +1296,7 @@ def api_design_blueprint(sid):
     if bp:
         s.blueprint = bp
         s.ready = bool(bp.get("agents"))
+        _save_design(s)
     return jsonify({"blueprint": s.blueprint, "ready": s.ready})
 
 
@@ -1318,6 +1334,7 @@ def api_design_build(sid):
             jobs.append(store.add_job(desk["id"], "task", jname, f"Run workflow '{w['name']}': {t.get('detail') or 'scheduled sweep'}. Mode: {w['id']}", 1440, time.time() + 86400))
         elif t.get("kind") == "inbox":
             jobs.append(store.add_job(desk["id"], "inbox_watch", jname, "", 2, time.time() + 120))
+    _save_design(s)
     return jsonify({"desk": _desk_public(desk), "connect": _connect_plan(desk, bp), "jobs": jobs})
 
 
