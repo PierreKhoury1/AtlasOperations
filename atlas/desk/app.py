@@ -1084,6 +1084,11 @@ def _dispatch(desk: dict[str, Any], row: dict[str, Any]) -> str:
         if not conn:
             return "[failed — connector missing]"
         spec = json.loads(row["body"] or "{}")
+        if conn["kind"] == "higgsfield" or "media" in spec:
+            res = I.higgsfield_generate(conn["config"], spec.get("media", "image"), spec.get("prompt", ""), spec.get("image_url") or "",
+                                        spec.get("duration"), spec.get("aspect_ratio") or "16:9")
+            urls = ", ".join(res["outputs"]) or "no output URL returned"
+            return f"[Higgsfield {res['model']} {res['status']}: {urls}]"
         if conn["kind"] == "mcp" or "mcp_tool" in spec:
             from .. import mcp_client as M
             out = M.REGISTRY.get(conn).call(spec["mcp_tool"], spec.get("arguments") or {})

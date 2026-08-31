@@ -29,6 +29,10 @@ KINDS = {
              "hint": "Any REST API. auth_type: bearer | header | query | basic | none. `notes` tells the agents what the API does and which paths exist."},
     "mcp": {"label": "MCP server (any tool provider)", "fields": ["command", "env", "notes"],
             "hint": "Model Context Protocol server started as a subprocess. e.g. `npx -y @modelcontextprotocol/server-filesystem C:/clients/acme`, `npx -y @modelcontextprotocol/server-github` (env GITHUB_PERSONAL_ACCESS_TOKEN=...), Slack, Notion, Postgres, Gmail... Every tool the server offers becomes an agent tool. Writes need approval unless auto."},
+    "higgsfield": {"label": "Higgsfield AI (video & image generation)", "fields": ["key_id", "key_secret", "default_video_model", "notes"],
+                   "hint": "Cinematic video / Soul image generation via api.higgsfield.ai. Keys from cloud.higgsfield.ai (key id + secret). "
+                           "default_video_model: kling | veo | seedance. Generations spend credits, so agents' generate_media calls queue for approval "
+                           "unless the connector is set to auto. Outputs are URLs valid for at least 7 days."},
     "hermes_agent": {"label": "Hermes Agent instance (Nous Research)", "fields": ["base_url", "api_key", "session_prefix", "notes"],
                      "hint": "A running Hermes Agent with its API server on (hermes gateway; API_SERVER_ENABLED=true). base_url e.g. "
                              "http://your-vps:8642 — one-click on Hostinger VPS or `curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash`. "
@@ -292,7 +296,101 @@ def test_hermes_agent(cfg: dict[str, Any]) -> str:
             f"runtime {json.dumps(cj.get('runtime', {}))[:120]}")
 
 
+# ---------------------------------------------------------------------------- Higgsfield (video / image generation)
+HF_BASE = "https://api.higgsfield.ai"
+HF_ENDPOINTS = {
+    "image": "/higgsfield-ai/soul/standard",
+    "kling": "/kling-video/v2.1/master/text-to-video",
+    "veo": "/veo3.1",
+    "seedance": "/bytedance/seedance/v1/lite/text-to-video",
+    "image_to_video": "/veo3.1/image-to-video",
+    "dop": "/higgsfield-ai/dop/standard",
+}
+
+
+def _hf_headers(cfg: dict[str, Any]) -> dict[str, str]:
+    return {"Authorization": f"Key {str(cfg.get('key_id') or '').strip()}:{str(cfg.get('key_secret') or '').strip()}",
+            "Content-Type": "application/json"}
+
+
+def higgsfield_generate(cfg: dict[str, Any], media: str, prompt: str, image_url: str = "", duration: int | None = None,
+                        aspect_ratio: str = "16:9", resolution: str = "", motions: list[str] | None = None,
+                        wait_s: float = 300) -> dict[str, Any]:
+    """Submit a generation and poll /requests/{id}/status until it finishes. Returns {status, request_id, outputs:[urls], raw}."""
+    import httpx
+    media = (media or "image").lower()
+    if media == "video":
+        media = str(cfg.get("default_video_model") or "kling").lower()
+    if image_url and media in ("kling", "veo", "seedance"):
+        media = "image_to_video"
+    path = HF_ENDPOINTS.get(media)
+    if not path:
+        raise ValueError(f"unknown media kind {media!r}; use image | video | dop")
+    body: dict[str, Any] = {"prompt": prompt}
+    if media == "image":
+        body.update({"num_images": 1, "aspect_ratio": aspect_ratio})
+        if resolution in ("2K", "4K"):
+            body["resolution"] = resolution
+    elif media == "veo":
+        body.update({"aspect_ratio": aspect_ratio if aspect_ratio in ("16:9", "9:16") else "16:9", "resolution": resolution or "720",
+                     "generate_audio": True, "duration": str(duration or 8)})
+    elif media == "kling":
+        body.update({"duration": int(duration or 5), "aspect_ratio": aspect_ratio if aspect_ratio in ("1:1", "16:9", "9:16") else "16:9"})
+    elif media == "seedance":
+        body.update({"duration": int(duration or 5), "resolution": resolution or "720"})
+    elif media in ("image_to_video", "dop"):
+        body["image_url"] = image_url
+        if media == "dop" and motions:
+            body["motions"] = list(motions)[:2]
+    with httpx.Client(base_url=HF_BASE, headers=_hf_headers(cfg), timeout=60, transport=_TRANSPORT) as c:
+        r = c.post(path, json=body)
+        if r.status_code >= 400:
+            raise RuntimeError(f"Higgsfield HTTP {r.status_code}: {r.text[:300]}")
+        j = r.json()
+        rid = j.get("request_id") or j.get("id")
+        status_url = j.get("status_url") or f"/requests/{rid}/status"
+        t0 = time.time()
+        last = j
+        while time.time() - t0 < wait_s:
+            s = c.get(status_url)
+            last = s.json() if "json" in s.headers.get("content-type", "") else {"status": f"HTTP {s.status_code}"}
+            st = str(last.get("status", "")).lower()
+            if st in ("completed", "succeeded", "success", "done"):
+                break
+            if st in ("failed", "error", "cancelled", "canceled"):
+                raise RuntimeError(f"Higgsfield generation {st}: {json.dumps(last)[:300]}")
+            time.sleep(6)
+    outputs: list[str] = []
+
+    def walk(o):
+        if isinstance(o, dict):
+            for k, v in o.items():
+                if k in ("url", "video_url", "image_url", "output_url") and isinstance(v, str) and v.startswith("http"):
+                    outputs.append(v)
+                else:
+                    walk(v)
+        elif isinstance(o, list):
+            for v in o:
+                walk(v)
+    walk(last)
+    return {"status": last.get("status"), "request_id": rid, "outputs": list(dict.fromkeys(outputs)), "raw": last, "model": media}
+
+
+def test_higgsfield(cfg: dict[str, Any]) -> str:
+    """Auth check without spending credits: a status lookup for a nonexistent request must return 404 (valid key) not 401."""
+    import httpx
+    if not (cfg.get("key_id") and cfg.get("key_secret")):
+        raise ValueError("key_id and key_secret are required (cloud.higgsfield.ai)")
+    with httpx.Client(base_url=HF_BASE, headers=_hf_headers(cfg), timeout=15, transport=_TRANSPORT) as c:
+        r = c.get("/requests/00000000-0000-0000-0000-000000000000/status")
+    if r.status_code == 401 or r.status_code == 403:
+        raise RuntimeError(f"Higgsfield rejected the key ({r.status_code})")
+    return f"Higgsfield API reachable, key accepted (probe HTTP {r.status_code}); default video model {cfg.get('default_video_model') or 'kling'}"
+
+
 def test_connector(kind: str, cfg: dict[str, Any]) -> str:
+    if kind == "higgsfield":
+        return test_higgsfield(cfg)
     if kind == "smtp":
         return test_smtp(cfg)
     if kind == "imap":

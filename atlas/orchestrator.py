@@ -397,6 +397,26 @@ class Orchestrator:
             res = I.http_call(conn["config"], method, path, args.get("params") or None, args.get("body"))
             txt = json.dumps(res, ensure_ascii=False)
             return txt[:8000] + ("\n...[truncated]" if len(txt) > 8000 else "")
+        if name == "generate_media":
+            if not self.store or not hasattr(self.store, "connectors"):
+                return "no connectors in this context"
+            conn = next((c for c in self.store.connectors() if c["kind"] == "higgsfield"), None)
+            if not conn:
+                return "no Higgsfield connector on this desk — the owner adds one under Integrations (key id + secret from cloud.higgsfield.ai)"
+            media = str(args.get("media") or "image")
+            prompt = str(args.get("prompt") or "").strip()
+            if not prompt:
+                return "generate_media needs a prompt"
+            spec = {"media": media, "prompt": prompt, "image_url": args.get("image_url") or "", "duration": args.get("duration"),
+                    "aspect_ratio": args.get("aspect_ratio") or "16:9", "purpose": args.get("purpose") or ""}
+            if not conn.get("auto"):
+                qid = self.store.add_action(self.run_id, aid, "api_call", conn["name"], f"generate {media}: {prompt[:70]}",
+                                            json.dumps(spec, indent=1), str(args.get("purpose") or "media generation spends credits"))
+                self.emit("approval", aid, f"api_call → {conn['name']}: generate {media}", action_id=qid, action_kind="api_call", to=conn["name"])
+                return f"queued for approval (id={qid}): {media} generation on {conn['name']} — spends credits, the owner must approve."
+            self.emit("tool", aid, f"generate_media {media} via {conn['name']}")
+            res = I.higgsfield_generate(conn["config"], media, prompt, spec["image_url"], spec["duration"], spec["aspect_ratio"])
+            return json.dumps({"status": res["status"], "outputs": res["outputs"], "model": res["model"]}, ensure_ascii=False)
         if name == "schedule_task":
             if not self.store or not hasattr(self.store, "add_job"):
                 return "no scheduler in this context"

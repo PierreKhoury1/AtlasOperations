@@ -24,10 +24,10 @@ _FENCE = re.compile(r"```(?:json)?\s*(\{.*?\})\s*```", re.S)
 
 SPECIALIST_TOOLS = ["read_file", "list_files", "web_fetch", "run_python", "save_deliverable"]
 ATLAS_TOOLS = ["delegate", "list_agents", "save_deliverable", "read_file", "list_files", "crm_lookup", "crm_update",
-                "queue_action", "list_connectors", "http_request", "schedule_task", "mcp", "run_python", "remember", "recall"]
+                "queue_action", "list_connectors", "http_request", "schedule_task", "mcp", "run_python", "remember", "recall", "generate_media"]
 PALETTE = ["#7c3aed", "#db2777", "#1f9d63", "#b45309", "#0e7490", "#6d28d9", "#ea580c", "#15803d", "#a21caf", "#0369a1"]
 STATUS_MARK = "\x00"                      # on_token prefix for a status line instead of prose
-CONNECTOR_KINDS = ("smtp", "imap", "http", "mcp", "webhook", "hermes_agent")
+CONNECTOR_KINDS = ("smtp", "imap", "http", "mcp", "webhook", "hermes_agent", "higgsfield")
 TRIGGER_KINDS = ("webhook", "inbox", "schedule", "manual")
 
 DESIGNER_SYSTEM = """You are the Atlas solutions designer at Atlas Ops, an AI-operations consultancy. You are on a scoping call
@@ -276,7 +276,7 @@ def normalise(bp: dict[str, Any] | None, prev: dict[str, Any] | None = None) -> 
     return out
 
 
-T_KIND_LABEL = {"smtp": "Email sending", "imap": "Inbox", "http": "API", "mcp": "Tool server", "webhook": "Web form", "hermes_agent": "Hermes Agent"}
+T_KIND_LABEL = {"smtp": "Email sending", "imap": "Inbox", "http": "API", "mcp": "Tool server", "webhook": "Web form", "hermes_agent": "Hermes Agent", "higgsfield": "Higgsfield video"}
 
 
 # ---------------------------------------------------------------------------- the turn

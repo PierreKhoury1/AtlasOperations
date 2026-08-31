@@ -41,7 +41,7 @@ def _atlas(extra: str = "") -> dict[str, Any]:
                   _BASE_ATLAS_PROMPT + ("\n\n" + extra if extra else ""),
                   tools=["delegate", "list_agents", "save_deliverable", "read_file", "list_files",
                          "crm_lookup", "crm_update", "queue_action", "list_connectors", "http_request", "schedule_task", "calendar_free_slots", "calendar_book",
-                         "mcp", "run_python", "remember", "recall"],
+                         "mcp", "run_python", "remember", "recall", "generate_media"],
                   color="#0b5fcb")
 
 
@@ -239,7 +239,7 @@ SALES_DESK: dict[str, Any] = {
         _agent("atlas", "Atlas", "Desk orchestrator",
                _BASE_ATLAS_PROMPT + "\n\nThis is an AI Sales Desk. For every lead: check the CRM (crm_lookup), get research and a drafted outreach from specialists, update the CRM (crm_update) with notes and next action — keep stage at New (it moves to Contacted automatically when the owner approves a send; only set Qualified/Proposal/Won/Lost when the lead's replies justify it), then queue the outreach with queue_action — never send directly. Finish with a summary for the owner.",
                tools=["delegate", "list_agents", "crm_lookup", "crm_update", "queue_action", "save_deliverable", "read_file", "list_files",
-                      "list_connectors", "http_request", "schedule_task", "mcp", "run_python", "remember", "recall"],
+                      "list_connectors", "http_request", "schedule_task", "mcp", "run_python", "remember", "recall", "generate_media"],
                color="#0b5fcb"),
         _agent("research", "Lead Researcher", "Researches the lead, property and context",
                "You are a lead researcher at an estate agency. Given a lead, produce a short brief: who they are, likely intent (sell / let / buy), property context, timing signals, risks, and 3 questions to ask on the first call. Flag what is inferred vs known. Never invent market figures: quote a number only if you fetched it (web_fetch) and name the source; otherwise describe the market qualitatively. Fetch at most 2 pages; if a page fails, move on rather than retrying.",

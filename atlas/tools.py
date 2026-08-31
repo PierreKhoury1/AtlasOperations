@@ -165,6 +165,22 @@ SCHEMAS: dict[str, dict[str, Any]] = {
         "description": "Run a short Python 3 script (60s limit) in the run folder. Use for calculations, data transforms, parsing CSV/JSON, generating tables. stdout is returned. Files in the run folder are readable/writable; network is available.",
         "parameters": {"type": "object", "properties": {"code": {"type": "string"}}, "required": ["code"]},
     },
+    "generate_media": {
+        "name": "generate_media",
+        "description": "Generate a cinematic video or a Soul image with the desk's Higgsfield connector (ads, social clips, hero visuals, product shots). Spends the client's credits, so it is queued for owner approval unless the connector allows it automatically. Returns the output URL(s) when done.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "media": {"type": "string", "enum": ["image", "video", "dop"], "description": "image = Soul still; video = text-to-video (kling/veo/seedance per connector); dop = camera-motion video from an existing image_url"},
+                "prompt": {"type": "string", "description": "Cinematic, specific: subject, setting, lighting, camera, mood, brand cues."},
+                "image_url": {"type": "string", "description": "Source image for dop / image-to-video."},
+                "duration": {"type": "integer", "description": "Seconds (video): 5 or 10 for kling; 4/6/8 for veo."},
+                "aspect_ratio": {"type": "string", "enum": ["16:9", "9:16", "1:1"]},
+                "purpose": {"type": "string", "description": "What this asset is for (shown to the owner at approval)."},
+            },
+            "required": ["media", "prompt"],
+        },
+    },
     "remember": {
         "name": "remember",
         "description": "Store a durable fact about this business/desk for future runs (client preferences, decisions, recurring facts). Keys are short slugs; re-using a key overwrites.",
@@ -189,7 +205,7 @@ SCHEMAS: dict[str, dict[str, Any]] = {
 ALL_TOOL_NAMES = list(SCHEMAS.keys())
 ORCHESTRATOR_ONLY = {"delegate", "list_agents", "finish", "queue_action", "crm_lookup", "crm_update",
                      "list_connectors", "http_request", "schedule_task", "remember", "recall",
-                     "calendar_free_slots", "calendar_book"}
+                     "calendar_free_slots", "calendar_book", "generate_media"}
 
 
 def schema_for(names: list[str]) -> list[dict[str, Any]]:

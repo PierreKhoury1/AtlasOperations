@@ -2,7 +2,7 @@
    Depends on globals from index.html: $, api, esc, toast, go, loadDesks. */
 const SPECIALIST_TOOLS = ['read_file', 'list_files', 'web_fetch', 'run_python', 'save_deliverable'];
 const WF_COLORS = ['#0b5fcb', '#7c3aed', '#1f9d63', '#b45309'];
-const KIND_LABEL = {smtp: 'EMAIL OUT', imap: 'INBOX', http: 'API', mcp: 'TOOL SERVER', webhook: 'WEB FORM', hermes_agent: 'HERMES AGENT'};
+const KIND_LABEL = {smtp: 'EMAIL OUT', imap: 'INBOX', http: 'API', mcp: 'TOOL SERVER', webhook: 'WEB FORM', hermes_agent: 'HERMES AGENT', higgsfield: 'HIGGSFIELD VIDEO'};
 const TRIG_LABEL = {webhook: 'WEBHOOK', inbox: 'INBOX', schedule: 'SCHEDULE', manual: 'MANUAL'};
 const DSG = {sid: null, bp: null, ready: false, stage: 1, deskId: null, plan: null, sel: null, els: new Map(), busy: false, tiers: [], mode: 'demo', saveT: null, jobs: []};
 
@@ -406,7 +406,8 @@ function cnPlaceholder(kind, f) {
     imap: {host: 'imap.gmail.com', port: '993', user: 'you@yourdomain.com', password: 'app password', folder: 'INBOX'},
     http: {base_url: 'https://api.example.com', auth_type: 'bearer | header | query | basic | none', token: 'API key', headers: '{"X-Api-Version":"2"}', notes: 'What the API does, which paths matter'},
     mcp: {command: 'npx -y @modelcontextprotocol/server-github', env: 'GITHUB_PERSONAL_ACCESS_TOKEN=...', notes: 'What this server is for'},
-    hermes_agent: {base_url: 'http://your-vps-ip:8642', api_key: 'API_SERVER_KEY from ~/.hermes/.env', session_prefix: 'atlas', notes: 'Hostinger one-click VPS or self-hosted'}};
+    hermes_agent: {base_url: 'http://your-vps-ip:8642', api_key: 'API_SERVER_KEY from ~/.hermes/.env', session_prefix: 'atlas', notes: 'Hostinger one-click VPS or self-hosted'},
+    higgsfield: {key_id: 'key id from cloud.higgsfield.ai', key_secret: 'key secret', default_video_model: 'kling | veo | seedance', notes: 'ads, social clips, hero visuals'}};
   return (P[kind] || {})[f] || '';
 }
 async function cnSave(i) {
