@@ -504,8 +504,10 @@ def _demo_turn(session: DesignSession, text: str, on_token: Callable[[str], None
             "tools — then press Approve & build. Next we connect your data live.",
             ["Approve & build", "Add a second workflow", "Rename an agent", "Explain the approval flow"]),
     }
-    prose, sugg = scripts.get(turn, ("Adjusted. The sketch reflects it — approve when ready, or tell me what else to change.",
-                                     ["Approve & build", "Add an agent", "Change the trigger"]))
+    prose, sugg = scripts.get(turn, ("[Scripted preview] This deployment has no model key, so I can't actually respond to what you typed. "
+                                     "The sketch shows a sample desk. For the real designer, run the desk with a live model "
+                                     "(locally: AtlasDesk launcher; hosted: set OPENROUTER_API_KEY).",
+                                     ["Approve & build the sample desk", "How do I go live?"]))
     bp = _demo_blueprint(kind, name, turn)
     if turn >= 3 and "never" in low:
         bp["policy"]["banned_phrases"] = list(dict.fromkeys(bp["policy"]["banned_phrases"] + ["guarantee", "promise"]))

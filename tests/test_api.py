@@ -8,6 +8,7 @@ def J(resp):
 
 
 def test_auth_gating(app_client):
+    app_client.post("/logout")                       # order-independent: another test may have signed in
     assert app_client.get("/api/leads").status_code == 401
     assert app_client.get("/desk").status_code == 302
     assert app_client.get("/api/health").status_code == 200

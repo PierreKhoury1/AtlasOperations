@@ -269,7 +269,8 @@ def heuristic_profile(crawl_result: dict[str, Any], links: list[str]) -> dict[st
         "inbox": [{"title": "Inbox triage every morning", "why": "Classify, draft routine replies, escalate the rest.", "effort": "1 week"},
                   {"title": "Client onboarding and document chasing", "why": "The paperwork loop that eats admin time.", "effort": "2 weeks"}],
     }[kind]
-    opening = (f"I've read {name}'s site" + (f" — {len(pages)} pages" if pages else "") + f". You look like a {sector} business"
+    sector_phrase = sector if "business" in sector else f"{sector} business"
+    opening = (f"I've read {name}'s site" + (f" — {len(pages)} page(s)" if pages else "") + f". You look like a {sector_phrase}"
                + (f" in {', '.join(locs[:2])}" if locs else "") + (f", offering {', '.join(services[:4])}" if services else "")
                + (f". I can see {', '.join(channels[:4])}" if channels else "")
                + ". The processes I'd look at first: " + "; ".join(o["title"].lower() for o in opps[:3])

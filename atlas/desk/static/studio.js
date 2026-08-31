@@ -15,7 +15,16 @@ async function openStudio(fresh) {
   const T = await api('/templates'); if (!T) return;
   DSG.tiers = T.tiers; DSG.mode = T.mode;
   $('#ds-tier').innerHTML = T.tiers.map(t => `<option value="${t.id}">${esc(t.label)} — ${esc(t.note.split('.')[0])}</option>`).join('');
-  $('#ds-modetag').textContent = T.mode === 'demo' ? 'demo designer' : 'live model';
+  $('#ds-modetag').textContent = T.mode === 'demo' ? 'SCRIPTED — NOT A LIVE MODEL' : 'live model';
+  $('#ds-modetag').classList.toggle('warn', T.mode === 'demo');
+  let warn = document.getElementById('ds-demowarn');
+  if (T.mode === 'demo') {
+    if (!warn) {
+      warn = document.createElement('div'); warn.id = 'ds-demowarn'; warn.className = 'ds-demowarn';
+      warn.innerHTML = '<b>Scripted preview.</b> This deployment has no model key, so the designer cannot read your answers — replies here are canned. Run the desktop launcher (live models) or set <span class="model">OPENROUTER_API_KEY</span> on this server for the real designer.';
+      $('#ds-chatwrap').insertBefore(warn, $('#ds-msgs'));
+    }
+  } else if (warn) warn.remove();
   let S = null, prev = null;
   try { prev = fresh ? null : sessionStorage.getItem('ds_sid'); } catch (e) {}
   if (prev) { S = await fetch(`/api/design/${prev}`).then(r => r.ok ? r.json() : null).catch(() => null); }   // survive a page refresh
