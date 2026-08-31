@@ -6,7 +6,7 @@
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
-:root{--bg:#0b0e13;--side:#0e1219;--panel:#10151d;--panel2:#171d27;--line:#222a35;--line2:#2f3a48;--text:#e9edf3;--text2:#c5cdd8;--muted:#8b95a5;--faint:#5d6774;--accent:#4c90f0;--accent2:#6ba3f5;--accent-soft:#16294a;--deep:#2d72d2;--ink:#2d72d2;--blue:#4c90f0;--ok:#3dcc91;--ok-soft:#0e2f22;--danger:#f17b7b;--warn:#d99e0b;--r:3px;--grad:#2d72d2;--mono:"IBM Plex Mono",Consolas,monospace}
+:root{--bg:#f5f7fa;--side:#eef1f6;--panel:#ffffff;--panel2:#f0f3f7;--line:#d9dfe8;--line2:#c1cad6;--text:#10161d;--text2:#2f3a47;--muted:#5f6b7a;--faint:#8b97a6;--accent:#2d72d2;--accent2:#215db0;--accent-soft:#e4eefc;--deep:#215db0;--ink:#2d72d2;--blue:#2d72d2;--ok:#1c8f5f;--ok-soft:#e2f4ea;--danger:#c23030;--warn:#a66a00;--r:3px;--grad:#2d72d2;--mono:"IBM Plex Mono",Consolas,monospace}
 *{box-sizing:border-box;margin:0;padding:0}
 html{-webkit-font-smoothing:antialiased}
 body{font-family:Inter,system-ui,-apple-system,"Segoe UI",sans-serif;background:var(--bg);color:var(--text);font-size:14px;line-height:1.5;font-weight:400}
@@ -66,14 +66,14 @@ h2{font-size:15px;font-weight:600;margin-bottom:10px}
 .kpi svg{position:absolute;right:18px;top:18px;width:84px;height:30px}
 .btn{display:inline-flex;align-items:center;gap:7px;padding:8px 14px;border-radius:3px;border:1px solid var(--line2);background:var(--panel);color:var(--text);font:inherit;font-weight:500;font-size:13px;cursor:pointer;transition:border-color .12s,background .12s}
 .btn:hover{border-color:var(--text2);background:var(--panel2)}
-.btn.p{background:var(--ink);border-color:var(--ink);color:#fff}.btn.p:hover{background:var(--accent);border-color:var(--accent)}
+.btn.p{background:var(--ink);border-color:var(--ink);color:#fff}.btn.p:hover{background:var(--accent2);border-color:var(--accent2)}
 .btn.ok{background:var(--ok);border-color:var(--ok);color:#fff}
 .btn.d{color:var(--danger)}.btn.sm{padding:5px 10px;font-size:12px}
 .btn.on{border-color:var(--accent);color:var(--accent);background:var(--accent-soft)}
 .btn:disabled{opacity:.5;cursor:default}
 input,select,textarea{width:100%;background:var(--panel);border:1px solid var(--line2);color:var(--text);padding:8px 11px;border-radius:3px;font:inherit;font-size:13.5px}
 input::placeholder,textarea::placeholder{color:var(--faint)}
-input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 2px rgba(76,144,240,.25)}
+input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 2px rgba(45,114,210,.22)}
 textarea{min-height:90px;resize:vertical}
 label{display:block;font-size:12px;color:var(--muted);margin:8px 0 4px;font-weight:600}
 table{width:100%;border-collapse:collapse;font-size:13px}th,td{text-align:left;padding:9px 8px;border-bottom:1px solid var(--line);vertical-align:top}th{color:var(--faint);font-family:var(--mono);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;font-weight:500}
@@ -91,7 +91,7 @@ tr.click{cursor:pointer}tr.click:hover{background:var(--panel2)}
 .empty{color:var(--muted);padding:30px;text-align:center;border:1px dashed var(--line2);border-radius:var(--r);font-size:13px}
 .md{white-space:pre-wrap;font-size:13px;line-height:1.55}
 .hide{display:none}
-.toast{position:fixed;bottom:18px;right:18px;background:var(--panel2);border:1px solid var(--line2);padding:10px 14px;border-radius:3px;box-shadow:0 12px 32px rgba(0,0,0,.55);opacity:0;transition:.2s;font-size:13px}
+.toast{position:fixed;bottom:18px;right:18px;background:var(--panel2);border:1px solid var(--line2);padding:10px 14px;border-radius:3px;box-shadow:0 12px 32px rgba(16,22,29,.14);opacity:0;transition:.2s;font-size:13px}
 .toast.on{opacity:1}
 .agentline{display:flex;gap:8px;align-items:center;padding:7px 0;border-bottom:1px solid var(--line);font-size:13px}.agentline:last-child{border-bottom:0}.agentline i{width:8px;height:8px;border-radius:2px;display:inline-block}
 .stepper{display:flex;gap:0;margin:4px 0 0;flex-wrap:wrap;counter-reset:st}.stepper span{padding:6px 10px;font-size:12px;color:var(--muted);border:1px solid var(--line);margin-left:-1px;background:var(--bg)}.stepper span:first-child{border-radius:2px 0 0 4px;margin-left:0}.stepper span:last-child{border-radius:0 4px 4px 0}.stepper span.on{border-color:var(--accent);color:var(--text);position:relative}
@@ -154,12 +154,12 @@ tr.click{cursor:pointer}tr.click:hover{background:var(--panel2)}
 .choice ul{margin:8px 0 0;padding-left:16px;color:var(--muted);font-size:12px}
 .hint{color:var(--faint);font-size:12px;margin-top:4px}
 .ws{position:relative}
-.wsmenu{position:absolute;left:0;right:0;top:calc(100% + 4px);background:var(--panel);border:1px solid var(--line2);border-radius:var(--r);z-index:20;padding:6px;box-shadow:0 12px 32px rgba(0,0,0,.55)}
+.wsmenu{position:absolute;left:0;right:0;top:calc(100% + 4px);background:var(--panel);border:1px solid var(--line2);border-radius:var(--r);z-index:20;padding:6px;box-shadow:0 12px 32px rgba(16,22,29,.14)}
 .wsmenu button{display:block;width:100%;text-align:left;background:none;border:0;color:var(--text);padding:8px 10px;border-radius:3px;font:inherit;font-size:13px;cursor:pointer}
 .wsmenu button:hover{background:var(--panel2)}
 .wsmenu button.on{color:var(--accent2)}
 .wsmenu .new{border-top:1px solid var(--line);margin-top:4px;padding-top:8px;color:var(--accent2);font-weight:600}
-.flag{background:#33161a;border:1px solid #5c2a31;color:#f5a3ad;padding:8px 10px;border-radius:3px;font-size:12px;margin:8px 0}
+.flag{background:#fdecec;border:1px solid #f0b6b6;color:#a82a2a;padding:8px 10px;border-radius:3px;font-size:12px;margin:8px 0}
 .model{font-family:var(--mono);font-size:11px;color:var(--faint)}
 </style>
 <link rel="stylesheet" href="/desk/static/studio.css">
@@ -395,6 +395,8 @@ tr.click{cursor:pointer}tr.click:hover{background:var(--panel2)}
 <section id="p-setup" class="hide">
   <h1>Desk setup</h1><p class="lead">Business profile, agents and workflows this desk runs on. Edited by your ops lead; shown here for transparency.</p>
   <div class="grid g2"><div class="card" id="setup-biz"></div><div class="card" id="setup-agents"></div></div>
+  <div class="panel" style="margin-top:14px"><div class="ph"><h2>Model landscape</h2><span class="hint">who thinks with what — per-agent engine and model; changes apply to the next run</span></div>
+    <div class="pb" id="setup-models"><div class="empty">Loading…</div></div></div>
   <div class="panel" style="margin-top:14px"><div class="ph"><h2>Desk memory</h2><span class="hint">facts the agents keep between runs (they add with <code>remember</code>; you can add or delete)</span></div><div class="pb">
     <div class="row" style="margin-bottom:10px"><input id="m-key" placeholder="key e.g. preferred-viewing-days" style="max-width:260px"><input id="m-val" placeholder="value" style="flex:1"><button class="btn sm p" onclick="addMem()">Remember</button></div>
     <div id="mem-list"></div></div></div>
@@ -430,6 +432,7 @@ async function loadCfg(){
   $('#l-mode').innerHTML = modes; $('#r-mode').innerHTML = modes;
   $('#setup-biz').innerHTML = `<h2>Business</h2><div class="md">${esc(Object.entries(CFG.business).map(([k,v])=>`${k}: ${Array.isArray(v)?v.join(', '):v}`).join('\n'))}</div>`;
   $('#setup-agents').innerHTML = `<h2>Agents &amp; tools</h2>` + CFG.agents.map(a=>`<div style="margin-bottom:10px"><div class="agentline"><i style="background:${a.color||'#7c3aed'}"></i><b>${esc(a.name)}</b> <span class="tag">${a.id}</span></div><div style="color:var(--muted);font-size:12px;margin-left:18px">${esc(a.role)} <span class="model">· ${esc(a.model||'')}</span><br>tools: ${a.tools.map(t=>`<span class="tag">${t}</span>`).join(' ')}</div></div>`).join('') + `<h2 style="margin-top:14px">Workflows</h2>` + CFG.workflows.map(w=>`<div><b>${esc(w.name)}</b> <span style="color:var(--muted)">— ${esc(w.description)}</span></div>`).join('');
+  if (document.getElementById('setup-models')) renderModels();
   return true;
 }
 
@@ -761,11 +764,33 @@ async function loadHealth(){
   const navBtn = document.querySelector('#nav button[data-p="dash"]'); if (navBtn) navBtn.classList.toggle('alert', !h.ok);
   const r = h.runs, fmt = v => v == null ? '–' : v + 's';
   const stat = (k, v, sub) => `<div class="kpi"><span>${k}</span><b style="font-size:20px">${v}</b><small>${sub||''}</small></div>`;
-  const alerts = h.alerts.length ? h.alerts.map(a => `<div class="flag" style="${a.level==='critical'?'':'background:var(--panel)8e6;border-color:#5c4a1d;color:#e5b95c'}">${esc(a.text)}</div>`).join('') : '<div class="hint" style="margin:0 0 10px">No alerts. Watchdog limit ' + Math.round(h.watchdog_s/60) + ' min per run; runs past it are killed and marked failed.</div>';
+  const alerts = h.alerts.length ? h.alerts.map(a => `<div class="flag" style="${a.level==='critical'?'':'background:var(--panel)8e6;border-color:#e4cf96;color:#8a5c00'}">${esc(a.text)}</div>`).join('') : '<div class="hint" style="margin:0 0 10px">No alerts. Watchdog limit ' + Math.round(h.watchdog_s/60) + ' min per run; runs past it are killed and marked failed.</div>';
   const jobs = h.jobs.length ? `<table style="margin-top:10px"><tr><th>Automation</th><th>Last</th><th>Result</th></tr>` + h.jobs.map(j => `<tr><td><b>${esc(j.name)}</b> <span class="model">${esc(j.kind)}${j.enabled?'':' · off'}</span></td><td><span class="tag ${j.last_status==='error'?'error':(j.last_status==='ok'?'done':'')}">${esc(j.last_status||'never')}</span> <span class="hint" style="margin:0">${j.last_run?hms(j.last_run):''}</span></td><td class="model">${esc(j.last_result)}</td></tr>`).join('') + '</table>' : '';
   const cons = h.connectors.length ? `<div class="row" style="margin-top:10px">${h.connectors.map(c => `<span class="tag ${String(c.status).startsWith('ok')?'done':(String(c.status).startsWith('error')?'error':'')}">${esc(c.name)} · ${esc(String(c.status).split(':')[0])}</span>`).join('')}</div>` : '';
   const err = h.last_error ? `<div class="hint" style="margin-top:10px">Last error ${hms(h.last_error.ts)} · run ${esc(h.last_error.run_id||'')}: <span class="model">${esc(h.last_error.text)}</span></div>` : '';
   $('#hz-body').innerHTML = alerts + `<div class="grid g5">${stat('Runs · 24h', r.total, Object.entries(r.by_status).map(([k,v])=>k+' '+v).join(' · ') || 'none')}${stat('Failure rate', Math.round(r.failure_rate*100)+'%', `${r.zombies} zombie · ${r.stalled} stalled · ${r.active} live`)}${stat('Run time p50 / p90', fmt(r.p50_s)+' / '+fmt(r.p90_s), 'finished runs')}${stat('Approval queue', h.queue.pending ?? 0, 'oldest ' + h.queue.oldest_pending_h + 'h')}${stat('Tokens · 24h', (h.tokens||0).toLocaleString(), '≈ £' + h.cost_gbp + ' on Sonnet · up ' + Math.round(h.uptime_s/3600) + 'h')}</div>` + jobs + cons + err;
+}
+let MODELCAT = null;
+async function renderModels(){
+  if (!MODELCAT) { const r = await api('/models'); MODELCAT = r ? r.models : []; }
+  const el = document.getElementById('setup-models'); if (!el || !CFG.agents) return;
+  const desk = CFG.desk || {};
+  const opts = (sel) => MODELCAT.filter(m => m.engine !== 'hermes_agent').map(m => `<option value="${m.id}" ${sel===m.id?'selected':''}>${esc(m.label)} · ${esc(m.cost)}${m.tools?'':' · no tools'}</option>`).join('');
+  el.innerHTML = `<table><tr><th>Agent</th><th>Engine</th><th>Model</th><th>Now running</th></tr>` + CFG.agents.map(a => {
+    const isHermes = (a.model === 'hermes-agent');
+    return `<tr><td><b>${esc(a.name)}</b> <span class="model">${esc(a.id)}</span></td>
+      <td><select style="width:210px" onchange="setModelOv('${a.id}', this.value==='hermes_agent' ? {engine:'hermes_agent'} : {engine:'atlas'})">
+        <option value="atlas" ${isHermes?'':'selected'}>Built-in loop</option>
+        <option value="hermes_agent" ${isHermes?'selected':''}>Hermes Agent runtime</option></select></td>
+      <td><select style="width:280px" ${isHermes?'disabled':''} onchange="setModelOv('${a.id}', {engine:'atlas', model:this.value, provider:'openrouter'})">${opts(a.model)}</select></td>
+      <td class="model">${esc(a.model || '(default)')}</td></tr>`;
+  }).join('') + `</table><p class="hint" style="margin-top:8px">Paid models need OpenRouter credits. The Hermes Agent runtime uses the desk's Hermes connector (or the global instance) and brings its own browser, terminal, memory and skills.</p>`;
+}
+async function setModelOv(aid, ov){
+  const did = (CFG.desk || {}).id; if (!did) return;
+  const r = await api(`/desks/${did}`, {method:'PATCH', body:{models:{[aid]: ov}}});
+  if (!r || r.error) return toast(r?.error || 'failed');
+  toast('Model landscape updated'); await loadCfg();
 }
 async function loadMem(){ const M = await api('/memory'); if(!M) return; $('#mem-list').innerHTML = M.length ? `<table><tr><th>Key</th><th>Value</th><th>Source</th><th></th></tr>` + M.map(m=>`<tr><td><b>${esc(m.key)}</b></td><td class="md">${esc(m.value)}</td><td class="hint">${esc(m.source||'')}</td><td><button class="btn sm d" onclick="api('/memory/${encodeURIComponent(m.key)}',{method:'DELETE',body:{}}).then(loadMem)">✕</button></td></tr>`).join('') + '</table>' : '<div class="empty">Nothing remembered yet.</div>'; }
 async function addMem(){ const k=$('#m-key').value.trim(), v=$('#m-val').value.trim(); if(!k) return; await api('/memory',{method:'POST',body:{key:k,value:v}}); $('#m-key').value=''; $('#m-val').value=''; loadMem(); }

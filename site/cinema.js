@@ -111,7 +111,7 @@
     if (rows.length) {
       const tl = G.timeline({ repeat: -1, repeatDelay: 2.2, delay: 1.6 });
       tl.from(rows, { autoAlpha: 0, x: -18, duration: 0.55, stagger: 0.7, ease: "power2.out" })
-        .to(hero.querySelector(".desk .row.approve"), { borderColor: "#0f1216", duration: 0.5, yoyo: true, repeat: 3 }, "+=0.4")
+        .to(hero.querySelector(".desk .row.approve"), { borderColor: "#4c90f0", duration: 0.5, yoyo: true, repeat: 3 }, "+=0.4")
         .to(hero.querySelector(".desk .row.approve .a span:first-child"), { scale: 0.92, duration: 0.12, yoyo: true, repeat: 1 })
         .to(hero.querySelector(".desk .sent"), { autoAlpha: 1, y: 0, duration: 0.5 })
         .to(rows, { autoAlpha: 0, x: 18, duration: 0.4, stagger: 0.06 }, "+=1.8")

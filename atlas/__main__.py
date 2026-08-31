@@ -20,6 +20,7 @@ def main(argv: list[str] | None = None) -> int:
     k.add_argument("--workspace", default="", help="anthropic-workspace-id (identity-linked keys)")
     sub.add_parser("eval", help="run the evaluation / capacity harness (see atlas/eval.py --help)", add_help=False)
     sub.add_parser("soak", help="long-running soak test against a simulated company (see atlas/soak.py --help)", add_help=False)
+    sub.add_parser("bench", help="benchmark engines/models on real tasks (see atlas/bench.py --help)", add_help=False)
     args, rest = p.parse_known_args(argv)
     if args.cmd == "eval":
         from .eval import main as eval_main
@@ -27,6 +28,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "soak":
         from .soak import main as soak_main
         return soak_main(rest)
+    if args.cmd == "bench":
+        from .bench import main as bench_main
+        return bench_main(rest)
 
     if args.cmd == "set-key":
         from . import config as cfg

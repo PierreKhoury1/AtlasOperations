@@ -242,3 +242,8 @@ footer.site .fbar { display: flex; justify-content: space-between; flex-wrap: wr
 
 /* Palantir accents */
 .eyebrow, .kicker, .badge, .pill, .navlinks a, .stat small, .step small, .foot small { font-family: var(--mono); letter-spacing: .08em; }
+
+/* hero live-desk replay */
+#livedemo .replaytag { font-family: var(--mono); font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
+#livedemo .tag.policy { color: #fff; background: var(--warn); }
+#livedemo em { color: var(--accent); font-style: normal; font-family: var(--mono); font-size: 11px; }

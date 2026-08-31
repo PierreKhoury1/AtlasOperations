@@ -140,6 +140,16 @@ def desk_configs(desk: dict[str, Any]) -> dict[str, Any]:
         else:
             for a in agents:
                 a["model"] = ""
+        for a in agents:                               # per-agent landscape overrides beat the tier default
+            ov = (over.get("models") or {}).get(a["id"])
+            if not ov:
+                continue
+            if ov.get("engine"):
+                a["engine"] = ov["engine"]
+            if ov.get("model") and ov["model"] != "hermes-agent":
+                a["model"] = ov["model"]
+                if ov.get("provider") and ov["provider"] != "hermes_agent":
+                    a["provider"] = ov["provider"]
     # Hermes Agent engine (the real Nous Research agent, via its API server). Config comes from the desk's
     # hermes_agent connector, or globally from HERMES_AGENT_URL / HERMES_AGENT_KEY env. When
     # DESK_DEFAULT_ENGINE=hermes_agent, every specialist runs on it unless the agent explicitly says engine=atlas.
@@ -457,8 +467,42 @@ def api_update_desk(did):
         conf = d.get("config") or {}
         conf["business"] = {**(conf.get("business") or {}), **body["business"]}
         fields["config"] = conf
+    if isinstance(body.get("models"), dict):           # per-agent model landscape: {agent_id: {model, provider, engine}}
+        conf = fields.get("config") or d.get("config") or {}
+        cur = conf.get("models") or {}
+        for aid, ov in body["models"].items():
+            if not isinstance(ov, dict):
+                continue
+            ent = {k: str(ov[k]) for k in ("model", "provider", "engine") if ov.get(k)}
+            if ent:
+                cur[str(aid)] = ent
+            else:
+                cur.pop(str(aid), None)
+        conf["models"] = cur
+        fields["config"] = conf
     store.update_desk(did, **fields)
     return jsonify(_desk_public(store.desk(did)))
+
+
+# curated model catalogue for the landscape picker. `tools` = supports native tool-calling on OpenRouter.
+MODEL_CATALOG = [
+    {"id": "minimax/minimax-m3:free", "label": "MiniMax M3 (free)", "provider": "openrouter", "tools": True, "cost": "free tier", "engine": "atlas"},
+    {"id": "nvidia/nemotron-3-super-120b-a12b:free", "label": "Nemotron 3 Super (free)", "provider": "openrouter", "tools": True, "cost": "free tier", "engine": "atlas"},
+    {"id": "anthropic/claude-sonnet-4.5", "label": "Claude Sonnet 4.5", "provider": "openrouter", "tools": True, "cost": "≈£2.3/M in", "engine": "atlas", "paid": True},
+    {"id": "anthropic/claude-haiku-4.5", "label": "Claude Haiku 4.5", "provider": "openrouter", "tools": True, "cost": "≈£0.8/M in", "engine": "atlas", "paid": True},
+    {"id": "nousresearch/hermes-4-70b", "label": "Nous Hermes 4 70B", "provider": "openrouter", "tools": False, "cost": "≈£0.1/M in", "engine": "atlas", "paid": True,
+     "note": "no native tool-calling on OpenRouter - best used INSIDE the Hermes Agent runtime"},
+    {"id": "hermes-agent", "label": "Hermes Agent runtime (own tools, memory, skills)", "provider": "hermes_agent", "tools": True, "cost": "runtime + its model", "engine": "hermes_agent"},
+]
+
+
+@app.get("/api/models")
+def api_models():
+    return jsonify({"models": MODEL_CATALOG, "paid_unlocked": not _free_tier_hint()})
+
+
+def _free_tier_hint() -> bool:
+    return True                                        # flips once the OpenRouter account has credits; informational only
 
 
 # ---------------------------------------------------------------------------- api: overview

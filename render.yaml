@@ -8,7 +8,7 @@ services:
     healthCheckPath: /api/health
     envVars:
       - key: DESK_MODE
-        value: demo
+        value: auto        # live as soon as OPENROUTER_API_KEY is set in the Render dashboard; scripted fallback otherwise
       - key: DESK_OPEN
         value: "1"
       - key: DESK_SECRET

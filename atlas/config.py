@@ -145,4 +145,6 @@ def resolve_api_key(pcfg: dict[str, Any]) -> str:
         return key
     if pcfg.get("type") == "anthropic":
         return os.environ.get("ANTHROPIC_API_KEY", "")
-    return os.environ.get("OPENAI_API_KEY", "")
+    if "openrouter" in (pcfg.get("base_url") or "") or pcfg.get("name") == "openrouter":
+        return os.environ.get("OPENROUTER_API_KEY", "") or os.environ.get("OPENAI_API_KEY", "")
+    return os.environ.get("OPENAI_API_KEY", "") or os.environ.get("OPENROUTER_API_KEY", "")
