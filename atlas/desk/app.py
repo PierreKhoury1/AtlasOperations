@@ -758,7 +758,7 @@ def _health(desk_id: int | None, window_h: float = 24.0) -> dict[str, Any]:
         "runs": {"total": len(runs), "by_status": by, "failure_rate": round(len(bad) / len(finished), 3) if finished else 0.0,
                  "p50_s": p(0.5), "p90_s": p(0.9), "active": len(live), "stalled": len(stalled), "zombies": len(zombies)},
         "tokens": tokens, "cost_gbp": round(tokens / 1e6 * 5 * 0.78, 2),
-        "queue": {"pending": len(store.actions("pending", desk_id=desk_id)) if desk_id is not None else None,
+        "queue": {"pending": len(store.actions("pending", limit=100000, desk_id=desk_id)),
                   "oldest_pending_h": round((now - oldest) / 3600, 1) if oldest else 0},
         "jobs": [{"id": j["id"], "name": j["name"], "kind": j["kind"], "enabled": bool(j.get("enabled")), "last_status": j.get("last_status") or "",
                   "last_run": j.get("last_run"), "last_result": (j.get("last_result") or "")[:160]} for j in jobs],
