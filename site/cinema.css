@@ -6,12 +6,12 @@ html.lenis { scroll-behavior: auto; }
 
 /* background film: a blurred loop of the desk's functions, washed to white so type stays crisp */
 .film { position: absolute; inset: 0; z-index: 0; overflow: hidden; pointer-events: none; background: var(--bg2); }
-.film video { position: absolute; inset: -6%; width: 112%; height: 112%; object-fit: cover; filter: saturate(.95) contrast(1.02); opacity: 0; transition: opacity 1.6s ease; }
-.film video.on { opacity: 1; }
+.film video { position: absolute; inset: -6%; width: 112%; height: 112%; object-fit: cover; filter: saturate(.85) contrast(1.05) brightness(.34) invert(.04); opacity: 0; transition: opacity 1.6s ease; }
+.film video.on { opacity: .5; }
 .film::after { content: ""; position: absolute; inset: 0; background:
-  linear-gradient(90deg, rgba(11,14,19,.9) 0%, rgba(11,14,19,.72) 36%, rgba(11,14,19,.22) 60%, rgba(11,14,19,0) 100%),
-  linear-gradient(180deg, rgba(11,14,19,.7) 0%, rgba(11,14,19,0) 26%, rgba(11,14,19,0) 72%, #0b0e13 100%); }
-.phero .film::after { background: linear-gradient(90deg, rgba(11,14,19,.95) 0%, rgba(11,14,19,.82) 42%, rgba(11,14,19,.35) 100%), linear-gradient(180deg, rgba(11,14,19,.55), rgba(11,14,19,0) 40%, #0b0e13 100%); }
+  linear-gradient(90deg, rgba(11,14,19,.92) 0%, rgba(11,14,19,.78) 36%, rgba(11,14,19,.55) 60%, rgba(11,14,19,.4) 100%),
+  linear-gradient(180deg, rgba(11,14,19,.75) 0%, rgba(11,14,19,.3) 26%, rgba(11,14,19,.3) 72%, #0b0e13 100%); }
+.phero .film::after { background: linear-gradient(90deg, rgba(11,14,19,.95) 0%, rgba(11,14,19,.85) 42%, rgba(11,14,19,.55) 100%), linear-gradient(180deg, rgba(11,14,19,.6), rgba(11,14,19,.3) 40%, #0b0e13 100%); }
 @media (max-width: 960px) { .film::after, .phero .film::after { background: rgba(11,14,19,.9); } }
 .nav, header, section, footer, .strip, main { position: relative; z-index: 1; }
 .hero > .wrap, .phero > .wrap { position: relative; z-index: 2; }
@@ -59,7 +59,7 @@ section.scene { background: #0b0e13; }
 /* pipeline scene */
 #pipeline { min-height: 100vh; display: flex; align-items: center; background: var(--bg2); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
 #pipeline > .wrap { width: 100%; position: relative; z-index: 2; }
-#pipeline .film::after { background: linear-gradient(90deg, rgba(246,247,249,.97) 0%, rgba(246,247,249,.9) 42%, rgba(246,247,249,.4) 70%, rgba(246,247,249,.1) 100%), linear-gradient(180deg, rgba(246,247,249,.6), rgba(246,247,249,0) 30%, rgba(246,247,249,0) 70%, var(--bg2) 100%); }
+#pipeline .film::after { background: linear-gradient(90deg, rgba(11,14,19,.97) 0%, rgba(11,14,19,.9) 42%, rgba(11,14,19,.4) 70%, rgba(11,14,19,.1) 100%), linear-gradient(180deg, rgba(11,14,19,.6), rgba(11,14,19,0) 30%, rgba(11,14,19,0) 70%, var(--bg2) 100%); }
 .pipe { display: grid; grid-template-columns: 56px minmax(0, 560px); gap: 28px; align-items: stretch; justify-content: start; min-height: 60vh; }
 .pipe-bar { width: 2px; background: var(--line); position: relative; margin: 8px auto; }
 .pipe-bar i { position: absolute; inset: 0; background: var(--text); transform-origin: 50% 0; transform: scaleY(0); }
