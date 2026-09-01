@@ -11,3 +11,4 @@ templates/*.json
 *.png
 !site/img/*
 config/hermes_agent.key
+data/models/

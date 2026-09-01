@@ -38,6 +38,13 @@ KINDS = {
                              "http://your-vps:8642 — one-click on Hostinger VPS or `curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash`. "
                              "Any desk agent can then run ON Hermes Agent (its 40+ tools: terminal, browser, web search, memory, skills, MCP) "
                              "instead of the built-in specialist loop. Atlas keeps orchestration, policy and approvals."},
+    "camera": {"label": "Camera (webcam, RTSP/IP camera, snapshot URL)",
+               "fields": ["source", "watch_for", "min_count", "hours", "cooldown_min", "question", "task", "vlm_model", "notes"],
+               "hint": "source: webcam index (0), rtsp://user:pass@ip:554/Streaming/Channels/101 (Hikvision), http://ip/capture (ESP32-CAM) "
+                       "or any JPEG URL. watch_for: comma-separated objects (person, car, truck, dog, bicycle...). hours: only alert inside a window, "
+                       "e.g. 20:00-07:00. cooldown_min: don't re-alert for N minutes while the scene is unchanged. question: what the vision analyst "
+                       "should answer on every alert ('Is anyone at the counter? Is the shutter open?'). task: what the desk should do when it fires. "
+                       "Agents can look through it any time with camera_look and search its history with camera_events."},
     "webhook": {"label": "Inbound webhook", "fields": [],
                 "hint": "POST JSON {name, email, phone, company, notes, source} to the desk's hook URL — web forms, Zapier, Make, Typeform."},
     "resend": {"label": "Email sending (Resend API)", "fields": ["api_key", "from_email", "from_name"],
@@ -63,10 +70,16 @@ CRM_KINDS = ("hubspot", "pipedrive")
 SECRET_KEYS = ("password", "token", "secret", "api_key", "env", "webhook_url", "account_sid")
 
 
+def _mask_url(u: str) -> str:
+    return re.sub(r"://([^:/@]+):([^@/]+)@", lambda m: f"://{m.group(1)}:••••@", u)
+
+
 def mask(config: dict[str, Any]) -> dict[str, Any]:
     out = {}
     for k, v in (config or {}).items():
-        if any(s in k.lower() for s in SECRET_KEYS) and v:
+        if k == "source" and isinstance(v, str) and "@" in v and "://" in v:
+            out[k] = _mask_url(v)
+        elif any(s in k.lower() for s in SECRET_KEYS) and v:
             out[k] = "••••" + str(v)[-4:] if len(str(v)) > 4 else "••••"
         else:
             out[k] = v
@@ -78,6 +91,8 @@ def merge_secrets(old: dict[str, Any], new: dict[str, Any]) -> dict[str, Any]:
     out = dict(old or {})
     for k, v in (new or {}).items():
         if any(s in k.lower() for s in SECRET_KEYS) and isinstance(v, str) and v.startswith("••••"):
+            continue
+        if k == "source" and isinstance(v, str) and ":••••@" in v:
             continue
         out[k] = v
     return out
@@ -388,6 +403,17 @@ def test_higgsfield(cfg: dict[str, Any]) -> str:
     return f"Higgsfield API reachable, key accepted (probe HTTP {r.status_code}); default video model {cfg.get('default_video_model') or 'kling'}"
 
 
+def test_camera(cfg: dict[str, Any]) -> str:
+    from . import vision as V
+    src = str(cfg.get("source") or "").strip()
+    if not src:
+        raise RuntimeError("camera connector needs a source (webcam index, rtsp:// or http:// URL, or file)")
+    res = V.analyse(src, cfg, None, live_vlm=False)
+    w, h = res["size"]
+    det = ("yolo: " + V.counts_text(res["counts"])) if res["backend"] == "yolo" else           ("no local detector (" + (res["detector_error"] or "ultralytics missing") + ") — vision model will count on motion")
+    return f"frame {w}x{h} from {V.source_kind(src)} · {det}"
+
+
 def test_connector(kind: str, cfg: dict[str, Any]) -> str:
     if kind == "higgsfield":
         return test_higgsfield(cfg)
@@ -402,6 +428,8 @@ def test_connector(kind: str, cfg: dict[str, Any]) -> str:
         return mcp_client.test_server(cfg)
     if kind == "webhook":
         return "webhook connectors need no test — POST to the hook URL"
+    if kind == "camera":
+        return test_camera(cfg)
     if kind == "hermes_agent":
         return test_hermes_agent(cfg)
     if kind == "resend":
@@ -447,6 +475,9 @@ def describe(connectors: list[dict[str, Any]]) -> str:
             extra = f" calendar={cfg.get('calendar_id') or 'primary'} tz={cfg.get('timezone') or 'Europe/London'} (use calendar_free_slots / calendar_book)"
         elif c["kind"] == "slack":
             extra = " (owner gets a Slack ping for approvals and sends)"
+        elif c["kind"] == "camera":
+            extra = (f" watching for {cfg.get('watch_for') or 'person'}" + (f" during {cfg['hours']}" if cfg.get("hours") else "")
+                     + " (camera_look to see it now, camera_events to search what it saw)" + (f" — {cfg.get('notes')}" if cfg.get("notes") else ""))
         lines.append(f"- {c['name']} [{c['kind']}]{extra}  writes-without-approval={'yes' if c.get('auto') else 'no'}")
     return "\n".join(lines)
 

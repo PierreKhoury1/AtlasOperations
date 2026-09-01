@@ -59,6 +59,12 @@ CREATE TABLE IF NOT EXISTS leads (
   id INTEGER PRIMARY KEY AUTOINCREMENT, created REAL, name TEXT, company TEXT, email TEXT, phone TEXT,
   source TEXT, notes TEXT, status TEXT DEFAULT 'new', run_id TEXT, desk_id INTEGER DEFAULT 1
 );
+CREATE TABLE IF NOT EXISTS vision_events (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, desk_id INTEGER, camera TEXT, ts REAL, counts TEXT DEFAULT '{}',
+  motion REAL DEFAULT 0, backend TEXT DEFAULT '', reason TEXT DEFAULT '', question TEXT DEFAULT '', answer TEXT DEFAULT '',
+  snapshot TEXT DEFAULT '', triggered INTEGER DEFAULT 0, run_id TEXT DEFAULT '', source TEXT DEFAULT 'camera'
+);
+CREATE INDEX IF NOT EXISTS ix_vision_desk ON vision_events(desk_id, ts);
 """
 
 # columns added after the first release — applied idempotently on open
@@ -238,6 +244,60 @@ class Store:
             self._conn.execute("DELETE FROM memories WHERE desk_id=? AND key=?", (desk_id, key))
             self._conn.commit()
 
+    # ------------------------------------------------------------------ vision events (cameras / sensors)
+    def add_vision_event(self, desk_id: int, camera: str, counts: dict[str, int], motion: float = 0.0, backend: str = "",
+                         reason: str = "", question: str = "", answer: str = "", snapshot: str = "", triggered: bool = False,
+                         run_id: str = "", source: str = "camera") -> dict[str, Any]:
+        with self._lock:
+            cur = self._conn.execute(
+                "INSERT INTO vision_events(desk_id,camera,ts,counts,motion,backend,reason,question,answer,snapshot,triggered,run_id,source) "
+                "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (desk_id, camera, time.time(), json.dumps(counts or {}), float(motion or 0), backend, reason, question, answer,
+                 snapshot, 1 if triggered else 0, run_id or "", source))
+            self._conn.commit()
+            vid = cur.lastrowid
+        return self.vision_event(vid)  # type: ignore[return-value]
+
+    def vision_event(self, vid: int) -> dict[str, Any] | None:
+        rows = _rows(self._conn.execute("SELECT * FROM vision_events WHERE id=?", (vid,)))
+        return self._vrow(rows[0]) if rows else None
+
+    @staticmethod
+    def _vrow(r: dict[str, Any]) -> dict[str, Any]:
+        try:
+            r["counts"] = json.loads(r.get("counts") or "{}")
+        except Exception:
+            r["counts"] = {}
+        return r
+
+    def vision_events(self, desk_id: int, camera: str = "", since: float = 0, query: str = "", limit: int = 100,
+                      triggered_only: bool = False) -> list[dict[str, Any]]:
+        sql = "SELECT * FROM vision_events WHERE desk_id=? AND ts>=?"
+        args: list[Any] = [desk_id, since]
+        if camera:
+            sql += " AND camera=?"; args.append(camera)
+        if triggered_only:
+            sql += " AND triggered=1"
+        if query:
+            q = f"%{query.strip()}%"
+            sql += " AND (camera LIKE ? OR counts LIKE ? OR reason LIKE ? OR answer LIKE ? OR question LIKE ?)"
+            args += [q, q, q, q, q]
+        sql += " ORDER BY ts DESC LIMIT ?"; args.append(limit)
+        return [self._vrow(r) for r in _rows(self._conn.execute(sql, args))]
+
+    def last_vision_event(self, desk_id: int, camera: str, triggered_only: bool = False) -> dict[str, Any] | None:
+        rows = self.vision_events(desk_id, camera, 0, "", 1, triggered_only)
+        return rows[0] if rows else None
+
+    def set_vision_run(self, vid: int, run_id: str) -> None:
+        with self._lock:
+            self._conn.execute("UPDATE vision_events SET run_id=?, triggered=1 WHERE id=?", (run_id, vid))
+            self._conn.commit()
+
+    def vision_stats(self, desk_id: int, since: float) -> dict[str, Any]:
+        row = self._conn.execute("SELECT COUNT(*), SUM(triggered) FROM vision_events WHERE desk_id=? AND ts>=?", (desk_id, since)).fetchone()
+        return {"events": int(row[0] or 0), "triggered": int(row[1] or 0)}
+
     # ------------------------------------------------------------------ jobs (automations)
     def add_job(self, desk_id: int, kind: str, name: str, task: str, every_min: int = 0, next_run: float | None = None) -> dict[str, Any]:
         with self._lock:
@@ -292,7 +352,7 @@ class Store:
             run_ids = [r[0] for r in self._conn.execute("SELECT id FROM runs WHERE desk_id=?", (desk_id,)).fetchall()]
             for rid in run_ids:
                 self._conn.execute("DELETE FROM events WHERE run_id=?", (rid,))
-            for t in ("runs", "actions", "leads", "contacts", "jobs", "memories"):
+            for t in ("runs", "actions", "leads", "contacts", "jobs", "memories", "vision_events"):
                 self._conn.execute(f"DELETE FROM {t} WHERE desk_id=?", (desk_id,))
             self._conn.commit()
 
@@ -559,3 +619,10 @@ class DeskStore:
     def remember(self, key, value, source=""): return self.s.remember(self.desk_id, key, value, source)
     def recall(self, query="", limit=20): return self.s.recall(self.desk_id, query, limit)
     def forget(self, key): return self.s.forget(self.desk_id, key)
+    def add_vision_event(self, camera, counts, **k): return self.s.add_vision_event(self.desk_id, camera, counts, **k)
+    def vision_events(self, camera="", since=0, query="", limit=100, triggered_only=False):
+        return self.s.vision_events(self.desk_id, camera, since, query, limit, triggered_only)
+    def vision_event(self, vid): return self.s.vision_event(vid)
+    def last_vision_event(self, camera, triggered_only=False): return self.s.last_vision_event(self.desk_id, camera, triggered_only)
+    def set_vision_run(self, vid, run_id): return self.s.set_vision_run(vid, run_id)
+    def vision_stats(self, since): return self.s.vision_stats(self.desk_id, since)

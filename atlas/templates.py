@@ -41,7 +41,7 @@ def _atlas(extra: str = "") -> dict[str, Any]:
                   _BASE_ATLAS_PROMPT + ("\n\n" + extra if extra else ""),
                   tools=["delegate", "list_agents", "save_deliverable", "read_file", "list_files",
                          "crm_lookup", "crm_update", "queue_action", "list_connectors", "http_request", "schedule_task", "calendar_free_slots", "calendar_book",
-                         "mcp", "run_python", "remember", "recall", "generate_media"],
+                         "mcp", "run_python", "remember", "recall", "generate_media", "camera_look", "camera_events"],
                   color="#0b5fcb")
 
 
@@ -265,8 +265,54 @@ SALES_DESK: dict[str, Any] = {
 }
 
 
+SITE_WATCH: dict[str, Any] = {
+    "business": {
+        "name": "Your Site",
+        "model": "site_watch",
+        "tagline": "Shop, clinic or yard watched by the desk",
+        "description": "A physical site (shop floor, reception, yard, warehouse door) with cameras and sensors connected to the desk. "
+                       "The desk watches, logs what happens, alerts the right person and answers questions about what the cameras saw.",
+        "services": ["After-hours presence alerts", "Queue and footfall watch", "Delivery and vehicle log",
+                     "Shelf / display checks", "Daily site digest", "Answer questions about footage"],
+        "target_clients": "Owner and site staff",
+        "tone": "Calm, factual, specific. Times, counts, camera names. No drama, no speculation.",
+        "currency": "GBP",
+        "pricing_notes": "",
+        "extra_context": "Staff are usually on site 08:00-19:00. Deliveries come to the rear door. Anything after 20:00 is unusual.",
+        "sender_name": "Atlas, Site desk",
+        "availability": "",
+    },
+    "agents": [
+        _agent("atlas", "Atlas", "Site desk orchestrator",
+               _BASE_ATLAS_PROMPT + "\n\nThis is a Site Watch desk: cameras and sensors feed you events. For every camera alert: look again if useful (camera_look with a precise question), check what happened before (camera_events), decide severity (routine / worth telling staff / urgent for the owner), log a one-line incident note with remember(key='incident YYYY-MM-DD HH:MM', ...), and if someone should be told, queue a short message with queue_action (kind=whatsapp or sms or email) — never send directly. For questions about footage, answer from camera_events with times and counts; say plainly when the log has nothing. Routine events (staff during hours, expected deliveries) get logged only.",
+               tools=["delegate", "list_agents", "camera_look", "camera_events", "queue_action", "crm_lookup", "crm_update", "save_deliverable", "read_file", "list_files",
+                      "list_connectors", "http_request", "schedule_task", "mcp", "run_python", "remember", "recall"],
+               color="#0b5fcb"),
+        _agent("watcher", "Vision Analyst", "Interprets camera frames and event history",
+               "You are the vision analyst for a physical site. Given a camera event (counts, motion, time, the analyst's answer), decide what most likely happened and how sure you are. Use camera_look with one precise question when a second look would change the decision; use camera_events to compare with the pattern for that camera and time. Output: what happened (1-2 lines), confidence (low/medium/high), severity (routine / notify staff / urgent), evidence (times, counts). Never identify individuals; describe clothing/vehicle only when it matters operationally.",
+               tools=["camera_look", "camera_events", "recall", "read_file", "list_files"], color="#7c3aed"),
+        _agent("comms", "Site Comms", "Drafts alerts and digests for staff and owner",
+               "You write short operational messages for site staff and the owner: what was seen, where, when, and the one thing to do (check, ignore, call). Under 60 words for alerts, plain text, no markdown. Daily digests: bullet-free plain lines grouped by camera with counts and notable times. Sign off with the sender name.",
+               color="#db2777"),
+    ],
+    "workflows": [
+        {"id": "camera_alert", "name": "Camera alert → assess → notify", "description": "Vision analyst assesses, comms drafts, Atlas queues for approval", "synthesize": True,
+         "steps": [
+             {"agent": "watcher", "task": "Assess this camera event:\n{task}"},
+             {"agent": "comms", "task": "Draft the alert message if severity is notify/urgent, otherwise reply NO MESSAGE.\n\nEvent:\n{task}\n\nAssessment:\n{previous}"},
+         ]},
+        {"id": "daily_digest", "name": "Daily site digest", "description": "Summarise the last 24h of camera events for the owner", "synthesize": True,
+         "steps": [
+             {"agent": "watcher", "task": "Summarise the last 24 hours of camera events (camera_events hours=24): busiest periods, after-hours activity, deliveries, anomalies.\n{task}"},
+             {"agent": "comms", "task": "Write the owner's daily site digest from this summary.\n\n{previous}"},
+         ]},
+    ],
+}
+
+
 BUILTIN: dict[str, dict[str, Any]] = {
     "sales_desk": SALES_DESK,
+    "site_watch": SITE_WATCH,
     "consultancy": CONSULTANCY,
     "agency": AGENCY,
     "saas": SAAS,
@@ -300,6 +346,8 @@ def export_current(name: str, business: dict, agents: list, workflows: list) -> 
 DESK_TYPES: list[dict[str, Any]] = [
     {"id": "sales_desk", "label": "Sales desk", "tagline": "Inbound leads answered, researched, drafted, CRM kept clean.",
      "does": ["Research every lead", "Personalised first reply", "CRM stage + next action", "Follow-ups"], "for": "Estate agents, clinics, trades, B2B services"},
+    {"id": "site_watch", "label": "Site watch desk", "tagline": "Cameras and sensors watched, incidents logged, the right person told, questions answered over footage.",
+     "does": ["After-hours presence alerts", "Queue / footfall / delivery log", "Ask the cameras anything", "Daily site digest"], "for": "Shops, clinics, yards, warehouses, restaurants"},
     {"id": "consultancy", "label": "Consultancy desk", "tagline": "Briefs, strategy, pricing and client-ready proposals.",
      "does": ["Research brief", "Recommendation + roadmap", "Pricing", "Proposal reviewed by QA"], "for": "Consultancies, advisors, freelancers"},
     {"id": "agency", "label": "Agency desk", "tagline": "Campaign pitches: research, creative, media plan, review.",
@@ -318,6 +366,14 @@ SAMPLE_LEADS: dict[str, list[dict[str, str]]] = {
          "notes": "Thinking of selling a 2-bed in Walworth in the next 3 months. Asked for a rough price range."},
         {"name": "Hannah Weiss", "company": "", "email": "hannah.weiss@example.com", "phone": "", "source": "referral",
          "notes": "Relocating to London in October, needs a 1-bed rental near Elephant & Castle, budget ~£1,600."},
+    ],
+    "site_watch": [
+        {"name": "Front door camera", "company": "", "email": "site.frontdoor@example.com", "phone": "", "source": "camera",
+         "notes": "Camera front-door at 22:14: 2 people at the entrance, motion 0.31, shop closed since 19:00. Analyst: two adults standing close to the door, one holding the handle; shutter appears down."},
+        {"name": "Rear yard camera", "company": "", "email": "site.yard@example.com", "phone": "", "source": "camera",
+         "notes": "Camera rear-yard at 07:52: 1 truck, 1 person, motion 0.44. Analyst: a white box van reversed to the loading door, driver at the rear doors with a trolley."},
+        {"name": "Counter camera", "company": "", "email": "site.counter@example.com", "phone": "", "source": "camera",
+         "notes": "Camera counter at 12:40: 6 people, motion 0.12. Analyst: five customers queueing at the till, one staff member serving; second till unattended."},
     ],
     "consultancy": [
         {"name": "Dana Whitfield", "company": "Northgate Logistics", "email": "dana@northgate.example.com", "phone": "+44 7700 900201", "source": "LinkedIn",
@@ -355,18 +411,26 @@ SAMPLE_LEADS: dict[str, list[dict[str, str]]] = {
 
 # model tiers: which agents get the strong model. Provider stays whatever the desk runs on (OpenRouter by default).
 TIERS: dict[str, dict[str, Any]] = {
-    "free":     {"label": "Free",     "strong": [],                                  "note": "Free OpenRouter model for every agent. Good for demos; writing is adequate."},
-    "balanced": {"label": "Balanced", "strong": ["atlas"],                          "note": "Claude Sonnet plans and reviews; specialists run free. About 5-10p per lead."},
-    "best":     {"label": "Best",     "strong": ["atlas", "qa", "writer", "proposal", "strategy", "review"], "note": "Claude Sonnet wherever judgement or client-facing text matters. About 15-30p per lead."},
+    "free":     {"label": "Free",     "strong": [], "hermes_model": "minimax/minimax-m3:free",
+                 "note": "£0 per lead. Free MiniMax everywhere - inside the Hermes Agent runtime it still scored 3/3 on research, writing and data. Planning is weaker; drafts run long and get bounced by policy."},
+    "frugal":   {"label": "Frugal",   "strong": [], "orchestrator": "anthropic/claude-haiku-4.5", "hermes_model": "anthropic/claude-haiku-4.5",
+                 "note": "≈ 5-8p per lead. Claude Haiku orchestrates and powers Hermes Agent: fast, tidy, near-perfect on tool tasks."},
+    "balanced": {"label": "Balanced", "strong": ["atlas"], "hermes_model": "anthropic/claude-haiku-4.5",
+                 "note": "≈ 15-20p per lead. Claude Sonnet plans and reviews; Hermes Agent specialists on Haiku. The default for client work."},
+    "best":     {"label": "Best",     "strong": ["atlas", "qa", "writer", "proposal", "strategy", "review"], "hermes_model": "anthropic/claude-sonnet-4.5",
+                 "note": "≈ 35p per lead. Sonnet everywhere, including inside Hermes Agent. Only where the words are the product."},
 }
 STRONG_MODEL = "anthropic/claude-sonnet-4.5"
 FREE_MODEL = "minimax/minimax-m3:free"
 
 
 def apply_tier(agents: list[dict[str, Any]], tier: str) -> None:
-    strong = set(TIERS.get(tier, TIERS["free"])["strong"])
+    t = TIERS.get(tier, TIERS["free"])
+    strong = set(t["strong"])
     for a in agents:
         a["model"] = STRONG_MODEL if a["id"] in strong else FREE_MODEL
+        if a["id"] == "atlas" and t.get("orchestrator"):
+            a["model"] = t["orchestrator"]
 
 
 def build_desk(template: str, answers: dict[str, Any]) -> dict[str, Any]:

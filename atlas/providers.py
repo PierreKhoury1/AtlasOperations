@@ -204,6 +204,7 @@ class OpenAICompatProvider(Provider):
         }
         if tools:
             payload["tools"] = self._tools(tools)
+        payload.update(getattr(self, "_extra_payload", None) or {})
         headers = {"Content-Type": "application/json"}
         if self.api_key:
             headers["Authorization"] = f"Bearer {self.api_key}"
@@ -505,7 +506,10 @@ class HermesAgentProvider(OpenAICompatProvider):
     def chat(self, system, messages, tools, model="", on_token=None):
         # Hermes ignores client tools and runs its own; never advertise ours (they would be unusable server-side).
         self._extra_headers = {"X-Hermes-Session-Key": self.session_key} if self.session_key else {}
-        return super().chat(system, messages, [], model or self.default_model, on_token=on_token)
+        want = model or self.default_model or "hermes-agent"
+        # Per-request model choice inside the runtime: Hermes honours "model"+"provider" together (bare ids are ignored).
+        self._extra_payload = {"provider": "openrouter"} if want != "hermes-agent" else {}
+        return super().chat(system, messages, [], want, on_token=on_token)
 
 
 def make_provider(pcfg: dict[str, Any]) -> Provider:

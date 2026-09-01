@@ -162,6 +162,32 @@ tr.click{cursor:pointer}tr.click:hover{background:var(--panel2)}
 .flag{background:#fdecec;border:1px solid #f0b6b6;color:#a82a2a;padding:8px 10px;border-radius:3px;font-size:12px;margin:8px 0}
 .model{font-family:var(--mono);font-size:11px;color:var(--faint)}
 </style>
+<style>
+.camgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px}
+.cam{border:1px solid var(--line);background:var(--panel,transparent);border-radius:3px;overflow:hidden;display:flex;flex-direction:column}
+.cam .shot{position:relative;background:#05070a;aspect-ratio:4/3;display:flex;align-items:center;justify-content:center;color:var(--faint);font-size:12px}
+.cam .shot img{width:100%;height:100%;object-fit:contain;display:block}
+.cam .shot .ov{position:absolute;left:8px;top:8px;display:flex;gap:6px;flex-wrap:wrap}
+.cam .shot .ov .tag{background:rgba(5,7,10,.75);backdrop-filter:blur(2px)}
+.cam .shot .live{position:absolute;right:8px;top:8px;font-family:var(--mono);font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;padding:2px 6px;border:1px solid var(--line);background:rgba(5,7,10,.75)}
+.cam .shot .live.on{border-color:var(--ok);color:var(--ok)}
+.cam .body{padding:10px 12px;display:flex;flex-direction:column;gap:6px}
+.cam .body h3{margin:0;font-size:14px;font-weight:600;display:flex;align-items:center;gap:8px}
+.cam .body h3 small{font-family:var(--mono);font-size:11px;color:var(--faint);font-weight:400;margin-left:auto}
+.cam .ans{font-size:12.5px;color:var(--muted);border-left:2px solid var(--blue,#4c90f0);padding:2px 8px;margin:2px 0}
+.cam .act{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.cam .act input{flex:1;min-width:120px;font-size:12px;padding:6px 8px}
+.evline{display:grid;grid-template-columns:52px 64px 1fr;gap:10px;align-items:start;padding:7px 0;border-bottom:1px solid var(--line);font-size:12.5px}
+.evline .t{font-family:var(--mono);font-size:11px;color:var(--faint)}
+.evline .th{width:64px;height:48px;object-fit:cover;background:#05070a;border:1px solid var(--line);cursor:zoom-in}
+.evline .th.none{display:flex;align-items:center;justify-content:center;color:var(--faint);font-size:10px}
+.evline.alert .r{color:var(--warn)}
+.askbox{display:flex;flex-direction:column;gap:8px}
+.askout{font-size:13.5px;line-height:1.5;white-space:pre-wrap;padding:10px 12px;border:1px solid var(--line);min-height:60px}
+.askout .cite{font-family:var(--mono);font-size:11px;color:var(--blue,#4c90f0)}
+.lightbox{position:fixed;inset:0;background:rgba(3,5,8,.86);display:flex;align-items:center;justify-content:center;z-index:50;cursor:zoom-out}
+.lightbox img{max-width:92vw;max-height:88vh;border:1px solid var(--line)}
+</style>
 <link rel="stylesheet" href="/desk/static/studio.css">
 </head>
 <body>
@@ -178,6 +204,7 @@ tr.click{cursor:pointer}tr.click:hover{background:var(--panel2)}
     <button data-p="crm"><svg viewBox="0 0 24 24"><ellipse cx="12" cy="6" rx="8" ry="3"/><path d="M4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6"/><path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/></svg>CRM</button>
     <div class="grp">Operate</div>
     <button data-p="integrations"><svg viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1"/><path d="M14 11a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1"/></svg>Integrations</button>
+    <button data-p="cameras"><svg viewBox="0 0 24 24"><path d="M3 8h4l2-3h6l2 3h4v11H3z"/><circle cx="12" cy="13" r="3.5"/></svg>Cameras <span class="pill" id="n-cams">0</span></button>
     <button data-p="automations"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>Automations <span class="pill" id="n-jobs">0</span></button>
     <div class="grp">Records</div>
     <button data-p="runs"><svg viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13"/><path d="M3 6h.01M3 12h.01M3 18h.01"/></svg>Runs</button>
@@ -378,6 +405,43 @@ tr.click{cursor:pointer}tr.click:hover{background:var(--panel2)}
   </div>
 </section>
 
+<!-- CAMERAS -->
+<section id="p-cameras" class="hide">
+  <div class="phead"><div><h1>Cameras</h1><p class="lead">The desk's eyes. Every camera is watched on a schedule: objects are counted locally, the vision analyst answers your standing question when something changes, and a rule decides when Atlas is woken. Everything the cameras see is logged — ask about it in plain English.</p></div>
+    <div class="ctl"><span class="tag" id="cam-det">detector…</span><span class="tag" id="cam-vlm">analyst…</span><button class="btn sm" onclick="lookAll()">Look through all</button></div></div>
+  <div class="grid g2" style="grid-template-columns:1.6fr 1fr">
+    <div>
+      <div class="camgrid" id="cam-grid" style="margin-bottom:14px"><div class="empty">Loading…</div></div>
+      <div class="panel"><div class="ph"><h2>What the cameras saw</h2><div class="row" style="gap:6px"><select id="ev-cam" style="width:auto;font-size:12px;padding:5px 8px" onchange="loadVisionEvents()"><option value="">all cameras</option></select><select id="ev-hours" style="width:auto;font-size:12px;padding:5px 8px" onchange="loadVisionEvents()"><option value="1">last hour</option><option value="24" selected>last 24h</option><option value="168">last 7 days</option></select><label style="margin:0;display:flex;gap:5px;align-items:center;font-size:12px"><input type="checkbox" id="ev-alerts" style="width:auto" onchange="loadVisionEvents()"> alerts only</label></div></div>
+        <div class="pb" id="ev-list" style="max-height:520px;overflow:auto"></div></div>
+    </div>
+    <div>
+      <div class="panel" style="margin-bottom:14px"><div class="ph"><h2>Ask the cameras</h2><span class="hint">answers come only from the log, with event ids</span></div>
+        <div class="pb askbox">
+          <textarea id="ask-q" rows="2" placeholder="Was anyone at the back door after 8pm? · When did the delivery van arrive? · How busy was the counter between 12 and 2?" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();askCams()}"></textarea>
+          <div class="row"><select id="ask-hours" style="width:auto;font-size:12px;padding:6px 8px"><option value="24">last 24h</option><option value="72">last 3 days</option><option value="168">last 7 days</option><option value="720">last 30 days</option></select><button class="btn p" id="ask-btn" onclick="askCams()">Ask</button></div>
+          <div class="askout" id="ask-out">Ask anything about what the cameras have seen.</div>
+          <div id="ask-ev" class="hint"></div>
+        </div></div>
+      <div class="panel" style="margin-bottom:14px"><div class="ph"><h2>Add a camera</h2></div><div class="pb">
+        <label>Name (agents refer to it by this)</label><input id="cam-name" placeholder="front-door">
+        <label>Source</label><input id="cam-src" placeholder="0 (laptop webcam) · rtsp://user:pass@192.168.1.20:554/Streaming/Channels/101 · http://192.168.1.31/capture">
+        <div class="grid g2"><div><label>Watch for</label><input id="cam-watch" placeholder="person" value="person"></div><div><label>Min count</label><input id="cam-min" type="number" value="1" min="1"></div></div>
+        <div class="grid g2"><div><label>Alert hours (blank = always)</label><input id="cam-hours" placeholder="20:00-07:00"></div><div><label>Cooldown (min)</label><input id="cam-cool" type="number" value="10" min="0"></div></div>
+        <label>Standing question for the analyst</label><input id="cam-q" placeholder="Is anyone at the door? Is the shutter open or closed?">
+        <label>What the desk should do when it fires</label><textarea id="cam-task" rows="2" placeholder="Log it. If it is after hours and a person is present, queue a WhatsApp to the owner with the time and what was seen."></textarea>
+        <label>Notes for the agents</label><input id="cam-notes" placeholder="Main entrance, faces the street. Staff use the side door.">
+        <div class="row" style="margin-top:12px"><button class="btn p" onclick="addCamera()">Add camera</button><span class="hint">Then <b>Look now</b> to test, and switch <b>Watch</b> on.</span></div>
+      </div></div>
+      <div class="panel"><div class="ph"><h2>Sensors &amp; external detectors</h2><span class="hint">ESP32-CAM, PIR, Frigate, NVR alarms</span></div><div class="pb">
+        <label>Event hook URL</label>
+        <div class="row"><input id="vision-hook-url" readonly style="flex:1;font-family:Consolas,monospace;font-size:12px"><button class="btn sm" onclick="navigator.clipboard.writeText($('#vision-hook-url').value);toast('Copied')">Copy</button><button class="btn sm p" onclick="testVisionHook()">Send test event</button></div>
+        <p class="hint" style="margin-top:6px">POST JSON <code>{camera, labels:{"person":1}, note, image(base64 jpeg, optional), trigger}</code>. Any device that can make an HTTP request becomes a sensor on this desk — same log, same approvals.</p>
+      </div></div>
+    </div>
+  </div>
+</section>
+
 <!-- AUDIT -->
 <section id="p-audit" class="hide">
   <h1>Audit log</h1><p class="lead">Every agent action, tool call, approval and send — who, what, when.</p>
@@ -451,6 +515,7 @@ async function refresh(){
   if (page==='integrations') loadConnectors();
   if (page==='setup') loadMem();
   if (page==='automations') loadJobs();
+  if (page==='cameras') { loadCameras(); loadVisionEvents(); }
   if (page==='report') loadReport();
 }
 
@@ -720,7 +785,7 @@ function connFields(){
   const k = $('#c-kind').value, spec = KINDS[k]; if (!spec) return;
   $('#c-hint').textContent = spec.hint;
   const ph = {host:'smtp.gmail.com', port: k==='imap'?'993':'587', user:'you@gmail.com', password:'app password', from_email:'you@company.com', from_name:'Sam Reid', folder:'INBOX', base_url:'https://api.example.com', auth_type:'bearer | header | query | basic | none', token:'secret', headers:'{"X-Custom":"value"} (optional)', notes:'What this API is and which paths the agents may use', command:'npx -y @modelcontextprotocol/server-filesystem C:/clients/acme', env:'{"GITHUB_PERSONAL_ACCESS_TOKEN":"..."} (optional)',
-    api_key:'re_…', phone_number_id:'123456789012345', access_token:'EAAG… (permanent system-user token)', verify_token:'any secret string you choose', account_sid:'AC…', auth_token:'Twilio auth token', from_number:'+447700900123', whatsapp_from:'+14155238886 (optional)', company_domain:'acme (from acme.pipedrive.com)', api_token:'Pipedrive API token', client_id:'….apps.googleusercontent.com', client_secret:'GOCSPX-…', refresh_token:'1//0g…', calendar_id:'primary', timezone:'Europe/London', day_start:'09:00', day_end:'17:00', webhook_url:'https://hooks.slack.com/services/…', channel:'#desk (optional)'};
+    api_key:'re_…', phone_number_id:'123456789012345', access_token:'EAAG… (permanent system-user token)', verify_token:'any secret string you choose', account_sid:'AC…', auth_token:'Twilio auth token', from_number:'+447700900123', whatsapp_from:'+14155238886 (optional)', company_domain:'acme (from acme.pipedrive.com)', api_token:'Pipedrive API token', client_id:'….apps.googleusercontent.com', client_secret:'GOCSPX-…', refresh_token:'1//0g…', calendar_id:'primary', timezone:'Europe/London', day_start:'09:00', day_end:'17:00', webhook_url:'https://hooks.slack.com/services/…', channel:'#desk (optional)', source:'0 · rtsp://user:pass@ip:554/… · http://ip/capture', watch_for:'person, car', min_count:'1', hours:'20:00-07:00 (optional)', cooldown_min:'10', question:'Is anyone at the door?', task:'What the desk should do when it fires', vlm_model:'anthropic/claude-haiku-4.5 (optional)'};
   $('#c-fields').innerHTML = spec.fields.map(f=>`<label>${f}</label>${f==='notes'||f==='headers'?`<textarea data-f="${f}" placeholder="${ph[f]||''}" style="min-height:60px"></textarea>`:`<input data-f="${f}" placeholder="${ph[f]||''}" ${/password|token|secret|api_key|webhook_url/.test(f)?'type="password"':''}>`}`).join('');
 }
 async function addConnector(){
@@ -733,6 +798,73 @@ async function delConn(id){ if(!confirm('Remove connector?')) return; await api(
 async function testHook(){
   const r = await fetch($('#hook-url').value, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({name:'Webhook Test', email:'webhook.test@example.com', phone:'+44 7700 900999', company:'Test Form Ltd', source:'webhook test', notes:'Hello — testing the inbound form. Can you tell me how you work and what a first step looks like?'})});
   const j = await r.json(); toast(j.ok ? 'Lead created — desk running' : (j.error||'failed')); if (j.run_id) { liveWant = j.run_id; go('live'); }
+}
+
+/* ================= CAMERAS ================= */
+let CAMS = [], _camBusy = new Set(), _evFilterInit = false, _lastEvKey = '';
+async function loadCameras(){
+  const R = await api('/cameras'); if (!R) return; CAMS = R.cameras;
+  $('#n-cams').textContent = CAMS.length;
+  $('#vision-hook-url').value = R.hook_url || '';
+  const det = $('#cam-det'); det.textContent = R.detector.available ? 'local detector: ' + R.detector.weights : 'no local detector'; det.style.color = R.detector.available ? 'var(--ok)' : 'var(--muted)'; det.title = R.detector.error || 'ultralytics YOLO, runs on this machine';
+  const v = $('#cam-vlm'); v.textContent = R.vlm.ready ? 'analyst: ' + R.vlm.model.split('/').pop() : (R.mode==='demo' ? 'analyst: demo' : 'analyst: no key'); v.style.color = R.vlm.ready ? 'var(--ok)' : 'var(--muted)';
+  const sel = $('#ev-cam'); const cur = sel.value; sel.innerHTML = '<option value="">all cameras</option>' + CAMS.map(c=>`<option value="${esc(c.name)}" ${c.name===cur?'selected':''}>${esc(c.name)}</option>`).join('');
+  if (!CAMS.length) { $('#cam-grid').innerHTML = '<div class="empty" style="grid-column:1/-1">No cameras yet. Add your laptop webcam (source <b>0</b>) to try it in ten seconds, or an RTSP / snapshot URL for a real camera.</div>'; return; }
+  $('#cam-grid').innerHTML = CAMS.map(c => {
+    const s = c.seen || {}, le = c.last_event, ts = s.ts || (le && le.ts), busy = _camBusy.has(c.id);
+    const seenTxt = s.counts ? countsText(s.counts) : (le ? le.seen : '—');
+    const watching = !!(c.watch_job && c.watch_job.enabled);
+    const src = c.config.source || '';
+    const hasFrame = !!(s.ts || (le && le.snapshot_url));
+    return `<div class="cam" id="cam-${c.id}">
+      <div class="shot" onclick="${hasFrame?`zoom('/api/cameras/${c.id}/frame.jpg?t='+Date.now())`:''}">${hasFrame ? `<img src="/api/cameras/${c.id}/frame.jpg?t=${Math.floor((ts||0)*1000)}" alt="">` : `<span>${busy?'grabbing…':'no frame yet — Look now'}</span>`}
+        <div class="ov">${s.counts ? Object.entries(s.counts).map(([k,n])=>`<span class="tag">${n} ${esc(k)}</span>`).join('') : ''}${s.triggered ? '<span class="tag" style="color:var(--warn);border-color:var(--warn)">alert</span>' : ''}</div>
+        <span class="live ${watching?'on':''}">${watching ? 'watching · '+(JSON.parse(c.watch_job.task||'{}').every_s||30)+'s' : 'idle'}</span></div>
+      <div class="body">
+        <h3>${esc(c.name)}<small title="${esc(src)}">${esc(c.source_kind)}${ts ? ' · ' + hms(ts) : ''}</small></h3>
+        <div class="hint" style="margin:0">${esc(seenTxt)}${s.motion!=null ? ` · motion ${Number(s.motion).toFixed(2)}` : ''}${s.backend && s.backend!=='none' ? ` · ${esc(s.backend)}` : ''}${s.reason ? ` · ${esc(s.reason)}` : ''}</div>
+        <div class="hint" style="margin:0">watch for <b>${esc(c.rule.labels.join(', '))}</b> ≥${c.rule.min_count}${c.rule.hours ? ' during '+esc(c.rule.hours) : ''} · cooldown ${c.rule.cooldown_min}m${c.rule.question ? ` · asks “${esc(c.rule.question)}”` : ''}</div>
+        ${s.answer ? `<div class="ans">${esc(s.answer)}</div>` : ''}
+        <div class="act"><input id="camq-${c.id}" placeholder="ask the analyst about this frame…" onkeydown="if(event.key==='Enter')lookCam(${c.id})"><button class="btn sm p" onclick="lookCam(${c.id})" ${busy?'disabled':''}>${busy?'…':'Look now'}</button></div>
+        <div class="act"><button class="btn sm ${watching?'':'p'}" onclick="watchCam(${c.id}, ${watching?'false':'true'})">${watching ? 'Stop watching' : 'Watch'}</button><button class="btn sm" onclick="lookCam(${c.id}, true)" title="Force an alert run now (demo / test)">Trigger alert</button><span class="spacer"></span>${s.run_id ? `<button class="btn sm" onclick="liveWant='${s.run_id}';go('live')">See run ›</button>` : ''}<button class="btn sm d" onclick="delCam(${c.id})">✕</button></div>
+      </div></div>`; }).join('');
+}
+function countsText(c){ const e = Object.entries(c||{}); if (!e.length) return 'nothing recognised'; return e.map(([k,n]) => k==='person' ? (n===1?'1 person':n+' people') : n+' '+k+(n!==1&&!k.endsWith('s')?'s':'')).join(', '); }
+async function lookCam(id, trigger){
+  const q = ($('#camq-'+id)||{}).value || ''; _camBusy.add(id); loadCameras();
+  const r = await api(`/cameras/${id}/look`, {method:'POST', body:{question:q.trim(), trigger:!!trigger}});
+  _camBusy.delete(id);
+  if (!r || !r.ok) toast(r && r.error ? r.error : 'camera failed'); else { if ($('#camq-'+id)) $('#camq-'+id).value=''; toast(r.run_id ? 'Alert — desk woken' : ('Seen: ' + countsText(r.counts))); if (r.run_id) liveWant = r.run_id; }
+  loadCameras(); loadVisionEvents();
+}
+async function lookAll(){ for (const c of CAMS) await lookCam(c.id); }
+async function watchCam(id, on){ const r = await api(`/cameras/${id}/watch`, {method:'POST', body:{on, every_s:30}}); toast(r && r.ok ? (on ? 'Watching every 30s' : 'Stopped') : 'failed'); loadCameras(); }
+async function delCam(id){ if(!confirm('Remove this camera? Its event log stays.')) return; await api(`/connectors/${id}`, {method:'DELETE', body:{}}); loadCameras(); }
+async function addCamera(){
+  const name = $('#cam-name').value.trim(), source = $('#cam-src').value.trim(); if (!name || !source) return toast('Name and source needed');
+  const config = {source, watch_for:$('#cam-watch').value.trim()||'person', min_count:$('#cam-min').value||'1', hours:$('#cam-hours').value.trim(), cooldown_min:$('#cam-cool').value||'10', question:$('#cam-q').value.trim(), task:$('#cam-task').value.trim(), notes:$('#cam-notes').value.trim()};
+  const r = await api('/connectors', {method:'POST', body:{kind:'camera', name, config, auto:false}});
+  if (!r || r.error) return toast(r?.error||'failed');
+  ['#cam-name','#cam-src','#cam-hours','#cam-q','#cam-task','#cam-notes'].forEach(x=>$(x).value='');
+  toast('Camera added — looking…'); await loadCameras(); lookCam(r.id);
+}
+async function loadVisionEvents(){
+  const cam = $('#ev-cam').value, hours = $('#ev-hours').value, alerts = $('#ev-alerts').checked;
+  const E = await api(`/vision/events?camera=${encodeURIComponent(cam)}&hours=${hours}&alerts=${alerts?1:0}&limit=120`); if (!E) return;
+  const key = E.map(e=>e.id).join(',') + '|' + E.length; if (key === _lastEvKey) return; _lastEvKey = key;
+  $('#ev-list').innerHTML = E.length ? E.map(e=>`<div class="evline ${e.triggered?'alert':''}"><span class="t">${hms(e.ts).slice(0,5)}<br>${when(e.ts).slice(0,6)}</span>${e.snapshot_url ? `<img class="th" src="${e.snapshot_url}" loading="lazy" onclick="zoom('${e.snapshot_url}')">` : '<span class="th none">'+esc(e.source||'')+'</span>'}<div><b>${esc(e.camera)}</b> · ${esc(e.seen)}${e.motion ? ` · motion ${Number(e.motion).toFixed(2)}` : ''} <span class="r">${e.triggered?'ALERT · ':''}${esc(e.reason||'')}</span>${e.answer ? `<div class="ans" style="margin-top:4px">${esc(e.answer)}</div>` : ''}${e.run_id ? `<button class="link" style="padding:0;font-size:12px" onclick="liveWant='${e.run_id}';go('live')">run ${esc(e.run_id.slice(-6))} ›</button>` : ''}</div></div>`).join('') : '<div class="empty">Nothing logged yet for this filter.</div>';
+}
+async function askCams(){
+  const q = $('#ask-q').value.trim(); if (!q) return; const btn = $('#ask-btn'); btn.disabled = true; $('#ask-out').textContent = 'Reading the log…'; $('#ask-ev').innerHTML = '';
+  const r = await api('/vision/ask', {method:'POST', body:{question:q, hours:+$('#ask-hours').value, camera:$('#ev-cam').value}}); btn.disabled = false;
+  if (!r || r.error) { $('#ask-out').textContent = r?.error || 'failed'; return; }
+  $('#ask-out').innerHTML = esc(r.answer).replace(/\[#?(\d+)\]/g, (m,id)=>`<span class="cite" title="event ${id}">[#${id}]</span>`);
+  $('#ask-ev').innerHTML = (r.evidence||[]).length ? `${r.events_considered||r.evidence.length} event(s) considered · ` + r.evidence.slice(-6).map(e=>`<span class="cite">#${e.id}</span> ${esc(e.camera)} ${hms(e.ts).slice(0,5)}${e.snapshot_url?` <a href="#" onclick="zoom('${e.snapshot_url}');return false">↗</a>`:''}`).join(' · ') : '';
+}
+function zoom(url){ const d = document.createElement('div'); d.className = 'lightbox'; d.innerHTML = `<img src="${url}">`; d.onclick = ()=>d.remove(); document.body.appendChild(d); }
+async function testVisionHook(){
+  const r = await fetch($('#vision-hook-url').value, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({camera:'test-sensor', labels:{person:1}, note:'PIR test event from the portal', motion:0.4})});
+  const j = await r.json(); toast(j.ok ? 'Event logged — desk woken' : (j.error||'failed')); if (j.run_id) liveWant = j.run_id; loadVisionEvents(); loadCameras();
 }
 
 /* ================= AUTOMATIONS ================= */
@@ -776,7 +908,10 @@ async function renderModels(){
   const el = document.getElementById('setup-models'); if (!el || !CFG.agents) return;
   const desk = CFG.desk || {};
   const opts = (sel) => MODELCAT.filter(m => m.engine !== 'hermes_agent').map(m => `<option value="${m.id}" ${sel===m.id?'selected':''}>${esc(m.label)} · ${esc(m.cost)}${m.tools?'':' · no tools'}</option>`).join('');
-  el.innerHTML = `<table><tr><th>Agent</th><th>Engine</th><th>Model</th><th>Now running</th></tr>` + CFG.agents.map(a => {
+  if (!MODELCAT.tiers) { const T = await api('/templates'); MODELCAT.tiers = T ? T.tiers : []; }
+  const tierBar = `<div class="row" style="margin-bottom:12px;gap:6px;flex-wrap:wrap">` + MODELCAT.tiers.map(t => `<button class="btn sm ${CFG.tier===t.id?'on':''}" title="${esc(t.note)}" onclick="setTier('${t.id}')">${esc(t.label)}</button>`).join('') +
+    `<span class="hint" style="margin:0 0 0 8px">${esc((MODELCAT.tiers.find(t=>t.id===CFG.tier)||{}).note||'')}</span></div>`;
+  el.innerHTML = tierBar + `<table><tr><th>Agent</th><th>Engine</th><th>Model</th><th>Now running</th></tr>` + CFG.agents.map(a => {
     const isHermes = (a.model === 'hermes-agent');
     return `<tr><td><b>${esc(a.name)}</b> <span class="model">${esc(a.id)}</span></td>
       <td><select style="width:210px" onchange="setModelOv('${a.id}', this.value==='hermes_agent' ? {engine:'hermes_agent'} : {engine:'atlas'})">
@@ -785,6 +920,12 @@ async function renderModels(){
       <td><select style="width:280px" ${isHermes?'disabled':''} onchange="setModelOv('${a.id}', {engine:'atlas', model:this.value, provider:'openrouter'})">${opts(a.model)}</select></td>
       <td class="model">${esc(a.model || '(default)')}</td></tr>`;
   }).join('') + `</table><p class="hint" style="margin-top:8px">Paid models need OpenRouter credits. The Hermes Agent runtime uses the desk's Hermes connector (or the global instance) and brings its own browser, terminal, memory and skills.</p>`;
+}
+async function setTier(t){
+  const did = (CFG.desk || {}).id; if (!did) return;
+  const r = await api(`/desks/${did}`, {method:'PATCH', body:{tier:t}});
+  if (!r || r.error) return toast(r?.error || 'failed');
+  toast('Tier: ' + t); MODELCAT = null; await loadCfg();
 }
 async function setModelOv(aid, ov){
   const did = (CFG.desk || {}).id; if (!did) return;

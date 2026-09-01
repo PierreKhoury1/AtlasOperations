@@ -181,6 +181,31 @@ SCHEMAS: dict[str, dict[str, Any]] = {
             "required": ["media", "prompt"],
         },
     },
+    "camera_look": {
+        "name": "camera_look",
+        "description": "Look through one of the desk's cameras RIGHT NOW: grabs a live frame, lists the objects recognised (people, vehicles...) with counts, and — if you pass a question — has the vision analyst answer it from the frame. The annotated snapshot is saved as a deliverable. Read-only, runs immediately.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "camera": {"type": "string", "description": "Camera connector name (see the cameras list in your context). Blank = the first camera."},
+                "question": {"type": "string", "description": "Optional question about the scene, e.g. 'Is the shutter closed? How many customers are queueing?'"},
+            },
+        },
+    },
+    "camera_events": {
+        "name": "camera_events",
+        "description": "Search what the cameras and sensors have seen: the event log (time, camera, objects counted, motion, alert reason, analyst's answer). Use it to answer 'what happened at the door last night', 'when was the last delivery', 'how busy were we between 12 and 2'. Read-only.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "camera": {"type": "string", "description": "Restrict to one camera (blank = all)."},
+                "hours": {"type": "number", "description": "How far back to look, in hours (default 24)."},
+                "query": {"type": "string", "description": "Keyword filter over the log (e.g. 'person', 'truck', 'after hours')."},
+                "alerts_only": {"type": "boolean", "description": "Only events that woke the desk (default false)."},
+                "limit": {"type": "integer", "description": "Max rows (default 40)."},
+            },
+        },
+    },
     "remember": {
         "name": "remember",
         "description": "Store a durable fact about this business/desk for future runs (client preferences, decisions, recurring facts). Keys are short slugs; re-using a key overwrites.",
@@ -205,7 +230,7 @@ SCHEMAS: dict[str, dict[str, Any]] = {
 ALL_TOOL_NAMES = list(SCHEMAS.keys())
 ORCHESTRATOR_ONLY = {"delegate", "list_agents", "finish", "queue_action", "crm_lookup", "crm_update",
                      "list_connectors", "http_request", "schedule_task", "remember", "recall",
-                     "calendar_free_slots", "calendar_book", "generate_media"}
+                     "calendar_free_slots", "calendar_book", "generate_media", "camera_look", "camera_events"}
 
 
 def schema_for(names: list[str]) -> list[dict[str, Any]]:

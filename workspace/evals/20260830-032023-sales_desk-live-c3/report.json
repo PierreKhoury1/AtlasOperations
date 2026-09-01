@@ -1,0 +1,148 @@
+{
+  "template": "sales_desk",
+  "mode": "live",
+  "tier": "free",
+  "provider": "openrouter",
+  "n": 1,
+  "leads": 3,
+  "concurrency": 3,
+  "wall_s": 80.8,
+  "throughput_runs_per_min": 2.23,
+  "metrics": {
+    "runs": 3,
+    "done": 3,
+    "error": 0,
+    "cancelled": 0,
+    "completion_rate": 1.0,
+    "duration_s": {
+      "mean": 74.3,
+      "p50": 71.8,
+      "p90": 80.8,
+      "max": 80.8
+    },
+    "agent_latency_s": {
+      "research": {
+        "n": 3,
+        "mean": 24.1,
+        "p90": 28.9
+      },
+      "writer": {
+        "n": 3,
+        "mean": 4.1,
+        "p90": 4.7
+      },
+      "qa": {
+        "n": 3,
+        "mean": 7.4,
+        "p90": 8.6
+      },
+      "hermes": {
+        "n": 3,
+        "mean": 74.2,
+        "p90": 80.8
+      }
+    },
+    "tool_calls": 39,
+    "tool_errors": 0,
+    "tool_error_rate": 0.0,
+    "tools_by_kind": {
+      "delegate": 9,
+      "web_fetch": 8,
+      "crm_lookup": 4,
+      "list_files": 4,
+      "crm_update": 3,
+      "save_deliverable": 3,
+      "finish": 3,
+      "read_file": 2,
+      "run_python": 2,
+      "recall": 1
+    },
+    "delegations": 9,
+    "approvals_queued": 3,
+    "policy_blocks": 0,
+    "policy_flags": 0,
+    "empty_replies": 0,
+    "provider_errors": 0,
+    "tokens": {
+      "in": 132510,
+      "out": 19293,
+      "per_run_in": 44170,
+      "per_run_out": 6431,
+      "est_cost_gbp_sonnet": 0.536
+    },
+    "throughput_runs_per_min": 2.23,
+    "window_s": 80.8
+  },
+  "quality": {
+    "queued": 3,
+    "clean": 3,
+    "clean_rate": 1.0,
+    "avg_words": 141,
+    "violations": []
+  },
+  "runs": [
+    {
+      "lead": "Hannah Weiss",
+      "rep": 0,
+      "run_id": "20260830-032023-a060b9",
+      "status": "done",
+      "seconds": 70.2,
+      "tokens_in": 46876,
+      "tokens_out": 6583,
+      "errors": [],
+      "policy": []
+    },
+    {
+      "lead": "Priya Raman",
+      "rep": 0,
+      "run_id": "20260830-032023-72b529",
+      "status": "done",
+      "seconds": 71.8,
+      "tokens_in": 39750,
+      "tokens_out": 5845,
+      "errors": [],
+      "policy": []
+    },
+    {
+      "lead": "Tom Okafor",
+      "rep": 0,
+      "run_id": "20260830-032023-d382d5",
+      "status": "done",
+      "seconds": 80.8,
+      "tokens_in": 45884,
+      "tokens_out": 6865,
+      "errors": [],
+      "policy": []
+    }
+  ],
+  "queued": [
+    {
+      "id": 3,
+      "kind": "email",
+      "to": "tom@okaforproperty.example.com",
+      "violations": [],
+      "words": 143,
+      "flagged": false,
+      "has_subject": true
+    },
+    {
+      "id": 2,
+      "kind": "email",
+      "to": "priya.raman@example.com",
+      "violations": [],
+      "words": 120,
+      "flagged": false,
+      "has_subject": true
+    },
+    {
+      "id": 1,
+      "kind": "email",
+      "to": "hannah.weiss@example.com",
+      "violations": [],
+      "words": 161,
+      "flagged": false,
+      "has_subject": true
+    }
+  ],
+  "when": "20260830-032023"
+}

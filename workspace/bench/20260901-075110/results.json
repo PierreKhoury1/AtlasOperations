@@ -1,0 +1,214 @@
+{
+ "atlas:minimax-m3:free": {
+  "research": [
+   {
+    "seconds": 41.3,
+    "tokens_in": 11742,
+    "tokens_out": 900,
+    "tool_calls": 14,
+    "turns": 6,
+    "error": "hit max turns",
+    "checks": {
+     "cites_url": false,
+     "mentions_screwfix": false,
+     "length_ok": false
+    },
+    "score": 0.0,
+    "output": ""
+   }
+  ],
+  "write": [
+   {
+    "seconds": 5.2,
+    "tokens_in": 240,
+    "tokens_out": 96,
+    "tool_calls": 0,
+    "turns": 1,
+    "error": "",
+    "checks": {
+     "under_90_words": true,
+     "no_prices": true,
+     "signed": true,
+     "no_markdown": true
+    },
+    "score": 1.0,
+    "output": "Hi there,\n\nThanks for getting in touch \u2014 I'm sorry to hear about your boiler, and I know how stressful that is with little ones at home. We'll do our best to get an engineer out to you in M20 today.\n\nOur team will call you shortly to confirm a slot and run through any access details. We'll diagnose the issue on arrival and talk you through what needs doing before any work happens.\n\nHang in there \u2014 help is on the way.\n\nThe Northgate team"
+   }
+  ],
+  "data": [
+   {
+    "seconds": 10.4,
+    "tokens_in": 1727,
+    "tokens_out": 890,
+    "tool_calls": 1,
+    "turns": 2,
+    "error": "",
+    "checks": {
+     "total_correct": false,
+     "checks_each": true
+    },
+    "score": 0.5,
+    "output": "## Verification Results\n\nUsing the formula: **owes = (3 \u00d7 monthly rent) \u2212 (2 \u00d7 amount paid)**\n\n| Tenant | Rent | Paid | 3 \u00d7 Rent | 2 \u00d7 Paid | **Computed** | **Book says** | Correct? |\n|--------|-----:|-----:|---------:|---------:|-------------:|--------------:|:--------:|\n| B | 1450 |  725 | 4350 |     1450 |    **2900**  |        2175   | \u274c NO |\n| C      | 1580 |  790 |     4740 |     1580 |    **3160**  |        2370   | \u274c NO    |\n| D      | 1470 |    0 |     4410 |        0 |    **4410**  |        4410   | \u2705 YES   |\n\n### Step-by-step arithmetic\n\n**Tenant B:** 3 \u00d7 1450 = 4350; 2 \u00d7 725 = 1450; 4350 \u2212 1450 = **2900** \u2192 book says 2175 \u2192 **incorrect** (book is understated by 725)\n\n**Tenant C:** 3 \u00d7 1580 = 4740; 2 \u00d7 790 = 1580; 4740 \u2212 1580 = **3160** \u2192 book says 2370 \u2192 **incorrect** (book is understated by 790)\n\n**Tenant D:** 3 \u00d7 1470 = 4410; 2 \u00d7 0 = 0; 4410 \u2212 0 = **4410** \u2192 book says 4410 \u2192 **correct**\n\n### Total arrearsUsing the **book figures** for B + C + D:\n$$2175 + 2370 + 4410 = \\mathbf{8{,}955}$$\n\nUsing the **formula-derived** (correct) figures:\n$$2900 + 3160 + 4410 = \\mathbf{10{,}470}$$\n\nThe rent roll **understates total arrears by $1,515** (725 + 790) because the B and C balances are wrong."
+   }
+  ]
+ },
+ "hermes-agent": {
+  "research": [
+   {
+    "seconds": 13.5,
+    "tokens_in": 38128,
+    "tokens_out": 546,
+    "tool_calls": 0,
+    "turns": 1,
+    "error": "",
+    "checks": {
+     "cites_url": true,
+     "mentions_screwfix": true,
+     "length_ok": true
+    },
+    "score": 1.0,
+    "output": "**Screwfix Official Website: https://www.screwfix.com/**\n\n**What they sell:** Trade tools, plumbing, electrical products, bathrooms, kitchens, and over 70,000 products for professionals and DIYers (https://www.screwfix.com/)\n\n**Number of UK stores:** Over 950 stores across the UK and Ireland as of January 2025, with plans to open 35 more by January 2026 (https://grokipedia.com/page/Screwfix and https://press.screwfix.com/screwfix-focused-on-ultra-convenience-as-store-expansion-plans-continue-in-2025/)\n\n**Recent news:** Screwfix won the first-ever Digital Excellence Award at the Retail Week Awards 2025 (March 21, 2025), recognising its omnichannel innovation including industry-leading app, Click & Collect in one minute, and 60-minute Sprint delivery service (https://press.screwfix.com/screwfix-wins-prestigious-digital-excellence-award-at-retail-week-awards-2025/)"
+   }
+  ],
+  "write": [
+   {
+    "seconds": 7.4,
+    "tokens_in": 15645,
+    "tokens_out": 774,
+    "tool_calls": 0,
+    "turns": 1,
+    "error": "",
+    "checks": {
+     "under_90_words": true,
+     "no_prices": true,
+     "signed": true,
+     "no_markdown": true
+    },
+    "score": 1.0,
+    "output": "Hi, thanks for reaching out. We understand how uncomfortable it is without heating and hot water, especially with young children. We prioritize emergency boiler calls and aim to visit today when possible. I'll arrange our engineer to contact you shortly to confirm availability and discuss what's needed. We'll let you know our rates once we've assessed the issue. We're here to help.\n\nThe Northgate team"
+   }
+  ],
+  "data": [
+   {
+    "seconds": 9.6,
+    "tokens_in": 32102,
+    "tokens_out": 1283,
+    "tool_calls": 0,
+    "turns": 1,
+    "error": "",
+    "checks": {
+     "total_correct": true,
+     "checks_each": true
+    },
+    "score": 1.0,
+    "output": "I'll verify the figures manually with shown arithmetic:\n\n**B: Rent $1,450, Paid $725**\n- (3 \u00d7 $1,450) \u2212 (2 \u00d7 $725)\n- = $4,350 \u2212 $1,450\n- = $2,900\n- Book says $2,175 \u2192 **INCORRECT** (should be $2,900, overstated by $725)\n\n**C: Rent $1,580, Paid $790**\n- (3 \u00d7 $1,580) \u2212 (2 \u00d7 $790)\n- = $4,740 \u2212 $1,580\n- = $3,160\n- Book says $2,370 \u2192 **INCORRECT** (should be $3,160, understated by $790)\n\n**D: Rent $1,470, Paid $0**\n- (3 \u00d7 $1,470) \u2212 (2 \u00d7 $0)\n- = $4,410 \u2212 $0\n- = $4,410\n- Book says $4,410 \u2192 **\u2713 CORRECT**\n\n**Total arrears:** $0 + $2,175 + $2,370 + $4,410 = **$8,955** (from book figures)"
+   }
+  ]
+ },
+ "atlas:claude-sonnet-4.5": {
+  "research": [
+   {
+    "seconds": 25.8,
+    "tokens_in": 32476,
+    "tokens_out": 693,
+    "tool_calls": 8,
+    "turns": 6,
+    "error": "hit max turns",
+    "checks": {
+     "cites_url": false,
+     "mentions_screwfix": false,
+     "length_ok": false
+    },
+    "score": 0.0,
+    "output": ""
+   }
+  ],
+  "write": [
+   {
+    "seconds": 4.8,
+    "tokens_in": 100,
+    "tokens_out": 101,
+    "tool_calls": 0,
+    "turns": 1,
+    "error": "",
+    "checks": {
+     "under_90_words": true,
+     "no_prices": true,
+     "signed": true,
+     "no_markdown": true
+    },
+    "score": 1.0,
+    "output": "Thanks for getting in touch. We understand how stressful no hot water is, especially with little ones at home. We'll do our best to get someone to you in M20 today, depending on our engineers' schedules. One of our team will call you shortly to confirm availability and discuss costs based on what's needed. In the meantime, check your boiler pressure gauge and any error codes showing, as this helps us come prepared.\n\nThe Northgate team"
+   }
+  ],
+  "data": [
+   {
+    "seconds": 23.6,
+    "tokens_in": 5936,
+    "tokens_out": 1973,
+    "tool_calls": 2,
+    "turns": 3,
+    "error": "",
+    "checks": {
+     "total_correct": true,
+     "checks_each": true
+    },
+    "score": 1.0,
+    "output": "## Verification Results\n\nBased on the formula **Owes = (3 \u00d7 Monthly Rent) - (2 \u00d7 Amount Paid)**, here are the results:\n\n### Individual Tenant Verification:\n\n**Tenant B:**\n- 3 \u00d7 $1,450 = $4,350\n- 2 \u00d7 $725 = $1,450\n- $4,350 - $1,450 = **$2,900** (calculated)\n- Book figure: $2,175\n- **INCORRECT** - Book is $725 too low\n\n**Tenant C:**\n- 3 \u00d7 $1,580 = $4,740\n- 2 \u00d7 $790 = $1,580\n- $4,740 - $1,580 = **$3,160** (calculated)\n- Book figure: $2,370\n- **INCORRECT** - Book is $790 too low\n\n**Tenant D:**\n- 3 \u00d7 $1,470 = $4,410\n- 2 \u00d7 $0 = $0\n- $4,410 - $0 = **$4,410** (calculated)\n- Book figure: $4,410\n- **CORRECT** \u2713\n\n### Total Arrears:\n- **Per books: $8,955**\n- **Calculated (correct): $14,970**\n\nOnly Tenant D's figure is correct. Tenants B and C both have book figures that are understated by exactly the amount they paid."
+   }
+  ]
+ },
+ "atlas:claude-haiku-4.5": {
+  "research": [
+   {
+    "seconds": 22.5,
+    "tokens_in": 4358,
+    "tokens_out": 488,
+    "tool_calls": 4,
+    "turns": 4,
+    "error": "",
+    "checks": {
+     "cites_url": false,
+     "mentions_screwfix": true,
+     "length_ok": true
+    },
+    "score": 0.67,
+    "output": "I apologize, but I'm unable to access Screwfix's official website directly due to access restrictions. The main domain (screwfix.com) is blocking my requests via CloudFront, and alternative URLs are not resolving.\n\nTo get the information you're looking for, I recommend:\n1. Visiting **www.screwfix.com** directly in your browser\n2. Checking their \"About Us\" or \"Contact\" pages for store counts and company information\n3. Looking for their news/press section for recent announcements\n\nAlternatively, you could search for \"Screwfix news\" or \"Screwfix stores\" on a search engine to find recent company updates and store location information from news sources or their official announcements."
+   }
+  ],
+  "write": [
+   {
+    "seconds": 2.3,
+    "tokens_in": 100,
+    "tokens_out": 101,
+    "tool_calls": 0,
+    "turns": 1,
+    "error": "",
+    "checks": {
+     "under_90_words": true,
+     "no_prices": true,
+     "signed": true,
+     "no_markdown": true
+    },
+    "score": 1.0,
+    "output": "Hi,\n\nThanks for getting in touch. We understand how urgent this is with young children at home, and we're here to help.\n\nWe can arrange a visit today to diagnose the issue. Our engineer will assess what's needed and discuss options with you then.\n\nTo check availability and book a slot, please call us on [your number] or reply with your preferred time window.\n\nWe'll get you sorted as quickly as we can.\n\nThe Northgate team"
+   }
+  ],
+  "data": [
+   {
+    "seconds": 10.6,
+    "tokens_in": 4923,
+    "tokens_out": 1368,
+    "tool_calls": 2,
+    "turns": 3,
+    "error": "",
+    "checks": {
+     "total_correct": false,
+     "checks_each": true
+    },
+    "score": 0.5,
+    "output": "## Summary\n\n**Verification Results (B, C, D only as requested):**\n\n| Tenant | Calculation | Book Figure | Status |\n|--------|-------------|-------------|--------|\n| **B** | (3 \u00d7 \u00a31,450) - (2 \u00d7 \u00a3725) = \u00a34,350 - \u00a31,450 = **\u00a32,900** | \u00a32,175 | **INCORRECT** |\n| **C** | (3 \u00d7 \u00a31,580) - (2 \u00d7 \u00a3790) = \u00a34,740 - \u00a31,580 = **\u00a33,160** | \u00a32,370 | **INCORRECT** |\n| **D** | (3 \u00d7 \u00a31,470) - (2 \u00d7 \u00a30) = \u00a34,410 - \u00a30 = **\u00a34,410** | \u00a34,410 | **CORRECT** |\n\n**Total Arrears: \u00a314,970**\n\n(Calculated as: \u00a32,900 + \u00a33,160 + \u00a34,410 + \u00a34,500 for all four tenants)"
+   }
+  ]
+ }
+}

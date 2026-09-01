@@ -22,7 +22,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from flask import Flask, Response, abort, jsonify, redirect, request, send_from_directory, session
+from flask import Flask, Response, abort, jsonify, redirect, request, send_file, send_from_directory, session
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from .. import config as cfg
@@ -30,6 +30,7 @@ from .. import designer as DS
 from .. import integrations as I
 from .. import metrics as MX
 from .. import templates
+from .. import vision as V
 from . import scheduler
 from ..orchestrator import Event, Orchestrator
 from ..store import Store
@@ -172,10 +173,15 @@ def desk_configs(desk: dict[str, Any]) -> dict[str, Any]:
             a["engine_note"] = "no Hermes Agent instance configured - running on the built-in engine"
             continue
         pname = f"hermes_agent_{a['id']}"
+        # the tier decides which model runs INSIDE the Hermes runtime (free MiniMax / Haiku / Sonnet); a per-agent
+        # override from the Model landscape wins if it names a real model
+        tier_cfg = templates.TIERS.get(desk.get("tier") or "free", templates.TIERS["free"])
+        ov = (over.get("models") or {}).get(a["id"]) or {}
+        hmodel = ov.get("model") if ov.get("model") and ov["model"] != "hermes-agent" else tier_cfg.get("hermes_model", templates.FREE_MODEL)
         providers.setdefault("providers", {})[pname] = {"type": "hermes_agent", "base_url": hcfg.get("base_url", ""),
-                                                         "api_key": hcfg.get("api_key", ""),
+                                                         "api_key": hcfg.get("api_key", ""), "default_model": hmodel,
                                                          "session_key": f"{hcfg.get('session_prefix') or 'atlas'}:desk{desk['id']}:{a['id']}"}
-        a["provider"], a["model"], a["tools"], a["engine"] = pname, "hermes-agent", [], "hermes_agent"
+        a["provider"], a["model"], a["tools"], a["engine"] = pname, hmodel, [], "hermes_agent"
     return {"providers": providers, "orchestration": cfg.load("orchestration", cfg.DEFAULT_ORCHESTRATION),
             "business": business, "agents": agents, "workflows": workflows, "ui": {}, "mode": mode,
             "desk_id": desk["id"]}
@@ -552,7 +558,8 @@ def _prune_runs() -> None:
 
 def _start_run(desk: dict[str, Any], task: str, mode: str, lead_id: int | None = None) -> str:
     configs = desk_configs(desk)
-    if configs["mode"] != "demo":
+    paid = any(":free" not in (a.get("model") or "") and a.get("model") for a in configs["agents"])
+    if configs["mode"] != "demo" and paid:                # free-tier desks cost nothing and are never blocked by the spend cap
         blocked = _spend_blocked()
         if blocked:
             abort(Response(json.dumps({"error": blocked}), 402, mimetype="application/json"))
@@ -1197,6 +1204,7 @@ JOB_KINDS = {
     "inbox_watch": "Watch the inbox — every new email becomes a lead",
     "followups": "Chase contacts stuck at Contacted for N days",
     "http_poll": "Poll an HTTP API and hand the result to the desk",
+    "camera_watch": "Watch the cameras — detect, log, wake the desk when a rule fires",
 }
 
 
@@ -1217,7 +1225,7 @@ def api_add_job():
     task = d.get("task") or ""
     if kind == "followups" and not task:
         task = json.dumps({"days": int(d.get("days") or 3)})
-    if kind == "http_poll" and isinstance(task, dict):
+    if kind in ("http_poll", "camera_watch") and isinstance(task, dict):
         task = json.dumps(task)
     j = store.add_job(desk["id"], kind, d.get("name") or JOB_KINDS[kind], task, every, nxt)
     return jsonify(j)
@@ -1257,6 +1265,229 @@ def api_delete_job(jid):
         abort(404)
     store.delete_job(jid)
     return jsonify({"ok": True})
+
+
+# ---------------------------------------------------------------------------- api: cameras / vision
+def _camera(cid: int, desk: dict[str, Any]) -> dict[str, Any]:
+    c = store.connector(cid)
+    if not c or c["desk_id"] != desk["id"] or c["kind"] != "camera":
+        abort(404)
+    return c
+
+
+def _vev_public(e: dict[str, Any]) -> dict[str, Any]:
+    out = {k: v for k, v in e.items() if k != "snapshot"}
+    out["snapshot_url"] = f"/api/vision/snapshot/{e['id']}" if e.get("snapshot") else ""
+    out["seen"] = V.counts_text(e.get("counts") or {})
+    return out
+
+
+@app.get("/api/cameras")
+def api_cameras():
+    desk = need_desk()
+    cams = []
+    for c in store.connectors(desk["id"]):
+        if c["kind"] != "camera":
+            continue
+        seen = scheduler.last_seen(desk["id"], c["name"]) or {}
+        last = store.last_vision_event(desk["id"], c["name"])
+        cams.append({**_conn_public(c), "source_kind": V.source_kind(str(c["config"].get("source", ""))),
+                     "rule": V.rule_config(c["config"]),
+                     "seen": {k: v for k, v in seen.items() if k not in ("annotated", "detections")},
+                     "last_event": _vev_public(last) if last else None,
+                     "watch_job": next((j for j in store.jobs(desk["id"]) if j["kind"] == "camera_watch" and
+                                        (j["task"] or "").find(f'"connector": "{c["name"]}"') >= 0), None)})
+    hook = request.host_url.rstrip("/") + "/hook/" + store.ensure_hook_token(desk["id"]) + "/vision"
+    return jsonify({"cameras": cams, "mode": _mode(),
+                    "detector": {"available": V.DETECTOR.available, "error": V.DETECTOR.error, "weights": os.path.basename(V.YOLO_WEIGHTS)},
+                    "vlm": {"ready": V.vlm_ready() and _mode() != "demo", "model": V.DEFAULT_VLM},
+                    "stats": store.vision_stats(desk["id"], time.time() - 86400), "hook_url": hook})
+
+
+@app.post("/api/cameras/<int:cid>/look")
+def api_camera_look(cid):
+    desk = need_desk()
+    c = _camera(cid, desk)
+    d = request.get_json(silent=True) or {}
+    try:
+        r = scheduler.camera_tick(store, desk, c, _start_run, _mode() != "demo",
+                                  question=str(d.get("question") or "").strip()[:500], force=bool(d.get("trigger")))
+    except Exception as exc:
+        msg = f"{type(exc).__name__}: {str(exc)[:300]}"
+        store.update_connector(cid, status="error: " + msg, last_test=time.time())
+        return jsonify({"ok": False, "error": msg}), 400
+    store.update_connector(cid, status=f"ok: {V.counts_text(r['counts'])} ({r['backend']})", last_test=time.time())
+    r.pop("annotated", None)
+    return jsonify({"ok": True, **r})
+
+
+@app.get("/api/cameras/<int:cid>/frame.jpg")
+def api_camera_frame(cid):
+    desk = need_desk()
+    c = _camera(cid, desk)
+    seen = scheduler.last_seen(desk["id"], c["name"])
+    if seen and seen.get("annotated"):
+        return Response(seen["annotated"], mimetype="image/jpeg", headers={"Cache-Control": "no-store"})
+    last = store.last_vision_event(desk["id"], c["name"])
+    if last and last.get("snapshot") and Path(last["snapshot"]).is_file():
+        return send_file(last["snapshot"], mimetype="image/jpeg", max_age=0)
+    abort(404)
+
+
+@app.post("/api/cameras/<int:cid>/watch")
+def api_camera_watch(cid):
+    desk = need_desk()
+    c = _camera(cid, desk)
+    d = request.get_json(silent=True) or {}
+    existing = [j for j in store.jobs(desk["id"]) if j["kind"] == "camera_watch" and (j["task"] or "").find(f'"connector": "{c["name"]}"') >= 0]
+    if not d.get("on", True):
+        for j in existing:
+            store.delete_job(j["id"])
+        return jsonify({"ok": True, "watching": False})
+    if existing:
+        store.update_job(existing[0]["id"], enabled=1, next_run=time.time())
+        return jsonify({"ok": True, "watching": True, "job": store.job(existing[0]["id"])})
+    every_s = max(20, min(int(d.get("every_s") or 30), 3600))
+    j = store.add_job(desk["id"], "camera_watch", f"Watch {c['name']}", json.dumps({"connector": c["name"], "every_s": every_s}), 1, time.time())
+    return jsonify({"ok": True, "watching": True, "job": j})
+
+
+@app.get("/api/vision/events")
+def api_vision_events():
+    desk = need_desk()
+    try:
+        hours = float(request.args.get("hours") or 24)
+    except ValueError:
+        hours = 24.0
+    rows = store.vision_events(desk["id"], request.args.get("camera", ""), time.time() - hours * 3600,
+                               request.args.get("q", ""), min(int(request.args.get("limit") or 100), 500),
+                               request.args.get("alerts") in ("1", "true"))
+    return jsonify([_vev_public(r) for r in rows])
+
+
+@app.get("/api/vision/snapshot/<int:vid>")
+def api_vision_snapshot(vid):
+    desk = need_desk()
+    e = store.vision_event(vid)
+    if not e or e["desk_id"] != desk["id"] or not e.get("snapshot") or not Path(e["snapshot"]).is_file():
+        abort(404)
+    return send_file(e["snapshot"], mimetype="image/jpeg", max_age=3600)
+
+
+def _rag_rows(desk_id: int, question: str, camera: str, hours: float, limit: int = 60) -> list[dict[str, Any]]:
+    """Retrieval for 'ask the cameras': keyword-scored over the recent event log, recency as tiebreak."""
+    rows = store.vision_events(desk_id, camera, time.time() - hours * 3600, "", 600)
+    words = {w for w in re.findall(r"[a-z]{3,}", question.lower())
+             if w not in {"the", "was", "were", "what", "when", "how", "many", "did", "there", "any", "last", "this", "that", "and", "with", "from"}}
+    def score(r):
+        blob = f"{r['camera']} {json.dumps(r['counts'])} {r.get('reason','')} {r.get('answer','')} {r.get('question','')}".lower()
+        return sum(1 for w in words if w in blob) + (2 if r.get("triggered") else 0)
+    rows.sort(key=lambda r: (score(r), r["ts"]), reverse=True)
+    picked = rows[:limit]
+    picked.sort(key=lambda r: r["ts"])
+    return picked
+
+
+@app.post("/api/vision/ask")
+def api_vision_ask():
+    desk = need_desk()
+    d = request.get_json(force=True) or {}
+    q = str(d.get("question") or "").strip()
+    if not q:
+        return jsonify({"error": "question required"}), 400
+    try:
+        hours = float(d.get("hours") or 24)
+    except (TypeError, ValueError):
+        hours = 24.0
+    rows = _rag_rows(desk["id"], q, str(d.get("camera") or ""), hours)
+    lines = [f"[#{r['id']}] {time.strftime('%a %d %b %H:%M', time.localtime(r['ts']))} | {r['camera']} | {V.counts_text(r['counts'])} | motion {r['motion']:.2f}"
+             + (" | ALERT " + (r.get("reason") or "") if r.get("triggered") else (" | " + r["reason"] if r.get("reason") else ""))
+             + (f" | analyst: {r['answer'][:200]}" if r.get("answer") else "") for r in rows]
+    if not rows:
+        return jsonify({"answer": f"The camera log has nothing in the last {hours:g} hours" + (f" for {d.get('camera')}" if d.get("camera") else "") + ".",
+                        "evidence": [], "mode": _mode()})
+    if _mode() == "demo":
+        cams = sorted({r["camera"] for r in rows})
+        alerts = [r for r in rows if r.get("triggered")]
+        tot: dict[str, int] = {}
+        for r in rows:
+            for k, v in (r["counts"] or {}).items():
+                tot[k] = tot.get(k, 0) + v
+        last = rows[-1]
+        answer = (f"Demo mode (no live model). In the last {hours:g}h the log has {len(rows)} event(s) on {', '.join(cams)}; "
+                  f"{len(alerts)} woke the desk. Totals seen: {V.counts_text(tot)}. Most recent: {last['camera']} at "
+                  f"{time.strftime('%H:%M', time.localtime(last['ts']))} — {V.counts_text(last['counts'])}"
+                  + (f"; analyst said: {last['answer'][:160]}" if last.get("answer") else "") + ".")
+    else:
+        from ..providers import ProviderPool
+        configs = desk_configs(desk)
+        atlas_agent = next((a for a in configs["agents"] if a["id"] == "atlas"), {})
+        pool = ProviderPool(configs["providers"])
+        prov = pool.get(atlas_agent.get("provider") or "")
+        system = ("You answer the owner's questions about what their cameras and sensors saw, using ONLY the event log below. "
+                  "Each line: [#id] time | camera | objects counted | motion score | alert reason | analyst answer (from a vision model that saw the frame). "
+                  "Give times, cameras and counts. Cite event ids in square brackets. If the log does not contain the answer, say so plainly — never invent. "
+                  f"Today is {time.strftime('%A %d %B %Y %H:%M')}. Business context: {configs['business'].get('name','')} — {configs['business'].get('extra_context','')[:400]}")
+        prompt = "Event log (oldest first):\n" + "\n".join(lines) + f"\n\nQuestion: {q}"
+        try:
+            resp = prov.chat(system, [prov.user_message(prompt)], [], model=atlas_agent.get("model", ""))
+            answer = (resp.text or "").strip() or "(no answer)"
+        except Exception as exc:
+            return jsonify({"error": f"model error: {type(exc).__name__}: {str(exc)[:200]}", "evidence": [_vev_public(r) for r in rows]}), 502
+    return jsonify({"answer": answer, "evidence": [_vev_public(r) for r in rows[-12:]], "mode": _mode(), "events_considered": len(rows)})
+
+
+@app.route("/hook/<token>/vision", methods=["GET", "POST"])
+def hook_vision(token):
+    """External detectors post here: ESP32-CAM / PIR nodes, Frigate, NVR alarm outputs, Home Assistant.
+    JSON {camera, labels: {"person": 2} | ["person","person"], note, image (base64 JPEG, optional), trigger (default true)}."""
+    desk = store.desk_by_token(token)
+    if not desk:
+        abort(404)
+    if request.method == "GET":
+        return jsonify({"ok": True, "desk": desk["name"], "post": "JSON {camera, labels, note, image(base64 jpeg), trigger}"})
+    d = request.get_json(silent=True) or request.form.to_dict() or {}
+    camera = str(d.get("camera") or d.get("source") or d.get("device") or "sensor").strip()[:60]
+    labels = d.get("labels") or d.get("objects") or {}
+    counts: dict[str, int] = {}
+    if isinstance(labels, dict):
+        for k, v in labels.items():
+            try:
+                counts[V._norm_label(str(k))] = int(v)
+            except (TypeError, ValueError):
+                continue
+    elif isinstance(labels, list):
+        for k in labels:
+            kk = V._norm_label(str(k))
+            counts[kk] = counts.get(kk, 0) + 1
+    elif isinstance(labels, str) and labels.strip():
+        for k in labels.split(","):
+            if k.strip():
+                kk = V._norm_label(k)
+                counts[kk] = counts.get(kk, 0) + 1
+    note = str(d.get("note") or d.get("message") or d.get("event") or "").strip()[:500]
+    snap = ""
+    if d.get("image"):
+        try:
+            import base64 as _b64
+            raw = _b64.b64decode(str(d["image"]).split(",")[-1])
+            if raw[:2] == b"\xff\xd8":
+                snap = V.save_snapshot(desk["id"], camera, V.annotate(V._shrink(raw), [], f"{time.strftime('%d %b %H:%M:%S')}  {camera}: {note[:60]}"))
+        except Exception:
+            snap = ""
+    trigger = str(d.get("trigger", "1")).lower() not in ("0", "false", "no")
+    dstore = store.for_desk(desk["id"])
+    ev = dstore.add_vision_event(camera, counts, motion=float(d.get("motion") or 0), backend="external",
+                                 reason=note or "external event", snapshot=snap, triggered=trigger, source="hook")
+    rid = ""
+    if trigger:
+        task = ("Assess this sensor/camera event, log it, and tell the right person only if it matters.\n\n"
+                f"EXTERNAL EVENT — {camera} at {time.strftime('%A %d %B %H:%M')}\n"
+                f"Reported: {V.counts_text(counts) if counts else 'no object counts'}" + (f"; note: {note}" if note else "") + "\n"
+                f"Event id: {ev['id']}." + (" Snapshot attached." if snap else "") + " Use camera_events for history; camera_look works only for cameras the desk can reach itself.")
+        rid = _start_run(desk, task, "auto")
+        dstore.set_vision_run(ev["id"], rid)
+    return jsonify({"ok": True, "event_id": ev["id"], "run_id": rid})
 
 
 # ---------------------------------------------------------------------------- inbound webhook (public, token-addressed)
@@ -1566,6 +1797,7 @@ if _n_enc:
     print(f"encrypted {_n_enc} legacy connector config(s)")
 if OPEN and os.environ.get("RENDER"):
     print("WARNING: DESK_OPEN=1 on a public deployment - the portal and every desk are reachable without login")
+scheduler.LIVE = lambda: _mode() != "demo"
 scheduler.start(store, _start_run, store.desk)
 threading.Thread(target=_watchdog_loop, daemon=True, name="atlas-watchdog").start()
 

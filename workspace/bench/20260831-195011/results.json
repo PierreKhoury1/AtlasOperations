@@ -1,0 +1,108 @@
+{
+ "atlas:minimax-m3:free": {
+  "research": [
+   {
+    "seconds": 55.4,
+    "tokens_in": 7597,
+    "tokens_out": 402,
+    "tool_calls": 9,
+    "turns": 6,
+    "error": "hit max turns",
+    "checks": {
+     "cites_url": false,
+     "mentions_screwfix": false,
+     "length_ok": false
+    },
+    "score": 0.0,
+    "output": ""
+   }
+  ],
+  "write": [
+   {
+    "seconds": 4.2,
+    "tokens_in": 240,
+    "tokens_out": 105,
+    "tool_calls": 0,
+    "turns": 1,
+    "error": "",
+    "checks": {
+     "under_90_words": true,
+     "no_prices": true,
+     "signed": true,
+     "no_markdown": true
+    },
+    "score": 1.0,
+    "output": "Hi there, I'm really sorry to hear about your boiler \u2014 no hot water with two little ones at home is stressful, and we'll do our best to help today.\n\nA Gas Safe engineer can prioritise urgent no-hot-water calls, and we cover your M20 area. I can't share pricing here, but once we know more on site you'll get a clear quote before any work begins.\n\nI just need a quick callback number and a good time to reach you so we can get an engineer scheduled straight away.\n\nThe Northgate team"
+   }
+  ],
+  "data": [
+   {
+    "seconds": 68.6,
+    "tokens_in": 0,
+    "tokens_out": 0,
+    "tool_calls": 0,
+    "turns": 0,
+    "error": "KeyError: 'choices'",
+    "checks": {
+     "total_correct": false,
+     "checks_each": false
+    },
+    "score": 0.0,
+    "output": ""
+   }
+  ]
+ },
+ "hermes-agent": {
+  "research": [
+   {
+    "seconds": 13.8,
+    "tokens_in": 39229,
+    "tokens_out": 504,
+    "tool_calls": 0,
+    "turns": 1,
+    "error": "",
+    "checks": {
+     "cites_url": true,
+     "mentions_screwfix": true,
+     "length_ok": true
+    },
+    "score": 1.0,
+    "output": "Screwfix \u2014 official website: https://www.screwfix.com\n\nWhat they sell: Trade tools, hardware, plumbing fittings, electricals, workwear and DIY supplies \u2014 over 35,000 products available for Click & Collect or delivery (https://www.screwfix.com).\n\nUK store count: Over 900 stores across the UK, up from 790 in 2021/22. Screwfix announced plans to open up to 35 more by end of January 2026 (https://press.screwfix.com/screwfix-focused-on-ultra-convenience-as-store-expansion-plans-continue-in-2025/).\n\nRecent news: On2 December 2025, the Screwfix Foundation announced a new charity partnership with Hospice UK to fund improvement grants helping hospices maintain their end-of-life care facilities (https://press.screwfix.com/the-screwfix-foundation-partners-with-hospice-uk-to-improve-end-of-life-care-facilities/)."
+   }
+  ],
+  "write": [
+   {
+    "seconds": 6.1,
+    "tokens_in": 14536,
+    "tokens_out": 1029,
+    "tool_calls": 0,
+    "turns": 1,
+    "error": "",
+    "checks": {
+     "under_90_words": true,
+     "no_prices": true,
+     "signed": true,
+     "no_markdown": true
+    },
+    "score": 1.0,
+    "output": "Hello, thanks for getting in touch \u2014 I'm really sorry your boiler's gone off, especially with two little ones at home.\n\nFor an M20 call-out today we can prioritise this as an emergency. A qualified engineer will be in touch shortly to confirm the earliest arrival window and run through any access details. We'll diagnose the fault first, explain clearly what's needed, and only proceed once you're happy with the plan.\n\nWarm regards,\nThe Northgate team"
+   }
+  ],
+  "data": [
+   {
+    "seconds": 83.4,
+    "tokens_in": 29745,
+    "tokens_out": 2602,
+    "tool_calls": 0,
+    "turns": 1,
+    "error": "",
+    "checks": {
+     "total_correct": true,
+     "checks_each": true
+    },
+    "score": 1.0,
+    "output": "Results (no markdown \u2014 plain text as the rendering layer expects):\n\nRow-by-row check using owes = 3 \u00d7 rent \u2212 2 \u00d7 paid:\n\nA \u2014 rent 1500, paid not given, book0. No verification performed (not asked for A).\nB \u2014 3 \u00d7 1450 \u2212 2 \u00d7 725 = 4350 \u2212 1450 = 2900. Book says 2175. INCORRECT (book is short by 725).\nC \u2014 3 \u00d7 1580 \u2212 2 \u00d7 790 = 4740 \u2212 1580 = 3160. Book says 2370. INCORRECT (book is short by 790).\nD \u2014 3 \u00d7 1470 \u2212 2 \u00d7 0 = 4410. Book says 4410. CORRECT.\n\nTotal arrears per the book figures: 0 + 2175 + 2370 + 4410 = 8955.\nTotal arrears per the 3R \u2212 2P formula: 2900 + 3160 + 4410 = 10470.\nThe book is understated by 1515 in total \u2014 exactly equal to B's missing725 plus C's missing 790."
+   }
+  ]
+ }
+}

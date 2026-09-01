@@ -137,6 +137,12 @@ class Orchestrator:
             parts.append("Specialist agents available via delegate(agent_id, ...):\n" + self.roster_text(agent["id"]))
         if "http_request" in agent.get("tools", []) and self.store is not None and hasattr(self.store, "connectors"):
             parts.append("Connected systems (use http_request / list_connectors):\n" + I.describe(self.store.connectors()))
+        if "camera_look" in agent.get("tools", []) and self.store is not None and hasattr(self.store, "connectors"):
+            cams = [c for c in self.store.connectors() if c["kind"] == "camera"]
+            if cams:
+                parts.append("Cameras (camera_look to see now, camera_events to search history):\n" + I.describe(cams))
+            else:
+                parts.append("No cameras connected yet (the owner adds them under Cameras).")
         if "recall" in agent.get("tools", []) and self.store is not None and hasattr(self.store, "recall"):
             mem = self.store.recall("", 15)
             if mem:
@@ -361,6 +367,67 @@ class Orchestrator:
                 return f"queued for approval (id={qid}): {tool} on {conn['name']} looks like a write; the owner must approve."
             self.emit("tool", aid, f"mcp {conn['name']}.{tool}({', '.join(f'{k}={str(v)[:40]!r}' for k, v in args.items())})")
             return M.REGISTRY.get(conn).call(tool, args)
+        if name == "camera_look":
+            if not self.store or not hasattr(self.store, "connectors"):
+                return "no cameras in this context"
+            from . import vision as V
+            cams = [c for c in self.store.connectors() if c["kind"] == "camera"]
+            want = str(args.get("camera", "") or "").strip()
+            conn = next((c for c in cams if c["name"] == want), None) if want else (cams[0] if cams else None)
+            if not conn:
+                return "no camera called %r. Cameras: %s" % (want, ", ".join(c["name"] for c in cams) or "(none connected)")
+            question = str(args.get("question", "") or "").strip()
+            self.emit("tool", aid, f"camera_look {conn['name']}" + (f": {question[:80]}" if question else ""))
+            live = (self.configs.get("mode") or "") != "demo"
+            prev = self.store.last_vision_event(conn["name"]) if hasattr(self.store, "last_vision_event") else None
+            try:
+                res = V.analyse(str(conn["config"].get("source", "")), conn["config"], None, live_vlm=live, question=question)
+            except Exception as exc:
+                return f"camera {conn['name']} unavailable: {str(exc)[:200]}"
+            snap = V.save_snapshot(self.configs.get("desk_id", 0), conn["name"], res["annotated"])
+            ev = self.store.add_vision_event(conn["name"], res["counts"], motion=res["motion"], backend=res["backend"],
+                                             reason="camera_look by " + aid, question=question, answer=res["answer"], snapshot=snap,
+                                             source="agent")
+            try:
+                out = self.run_dir / f"camera-{conn['name']}-{time.strftime('%H%M%S')}.jpg"
+                out.write_bytes(res["annotated"])
+                if out not in self.deliverables:
+                    self.deliverables.append(out)
+                self.emit("deliverable", "system", str(out), path=str(out))
+            except OSError:
+                pass
+            lines = [f"Camera {conn['name']} at {time.strftime('%H:%M:%S')}: {V.counts_text(res['counts'])}"
+                     + (f" (detector: {res['backend']})" if res["backend"] != "none" else " (no object detector available — rely on the analyst's answer)"),
+                     f"Motion vs previous frame: {res['motion']:.2f}" if prev else "First frame from this camera."]
+            if res["detections"] and res["backend"] == "yolo":
+                lines.append("Objects: " + ", ".join(f"{d['label']} {int(d['conf']*100)}% at {d['box']}" for d in res["detections"][:12]))
+            if question:
+                lines.append("Analyst: " + (res["answer"] or "(no vision model configured — answer unavailable; detections above are all we have)"))
+            lines.append(f"Event #{ev['id']} logged; snapshot saved.")
+            return "\n".join(lines)
+        if name == "camera_events":
+            if not self.store or not hasattr(self.store, "vision_events"):
+                return "no camera log in this context"
+            from . import vision as V
+            try:
+                hours = float(args.get("hours") or 24)
+            except Exception:
+                hours = 24.0
+            try:
+                limit = max(1, min(int(args.get("limit") or 40), 200))
+            except Exception:
+                limit = 40
+            rows = self.store.vision_events(str(args.get("camera", "") or ""), time.time() - hours * 3600,
+                                            str(args.get("query", "") or ""), limit, bool(args.get("alerts_only")))
+            self.emit("tool", aid, f"camera_events({args.get('camera','') or 'all'}, {hours:g}h) → {len(rows)}")
+            if not rows:
+                return f"No camera events in the last {hours:g} hours" + (f" matching {args.get('query')!r}" if args.get("query") else "") + "."
+            out = []
+            for r in reversed(rows):
+                out.append(f"{time.strftime('%a %d %b %H:%M', time.localtime(r['ts']))} | {r['camera']} | {V.counts_text(r['counts'])} | motion {r['motion']:.2f}"
+                           + (" | ALERT " + r["reason"] if r.get("triggered") else (" | " + r["reason"] if r.get("reason") else ""))
+                           + (f" | analyst: {r['answer'][:160]}" if r.get("answer") else ""))
+            return "\n".join(out)
         if name == "remember":
             if not self.store or not hasattr(self.store, "remember"):
                 return "no memory in this context"

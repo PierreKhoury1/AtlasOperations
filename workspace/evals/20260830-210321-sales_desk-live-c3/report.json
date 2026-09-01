@@ -1,0 +1,158 @@
+{
+  "template": "sales_desk",
+  "mode": "live",
+  "tier": "free",
+  "provider": "openrouter",
+  "n": 1,
+  "leads": 3,
+  "concurrency": 3,
+  "wall_s": 72.2,
+  "throughput_runs_per_min": 2.49,
+  "metrics": {
+    "runs": 3,
+    "done": 3,
+    "error": 0,
+    "cancelled": 0,
+    "completion_rate": 1.0,
+    "duration_s": {
+      "mean": 69.1,
+      "p50": 71.5,
+      "p90": 72.2,
+      "max": 72.2
+    },
+    "agent_latency_s": {
+      "research": {
+        "n": 3,
+        "mean": 17.8,
+        "p90": 21.2
+      },
+      "writer": {
+        "n": 3,
+        "mean": 5.7,
+        "p90": 8.1
+      },
+      "qa": {
+        "n": 3,
+        "mean": 6.6,
+        "p90": 8.2
+      },
+      "hermes": {
+        "n": 3,
+        "mean": 69.0,
+        "p90": 72.2
+      }
+    },
+    "tool_calls": 33,
+    "tool_errors": 0,
+    "tool_error_rate": 0.0,
+    "tools_by_kind": {
+      "delegate": 9,
+      "web_fetch": 7,
+      "crm_lookup": 5,
+      "crm_update": 3,
+      "save_deliverable": 3,
+      "finish": 3,
+      "list_files": 1,
+      "read_file": 1,
+      "schedule_task": 1
+    },
+    "delegations": 9,
+    "approvals_queued": 4,
+    "policy_blocks": 1,
+    "policy_flags": 0,
+    "empty_replies": 0,
+    "provider_errors": 0,
+    "tokens": {
+      "in": 114571,
+      "out": 18009,
+      "per_run_in": 38190,
+      "per_run_out": 6003,
+      "est_cost_gbp_sonnet": 0.479
+    },
+    "throughput_runs_per_min": 2.49,
+    "window_s": 72.2
+  },
+  "quality": {
+    "queued": 4,
+    "clean": 4,
+    "clean_rate": 1.0,
+    "avg_words": 124,
+    "violations": []
+  },
+  "runs": [
+    {
+      "lead": "Hannah Weiss",
+      "rep": 0,
+      "run_id": "20260830-210321-3f5f88",
+      "status": "done",
+      "seconds": 63.5,
+      "tokens_in": 35521,
+      "tokens_out": 6212,
+      "errors": [],
+      "policy": []
+    },
+    {
+      "lead": "Priya Raman",
+      "rep": 0,
+      "run_id": "20260830-210321-fc5123",
+      "status": "done",
+      "seconds": 71.5,
+      "tokens_in": 40485,
+      "tokens_out": 5748,
+      "errors": [],
+      "policy": [
+        "blocked whatsapp → +44 7700 900101: whatsapp too long: 61 words (max 60)"
+      ]
+    },
+    {
+      "lead": "Tom Okafor",
+      "rep": 0,
+      "run_id": "20260830-210321-1373d1",
+      "status": "done",
+      "seconds": 72.2,
+      "tokens_in": 38565,
+      "tokens_out": 6049,
+      "errors": [],
+      "policy": []
+    }
+  ],
+  "queued": [
+    {
+      "id": 4,
+      "kind": "whatsapp",
+      "to": "+44 7700 900101",
+      "violations": [],
+      "words": 49,
+      "flagged": false,
+      "has_subject": true
+    },
+    {
+      "id": 3,
+      "kind": "email",
+      "to": "tom@okaforproperty.example.com",
+      "violations": [],
+      "words": 149,
+      "flagged": false,
+      "has_subject": true
+    },
+    {
+      "id": 2,
+      "kind": "email",
+      "to": "hannah.weiss@example.com",
+      "violations": [],
+      "words": 166,
+      "flagged": false,
+      "has_subject": true
+    },
+    {
+      "id": 1,
+      "kind": "email",
+      "to": "priya.raman@example.com",
+      "violations": [],
+      "words": 131,
+      "flagged": false,
+      "has_subject": true
+    }
+  ],
+  "when": "20260830-210321"
+}

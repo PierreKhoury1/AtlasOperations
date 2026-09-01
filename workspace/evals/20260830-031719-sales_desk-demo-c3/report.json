@@ -1,0 +1,142 @@
+{
+  "template": "sales_desk",
+  "mode": "demo",
+  "tier": "free",
+  "provider": "demo",
+  "n": 1,
+  "leads": 3,
+  "concurrency": 3,
+  "wall_s": 2.7,
+  "throughput_runs_per_min": 66.84,
+  "metrics": {
+    "runs": 3,
+    "done": 3,
+    "error": 0,
+    "cancelled": 0,
+    "completion_rate": 1.0,
+    "duration_s": {
+      "mean": 2.7,
+      "p50": 2.7,
+      "p90": 2.7,
+      "max": 2.7
+    },
+    "agent_latency_s": {
+      "crm": {
+        "n": 3,
+        "mean": 0.9,
+        "p90": 0.9
+      },
+      "research": {
+        "n": 3,
+        "mean": 1.6,
+        "p90": 1.6
+      },
+      "writer": {
+        "n": 3,
+        "mean": 1.6,
+        "p90": 1.6
+      },
+      "hermes": {
+        "n": 3,
+        "mean": 2.7,
+        "p90": 2.7
+      }
+    },
+    "tool_calls": 18,
+    "tool_errors": 0,
+    "tool_error_rate": 0.0,
+    "tools_by_kind": {
+      "delegate": 9,
+      "crm_update": 3,
+      "save_deliverable": 3,
+      "finish": 3
+    },
+    "delegations": 9,
+    "approvals_queued": 3,
+    "policy_blocks": 0,
+    "policy_flags": 0,
+    "empty_replies": 0,
+    "provider_errors": 0,
+    "tokens": {
+      "in": 8939,
+      "out": 3436,
+      "per_run_in": 2980,
+      "per_run_out": 1145,
+      "est_cost_gbp_sonnet": 0.061
+    },
+    "throughput_runs_per_min": 59990.05,
+    "window_s": 0.0
+  },
+  "quality": {
+    "queued": 3,
+    "clean": 3,
+    "clean_rate": 1.0,
+    "avg_words": 72,
+    "violations": []
+  },
+  "runs": [
+    {
+      "lead": "Priya Raman",
+      "rep": 0,
+      "run_id": "20260830-031719-a740b5",
+      "status": "done",
+      "seconds": 2.7,
+      "tokens_in": 3008,
+      "tokens_out": 1138,
+      "errors": [],
+      "policy": []
+    },
+    {
+      "lead": "Tom Okafor",
+      "rep": 0,
+      "run_id": "20260830-031719-97e32b",
+      "status": "done",
+      "seconds": 2.7,
+      "tokens_in": 2983,
+      "tokens_out": 1144,
+      "errors": [],
+      "policy": []
+    },
+    {
+      "lead": "Hannah Weiss",
+      "rep": 0,
+      "run_id": "20260830-031719-1dff02",
+      "status": "done",
+      "seconds": 2.7,
+      "tokens_in": 2948,
+      "tokens_out": 1154,
+      "errors": [],
+      "policy": []
+    }
+  ],
+  "queued": [
+    {
+      "id": 3,
+      "kind": "email",
+      "to": "hannah.weiss@example.com",
+      "violations": [],
+      "words": 75,
+      "flagged": false,
+      "has_subject": true
+    },
+    {
+      "id": 2,
+      "kind": "email",
+      "to": "tom@okaforproperty.example.com",
+      "violations": [],
+      "words": 72,
+      "flagged": false,
+      "has_subject": true
+    },
+    {
+      "id": 1,
+      "kind": "email",
+      "to": "priya.raman@example.com",
+      "violations": [],
+      "words": 69,
+      "flagged": false,
+      "has_subject": true
+    }
+  ],
+  "when": "20260830-031719"
+}
