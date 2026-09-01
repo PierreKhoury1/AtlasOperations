@@ -156,7 +156,12 @@ def desk_configs(desk: dict[str, Any]) -> dict[str, Any]:
     # DESK_DEFAULT_ENGINE=hermes_agent, every specialist runs on it unless the agent explicitly says engine=atlas.
     # Atlas itself stays on our loop - the API server executes its own tools and cannot call delegate/queue_action.
     hcfg: dict[str, Any] | None = None
-    hconn = next((c for c in store.connectors(desk["id"]) if c["kind"] == "hermes_agent"), None)
+    _conns = store.connectors(desk["id"])
+    if any(c["kind"] == "camera" for c in _conns):    # desks built before cameras existed keep their stored agent list
+        for a in agents:
+            if a["id"] == "atlas" or "camera_look" in a.get("tools", []):
+                a["tools"] = list(dict.fromkeys(list(a.get("tools", [])) + ["camera_look", "camera_events"]))
+    hconn = next((c for c in _conns if c["kind"] == "hermes_agent"), None)
     if hconn:
         hcfg = hconn["config"]
     elif os.environ.get("HERMES_AGENT_URL", "").strip():

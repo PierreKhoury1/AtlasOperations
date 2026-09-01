@@ -324,7 +324,8 @@ def describe(jpeg: bytes, question: str, model: str = "", context: str = "", max
         raise RuntimeError("no vision model key (set OPENROUTER_API_KEY or config/providers.json openrouter.api_key)")
     system = ("You are the vision analyst of a small business's operations desk. You look at one camera frame and "
               "answer the owner's question precisely. State only what is visible; say 'not visible' rather than guess. "
-              "Count carefully. Keep it under 80 words unless asked for detail. Never identify people by name.")
+              "Count carefully. Keep it under 80 words unless asked for detail. Plain text only — no markdown, no headings, no asterisks. "
+              "Never identify people by name.")
     if context:
         system += "\n\nContext: " + context[:800]
     payload = {
