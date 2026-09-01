@@ -413,12 +413,17 @@ def rule_config(config: dict[str, Any]) -> dict[str, Any]:
         motion_min = float(config.get("motion_min") or 0.03)
     except Exception:
         motion_min = 0.03
+    try:
+        alert_on_motion = float(config.get("alert_on_motion") or 0)      # 0 = off; e.g. 0.2 = wake the desk on any scene change
+    except Exception:
+        alert_on_motion = 0.0
     return {"labels": labels, "min_count": min_count, "cooldown_min": cooldown, "hours": str(config.get("hours") or ""),
-            "motion_min": motion_min, "question": str(config.get("question") or ""), "task": str(config.get("task") or "")}
+            "motion_min": motion_min, "alert_on_motion": alert_on_motion,
+            "question": str(config.get("question") or ""), "task": str(config.get("task") or "")}
 
 
 def evaluate(config: dict[str, Any], dets: list[dict[str, Any]], prev_counts: dict[str, int] | None,
-             last_trigger_ts: float | None, now_ts: float | None = None) -> tuple[bool, str]:
+             last_trigger_ts: float | None, now_ts: float | None = None, mot: float = 0.0) -> tuple[bool, str]:
     """Should this frame wake the desk? Returns (triggered, reason). Rule:
     watched count >= min_count, inside the hours window, and either the watched count changed since the previous
     frame or the cooldown has passed (so a person standing still doesn't page the owner every tick)."""
@@ -427,6 +432,9 @@ def evaluate(config: dict[str, Any], dets: list[dict[str, Any]], prev_counts: di
     c = counts(dets)
     n = sum(c.get(l, 0) for l in r["labels"])
     prev_n = sum((prev_counts or {}).get(l, 0) for l in r["labels"])
+    cooled_now = last_trigger_ts is None or (now_ts - last_trigger_ts) >= r["cooldown_min"] * 60
+    if r["alert_on_motion"] and mot >= r["alert_on_motion"] and prev_counts is not None             and in_hours(r["hours"], datetime.fromtimestamp(now_ts)) and cooled_now:
+        return True, f"scene changed (motion {mot:.2f} ≥ {r['alert_on_motion']:g})"
     if n < r["min_count"]:
         return False, f"{n} {'/'.join(r['labels'])} (< {r['min_count']})"
     if not in_hours(r["hours"], datetime.fromtimestamp(now_ts)):

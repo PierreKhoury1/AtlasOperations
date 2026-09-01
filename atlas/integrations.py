@@ -39,10 +39,11 @@ KINDS = {
                              "Any desk agent can then run ON Hermes Agent (its 40+ tools: terminal, browser, web search, memory, skills, MCP) "
                              "instead of the built-in specialist loop. Atlas keeps orchestration, policy and approvals."},
     "camera": {"label": "Camera (webcam, RTSP/IP camera, snapshot URL)",
-               "fields": ["source", "watch_for", "min_count", "hours", "cooldown_min", "question", "task", "vlm_model", "notes"],
+               "fields": ["source", "watch_for", "min_count", "hours", "cooldown_min", "alert_on_motion", "question", "task", "vlm_model", "notes"],
                "hint": "source: webcam index (0), rtsp://user:pass@ip:554/Streaming/Channels/101 (Hikvision), http://ip/capture (ESP32-CAM) "
                        "or any JPEG URL. watch_for: comma-separated objects (person, car, truck, dog, bicycle...). hours: only alert inside a window, "
-                       "e.g. 20:00-07:00. cooldown_min: don't re-alert for N minutes while the scene is unchanged. question: what the vision analyst "
+                       "e.g. 20:00-07:00. cooldown_min: don't re-alert for N minutes while the scene is unchanged. alert_on_motion: 0 = off, "
+                       "0.2 = also wake the desk whenever the scene changes that much (shelf / display / door cams where nothing is a COCO object). question: what the vision analyst "
                        "should answer on every alert ('Is anyone at the counter? Is the shutter open?'). task: what the desk should do when it fires. "
                        "Agents can look through it any time with camera_look and search its history with camera_events."},
     "webhook": {"label": "Inbound webhook", "fields": [],

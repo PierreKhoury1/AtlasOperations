@@ -194,8 +194,9 @@ def desk_configs(desk: dict[str, Any]) -> dict[str, Any]:
 
 def ensure_demo_desk() -> dict[str, Any]:
     d = store.desk(1)
-    if d is None:
-        d = store.add_desk(0, "Acme Estates", "sales_desk", "free", templates.build_desk("sales_desk", {}))
+    if d is None:                                      # DESK_TEMPLATE picks the built-in desk's template (default sales_desk)
+        name = "Acme Estates" if DEFAULT_TEMPLATE == "sales_desk" else templates.get(DEFAULT_TEMPLATE)["business"].get("name", "Demo desk")
+        d = store.add_desk(0, name, DEFAULT_TEMPLATE, "free", templates.build_desk(DEFAULT_TEMPLATE, {}))
     return d
 
 

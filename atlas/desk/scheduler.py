@@ -43,7 +43,8 @@ def camera_tick(store, desk: dict[str, Any], conn: dict[str, Any], start_run: Ca
     _last_frame[key] = res["jpeg"]
     prev_ev = ds.last_vision_event(conn["name"])
     last_alert = ds.last_vision_event(conn["name"], triggered_only=True)
-    triggered, reason = V.evaluate(cfg, res["detections"], (prev_ev or {}).get("counts"), (last_alert or {}).get("ts"))
+    triggered, reason = V.evaluate(cfg, res["detections"], (prev_ev or {}).get("counts"), (last_alert or {}).get("ts"),
+                                   mot=res["motion"])
     if force:
         triggered, reason = True, "manual trigger"
     changed = (prev_ev or {}).get("counts") != res["counts"] or res["motion"] >= max(rule["motion_min"], 0.08)
@@ -72,8 +73,16 @@ def camera_tick(store, desk: dict[str, Any], conn: dict[str, Any], start_run: Ca
                  + (f"Analyst answer to '{q}': {answer}\n" if answer else "")
                  + (f"Camera notes: {cfg.get('notes')}\n" if cfg.get("notes") else "")
                  + f"Event id: {event['id']}. Snapshot: {event['snapshot']}. Use camera_look for a fresh frame and camera_events for history.")
-        rid = start_run(desk, task, "auto")
-        ds.set_vision_run(event["id"], rid)
+        try:
+            rid = start_run(desk, task, "auto")
+            ds.set_vision_run(event["id"], rid)
+        except BaseException as exc:                   # Flask abort (spend cap / 402) or a provider error: keep the event, say why
+            why = getattr(getattr(exc, "response", None), "data", b"") or str(exc) or type(exc).__name__
+            if isinstance(why, bytes):
+                why = why.decode(errors="replace")
+            ds.add_vision_event(conn["name"], res["counts"], motion=res["motion"], backend=res["backend"],
+                                reason=f"desk refused the run: {str(why)[:160]}", snapshot=event["snapshot"])
+            rid = ""
     seen = {"ts": time.time(), "counts": res["counts"], "motion": res["motion"], "backend": res["backend"], "reason": reason,
             "triggered": triggered, "answer": answer, "event_id": (event or {}).get("id"), "run_id": rid, "size": res["size"],
             "detections": res["detections"], "detector_error": res["detector_error"]}

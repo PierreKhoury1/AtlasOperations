@@ -68,6 +68,13 @@ def test_rule_evaluate_counts_hours_cooldown():
     assert V.in_hours("20:00-07:00", datetime(2026, 9, 1, 12, 0)) is False
     assert V.in_hours("09:00-17:00", datetime(2026, 9, 1, 12, 0)) is True
     assert V.in_hours("", datetime(2026, 9, 1, 12, 0)) is True
+    # alert_on_motion: scene change wakes the desk even with no watched objects (never on the very first frame)
+    m = {"watch_for": "person", "alert_on_motion": 0.2}
+    assert V.evaluate(m, [], None, None, mot=0.5)[0] is False
+    ok, why = V.evaluate(m, [], {}, None, mot=0.5)
+    assert ok and "scene changed" in why
+    assert V.evaluate(m, [], {}, None, mot=0.1)[0] is False
+    assert V.evaluate(m, [], {}, time.time() - 30, mot=0.5)[0] is False        # default 10-min cooldown
     noon = datetime(2026, 9, 1, 12, 0).timestamp()
     ok, why = V.evaluate({"watch_for": "person", "hours": "20:00-07:00"}, [PERSON], None, None, now_ts=noon)
     assert not ok and "outside" in why
