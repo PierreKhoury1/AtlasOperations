@@ -22,6 +22,7 @@ from typing import Any, Callable
 from . import integrations as I
 from . import mcp_client as M
 from . import policy as P
+from . import secure as S
 from . import tools as T
 from .config import RUNS_DIR
 from .providers import ProviderPool, ToolCall
@@ -71,6 +72,8 @@ class Orchestrator:
         self.deliverables: list[Path] = []
         self._ws: T.WorkspaceTools | None = None
         self._policy_hits: dict[tuple[str, str], int] = {}
+        self._tl = threading.local()                      # per-thread current agent instance (parallel delegations)
+        self._inst_counts: dict[str, int] = {}
 
     # ------------------------------------------------------------------ events
     def emit(self, kind: str, agent: str = "system", text: str = "", **data):
@@ -85,10 +88,15 @@ class Orchestrator:
                 c["crm"] += 1
             elif kind == "tool" and text.startswith("schedule_task"):
                 c["jobs"] += 1
+        if agent not in ("system", "owner") and "inst" not in data:
+            cur = getattr(self._tl, "inst", None)
+            if cur and cur.split("#")[0] == agent:
+                data["inst"] = cur
         ev = Event(kind, agent, text, data)
         if self.store and self.run_id and kind not in ("usage", "token"):
             try:
-                self.store.add_event(self.run_id, kind, agent, text)
+                keep = {k: data[k] for k in ("inst", "assignment", "parent", "depth", "action_kind", "to", "path") if k in data}
+                self.store.add_event(self.run_id, kind, agent, text, json.dumps(keep) if keep else "")
             except Exception:
                 pass
         self._emit(ev)
@@ -135,6 +143,11 @@ class Orchestrator:
             parts.append(self.business_context())
         if "delegate" in agent.get("tools", []):
             parts.append("Specialist agents available via delegate(agent_id, ...):\n" + self.roster_text(agent["id"]))
+        if "assemble_team" in agent.get("tools", []):
+            parts.append("If the configured roster does not fit the task, design your own team first with assemble_team "
+                         "(you decide how many specialists and what each one does), then delegate to them.")
+        if agent.get("text_tools"):
+            parts.append(self._text_protocol_prompt(agent, [t for t in agent.get("tools", []) if t in T.SCHEMAS] + ["finish"]))
         if "http_request" in agent.get("tools", []) and self.store is not None and hasattr(self.store, "connectors"):
             parts.append("Connected systems (use http_request / list_connectors):\n" + I.describe(self.store.connectors()))
         if "camera_look" in agent.get("tools", []) and self.store is not None and hasattr(self.store, "connectors"):
@@ -150,7 +163,21 @@ class Orchestrator:
         return "\n\n".join(p for p in parts if p)
 
     # ------------------------------------------------------------------ agent loop
-    def run_agent(self, agent_id: str, task: str, context: str = "", depth: int = 0) -> str:
+    def run_agent(self, agent_id: str, task: str, context: str = "", depth: int = 0, parent: str = "") -> str:
+        """One agent *instance*: the same agent delegated three times in parallel runs as three instances
+        (watcher, watcher#2, watcher#3), each with its own assignment — the live graph draws them separately."""
+        prev_inst = getattr(self._tl, "inst", None)
+        with self._usage_lock:
+            n = self._inst_counts.get(agent_id, 0) + 1
+            self._inst_counts[agent_id] = n
+        inst = agent_id if n == 1 else f"{agent_id}#{n}"
+        self._tl.inst = inst
+        try:
+            return self._run_agent(agent_id, task, context, depth, parent, inst)
+        finally:
+            self._tl.inst = prev_inst
+
+    def _run_agent(self, agent_id: str, task: str, context: str, depth: int, parent: str, inst: str) -> str:
         agent = self.agents.get(agent_id)
         if not agent:
             if agent_id in T.SCHEMAS:
@@ -176,7 +203,9 @@ class Orchestrator:
 
         prompt = task if not context else f"{task}\n\n---\nContext:\n{context}"
         messages: list[Any] = [provider.user_message(prompt)]
-        self.emit("agent_start", agent_id, f"{agent['name']} ← task ({len(prompt)} chars)", depth=depth, model=model)
+        assignment = re.sub(r"\s+", " ", task).strip()[:160]
+        self.emit("agent_start", agent_id, f"{agent['name']}{'' if inst == agent_id else ' #' + inst.split('#')[1]} ← task ({len(prompt)} chars)",
+                  depth=depth, model=model, inst=inst, assignment=assignment, parent=parent or "")
         final_text = ""
         budget = int(self.orch.get("agent_token_budget", 60000))
         spent_in = 0
@@ -211,6 +240,19 @@ class Orchestrator:
             if resp.text:
                 self.emit("log", agent_id, resp.text)
                 final_text = resp.text
+            if not resp.tool_calls and agent.get("text_tools") and resp.text:
+                tcalls = self.parse_text_calls(resp.text)
+                if tcalls:
+                    results = self._execute_tools(agent, tcalls, depth)
+                    finished = next((r for r in results if r[1] == "finish"), None)
+                    if finished:
+                        final_text = finished[2]
+                        break
+                    fb = "TOOL RESULTS:\n" + "\n\n".join(
+                        f"[{n}] {'ERROR: ' if e else ''}{o}" for _c, n, o, e in results)
+                    messages.append({"role": "assistant", "content": resp.text})
+                    messages.append(provider.user_message(fb))
+                    continue
             if not resp.tool_calls:
                 break
             if spent_in > budget and agent_id != "atlas":
@@ -251,6 +293,115 @@ class Orchestrator:
         self.emit("agent_end", agent_id, f"{agent['name']} done" + (f" — {preview}" if preview else ""), depth=depth)
         return final_text or "(no output)"
 
+    # ------------------------------------------------------------- dynamic team
+    GRANTABLE_DENY = {"finish", "assemble_team"}      # everything else an agent may receive; approvals still gate outbound
+
+    def _assemble_team(self, agent, specs, reason):
+        if not specs:
+            return "ERROR: assemble_team needs at least one agent spec"
+        cap = int(self.orch.get("max_team_agents", 6))
+        if len(specs) > cap:
+            return f"ERROR: team too large ({len(specs)}); max_team_agents is {cap}. Merge roles."
+        hermes_cfgs = {n: c for n, c in self.configs["providers"].get("providers", {}).items()
+                       if (c.get("type") or "") == "hermes_agent"}
+        made = []
+        for sp in specs:
+            sid = re.sub(r"[^a-z0-9_]+", "_", str(sp.get("id", "")).strip().lower())[:24]
+            if not sid or sid in ("atlas", agent["id"]):
+                return f"ERROR: bad agent id {sp.get('id')!r}"
+            tools = [t for t in (sp.get("tools") or ["web_fetch", "read_file", "list_files", "save_deliverable"])
+                     if t in T.SCHEMAS and t not in self.GRANTABLE_DENY]
+            new = {"id": sid, "name": str(sp.get("name") or sid)[:40], "role": str(sp.get("role") or "")[:200],
+                   "system_prompt": str(sp.get("system_prompt") or "")[:4000], "tools": tools,
+                   "enabled": True, "dynamic": True}
+            if sp.get("model"):
+                new["model"] = str(sp["model"])
+            if (sp.get("engine") or "") == "hermes_agent":
+                if hermes_cfgs:
+                    _bn, base_cfg = next(iter(hermes_cfgs.items()))
+                    pname = f"hermes_agent_dyn_{sid}"
+                    sess = str(base_cfg.get("session_key") or "atlas")
+                    self.pool.cfg.setdefault("providers", {})[pname] = {
+                        **base_cfg, "session_key": sess.rsplit(":", 1)[0] + ":" + sid,
+                        "default_model": new.get("model") or base_cfg.get("default_model")}
+                    new["provider"], new["engine"], new["tools"] = pname, "hermes_agent", []
+                else:
+                    new["engine_note"] = "no Hermes Agent connected - running on the built-in engine"
+            self.agents[sid] = new
+            made.append(f"{sid} ({new['name']}: {new['role'][:60]}; engine={new.get('engine', 'atlas')}; "
+                        f"tools={','.join(new['tools']) or 'hermes-runtime'})")
+        self.emit("team", agent["id"], f"team assembled: {len(made)} agent(s)" + (f" - {reason[:120]}" if reason else ""),
+                  agents=[m.split(" ")[0] for m in made])
+        return "Team ready. Delegate to them now:\n" + "\n".join("- " + m for m in made)
+
+    def _video_describe(self, agent, source, question, frames):
+        from . import vision as V
+        if not source:
+            return "ERROR: video_describe needs a source (file in workspace/inputs, run file, or URL)"
+        src = source
+        if not re.match(r"^https?://", source, re.I):
+            cands = [Path(T.INPUTS_DIR) / source, self.run_dir / source]
+            hit = next((c for c in cands if c.is_file()), None)
+            if not hit:
+                have = ", ".join(f.name for f in Path(T.INPUTS_DIR).glob("*") if f.is_file())[:300]
+                return (f"ERROR: video file {source!r} not found in workspace/inputs or the run folder. "
+                        f"Inputs: {have or '(empty)'}")
+            src = str(hit)
+        else:
+            why = S.private_url_reason(source)
+            if why:
+                return f"ERROR: refusing to fetch {source}: {why}"
+        self.emit("tool", agent["id"], f"video_describe {source} ({question[:80] or 'describe'})")
+        res = V.describe_video(src, question, frames=frames, context=self.business.get("name", ""))
+        stamp = time.strftime("%H%M%S")
+        for i, fr in enumerate(res["frames"][:4]):    # contact sheet: first sampled frames as run deliverables
+            fp = self.run_dir / f"video_{stamp}_f{i}_{fr['t']:.0f}s.jpg"
+            fp.write_bytes(fr["jpeg"])
+            self.deliverables.append(fp)
+        if self.store and hasattr(self.store, "add_vision_event") and hasattr(self.store, "desk_id"):
+            try:
+                self.store.add_vision_event(f"video:{Path(source).name[:40]}", {}, backend="vlm", source="video",
+                                            question=question or "describe", answer=(res["answer"] or "")[:1000],
+                                            run_id=self.run_id)
+            except Exception:
+                pass
+        return f"Video ~{res['duration_s']:.0f}s, {len(res['frames'])} frames analysed.\n\n{res['answer']}"
+
+    # ------------------------------------------------- Hermes-as-lead text protocol
+    _TEXT_CALL = re.compile(r"<atlas>\s*(\{.*?\})\s*</atlas>", re.S)
+
+    @classmethod
+    def parse_text_calls(cls, text):
+        """The Hermes Agent runtime executes its own tools and ignores client tool schemas, so a Hermes-backed LEAD
+        drives ours through <atlas>{"tool": ..., "args": {...}}</atlas> blocks in its prose."""
+        calls = []
+        for i, m in enumerate(cls._TEXT_CALL.finditer(text or "")):
+            raw = m.group(1)
+            try:
+                d = json.loads(raw)
+            except json.JSONDecodeError:
+                try:
+                    d = json.loads(re.sub(r",\s*([}\]])", r"\1", raw))   # tolerate trailing commas
+                except json.JSONDecodeError:
+                    continue
+            name = str(d.get("tool") or d.get("name") or "").strip()
+            if name:
+                calls.append(ToolCall(id=f"txt{i}", name=name, args=dict(d.get("args") or d.get("arguments") or {})))
+        return calls
+
+    def _text_protocol_prompt(self, agent, tool_names):
+        specs = "\n".join(
+            f"- {n}: {T.SCHEMAS[n]['description'][:150]} | args {json.dumps(T.SCHEMAS[n]['parameters'].get('properties', {}))[:400]}"
+            for n in tool_names if n in T.SCHEMAS)
+        return ("You are the LEAD of an operations desk. Your own runtime tools (browser, terminal...) are yours to use, "
+                "but the desk itself (team, CRM, approval queue, cameras) is driven ONLY through desk tools, called by "
+                "writing a block on its own line:\n"
+                '<atlas>{"tool": "<name>", "args": {...}}</atlas>\n'
+                "You may put several blocks in one reply; results come back in the next message as TOOL RESULTS. "
+                "NEVER claim a desk action happened without seeing its result. When the job is done, end with "
+                '<atlas>{"tool": "finish", "args": {"summary": "..."}}</atlas>.\n'
+                "Desk tools:\n" + specs)
+
     def _execute_tools(self, agent: dict[str, Any], calls: list[ToolCall], depth: int) -> list[tuple[str, str, str, bool]]:
         def one(call: ToolCall) -> tuple[str, str, str, bool]:
             try:
@@ -289,9 +440,15 @@ class Orchestrator:
         if name == "delegate":
             target = str(args.get("agent_id", "")).strip()
             self.emit("tool", aid, f"delegate → {target}: {str(args.get('task',''))[:160]}")
-            return self.run_agent(target, str(args.get("task", "")), str(args.get("context", "") or ""), depth + 1)
+            return self.run_agent(target, str(args.get("task", "")), str(args.get("context", "") or ""), depth + 1,
+                                  parent=getattr(self._tl, "inst", None) or aid)
         if name == "list_agents":
             return self.roster_text(aid)
+        if name == "assemble_team":
+            return self._assemble_team(agent, list(args.get("agents") or []), str(args.get("reason", "") or ""))
+        if name == "video_describe":
+            return self._video_describe(agent, str(args.get("source", "")), str(args.get("question", "") or ""),
+                                        int(args.get("frames") or 8))
         if name == "finish":
             self.emit("tool", aid, "finish")
             return str(args.get("summary", ""))
@@ -506,6 +663,8 @@ class Orchestrator:
         self.deliverables = []
         self._policy_hits = {}
         self._counts = {"queued": 0, "sent": 0, "crm": 0, "jobs": 0}
+        self._inst_counts = {}
+        self._tl.inst = None
         self.run_id = time.strftime("%Y%m%d-%H%M%S") + "-" + uuid.uuid4().hex[:6]
         self.run_dir = RUNS_DIR / self.run_id
         self.run_dir.mkdir(parents=True, exist_ok=True)

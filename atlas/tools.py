@@ -26,6 +26,47 @@ SCHEMAS: dict[str, dict[str, Any]] = {
             "required": ["agent_id", "task"],
         },
     },
+    "assemble_team": {
+        "name": "assemble_team",
+        "description": "Design your own team for this task: create (or replace) specialist agents at run time. Use when the configured roster does not fit the job - decide how many specialists you need and what each one does, then delegate to them as usual. Existing configured agents stay available.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "agents": {
+                    "type": "array",
+                    "description": "The specialists to create. Keep the team as small as the task allows.",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "id": {"type": "string", "description": "Short slug, e.g. 'researcher2', 'video_analyst'."},
+                            "name": {"type": "string"},
+                            "role": {"type": "string", "description": "One line: what this agent is for."},
+                            "system_prompt": {"type": "string", "description": "Full working instructions for the agent."},
+                            "tools": {"type": "array", "items": {"type": "string"}, "description": "Tool names to grant (subset of the desk's tools)."},
+                            "engine": {"type": "string", "enum": ["atlas", "hermes_agent"], "description": "hermes_agent = run on the Hermes Agent runtime (its own browser/terminal/memory) when one is connected."},
+                            "model": {"type": "string", "description": "Optional model id override."},
+                        },
+                        "required": ["id", "name", "role", "system_prompt"],
+                    },
+                },
+                "reason": {"type": "string", "description": "Why this team shape fits the task."},
+            },
+            "required": ["agents"],
+        },
+    },
+    "video_describe": {
+        "name": "video_describe",
+        "description": "Watch a video and describe it: frames are sampled evenly and analysed by a vision model as a timeline. Works on files the owner placed in workspace/inputs, files saved in this run, or a direct video URL. The description is logged as a vision event so camera_events / 'ask the cameras' can recall it later.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "source": {"type": "string", "description": "File name in inputs/run folder, or a video URL (mp4/mov/webm...)."},
+                "question": {"type": "string", "description": "What to look for / answer. Default: describe what happens."},
+                "frames": {"type": "integer", "description": "How many frames to sample (1-10, default 8)."},
+            },
+            "required": ["source"],
+        },
+    },
     "list_agents": {
         "name": "list_agents",
         "description": "List the specialist agents available for delegation with their roles.",
@@ -228,7 +269,7 @@ SCHEMAS: dict[str, dict[str, Any]] = {
 }
 
 ALL_TOOL_NAMES = list(SCHEMAS.keys())
-ORCHESTRATOR_ONLY = {"delegate", "list_agents", "finish", "queue_action", "crm_lookup", "crm_update",
+ORCHESTRATOR_ONLY = {"delegate", "list_agents", "finish", "assemble_team", "video_describe", "queue_action", "crm_lookup", "crm_update",
                      "list_connectors", "http_request", "schedule_task", "remember", "recall",
                      "calendar_free_slots", "calendar_book", "generate_media", "camera_look", "camera_events"}
 

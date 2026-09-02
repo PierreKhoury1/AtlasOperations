@@ -495,3 +495,81 @@ def analyse(source: str, config: dict[str, Any], prev_jpeg: bytes | None = None,
     return {"jpeg": jpeg, "annotated": annotate(jpeg, dets, f"{time.strftime('%d %b %H:%M:%S')}  {counts_text(c)}"),
             "detections": dets, "counts": c, "motion": round(mot, 3), "backend": backend, "answer": answer,
             "size": [w, h], "detector_error": det.error}
+
+
+# ---------------------------------------------------------------------------- video understanding
+def _ffprobe_duration(path: str) -> float:
+    fp = shutil.which("ffprobe")
+    if not fp:
+        return 0.0
+    try:
+        p = subprocess.run([fp, "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", path],
+                           capture_output=True, timeout=30)
+        return float((p.stdout or b"0").decode().strip() or 0)
+    except Exception:
+        return 0.0
+
+
+def sample_video_frames(source: str, n: int = 8) -> tuple[list[tuple[float, bytes]], float]:
+    """Evenly sample up to n JPEG frames from a local video file (or any URL ffmpeg can read).
+    Returns ([(timestamp_s, jpeg), ...], duration_s). Requires ffmpeg."""
+    ff = shutil.which("ffmpeg")
+    if not ff:
+        raise RuntimeError("ffmpeg is required for video understanding and is not installed")
+    dur = _ffprobe_duration(source)
+    n = max(1, min(int(n or 8), 10))
+    if dur > 0:
+        stamps = [dur * (i + 1) / (n + 1) for i in range(n)]
+    else:                                            # duration unknown (stream/pipe): take the first frames spaced 2s
+        stamps = [i * 2.0 for i in range(n)]
+    frames: list[tuple[float, bytes]] = []
+    for t in stamps:
+        cmd = [ff, "-nostdin", "-loglevel", "error", "-ss", f"{t:.2f}", "-i", source,
+               "-frames:v", "1", "-f", "image2", "-q:v", "3", "pipe:1"]
+        try:
+            p = subprocess.run(cmd, capture_output=True, timeout=FRAME_TIMEOUT * 2)
+        except subprocess.TimeoutExpired:
+            continue
+        if p.returncode == 0 and p.stdout[:2] == b"\xff\xd8":
+            frames.append((t, p.stdout))
+    if not frames:
+        raise RuntimeError(f"could not extract any frames from {source}")
+    return frames, dur
+
+
+def describe_video(source: str, question: str = "", model: str = "", frames: int = 8, context: str = "",
+                   transport: httpx.BaseTransport | None = None) -> dict[str, Any]:
+    """Watch a video: sample frames evenly, send them all to the vision model in one call, get a timeline
+    description + an answer to the question. Returns {answer, duration_s, frames:[{t, jpeg}]}."""
+    sampled, dur = sample_video_frames(source, frames)
+    base, key, model = _vlm_cfg(model)
+    if not key:
+        raise RuntimeError("no vision model key (set OPENROUTER_API_KEY or config/providers.json openrouter.api_key)")
+    system = ("You are the vision analyst of a small business's operations desk. You are shown frames sampled evenly "
+              "from ONE video, each labelled with its timestamp. Describe what happens over time as a short timeline "
+              "(what changes between frames), then answer the owner's question. State only what is visible; say 'not "
+              "visible' rather than guess. Never identify people by name. Plain text only.")
+    if context:
+        system += "\n\nContext: " + context[:800]
+    content: list[dict[str, Any]] = [{"type": "text", "text":
+        (question.strip() or "Describe this video.") + f"\n\nVideo duration ≈{dur:.0f}s; {len(sampled)} frames follow, in order."}]
+    for t, jpeg in sampled:
+        content.append({"type": "text", "text": f"[frame at {t:.1f}s]"})
+        content.append({"type": "image_url", "image_url": {"url": "data:image/jpeg;base64," + base64.b64encode(jpeg).decode()}})
+    payload = {"model": model, "max_tokens": 700, "temperature": 0.1,
+               "messages": [{"role": "system", "content": system}, {"role": "user", "content": content}]}
+    headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json",
+               "HTTP-Referer": "https://atlas-ops.onrender.com", "X-Title": "Atlas Desk vision"}
+    with httpx.Client(timeout=180, transport=transport) as c:
+        r = c.post(base + "/chat/completions", headers=headers, json=payload)
+    if r.status_code >= 400:
+        raise RuntimeError(f"vision model HTTP {r.status_code}: {r.text[:200]}")
+    j = r.json()
+    try:
+        msg = j["choices"][0]["message"]["content"]
+    except (KeyError, IndexError, TypeError) as exc:
+        raise RuntimeError(f"vision model returned no answer: {json.dumps(j)[:200]}") from exc
+    if isinstance(msg, list):
+        msg = " ".join(p.get("text", "") for p in msg if isinstance(p, dict))
+    return {"answer": (msg or "").strip(), "duration_s": dur,
+            "frames": [{"t": t, "jpeg": jpeg} for t, jpeg in sampled]}

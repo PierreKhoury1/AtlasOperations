@@ -161,6 +161,9 @@ def desk_configs(desk: dict[str, Any]) -> dict[str, Any]:
         for a in agents:
             if a["id"] == "atlas" or "camera_look" in a.get("tools", []):
                 a["tools"] = list(dict.fromkeys(list(a.get("tools", [])) + ["camera_look", "camera_events"]))
+    for a in agents:                                   # the lead can always redesign its team and watch videos
+        if a["id"] == "atlas":
+            a["tools"] = list(dict.fromkeys(list(a.get("tools", [])) + ["assemble_team", "video_describe"]))
     hconn = next((c for c in _conns if c["kind"] == "hermes_agent"), None)
     if hconn:
         hcfg = hconn["config"]
@@ -168,8 +171,25 @@ def desk_configs(desk: dict[str, Any]) -> dict[str, Any]:
         hcfg = {"base_url": os.environ["HERMES_AGENT_URL"].strip(), "api_key": os.environ.get("HERMES_AGENT_KEY", "").strip(),
                 "session_prefix": "atlas"}
     default_hermes = os.environ.get("DESK_DEFAULT_ENGINE", "").strip().lower() == "hermes_agent" and mode != "demo"
+    # The LEAD may also run on the Hermes Agent runtime (Model landscape engine override for atlas, or
+    # DESK_LEAD_ENGINE=hermes_agent). Hermes ignores client tool schemas, so the lead keeps our desk tools through
+    # the <atlas>{...}</atlas> text protocol (orchestrator.parse_text_calls) - policy and approvals unchanged.
+    lead_ov = (over.get("models") or {}).get("atlas") or {}
+    lead_hermes = mode != "demo" and (lead_ov.get("engine") == "hermes_agent"
+                                      or os.environ.get("DESK_LEAD_ENGINE", "").strip().lower() == "hermes_agent")
     for a in agents:
         if a["id"] == "atlas":
+            if lead_hermes and hcfg:
+                tier_cfg = templates.TIERS.get(desk.get("tier") or "free", templates.TIERS["free"])
+                hmodel = (lead_ov.get("model") if lead_ov.get("model") and lead_ov["model"] != "hermes-agent"
+                          else tier_cfg.get("hermes_model", templates.FREE_MODEL))
+                providers.setdefault("providers", {})["hermes_agent_atlas"] = {
+                    "type": "hermes_agent", "base_url": hcfg.get("base_url", ""), "api_key": hcfg.get("api_key", ""),
+                    "default_model": hmodel,
+                    "session_key": f"{hcfg.get('session_prefix') or 'atlas'}:desk{desk['id']}:atlas"}
+                a["provider"], a["model"], a["engine"], a["text_tools"] = "hermes_agent_atlas", hmodel, "hermes_agent", True
+            elif lead_hermes:
+                a["engine_note"] = "no Hermes Agent instance configured - lead running on the built-in engine"
             continue
         wants = a.get("engine") == "hermes_agent" or (default_hermes and a.get("engine") != "atlas")
         if not wants:
@@ -500,8 +520,12 @@ def api_update_desk(did):
 MODEL_CATALOG = [
     {"id": "minimax/minimax-m3:free", "label": "MiniMax M3 (free)", "provider": "openrouter", "tools": True, "cost": "free tier", "engine": "atlas"},
     {"id": "nvidia/nemotron-3-super-120b-a12b:free", "label": "Nemotron 3 Super (free)", "provider": "openrouter", "tools": True, "cost": "free tier", "engine": "atlas"},
-    {"id": "anthropic/claude-sonnet-4.5", "label": "Claude Sonnet 4.5", "provider": "openrouter", "tools": True, "cost": "≈£2.3/M in", "engine": "atlas", "paid": True},
-    {"id": "anthropic/claude-haiku-4.5", "label": "Claude Haiku 4.5", "provider": "openrouter", "tools": True, "cost": "≈£0.8/M in", "engine": "atlas", "paid": True},
+    {"id": "anthropic/claude-sonnet-4.5", "label": "Claude Sonnet 4.5", "provider": "openrouter", "tools": True, "vision": True, "cost": "≈£2.3/M in", "engine": "atlas", "paid": True},
+    {"id": "anthropic/claude-haiku-4.5", "label": "Claude Haiku 4.5", "provider": "openrouter", "tools": True, "vision": True, "cost": "≈£0.8/M in", "engine": "atlas", "paid": True},
+    {"id": "google/gemini-2.5-flash", "label": "Gemini 2.5 Flash (vision)", "provider": "openrouter", "tools": True, "vision": True, "cost": "≈£0.25/M in", "engine": "atlas", "paid": True,
+     "note": "cheap eyes - good default for camera_look / video_describe (set VISION_MODEL to use it for vision calls)"},
+    {"id": "qwen/qwen2.5-vl-72b-instruct", "label": "Qwen 2.5 VL 72B (vision)", "provider": "openrouter", "tools": False, "vision": True, "cost": "≈£0.5/M in", "engine": "atlas", "paid": True,
+     "note": "strong open-weights VLM; no native tool-calling - use as VISION_MODEL, not as an agent brain"},
     {"id": "nousresearch/hermes-4-70b", "label": "Nous Hermes 4 70B", "provider": "openrouter", "tools": False, "cost": "≈£0.1/M in", "engine": "atlas", "paid": True,
      "note": "no native tool-calling on OpenRouter - best used INSIDE the Hermes Agent runtime"},
     {"id": "hermes-agent", "label": "Hermes Agent runtime (own tools, memory, skills)", "provider": "hermes_agent", "tools": True, "cost": "runtime + its model", "engine": "hermes_agent"},
