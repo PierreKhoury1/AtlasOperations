@@ -72,6 +72,43 @@ drop.ondragleave=()=>drop.classList.remove('on');
 drop.ondrop=e=>{e.preventDefault();drop.classList.remove('on');addFiles(e.dataTransfer.files)};
 files.onchange=()=>addFiles(files.files);
 
+function addFeed(name, src){
+  const id='f'+(++seq);
+  const card=document.createElement('div'); card.className='card'; card.id=id;
+  card.innerHTML=`
+    <div class="vwrap"><video src="${src}" muted loop playsinline crossorigin="anonymous"></video>
+      <div class="vlabel">${name}</div><div class="flash"></div></div>
+    <div class="llm"><div class="llmhead"><span class="dot"></span>
+      <span class="model">analyst</span><span class="minfo">idle</span><span style="margin-left:auto" class="tok"></span></div>
+      <div class="notes"><div class="empty">Press <b>Start watching</b> — the analyst narrates this feed as it plays.</div></div></div>`;
+  document.querySelector('#grid').appendChild(card);
+  const feed={id, name, card, video:card.querySelector('video'), notes:[], busy:false, timer:null};
+  feed.video.play().catch(()=>{});
+  feeds.push(feed); stat();
+  return feed;
+}
+
+function safeCadence(){
+  // free vision models: ~20 requests/min shared across all feeds — keep ~20% headroom
+  return Math.max(7, Math.ceil(feeds.length * 60 / 16));
+}
+
+async function boot(){
+  const q=new URLSearchParams(location.search);
+  try{
+    const r=await fetch('/api/theatre/clips'); const j=await r.json();
+    if((j.clips||[]).length && (q.get('auto')==='1' || q.get('auto')==='start')){
+      document.getElementById('drop').style.display='none';
+      for(const c of j.clips) addFeed(c.replace(/\.mp4$/,''), '/desk/theatre/clip/'+encodeURIComponent(c));
+      document.getElementById('cadence').value = safeCadence();
+      if(!running) toggle();
+    } else if((j.clips||[]).length){
+      drop.innerHTML = `Drop video files here — or <b style="cursor:pointer;color:var(--blue)" onclick="location.search='?auto=1'">load the ${j.clips.length} server clips and start</b>.`;
+    }
+  }catch(e){}
+}
+boot();
+
 function addFiles(list){
   for(const f of list){
     if(!f.type.startsWith('video/')) continue;

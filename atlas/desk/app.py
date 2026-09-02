@@ -222,7 +222,7 @@ def ensure_demo_desk() -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------- auth + desk context
-PUBLIC_API = {"/api/health", "/api/stats", "/api/me", "/api/vision/demo"}
+PUBLIC_API = {"/api/health", "/api/stats", "/api/me", "/api/vision/demo", "/api/vision/demo/ask"}
 
 
 def current_user() -> dict[str, Any] | None:
@@ -1432,6 +1432,24 @@ def api_vision_video():
                     "frames": len(res["frames"]), "event_id": ev["id"]})
 
 
+@app.get("/api/theatre/clips")
+def api_theatre_clips():
+    need_desk()
+    d = Path(os.environ.get("THEATRE_CLIPS", "data/theatre_clips"))
+    clips = sorted(f.name for f in d.glob("*.mp4")) if d.is_dir() else []
+    return jsonify({"clips": clips})
+
+
+@app.get("/desk/theatre/clip/<path:name>")
+def desk_theatre_clip(name):
+    need_desk()
+    d = Path(os.environ.get("THEATRE_CLIPS", "data/theatre_clips")).resolve()
+    f = (d / name).resolve()
+    if d not in f.parents or not f.is_file():
+        abort(404)
+    return send_file(f, mimetype="video/mp4", conditional=True, max_age=3600)
+
+
 @app.get("/desk/theatre")
 def desk_theatre():
     need_desk()
@@ -1552,12 +1570,13 @@ def api_vision_demo():
             continue
     prev = re.sub(r"\s+", " ", str(data.get("prev") or ""))[:400]
     source = re.sub(r"[^a-zA-Z ]", "", str(data.get("source") or "camera"))[:40]
-    blocked = _spend_blocked()
-    if blocked:
-        return Response(_sse({"error": blocked}), 503, mimetype="text/event-stream", headers=hdr)
-    base, key, model = V._vlm_cfg(os.environ.get("VISION_DEMO_MODEL", ""))
+    base, key, model = _demo_cfg()
     if not key:
         return Response(_sse({"error": "no vision model key configured on the server"}), 503, mimetype="text/event-stream", headers=hdr)
+    if ":free" not in model:
+        blocked = _spend_blocked()
+        if blocked:
+            return Response(_sse({"error": blocked}), 503, mimetype="text/event-stream", headers=hdr)
     jpeg = V._shrink(jpeg, 448)
     counts_txt = ", ".join(f"{v} {k}" for k, v in counts.items()) or "nothing above threshold"
     system = ("You narrate a live camera feed for a small business's operations desk, one frame at a time. "
@@ -1572,50 +1591,129 @@ def api_vision_demo():
                "messages": [{"role": "system", "content": system},
                             {"role": "user", "content": [{"type": "text", "text": user_txt},
                                                          {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64," + base64.b64encode(jpeg).decode()}}]}]}
-    headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json", "Accept": "text/event-stream",
-               "HTTP-Referer": "https://atlas-ops.onrender.com", "X-Title": "Atlas Ops site vision demo"}
+    headers = _demo_headers(key, "Atlas Ops site vision demo")
 
-    def gen():
-        import httpx
-        t0 = time.time()
-        if not _VISION_SLOTS.acquire(blocking=False):          # acquired inside the generator so a slot is never leaked
-            yield _sse({"error": "busy - a few other visitors are narrating right now, retrying shortly"})
-            return
+    return Response(_demo_stream(base, headers, payload, model), mimetype="text/event-stream", headers=hdr)
+
+
+def _demo_cfg() -> tuple[str, str, str]:
+    """Provider for the public site demos. VISION_DEMO_KEY / VISION_DEMO_MODEL let the demo run on its own key and a
+    free model while the desks stay in scripted mode (DESK_MODE=demo)."""
+    base, key, model = V._vlm_cfg(os.environ.get("VISION_DEMO_MODEL", ""))
+    key = (os.environ.get("VISION_DEMO_KEY") or key or "").strip()
+    return base, key, model
+
+
+def _demo_headers(key: str, title: str) -> dict[str, str]:
+    return {"Authorization": f"Bearer {key}", "Content-Type": "application/json", "Accept": "text/event-stream",
+            "HTTP-Referer": "https://atlas-ops.onrender.com", "X-Title": title}
+
+
+def _demo_stream(base: str, headers: dict[str, str], payload: dict[str, Any], model: str, first: dict[str, Any] | None = None):
+    """SSE generator shared by the site demos: one concurrency slot, tokens as {"t": ...}, then {"done": true}."""
+    import httpx
+    t0 = time.time()
+    if not _VISION_SLOTS.acquire(blocking=False):          # acquired inside the generator so a slot is never leaked
+        yield _sse({"error": "busy - a few other visitors are using the demo right now, retrying shortly"})
+        return
+    try:
+        if first:
+            yield _sse(first)
+        with httpx.Client(timeout=60) as c, c.stream("POST", base + "/chat/completions", headers=headers, json=payload) as r:
+            if r.status_code >= 400:
+                body = b"".join(r.iter_bytes())[:200].decode("utf-8", "replace")
+                yield _sse({"error": f"model HTTP {r.status_code}: {body}"})
+                return
+            sent = 0
+            for line in r.iter_lines():
+                if not line.startswith("data:"):
+                    continue
+                chunk = line[5:].strip()
+                if chunk == "[DONE]":
+                    break
+                try:
+                    j = json.loads(chunk)
+                except ValueError:
+                    continue
+                if j.get("error"):
+                    yield _sse({"error": str(j["error"].get("message") if isinstance(j["error"], dict) else j["error"])[:200]})
+                    return
+                for ch in j.get("choices") or []:
+                    t = (ch.get("delta") or {}).get("content") or ""
+                    if t:
+                        sent += len(t)
+                        yield _sse({"t": t, "model": model.split("/")[-1]})
+            if not sent:
+                yield _sse({"error": "model returned no text"})
+                return
+            yield _sse({"done": True, "model": model.split("/")[-1], "ms": int((time.time() - t0) * 1000)})
+    except Exception as exc:
+        yield _sse({"error": f"{type(exc).__name__}: {str(exc)[:120]}"})
+    finally:
+        _VISION_SLOTS.release()
+
+
+_ASK_STOP = {"the", "was", "were", "what", "when", "how", "many", "did", "there", "any", "last", "this", "that", "and",
+             "with", "from", "have", "has", "been", "are", "you", "see", "camera", "cameras", "time", "times"}
+
+
+@app.post("/api/vision/demo/ask")
+def api_vision_demo_ask():
+    """Public site demo, the RAG half: the browser sends the question plus its own event log (one entry per narration:
+    counts + analyst text + clock time). We retrieve the best-matching events, tell the browser which ones ([#n]) were
+    used, then stream the model's answer, which must cite them. Stateless - nothing is stored server side."""
+    ip = (request.headers.get("X-Forwarded-For", "").split(",")[0].strip() or request.remote_addr or "?")
+    hdr = {"Cache-Control": "no-cache", "X-Accel-Buffering": "no"}
+    if not _RL_VISION.allow(ip):
+        return Response(_sse({"error": "rate limited - a few questions a minute per visitor"}), 429, mimetype="text/event-stream", headers=hdr)
+    data = request.get_json(silent=True) or {}
+    q = re.sub(r"\s+", " ", str(data.get("question") or "")).strip()[:300]
+    if len(q) < 3:
+        return Response(_sse({"error": "ask a question first"}), 400, mimetype="text/event-stream", headers=hdr)
+    events: list[dict[str, Any]] = []
+    for raw in list(data.get("events") or [])[:80]:
+        if not isinstance(raw, dict):
+            continue
         try:
-            with httpx.Client(timeout=60) as c, c.stream("POST", base + "/chat/completions", headers=headers, json=payload) as r:
-                if r.status_code >= 400:
-                    body = b"".join(r.iter_bytes())[:200].decode("utf-8", "replace")
-                    yield _sse({"error": f"vision model HTTP {r.status_code}: {body}"})
-                    return
-                sent = 0
-                for line in r.iter_lines():
-                    if not line.startswith("data:"):
-                        continue
-                    chunk = line[5:].strip()
-                    if chunk == "[DONE]":
-                        break
-                    try:
-                        j = json.loads(chunk)
-                    except ValueError:
-                        continue
-                    if j.get("error"):
-                        yield _sse({"error": str(j["error"].get("message") if isinstance(j["error"], dict) else j["error"])[:200]})
-                        return
-                    for ch in j.get("choices") or []:
-                        t = (ch.get("delta") or {}).get("content") or ""
-                        if t:
-                            sent += len(t)
-                            yield _sse({"t": t, "model": model.split("/")[-1]})
-                if not sent:
-                    yield _sse({"error": "vision model returned no text"})
-                    return
-                yield _sse({"done": True, "model": model.split("/")[-1], "ms": int((time.time() - t0) * 1000)})
-        except Exception as exc:
-            yield _sse({"error": f"{type(exc).__name__}: {str(exc)[:120]}"})
-        finally:
-            _VISION_SLOTS.release()
+            n = int(raw.get("n"))
+        except (TypeError, ValueError):
+            continue
+        counts = {}
+        for k, v in list((raw.get("counts") or {}).items())[:12]:
+            try:
+                counts[re.sub(r"[^a-z ]", "", str(k).lower())[:24]] = max(0, min(99, int(v)))
+            except (TypeError, ValueError):
+                continue
+        events.append({"n": n, "time": re.sub(r"[^0-9:]", "", str(raw.get("time") or ""))[:8],
+                       "counts": counts, "text": re.sub(r"\s+", " ", str(raw.get("text") or ""))[:400]})
+    if not events:
+        return Response(_sse({"error": "no events yet - let the analyst narrate a few frames first"}), 400, mimetype="text/event-stream", headers=hdr)
+    words = {w for w in re.findall(r"[a-z]{3,}", q.lower()) if w not in _ASK_STOP}
 
-    return Response(gen(), mimetype="text/event-stream", headers=hdr)
+    def score(e: dict[str, Any]) -> int:
+        blob = (" ".join(f"{v} {k}" for k, v in e["counts"].items()) + " " + e["text"]).lower()
+        return sum(1 for w in words if w in blob)
+    ranked = sorted(events, key=lambda e: (score(e), e["n"]), reverse=True)
+    picked = sorted(ranked[:12], key=lambda e: e["n"])
+    used = [e["n"] for e in picked]
+    base, key, model = _demo_cfg()
+    if not key:
+        return Response(_sse({"error": "no model key configured on the server"}), 503, mimetype="text/event-stream", headers=hdr)
+    if ":free" not in model:
+        blocked = _spend_blocked()
+        if blocked:
+            return Response(_sse({"error": blocked}), 503, mimetype="text/event-stream", headers=hdr)
+    log = "\n".join(f"[#{e['n']}] {e['time']} | " + (", ".join(f"{v} {k}" for k, v in e['counts'].items()) or "nothing detected")
+                    + (f" | analyst: {e['text']}" if e["text"] else "") for e in picked)
+    system = ("You answer questions about a camera feed using ONLY the event log below, which an operations desk built from "
+              "the feed (one line per narrated frame: clock time, detector counts, analyst note). Cite the events you rely on "
+              "as [#n]. If the log cannot answer, say so plainly and say what would be needed. 30 to 70 words, plain text, "
+              "no markdown, no lists. Never identify a person.\n\nEVENT LOG\n" + log)
+    payload = {"model": model, "max_tokens": 160, "temperature": 0.2, "stream": True,
+               "messages": [{"role": "system", "content": system}, {"role": "user", "content": q}]}
+    headers = _demo_headers(key, "Atlas Ops site vision ask")
+    return Response(_demo_stream(base, headers, payload, model, first={"used": used, "of": len(events)}),
+                    mimetype="text/event-stream", headers=hdr)
 
 
 @app.post("/api/vision/ask")
