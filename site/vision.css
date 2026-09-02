@@ -1,0 +1,36 @@
+/* Atlas Vision demo section — live detector + streaming narration. Same tokens as the Desk. */
+#vision .vis { display: grid; grid-template-columns: 1.25fr .95fr; gap: 18px; margin-top: 36px; align-items: stretch; }
+#vision .vis-cam, #vision .vis-llm { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; box-shadow: var(--shadow-lg); overflow: hidden; display: flex; flex-direction: column; }
+#vision .vis-frame { position: relative; background: #10161d; aspect-ratio: 640 / 524; }
+#vision .vis-frame video, #vision .vis-frame canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+#vision .vis-frame video { object-fit: contain; background: #10161d; }
+#vision .vis-frame canvas { pointer-events: none; }
+#vision .vis-hud { position: absolute; left: 10px; top: 10px; z-index: 2; display: flex; gap: 10px; align-items: center; font-family: var(--mono); font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: #fff; background: rgba(16,22,29,.72); border: 1px solid rgba(255,255,255,.14); border-radius: 4px; padding: 6px 10px; backdrop-filter: blur(6px); }
+#vision .vis-hud b { color: #fff; font-weight: 600; }
+#vision .vis-hud .dot { background: var(--ok); margin: 0; box-shadow: 0 0 0 3px rgba(28,143,95,.25); }
+#vision .vis-bar { position: absolute; left: 0; right: 0; bottom: 0; height: 3px; background: var(--accent); transform-origin: 0 50%; transform: scaleX(0); transition: transform .2s, opacity .8s; z-index: 2; }
+#vision .vis-ctl { display: flex; gap: 12px; align-items: center; padding: 12px 14px; border-top: 1px solid var(--line); font-size: 13px; color: var(--text2); flex-wrap: wrap; }
+#vision .vis-ctl .vis-counts { margin-left: auto; font-family: var(--mono); font-size: 12px; color: var(--text2); }
+#vision .vis-ctl .vis-counts b { color: var(--accent); font-weight: 600; }
+#vision .vis-ctl .vis-counts i { color: var(--line2); font-style: normal; margin: 0 4px; }
+#vision .vis-state { font-family: var(--mono); font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); white-space: nowrap; }
+#vision .vis-state.ok { color: var(--ok); } #vision .vis-state.busy { color: var(--accent); } #vision .vis-state.err { color: var(--danger); }
+#vision .vis-llm header { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 12px 16px; border-bottom: 1px solid var(--line); font-size: 13px; color: var(--muted); }
+#vision .vis-llm header b { color: var(--text); font-weight: 600; }
+#vision .vis-llm header .dot { background: var(--accent); }
+#vision .vis-stream { flex: 1; padding: 12px 16px; overflow: auto; min-height: 240px; max-height: 420px; font-size: 14.5px; line-height: 1.6; color: var(--text2); display: flex; flex-direction: column; gap: 10px; justify-content: flex-end; }
+#vision .vis-stream p { margin: 0; padding: 10px 12px; border-radius: 4px; border: 1px solid var(--line); background: var(--panel2); }
+#vision .vis-stream p.cur { border-color: var(--accent); background: var(--accent-soft); color: var(--text); }
+#vision .vis-stream p.cur::after { content: ""; display: inline-block; width: 7px; height: 15px; background: var(--accent); vertical-align: -2px; margin-left: 3px; animation: vcur 1s steps(2) infinite; }
+#vision .vis-stream p.done { color: var(--text2); }
+#vision .vis-stream p.err { color: var(--danger); border-color: rgba(194,48,48,.3); background: #fff2f2; font-size: 13px; }
+#vision .vis-stream time { display: block; font-family: var(--mono); font-size: 10.5px; letter-spacing: .08em; color: var(--faint); margin-bottom: 4px; }
+#vision .vis-stream .hint { color: var(--muted); font-size: 13px; border-style: dashed; background: transparent; }
+@keyframes vcur { to { opacity: 0; } }
+#vision .vis-llm footer { padding: 10px 16px 12px; border-top: 1px solid var(--line); font-size: 12px; color: var(--muted); line-height: 1.5; }
+#vision .vis-llm footer code { font-family: var(--mono); font-size: 11px; color: var(--text2); background: var(--panel2); border: 1px solid var(--line); border-radius: 3px; padding: 1px 5px; }
+#vision .vis-stack { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 18px; }
+#vision .vis-stack span { font-family: var(--mono); font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--text2); background: var(--panel); border: 1px solid var(--line); border-radius: 4px; padding: 5px 10px; display: inline-flex; align-items: center; gap: 7px; }
+#vision .vis-stack span::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
+#vision .vis-stack span.g::before { background: var(--ok); } #vision .vis-stack span.p::before { background: #7c5cd6; }
+@media (max-width: 960px) { #vision .vis { grid-template-columns: 1fr; } #vision .vis-stream { min-height: 180px; max-height: 300px; } }

@@ -14,6 +14,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css">
 <link rel="stylesheet" href="cinema.css">
+<link rel="stylesheet" href="vision.css">
 </head>
 <body>
 <!-- multipage -->
@@ -27,7 +28,7 @@
 </nav>
 
 <header class="hero cine" id="top" data-title="Atlas Ops">
-  <div class="film" aria-hidden="true"><video class="bgvid" muted loop playsinline autoplay preload="metadata" poster="video/bg-poster.jpg" data-src-mp4="video/bg.mp4" data-src-webm="video/bg.webm"></video></div>
+  <div class="film" aria-hidden="true"></div>
   <div class="wrap grid">
     <div class="h-in">
       <div class="crumb"><b>Atlas Ops</b> / AI operations, run as a service</div>
@@ -82,7 +83,7 @@
 </section>
 
 <section id="pipeline" data-title="Watch it work">
-  <div class="film" aria-hidden="true"><video class="bgvid" muted loop playsinline autoplay preload="metadata" poster="video/bg-poster.jpg" data-src-mp4="video/bg.mp4" data-src-webm="video/bg.webm"></video></div>
+  <div class="film" aria-hidden="true"></div>
   <div class="wrap pipe">
     <div class="pipe-bar"><i></i></div>
     <div>
@@ -94,6 +95,35 @@
         <div class="pstep"><span class="n">03</span><h2>The work comes back, <b>reviewed</b>.</h2><p>Atlas assembles the pieces. QA checks facts, tone and policy and its edits get applied. Anything weak goes back for another pass.</p><div class="who"><span class="qa">QA</span><span class="atlas">Atlas</span></div></div>
         <div class="pstep"><span class="n">04</span><h2>You approve. Nothing sends <b>without you</b>.</h2><p>The finished draft waits in your queue. Approve, edit or reject in seconds. Your notes tune the agents for next time.</p><div class="who"><span class="you">You</span></div></div>
         <div class="pstep"><span class="n">05</span><h2>Sent, logged, <b>reported</b>.</h2><p>The email goes, the CRM updates, the follow-up is scheduled. Every step is on the audit trail and in your monthly report.</p><div class="who"><span class="crm">CRM</span><span class="atlas">Atlas</span></div></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="vision" class="scene" data-title="Vision">
+  <div class="wrap">
+    <div class="eyebrow">Agents that see the room</div>
+    <h2>A real camera, a real detector, a real model — <b>live in this page</b>.</h2>
+    <p class="lead">This is the same pipeline an Atlas desk uses when a camera is one of its inputs. The clip is our own yard camera. YOLOv8n runs in your browser on every frame and draws what it finds; every few seconds the frame and the counts go to the vision model, which narrates what it sees — streamed back token by token as it thinks. Nothing here is pre-recorded text.</p>
+    <div class="vis-stack"><span>YOLOv8n · onnxruntime-web</span><span class="p" id="visModelBadge">vision model · streaming</span><span class="g">runs on your CPU, no upload until narration</span></div>
+    <div class="vis">
+      <div class="vis-cam">
+        <div class="vis-frame">
+          <video id="visVideo" muted loop playsinline preload="none" data-src="video/vision-demo.mp4" poster=""></video>
+          <canvas id="visOverlay"></canvas>
+          <div class="vis-hud"><span class="dot"></span><span id="visDetState" class="vis-state">waiting</span> · <b id="visFps">– fps</b> · <span id="visInfer">– ms</span></div>
+          <div class="vis-bar" id="visBar"></div>
+        </div>
+        <div class="vis-ctl">
+          <button id="visCam" class="btn ghost sm" type="button">Use my camera</button>
+          <button id="visClip" class="btn ghost sm" type="button" hidden>Back to the clip</button>
+          <span class="vis-counts" id="visCounts"><span class="muted">detector loading…</span></span>
+        </div>
+      </div>
+      <div class="vis-llm">
+        <header><span><span class="dot"></span><b>Vision analyst</b> · narrating</span><span id="visLlmState" class="vis-state">idle</span></header>
+        <div class="vis-stream" id="visStream"><p class="hint">The model's narration will appear here, word by word, once the detector is running.</p></div>
+        <footer>Frame (≤448 px JPEG) + detector counts → <code>/api/vision/demo</code> → vision model, streamed. Faces are never identified and number plates are never read. Your camera stays in your browser except for those frames.</footer>
       </div>
     </div>
   </div>
@@ -155,6 +185,8 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/ScrollTrigger.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/lenis@1.1.18/dist/lenis.min.js"></script>
 <script src="script.js"></script>
+<script src="bgterm.js"></script>
 <script src="cinema.js"></script>
+<script src="vision.js"></script>
 </body>
 </html>
