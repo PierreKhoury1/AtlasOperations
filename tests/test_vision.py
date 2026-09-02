@@ -142,7 +142,8 @@ def test_describe_uses_openai_image_message(monkeypatch):
         seen["body"] = json.loads(req.content)
         seen["auth"] = req.headers.get("authorization")
         return httpx.Response(200, json={"choices": [{"message": {"content": "Two people at the door."}}]})
-    monkeypatch.setattr(V, "_vlm_cfg", lambda model="": ("https://api.example/v1", "k123", model or "vision-x"))
+    monkeypatch.setattr(V, "vlm_chain", lambda model="": [
+        {"name": "test", "base": "https://api.example/v1", "key": "k123", "model": model or "vision-x"}])
     out = V.describe(b"\xff\xd8\xff", "Who is there?", transport=httpx.MockTransport(handler))
     assert out == "Two people at the door."
     msg = seen["body"]["messages"][1]["content"]
@@ -348,3 +349,34 @@ def test_site_watch_template_and_seed(cam_client):
     ids = J(c.post("/api/demo/seed"))
     assert len(ids) == 3 and _wait_idle(c)
     assert all(r["status"] == "done" for r in J(c.get("/api/runs"))[:3])
+
+
+def test_site_demo_ask_retrieves_and_streams(app_client, monkeypatch):
+    """Public RAG demo: bad input -> 400 with an SSE error; good input -> retrieval picks matching events, the
+    model call is made with the log in the system prompt and the answer streams back after a {"used": [...]} line."""
+    import atlas.desk.app as A
+    c = app_client
+    r = c.post("/api/vision/demo/ask", json={"question": "hi"})
+    assert r.status_code == 400 and b"ask a question" in r.data
+    r = c.post("/api/vision/demo/ask", json={"question": "who was in the stock room?", "events": []})
+    assert r.status_code == 400 and b"no events" in r.data
+    seen = {}
+
+    def fake_stream(base, headers, payload, model, first=None):
+        seen.update(payload=payload, model=model, first=first)
+        yield A._sse(first)
+        yield A._sse({"t": "Two people [#2].", "model": "m"})
+        yield A._sse({"done": True, "model": "m"})
+    monkeypatch.setattr(A, "_demo_cfg", lambda: ("https://x", "key", "test/model:free"))
+    monkeypatch.setattr(A, "_demo_stream", fake_stream)
+    events = [{"n": 1, "time": "10:00:01", "counts": {"person": 1}, "text": "Aisle 4: one shopper at the shelf"},
+              {"n": 2, "time": "10:00:07", "counts": {"person": 2}, "text": "Stock room: two people moving boxes"},
+              {"n": 3, "time": "10:00:13", "counts": {}, "text": "Fridges: empty aisle"}]
+    r = c.post("/api/vision/demo/ask", json={"question": "who was in the stock room?", "events": events})
+    assert r.status_code == 200 and r.mimetype == "text/event-stream"
+    body = r.data.decode()
+    assert '"used": [1, 2, 3]' in body and '"of": 3' in body and "Two people [#2]." in body
+    sysmsg = seen["payload"]["messages"][0]["content"]
+    assert "[#2] 10:00:07 | 2 person | analyst: Stock room: two people moving boxes" in sysmsg
+    assert seen["payload"]["messages"][1]["content"] == "who was in the stock room?"
+    assert seen["payload"]["stream"] is True

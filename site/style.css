@@ -27,6 +27,7 @@
   --shadow-lg: 0 2px 4px rgba(16, 22, 29, .06), 0 24px 60px -24px rgba(16, 22, 29, .28);
 }
 * { box-sizing: border-box; margin: 0; padding: 0; }
+[hidden] { display: none !important; }
 html { scroll-behavior: smooth; }
 .nav-spacer { display: none; }
 body {
@@ -74,13 +75,13 @@ section.alt { background: var(--bg2); border-top: 1px solid var(--line); border-
 .btn .ar { font-style: normal; }
 
 /* hero */
-.hero { padding: 120px 0 90px; position: relative; overflow: hidden; }
+.hero { padding: 84px 0 64px; position: relative; overflow: hidden; }
 .hero .silk { display: none; }
 .hero::after { display: none; }
-.hero .grid { display: grid; grid-template-columns: 1.1fr .9fr; gap: 56px; align-items: center; position: relative; z-index: 2; }
+.hero .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 44px; align-items: center; position: relative; z-index: 2; }
 .hero h1 { margin-bottom: 20px; }
 .hero .cta { display: flex; gap: 12px; margin-top: 30px; flex-wrap: wrap; }
-.hero .proof { margin-top: 44px; display: flex; gap: 40px; flex-wrap: wrap; color: var(--muted); font-size: 13px; padding-top: 24px; border-top: 1px solid var(--line); }
+.hero .proof { margin-top: 32px; display: flex; gap: 40px; flex-wrap: wrap; color: var(--muted); font-size: 13px; padding-top: 24px; border-top: 1px solid var(--line); }
 .hero .proof b { color: var(--text); display: block; font-size: 18px; font-weight: 600; letter-spacing: -.01em; }
 .crumb { display: inline-flex; gap: 8px; align-items: center; border: 1px solid var(--line); border-radius: 999px; padding: 5px 12px 5px 6px; font-size: 13px; color: var(--muted); background: var(--panel); margin-bottom: 22px; }
 .crumb b { color: var(--text); font-weight: 500; background: var(--bg2); border: 1px solid var(--line); border-radius: 999px; padding: 1px 9px; }

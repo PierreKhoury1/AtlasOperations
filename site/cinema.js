@@ -101,10 +101,11 @@
   const hero = document.querySelector(".hero.cine");
   if (hero) {
     G.from(hero.querySelectorAll(".h-in > *"), { opacity: 0, y: 44, stagger: 0.11, duration: 1.1, ease: "power3.out", delay: 0.15 });
-    G.from(hero.querySelector(".desk"), { opacity: 0, y: 70, duration: 1.4, ease: "power3.out", delay: 0.45 });
-    G.from(hero.querySelector(".scroll-hint"), { opacity: 0, y: -10, duration: 1, delay: 1.4 });
+    const showcase = hero.querySelector(".desk, .orch");
+    if (showcase) G.from(showcase, { opacity: 0, y: 70, duration: 1.4, ease: "power3.out", delay: 0.45 });
+    if (hero.querySelector(".scroll-hint")) G.from(hero.querySelector(".scroll-hint"), { opacity: 0, y: -10, duration: 1, delay: 1.4 });
     G.to(hero.querySelector(".wrap"), { y: -140, opacity: 0, scale: 0.94, ease: "none", scrollTrigger: { trigger: hero, start: "top top", end: "bottom 25%", scrub: true } });
-    G.to(hero.querySelector(".scroll-hint"), { opacity: 0, ease: "none", scrollTrigger: { trigger: hero, start: "top top", end: "20% top", scrub: true } });
+    if (hero.querySelector(".scroll-hint")) G.to(hero.querySelector(".scroll-hint"), { opacity: 0, ease: "none", scrollTrigger: { trigger: hero, start: "top top", end: "20% top", scrub: true } });
     ST.create({ trigger: hero, start: "top top", end: "bottom top", pin: true, pinSpacing: false });
     // desk mockup: rows arrive one by one, loop
     const rows = hero.querySelectorAll(".desk .row");

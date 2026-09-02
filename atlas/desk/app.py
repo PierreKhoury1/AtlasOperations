@@ -1456,6 +1456,24 @@ def desk_theatre():
     return send_from_directory(STATIC_DIR, "theatre.html")
 
 
+@app.post("/api/vision/detect")
+def api_vision_detect():
+    """Local YOLO on one frame — milliseconds, free, no external call. Powers the theatre's live overlay."""
+    need_desk()
+    from .. import vision as V
+    j = request.json or {}
+    try:
+        jpeg = base64.b64decode(j.get("image", ""))
+    except Exception:
+        jpeg = b""
+    if len(jpeg) < 100:
+        return jsonify({"error": "no frame"}), 400
+    if not V.DETECTOR.available:
+        return jsonify({"detector": "", "boxes": [], "counts": {}})
+    dets = V.DETECTOR.detect(jpeg)
+    return jsonify({"detector": "yolo", "boxes": dets, "counts": V.counts(dets)})
+
+
 @app.post("/api/vision/live")
 def api_vision_live():
     """Live theatre: one frame in, commentary tokens streamed straight back (chunked text).
@@ -1480,6 +1498,9 @@ def api_vision_live():
         try:
             for delta in V.describe_stream(jpeg, "What is happening in this frame? What changed?", model=model,
                                            context=context):
+                if isinstance(delta, dict):                    # provider/model meta arrives first
+                    yield "\x01" + json.dumps(delta) + "\n"
+                    continue
                 parts.append(delta)
                 yield delta
         except Exception as exc:
@@ -1685,6 +1706,7 @@ def api_vision_demo_ask():
             except (TypeError, ValueError):
                 continue
         events.append({"n": n, "time": re.sub(r"[^0-9:]", "", str(raw.get("time") or ""))[:8],
+                       "camera": re.sub(r"[^A-Za-z0-9 ]", "", str(raw.get("camera") or ""))[:32],
                        "counts": counts, "text": re.sub(r"\s+", " ", str(raw.get("text") or ""))[:400]})
     if not events:
         return Response(_sse({"error": "no events yet - let the analyst narrate a few frames first"}), 400, mimetype="text/event-stream", headers=hdr)
@@ -1703,10 +1725,10 @@ def api_vision_demo_ask():
         blocked = _spend_blocked()
         if blocked:
             return Response(_sse({"error": blocked}), 503, mimetype="text/event-stream", headers=hdr)
-    log = "\n".join(f"[#{e['n']}] {e['time']} | " + (", ".join(f"{v} {k}" for k, v in e['counts'].items()) or "nothing detected")
+    log = "\n".join(f"[#{e['n']}] {e['time']} | " + (f"camera: {e['camera']} | " if e["camera"] else "") + (", ".join(f"{v} {k}" for k, v in e['counts'].items()) or "nothing detected")
                     + (f" | analyst: {e['text']}" if e["text"] else "") for e in picked)
     system = ("You answer questions about a camera feed using ONLY the event log below, which an operations desk built from "
-              "the feed (one line per narrated frame: clock time, detector counts, analyst note). Cite the events you rely on "
+              "the feed (one line per narrated frame: clock time, camera name, detector counts, analyst note). Cite the events you rely on "
               "as [#n]. If the log cannot answer, say so plainly and say what would be needed. 30 to 70 words, plain text, "
               "no markdown, no lists. Never identify a person.\n\nEVENT LOG\n" + log)
     payload = {"model": model, "max_tokens": 160, "temperature": 0.2, "stream": True,

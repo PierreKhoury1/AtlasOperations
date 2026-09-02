@@ -1,0 +1,33 @@
+/* Hero orchestration replay — same tokens as the Desk. */
+.orch { min-width: 0; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; box-shadow: var(--shadow-lg); font-size: 13px; overflow: hidden; display: flex; flex-direction: column; }
+.orch > header { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 11px 14px; border-bottom: 1px solid var(--line); color: var(--muted); }
+.orch > header b { color: var(--text); font-weight: 600; }
+.orch > header .dot { background: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.orch-tag { font-family: var(--mono); font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); text-align: right; }
+.orch-task { padding: 8px 14px 7px; border-bottom: 1px solid var(--line); background: var(--panel2); }
+.orch-task .k, .orch-merge .k { display: block; font-family: var(--mono); font-size: 10px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); margin-bottom: 4px; }
+.orch-task p { font-size: 12.5px; line-height: 1.45; color: var(--text); font-weight: 500; margin: 0; }
+.orch-det { display: block; margin-top: 5px; font-family: var(--mono); font-size: 10.5px; color: var(--faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#orchCanvas { display: block; width: 100%; height: 176px; background: var(--panel); border-bottom: 1px solid var(--line); }
+.orch-panels { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; padding: 8px; background: var(--bg2); border-bottom: 1px solid var(--line); }
+.op { min-width: 0; background: var(--panel); border: 1px solid var(--line); border-left: 3px solid var(--line2); border-radius: 4px; padding: 6px 8px; min-height: 56px; transition: border-color .3s, opacity .3s; opacity: .55; }
+.op.asg { opacity: .8; border-left-color: var(--c); }
+.op.live, .op.done { opacity: 1; border-left-color: var(--c); }
+.op.live { box-shadow: 0 0 0 2px color-mix(in srgb, var(--c) 18%, transparent); }
+.op .h { display: flex; justify-content: space-between; align-items: baseline; font-family: var(--mono); font-size: 10.5px; letter-spacing: .06em; text-transform: uppercase; }
+.op .h b { color: var(--c); font-weight: 600; }
+.op .st { color: var(--faint); font-size: 9.5px; }
+.op.live .st { color: var(--accent); } .op.done .st { color: var(--ok); }
+.op .ins { font-size: 10.5px; color: var(--muted); margin: 3px 0 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.op .b { font-size: 11.5px; line-height: 1.4; color: var(--text); max-height: 32px; overflow: hidden; }
+.op.live .b::after { content: ""; display: inline-block; width: 5px; height: 11px; background: var(--c); vertical-align: -1px; margin-left: 2px; animation: vcur 1s steps(2) infinite; }
+.orch-merge { padding: 10px 14px; border-bottom: 1px solid var(--line); border-left: 3px solid var(--line); transition: border-color .3s; }
+.orch-merge.live { border-left-color: var(--ok); }
+.orch-merge p { margin: 0; font-size: 13px; line-height: 1.45; color: var(--text); min-height: 20px; }
+.orch-merge .q { display: inline-block; margin-top: 8px; font-family: var(--mono); font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: #fff; background: var(--ok); padding: 4px 8px; border-radius: 3px; }
+.orch-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0; }
+.orch-stats span { padding: 8px 10px; font-family: var(--mono); font-size: 9.5px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); border-right: 1px solid var(--line); }
+.orch-stats span:last-child { border-right: 0; }
+.orch-stats b { display: block; font-family: Inter, sans-serif; font-size: 18px; font-weight: 600; letter-spacing: -.01em; color: var(--text); font-variant-numeric: tabular-nums; margin-bottom: 1px; }
+@media (max-width: 960px) { .orch-panels { grid-template-columns: 1fr 1fr; } #orchCanvas { height: 200px; } }
+@media (max-width: 520px) { .orch-panels { grid-template-columns: 1fr; } .orch-stats { grid-template-columns: 1fr 1fr; } .orch-stats span:nth-child(2) { border-right: 0; } }
