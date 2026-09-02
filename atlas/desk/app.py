@@ -1435,7 +1435,7 @@ def api_vision_video():
 @app.get("/desk/theatre")
 def desk_theatre():
     need_desk()
-    return send_file(Path(app.static_folder) / "theatre.html")
+    return send_from_directory(STATIC_DIR, "theatre.html")
 
 
 @app.post("/api/vision/live")
