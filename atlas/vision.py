@@ -573,3 +573,47 @@ def describe_video(source: str, question: str = "", model: str = "", frames: int
         msg = " ".join(p.get("text", "") for p in msg if isinstance(p, dict))
     return {"answer": (msg or "").strip(), "duration_s": dur,
             "frames": [{"t": t, "jpeg": jpeg} for t, jpeg in sampled]}
+
+
+def describe_stream(jpeg: bytes, question: str, model: str = "", context: str = "", max_tokens: int = 220):
+    """Streaming variant of describe(): yields text deltas as the vision model produces them.
+    Used by the live theatre page."""
+    base, key, model = _vlm_cfg(model)
+    if not key:
+        raise RuntimeError("no vision model key (set OPENROUTER_API_KEY or config/providers.json openrouter.api_key)")
+    system = ("You are the live vision commentator of a small business's operations desk. You get one CCTV frame every "
+              "few seconds from a feed you are watching continuously. In 1-2 short sentences, log what is happening NOW "
+              "and what CHANGED since your previous notes (given as context). Count people carefully. State only what "
+              "is visible; never invent details; never identify anyone by name. Plain text, no markdown.")
+    if context:
+        system += "\n\nYour previous notes on this feed:\n" + context[:1200]
+    payload = {
+        "model": model, "max_tokens": max_tokens, "temperature": 0.1, "stream": True,
+        "messages": [
+            {"role": "system", "content": system},
+            {"role": "user", "content": [
+                {"type": "text", "text": question.strip() or "What is happening in this frame? What changed?"},
+                {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64," + base64.b64encode(jpeg).decode()}},
+            ]},
+        ],
+    }
+    headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json",
+               "HTTP-Referer": "https://atlas-ops.onrender.com", "X-Title": "Atlas Desk live vision"}
+    with httpx.Client(timeout=120) as c:
+        with c.stream("POST", base + "/chat/completions", headers=headers, json=payload) as r:
+            if r.status_code >= 400:
+                r.read()
+                raise RuntimeError(f"vision model HTTP {r.status_code}: {r.text[:200]}")
+            for line in r.iter_lines():
+                if not line.startswith("data: "):
+                    continue
+                data = line[6:].strip()
+                if data == "[DONE]":
+                    break
+                try:
+                    j = json.loads(data)
+                    delta = j["choices"][0].get("delta", {}).get("content") or ""
+                except (KeyError, IndexError, json.JSONDecodeError):
+                    continue
+                if delta:
+                    yield delta

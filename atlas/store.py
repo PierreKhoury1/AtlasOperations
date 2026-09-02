@@ -77,6 +77,7 @@ _MIGRATIONS = [
     ("desks", "hook_token", "TEXT"),
     ("jobs", "last_status", "TEXT DEFAULT ''"),
     ("runs", "ended", "REAL"),
+    ("events", "data", "TEXT DEFAULT ''"),
 ]
 
 STAGES = ("New", "Contacted", "Qualified", "Proposal", "Won", "Lost")
@@ -409,9 +410,9 @@ class Store:
         except (TypeError, json.JSONDecodeError):
             return None
 
-    def add_event(self, run_id: str, kind: str, agent: str, text: str) -> None:
+    def add_event(self, run_id: str, kind: str, agent: str, text: str, data: str = "") -> None:
         with self._lock:
-            self._conn.execute("INSERT INTO events VALUES(?,?,?,?,?)", (run_id, time.time(), kind, agent, text))
+            self._conn.execute("INSERT INTO events(run_id,ts,kind,agent,text,data) VALUES(?,?,?,?,?,?)", (run_id, time.time(), kind, agent, text, data or ""))
             self._conn.commit()
 
     def runs(self, limit: int = 200, desk_id: int | None = None) -> list[dict[str, Any]]:

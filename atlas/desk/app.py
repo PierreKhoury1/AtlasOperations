@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import os
+import base64
 import re
 import secrets
 import threading
@@ -22,7 +23,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from flask import Flask, Response, abort, jsonify, redirect, request, send_file, send_from_directory, session
+from flask import Flask, Response, abort, jsonify, redirect, request, send_file, send_from_directory, session, stream_with_context
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from .. import config as cfg
@@ -221,7 +222,7 @@ def ensure_demo_desk() -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------- auth + desk context
-PUBLIC_API = {"/api/health", "/api/stats", "/api/me"}
+PUBLIC_API = {"/api/health", "/api/stats", "/api/me", "/api/vision/demo"}
 
 
 def current_user() -> dict[str, Any] | None:
@@ -264,6 +265,8 @@ from .. import secure as SEC
 _RL_HOOK = SEC.RateLimiter(int(os.environ.get("RL_HOOK_PER_MIN", "30")), 60)          # per token+IP
 _RL_AUTH = SEC.RateLimiter(int(os.environ.get("RL_AUTH_PER_10MIN", "20")), 600)       # per IP: login/signup attempts
 _RL_MODEL = SEC.RateLimiter(int(os.environ.get("RL_MODEL_PER_MIN", "20")), 60)        # per IP: model-backed design calls
+_RL_VISION = SEC.RateLimiter(int(os.environ.get("RL_VISION_PER_MIN", "12")), 60)      # per IP: public site vision demo
+_VISION_SLOTS = threading.BoundedSemaphore(int(os.environ.get("VISION_DEMO_CONCURRENCY", "3") or 3))
 
 
 @app.after_request
@@ -271,7 +274,7 @@ def _security_headers(resp):
     resp.headers.setdefault("X-Content-Type-Options", "nosniff")
     resp.headers.setdefault("X-Frame-Options", "DENY")
     resp.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
-    resp.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=()")
+    resp.headers.setdefault("Permissions-Policy", "camera=(self), microphone=(), geolocation=(), payment=()")   # camera: the site's vision demo
     if os.environ.get("RENDER"):
         resp.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
     return resp
@@ -1429,6 +1432,57 @@ def api_vision_video():
                     "frames": len(res["frames"]), "event_id": ev["id"]})
 
 
+@app.get("/desk/theatre")
+def desk_theatre():
+    need_desk()
+    return send_file(Path(app.static_folder) / "theatre.html")
+
+
+@app.post("/api/vision/live")
+def api_vision_live():
+    """Live theatre: one frame in, commentary tokens streamed straight back (chunked text).
+    The finished note is logged as a vision event so the RAG log covers live watching too."""
+    desk = need_desk()
+    from .. import vision as V
+    j = request.json or {}
+    try:
+        jpeg = base64.b64decode(j.get("image", ""))
+    except Exception:
+        jpeg = b""
+    if len(jpeg) < 100:
+        return jsonify({"error": "no frame"}), 400
+    camera = re.sub(r"[^\w.\- ]+", "_", str(j.get("camera", "feed")))[:60] or "feed"
+    model = str(j.get("model", "") or "")
+    context = str(j.get("context", "") or "")
+    t = str(j.get("t", "") or "")
+    _base, _key, chosen = V._vlm_cfg(model)
+
+    def gen():
+        parts = []
+        try:
+            for delta in V.describe_stream(jpeg, "What is happening in this frame? What changed?", model=model,
+                                           context=context):
+                parts.append(delta)
+                yield delta
+        except Exception as exc:
+            yield f"[vision error: {exc}]"
+        note = "".join(parts).strip()
+        if note and not note.startswith("[vision error"):
+            try:
+                snap = V.save_snapshot(desk["id"], f"live-{camera}", jpeg)
+                store.add_vision_event(desk["id"], f"live:{camera}", {}, backend="vlm", source="live",
+                                       question=f"live frame at clip {t}s" if t else "live frame",
+                                       answer=note[:1000], snapshot=snap)
+            except Exception:
+                pass
+
+    resp = Response(stream_with_context(gen()), mimetype="text/plain")
+    resp.headers["X-Vision-Model"] = chosen
+    resp.headers["X-Accel-Buffering"] = "no"
+    resp.headers["Cache-Control"] = "no-cache"
+    return resp
+
+
 @app.get("/api/vision/events")
 def api_vision_events():
     desk = need_desk()
@@ -1463,6 +1517,105 @@ def _rag_rows(desk_id: int, question: str, camera: str, hours: float, limit: int
     picked = rows[:limit]
     picked.sort(key=lambda r: r["ts"])
     return picked
+
+
+def _sse(obj: dict[str, Any]) -> str:
+    return "data: " + json.dumps(obj, ensure_ascii=False) + "\n\n"
+
+
+@app.post("/api/vision/demo")
+def api_vision_demo():
+    """Public site demo: one small frame + the browser detector's counts in, the vision model's narration streamed
+    out as SSE (`data: {"t": "..."}` per token, then `{"done": true}` or `{"error": "..."}`). Rate limited per IP,
+    a few concurrent slots, tiny answers, subject to the spend cap — real model, no scripted fallback."""
+    import base64
+
+    ip = (request.headers.get("X-Forwarded-For", "").split(",")[0].strip() or request.remote_addr or "?")
+    hdr = {"Cache-Control": "no-cache", "X-Accel-Buffering": "no"}
+    if not _RL_VISION.allow(ip):
+        return Response(_sse({"error": "rate limited - one narration every few seconds per visitor"}), 429, mimetype="text/event-stream", headers=hdr)
+    data = request.get_json(silent=True) or {}
+    raw = str(data.get("image") or "")
+    if "," in raw[:40]:
+        raw = raw.split(",", 1)[1]
+    try:
+        jpeg = base64.b64decode(raw, validate=False)
+    except Exception:
+        jpeg = b""
+    if not jpeg.startswith(b"\xff\xd8") or len(jpeg) > 400_000:
+        return Response(_sse({"error": "expected a JPEG frame under 400 KB"}), 400, mimetype="text/event-stream", headers=hdr)
+    counts = {}
+    for k, v in list((data.get("counts") or {}).items())[:12]:
+        try:
+            counts[re.sub(r"[^a-z ]", "", str(k).lower())[:24]] = max(0, min(99, int(v)))
+        except (TypeError, ValueError):
+            continue
+    prev = re.sub(r"\s+", " ", str(data.get("prev") or ""))[:400]
+    source = re.sub(r"[^a-zA-Z ]", "", str(data.get("source") or "camera"))[:40]
+    blocked = _spend_blocked()
+    if blocked:
+        return Response(_sse({"error": blocked}), 503, mimetype="text/event-stream", headers=hdr)
+    base, key, model = V._vlm_cfg(os.environ.get("VISION_DEMO_MODEL", ""))
+    if not key:
+        return Response(_sse({"error": "no vision model key configured on the server"}), 503, mimetype="text/event-stream", headers=hdr)
+    jpeg = V._shrink(jpeg, 448)
+    counts_txt = ", ".join(f"{v} {k}" for k, v in counts.items()) or "nothing above threshold"
+    system = ("You narrate a live camera feed for a small business's operations desk, one frame at a time. "
+              "Say only what is visible. Count carefully; the on-device detector's counts are a hint, not the truth - "
+              "if they look wrong say what you actually see. Note what changed since the previous narration when there was one, "
+              "otherwise describe the scene. 25 to 45 words, plain text, one paragraph, no markdown, no lists. "
+              "Never identify a person, never read number plates or text that could identify someone.")
+    user_txt = (f"Source: {source}. Detector counts this frame: {counts_txt}. "
+                + (f"Previous narration: \"{prev}\" " if prev else "This is the first frame. ")
+                + "Narrate now.")
+    payload = {"model": model, "max_tokens": 110, "temperature": 0.2, "stream": True,
+               "messages": [{"role": "system", "content": system},
+                            {"role": "user", "content": [{"type": "text", "text": user_txt},
+                                                         {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64," + base64.b64encode(jpeg).decode()}}]}]}
+    headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json", "Accept": "text/event-stream",
+               "HTTP-Referer": "https://atlas-ops.onrender.com", "X-Title": "Atlas Ops site vision demo"}
+
+    def gen():
+        import httpx
+        t0 = time.time()
+        if not _VISION_SLOTS.acquire(blocking=False):          # acquired inside the generator so a slot is never leaked
+            yield _sse({"error": "busy - a few other visitors are narrating right now, retrying shortly"})
+            return
+        try:
+            with httpx.Client(timeout=60) as c, c.stream("POST", base + "/chat/completions", headers=headers, json=payload) as r:
+                if r.status_code >= 400:
+                    body = b"".join(r.iter_bytes())[:200].decode("utf-8", "replace")
+                    yield _sse({"error": f"vision model HTTP {r.status_code}: {body}"})
+                    return
+                sent = 0
+                for line in r.iter_lines():
+                    if not line.startswith("data:"):
+                        continue
+                    chunk = line[5:].strip()
+                    if chunk == "[DONE]":
+                        break
+                    try:
+                        j = json.loads(chunk)
+                    except ValueError:
+                        continue
+                    if j.get("error"):
+                        yield _sse({"error": str(j["error"].get("message") if isinstance(j["error"], dict) else j["error"])[:200]})
+                        return
+                    for ch in j.get("choices") or []:
+                        t = (ch.get("delta") or {}).get("content") or ""
+                        if t:
+                            sent += len(t)
+                            yield _sse({"t": t, "model": model.split("/")[-1]})
+                if not sent:
+                    yield _sse({"error": "vision model returned no text"})
+                    return
+                yield _sse({"done": True, "model": model.split("/")[-1], "ms": int((time.time() - t0) * 1000)})
+        except Exception as exc:
+            yield _sse({"error": f"{type(exc).__name__}: {str(exc)[:120]}"})
+        finally:
+            _VISION_SLOTS.release()
+
+    return Response(gen(), mimetype="text/event-stream", headers=hdr)
 
 
 @app.post("/api/vision/ask")
