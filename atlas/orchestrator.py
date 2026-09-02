@@ -314,8 +314,11 @@ class Orchestrator:
             new = {"id": sid, "name": str(sp.get("name") or sid)[:40], "role": str(sp.get("role") or "")[:200],
                    "system_prompt": str(sp.get("system_prompt") or "")[:4000], "tools": tools,
                    "enabled": True, "dynamic": True}
-            if sp.get("model"):
-                new["model"] = str(sp["model"])
+            want_model = str(sp.get("model") or "")
+            if want_model and ("/" in want_model or want_model == "hermes-agent"):
+                new["model"] = want_model
+            elif want_model:
+                new["engine_note"] = f"model {want_model!r} is not a real model id - using the desk default"
             if (sp.get("engine") or "") == "hermes_agent":
                 if hermes_cfgs:
                     _bn, base_cfg = next(iter(hermes_cfgs.items()))
