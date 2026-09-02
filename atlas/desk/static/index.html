@@ -117,7 +117,9 @@ tr.click{cursor:pointer}tr.click:hover{background:var(--panel2)}
 .node .nh{display:flex;align-items:center;gap:8px;margin-bottom:8px}
 .node .nh i{width:8px;height:8px;border-radius:2px;background:var(--c);display:inline-block}
 .node .nh b{font-weight:600;font-size:13.5px}
-.node .nh .role{color:var(--muted);font-size:12px}
+.node .nh .role{color:var(--muted);font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:55%}
+.node .nh .role.assign{color:var(--text);font-style:italic}
+.node.inst{border-left:3px solid var(--c)}
 .node .st{margin-left:auto;font-size:10px;letter-spacing:.08em;text-transform:uppercase;padding:2px 7px;border-radius:2px;background:var(--panel2);color:var(--muted);font-weight:600;border:1px solid var(--line)}
 .node.busy .st{background:var(--c);color:#fff;border-color:var(--c)}
 .node .chips{display:flex;gap:5px;flex-wrap:wrap;min-height:20px;margin-bottom:6px}
@@ -423,6 +425,13 @@ tr.click{cursor:pointer}tr.click:hover{background:var(--panel2)}
           <div class="askout" id="ask-out">Ask anything about what the cameras have seen.</div>
           <div id="ask-ev" class="hint"></div>
         </div></div>
+      <div class="panel" style="margin-bottom:14px"><div class="ph"><h2>Analyse a video</h2><span class="hint">frames sampled, described as a timeline, logged</span></div><div class="pb">
+        <input type="file" id="vid-file" accept="video/*" style="font-size:12px">
+        <label style="margin-top:8px">What should the analyst look for?</label>
+        <input id="vid-q" placeholder="Describe what happens · Does anyone enter after the shutter closes? · Count people at the counter">
+        <div class="row" style="margin-top:10px"><button class="btn p" id="vid-btn" onclick="analyseVideo()">Analyse</button><span class="hint" id="vid-status"></span></div>
+        <div class="askout" id="vid-out" style="margin-top:10px;display:none"></div>
+      </div></div>
       <div class="panel" style="margin-bottom:14px"><div class="ph"><h2>Add a camera</h2></div><div class="pb">
         <label>Name (agents refer to it by this)</label><input id="cam-name" placeholder="front-door">
         <label>Source</label><input id="cam-src" placeholder="0 (laptop webcam) · rtsp://user:pass@192.168.1.20:554/Streaming/Channels/101 · http://192.168.1.31/capture">
@@ -651,18 +660,38 @@ async function pickLive(id){
   liveTimer = setInterval(() => { if (page !== 'live') return; const t = liveState.active ? (Date.now()/1000 - liveState.t0) : (liveState.tEnd || Date.now()/1000) - liveState.t0; $('#live-elapsed').textContent = Math.max(0, t).toFixed(0) + 's'; }, 500);
 }
 
-function agentState(id){
+const nid = key => 'node-' + String(key).replace('#', '-i');
+function agentState(e){
+  // one state per agent *instance*: "watcher" is the first Vision Analyst, "watcher#2" the second one spawned in parallel
+  const key = (e.data && e.data.inst) || e.agent, base = key.split('#')[0], n = key.includes('#') ? key.split('#')[1] : '';
   const s = liveState.agents;
-  if (!s[id]) { const a = CFG.agents.find(x => x.id === id); s[id] = { id, name: a ? a.name : id, role: a ? a.role : '', color: colors[id] || '#7c3aed', status: 'idle', text: '', think: '', chips: [], iters: 0, chars: 0, done: false }; }
-  return s[id];
+  if (!s[key]) {
+    const a = CFG.agents.find(x => x.id === base);
+    s[key] = { id: key, base, name: (a ? a.name : base) + (n ? ' #' + n : ''), role: a ? a.role : '', assignment: '', parent: '', color: colors[base] || '#7c3aed', status: 'idle', text: '', think: '', chips: [], iters: 0, chars: 0, done: false };
+    if (!document.getElementById(nid(key))) addNode(s[key]);
+  }
+  return s[key];
+}
+function addNode(a){
+  const g = $('#sgrid'); if (!g) return;
+  const el = document.createElement('div');
+  el.className = 'node inst' + (a.base === 'atlas' ? ' atlas' : ''); el.id = nid(a.id); el.dataset.key = a.id; el.style.setProperty('--c', a.color);
+  el.innerHTML = `<div class="nh"><i></i><b>${esc(a.name)}</b><span class="role" id="role-${nid(a.id)}">${esc(a.role)}</span><span class="st" id="st-${nid(a.id)}">idle</span></div>
+    <div class="chips" id="chips-${nid(a.id)}"></div><div class="stream" id="stream-${nid(a.id)}"></div><div class="nf"><span id="nf-${nid(a.id)}"></span></div>`;
+  const sib = document.getElementById(nid(a.base));                 // slot new instances right after their base agent
+  if (sib && sib.nextSibling) g.insertBefore(el, sib.nextSibling); else g.appendChild(el);
+  el.animate([{opacity: 0, transform: 'scale(.96)'}, {opacity: 1, transform: 'none'}], {duration: 320, easing: 'ease-out'});
 }
 
 function applyLive(e, live){
   const S = liveState; S.n++; e.data = e.data || {};
   if (e.kind === 'usage') { S.tin = e.data.tokens_in; S.tout = e.data.tokens_out; return; }
+  if (typeof e.data === 'string') { try { e.data = JSON.parse(e.data || '{}'); } catch (_) { e.data = {}; } }
   if (e.agent !== 'system' && e.agent !== 'owner') {
-    const a = agentState(e.agent);
-    if (e.kind === 'agent_start') { a.status = 'thinking'; a.done = false; a.text = ''; a.think = ''; a.iters = 0; a.chips = []; }
+    const a = agentState(e);
+    if (e.kind === 'agent_start') { a.status = 'thinking'; a.done = false; a.text = ''; a.think = ''; a.iters = 0; a.chips = [];
+      if (e.data.assignment) a.assignment = e.data.assignment; if (e.data.parent) a.parent = e.data.parent;
+      if (a.id !== 'atlas') S.edges[a.id] = 'on'; }
     else if (e.kind === 'token') {
       if (e.data && e.data.thinking) { a.think += e.text; if (a.think.length > 1500) a.think = a.think.slice(-1500); a.status = 'thinking'; }
       else { if (a.needSep) { a.text += '\n\n'; a.needSep = false; } a.text += e.text; a.chars += e.text.length; a.status = 'writing'; if (a.text.length > MAXSTREAM) a.text = a.text.slice(-MAXSTREAM); }
@@ -676,7 +705,7 @@ function applyLive(e, live){
       if (name === 'delegate') { const m = e.text.match(/delegate → (\w+)/); if (m) S.edges[m[1]] = 'on'; }
       if (name === 'finish') a.status = 'finishing';
     }
-    else if (e.kind === 'agent_end') { a.status = 'done'; a.done = true; S.edges[e.agent] = S.edges[e.agent] ? 'done' : S.edges[e.agent]; }
+    else if (e.kind === 'agent_end') { a.status = 'done'; a.done = true; if (S.edges[a.id]) S.edges[a.id] = 'done'; }
     else if (e.kind === 'error') { a.status = 'error'; }
     else if (e.kind === 'approval') { a.chips.push({ name: '⏸ ' + (e.data.action_kind || 'approval'), t: Date.now() }); }
   }
@@ -687,11 +716,11 @@ function applyLive(e, live){
 function buildStage(){
   const g = $('#sgrid');
   const order = [...CFG.agents.filter(a => a.id === 'atlas'), ...CFG.agents.filter(a => a.id !== 'atlas')];
-  g.innerHTML = order.map(a => `<div class="node ${a.id === 'atlas' ? 'atlas' : ''}" id="node-${a.id}" style="--c:${a.color || '#7c3aed'}">
-    <div class="nh"><i></i><b>${esc(a.name)}</b><span class="role">${esc(a.role)}</span><span class="st" id="st-${a.id}">idle</span></div>
-    <div class="chips" id="chips-${a.id}"></div>
-    <div class="stream" id="stream-${a.id}"></div>
-    <div class="nf"><span id="nf-${a.id}"></span></div></div>`).join('');
+  g.innerHTML = order.map(a => `<div class="node ${a.id === 'atlas' ? 'atlas' : ''}" id="${nid(a.id)}" data-key="${a.id}" style="--c:${a.color || '#7c3aed'}">
+    <div class="nh"><i></i><b>${esc(a.name)}</b><span class="role" id="role-${nid(a.id)}">${esc(a.role)}</span><span class="st" id="st-${nid(a.id)}">idle</span></div>
+    <div class="chips" id="chips-${nid(a.id)}"></div>
+    <div class="stream" id="stream-${nid(a.id)}"></div>
+    <div class="nf"><span id="nf-${nid(a.id)}"></span></div></div>`).join('');
   drawEdges();
 }
 
@@ -700,12 +729,12 @@ function drawEdges(){
   const sr = stage.getBoundingClientRect(); const h = $('#node-atlas'); if (!h) return;
   const hr = h.getBoundingClientRect();
   svg.setAttribute('viewBox', `0 0 ${sr.width} ${sr.height}`);
-  svg.innerHTML = CFG.agents.filter(a => a.id !== 'atlas').map(a => {
-    const n = $('#node-' + a.id); if (!n) return '';
+  svg.innerHTML = [...stage.querySelectorAll('.node')].filter(n => n.dataset.key !== 'atlas').map(n => {
+    const key = n.dataset.key, st = liveState.agents[key], color = st ? st.color : (colors[key.split('#')[0]] || '#7c3aed');
     const r = n.getBoundingClientRect();
     const x1 = hr.right - sr.left, y1 = hr.top - sr.top + hr.height/2, x2 = r.left - sr.left, y2 = r.top - sr.top + r.height/2;
     const mx = (x1 + x2) / 2;
-    return `<path class="edge ${liveState.edges[a.id] || ''}" style="--c:${a.color}" d="M${x1},${y1} C${mx},${y1} ${mx},${y2} ${x2},${y2}"/>`;
+    return `<path class="edge ${liveState.edges[key] || ''}" style="--c:${color}" d="M${x1},${y1} C${mx},${y1} ${mx},${y2} ${x2},${y2}"/>`;
   }).join('');
 }
 
@@ -715,19 +744,22 @@ function renderLive(){
   const S = liveState; if (!S || page !== 'live') return;
   $('#live-status').textContent = S.active ? 'running' : 'finished'; $('#live-dot').classList.toggle('live', S.active);
   $('#live-in').textContent = (S.tin || 0).toLocaleString(); $('#live-out').textContent = (S.tout || 0).toLocaleString(); $('#live-n').textContent = S.n;
-  CFG.agents.forEach(cfgA => {
-    const a = S.agents[cfgA.id]; const node = $('#node-' + cfgA.id); if (!node) return;
+  const keys = [...new Set([...CFG.agents.map(a => a.id), ...Object.keys(S.agents)])];
+  keys.forEach(key => {
+    const a = S.agents[key]; const node = document.getElementById(nid(key)); if (!node) return;
     const st = a ? a.status : 'idle';
     node.classList.toggle('busy', !!a && !a.done && st !== 'idle'); node.classList.toggle('fin', !!a && a.done);
-    $('#st-' + cfgA.id).textContent = st;
+    $('#st-' + nid(key)).textContent = st;
     if (a) {
-      const chips = $('#chips-' + cfgA.id); const now = Date.now();
+      const roleEl = $('#role-' + nid(key));
+      if (roleEl && a.assignment && key !== 'atlas') { roleEl.textContent = a.assignment; roleEl.title = a.assignment; roleEl.classList.add('assign'); }
+      const chips = $('#chips-' + nid(key)); const now = Date.now();
       chips.innerHTML = a.chips.map(c => `<span class="chip ${now - c.t < 1500 ? 'new' : ''}">${esc(c.name)}</span>`).join('');
-      const s = $('#stream-' + cfgA.id);
+      const s = $('#stream-' + nid(key));
       const caret = (st === 'writing' || st === 'thinking') && S.active ? '<span class="caret"></span>' : '';
       s.innerHTML = (a.think ? `<span class="think">${esc(a.think.slice(-600))}</span>\n` : '') + esc(a.text.slice(-MAXSTREAM)) + caret;
       s.scrollTop = 1e9;
-      $('#nf-' + cfgA.id).textContent = `${a.iters} turn${a.iters === 1 ? '' : 's'} · ${a.chars.toLocaleString()} chars streamed`;
+      $('#nf-' + nid(key)).textContent = `${a.iters} turn${a.iters === 1 ? '' : 's'} · ${a.chars.toLocaleString()} chars streamed`;
     }
   });
   drawEdges();
@@ -802,6 +834,19 @@ async function testHook(){
 
 /* ================= CAMERAS ================= */
 let CAMS = [], _camBusy = new Set(), _evFilterInit = false, _lastEvKey = '';
+async function analyseVideo(){
+  const f = $('#vid-file').files[0]; if(!f){ toast('Choose a video file first'); return; }
+  const btn = $('#vid-btn'); btn.disabled = true; $('#vid-status').textContent = 'Uploading & sampling frames…';
+  const fd = new FormData(); fd.append('video', f); fd.append('question', $('#vid-q').value || '');
+  try{
+    const r = await fetch('/api/vision/video', {method:'POST', body: fd, credentials:'same-origin'});
+    const j = await r.json();
+    const out = $('#vid-out'); out.style.display = 'block';
+    if (j.ok){ out.textContent = `(${j.frames} frames over ~${Math.round(j.duration_s)}s)\n\n` + j.answer; toast('Video analysed & logged'); loadVisionEvents(); }
+    else out.textContent = 'Failed: ' + (j.error || r.status);
+  } catch(e){ toast('Upload failed'); }
+  btn.disabled = false; $('#vid-status').textContent = '';
+}
 async function loadCameras(){
   const R = await api('/cameras'); if (!R) return; CAMS = R.cameras;
   $('#n-cams').textContent = CAMS.length;
@@ -824,7 +869,7 @@ async function loadCameras(){
         <h3>${esc(c.name)}<small title="${esc(src)}">${esc(c.source_kind)}${ts ? ' · ' + hms(ts) : ''}</small></h3>
         <div class="hint" style="margin:0">${esc(seenTxt)}${s.motion!=null ? ` · motion ${Number(s.motion).toFixed(2)}` : ''}${s.backend && s.backend!=='none' ? ` · ${esc(s.backend)}` : ''}${s.reason ? ` · ${esc(s.reason)}` : ''}</div>
         <div class="hint" style="margin:0">watch for <b>${esc(c.rule.labels.join(', '))}</b> ≥${c.rule.min_count}${c.rule.hours ? ' during '+esc(c.rule.hours) : ''} · cooldown ${c.rule.cooldown_min}m${c.rule.question ? ` · asks “${esc(c.rule.question)}”` : ''}</div>
-        ${s.answer ? `<div class="ans">${esc(s.answer)}</div>` : ''}
+        ${(s.answer || (le && le.answer)) ? `<div class="ans">${esc(s.answer || le.answer)}</div>` : ''}
         <div class="act"><input id="camq-${c.id}" placeholder="ask the analyst about this frame…" onkeydown="if(event.key==='Enter')lookCam(${c.id})"><button class="btn sm p" onclick="lookCam(${c.id})" ${busy?'disabled':''}>${busy?'…':'Look now'}</button></div>
         <div class="act"><button class="btn sm ${watching?'':'p'}" onclick="watchCam(${c.id}, ${watching?'false':'true'})">${watching ? 'Stop watching' : 'Watch'}</button><button class="btn sm" onclick="lookCam(${c.id}, true)" title="Force an alert run now (demo / test)">Trigger alert</button><span class="spacer"></span>${s.run_id ? `<button class="btn sm" onclick="liveWant='${s.run_id}';go('live')">See run ›</button>` : ''}<button class="btn sm d" onclick="delCam(${c.id})">✕</button></div>
       </div></div>`; }).join('');

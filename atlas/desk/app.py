@@ -1382,6 +1382,53 @@ def api_camera_watch(cid):
     return jsonify({"ok": True, "watching": True, "job": j})
 
 
+@app.post("/api/vision/video")
+def api_vision_video():
+    """Upload a video file (or pass {url}) and have the vision analyst describe it as a timeline.
+    The result is logged as a vision event, so 'ask the cameras' can recall it later."""
+    desk = need_desk()
+    from .. import vision as V
+    question = (request.form.get("question") or (request.json or {}).get("question", "") if not request.files else request.form.get("question", "")) or ""
+    try:
+        frames = min(int(request.form.get("frames") or 6), 10)
+    except ValueError:
+        frames = 6
+    f = request.files.get("video")
+    if f and f.filename:
+        vdir = Path("data") / "videos" / f"desk{desk['id']}"
+        vdir.mkdir(parents=True, exist_ok=True)
+        name = re.sub(r"[^\w.\- ]+", "_", f.filename)[-80:] or "clip.mp4"
+        src = vdir / f"{int(time.time())}_{name}"
+        f.save(str(src))
+        if src.stat().st_size > 300 * 1024 * 1024:
+            src.unlink(missing_ok=True)
+            return jsonify({"error": "video too large (max 300 MB)"}), 413
+        label = name
+        src = str(src)
+    else:
+        src = str((request.json or {}).get("url", "") or "").strip()
+        if not src:
+            return jsonify({"error": "attach a video file or pass {url}"}), 400
+        from .. import secure as SEC
+        why = SEC.private_url_reason(src)
+        if why:
+            return jsonify({"error": f"refusing to fetch: {why}"}), 400
+        label = src.rsplit("/", 1)[-1][:60]
+    try:
+        res = V.describe_video(src, question, frames=frames, context=desk.get("name", ""))
+    except Exception as exc:
+        return jsonify({"error": f"{type(exc).__name__}: {exc}"}), 502
+    snap = ""
+    try:
+        snap = V.save_snapshot(desk["id"], "video", res["frames"][0]["jpeg"])
+    except Exception:
+        pass
+    ev = store.add_vision_event(desk["id"], f"video:{label}", {}, backend="vlm", source="video",
+                                question=question or "describe", answer=(res["answer"] or "")[:2000], snapshot=snap)
+    return jsonify({"ok": True, "answer": res["answer"], "duration_s": res["duration_s"],
+                    "frames": len(res["frames"]), "event_id": ev["id"]})
+
+
 @app.get("/api/vision/events")
 def api_vision_events():
     desk = need_desk()
