@@ -23,6 +23,9 @@
   .vlabel{position:absolute;top:8px;left:8px;background:rgba(11,14,19,.82);border:1px solid var(--line);padding:3px 8px;
           font-family:Consolas,monospace;font-size:11px;letter-spacing:.5px}
   .flash{position:absolute;inset:0;border:2px solid var(--blue);opacity:0;pointer-events:none;transition:opacity .15s}
+  .overlay{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
+  .counts{position:absolute;bottom:8px;left:8px;background:rgba(11,14,19,.82);border:1px solid var(--line);padding:3px 8px;
+          font-family:Consolas,monospace;font-size:11px;color:#31c48d;min-height:14px}
   .llm{display:flex;flex-direction:column;min-width:0}
   .llmhead{display:flex;gap:8px;align-items:center;padding:8px 10px;border-bottom:1px solid var(--line);font-family:Consolas,monospace;font-size:11px;color:var(--dim)}
   .llmhead .model{color:var(--blue)}
@@ -52,7 +55,7 @@
       <option value="anthropic/claude-haiku-4.5">claude-haiku-4.5 (paid)</option>
       <option value="google/gemini-2.5-flash">gemini-2.5-flash (paid)</option>
     </select>
-    <span class="mono">every</span><input type="number" id="cadence" value="7" min="3" max="60" style="width:54px"><span class="mono">s</span>
+    <span class="mono">quiet gap</span><input type="number" id="cadence" value="20" min="5" max="120" style="width:54px"><span class="mono">s</span>
     <button class="btn" id="start" onclick="toggle()">Start watching</button>
     <button class="btn ghost" onclick="document.getElementById('files').click()">Add feeds</button>
   </div>
@@ -77,20 +80,20 @@ function addFeed(name, src){
   const card=document.createElement('div'); card.className='card'; card.id=id;
   card.innerHTML=`
     <div class="vwrap"><video src="${src}" muted loop playsinline crossorigin="anonymous"></video>
-      <div class="vlabel">${name}</div><div class="flash"></div></div>
+      <canvas class="overlay"></canvas><div class="vlabel">${name}</div><div class="counts"></div><div class="flash"></div></div>
     <div class="llm"><div class="llmhead"><span class="dot"></span>
       <span class="model">analyst</span><span class="minfo">idle</span><span style="margin-left:auto" class="tok"></span></div>
       <div class="notes"><div class="empty">Press <b>Start watching</b> — the analyst narrates this feed as it plays.</div></div></div>`;
   document.querySelector('#grid').appendChild(card);
-  const feed={id, name, card, video:card.querySelector('video'), notes:[], busy:false, timer:null};
+  const feed={id, name, card, video:card.querySelector('video'), notes:[], busy:false, timer:null, lastCounts:'', lastNarr:0, det:null};
   feed.video.play().catch(()=>{});
   feeds.push(feed); stat();
   return feed;
 }
 
 function safeCadence(){
-  // free vision models: ~20 requests/min shared across all feeds — keep ~20% headroom
-  return Math.max(7, Math.ceil(feeds.length * 60 / 16));
+  // narration is change-driven now; the quiet-gap heartbeat only fills silence.
+  return Math.max(15, Math.ceil(feeds.length * 60 / 16));
 }
 
 async function boot(){
@@ -116,13 +119,13 @@ function addFiles(list){
     const card=document.createElement('div'); card.className='card'; card.id=id;
     card.innerHTML=`
       <div class="vwrap"><video src="${URL.createObjectURL(f)}" muted loop playsinline></video>
-        <div class="vlabel">${f.name.replace(/\.[^.]+$/,'')}</div><div class="flash"></div></div>
+        <canvas class="overlay"></canvas><div class="vlabel">${f.name.replace(/\.[^.]+$/,'')}</div><div class="counts"></div><div class="flash"></div></div>
       <div class="llm"><div class="llmhead"><span class="dot"></span>
         <span class="model">analyst</span><span class="minfo">idle</span><span style="margin-left:auto" class="tok"></span></div>
         <div class="notes"><div class="empty">Press <b>Start watching</b> — the analyst narrates this feed as it plays.</div></div></div>`;
     $('#grid').appendChild(card);
     const feed={id, name:f.name.replace(/\.[^.]+$/,''), card, video:card.querySelector('video'),
-                notes:[], busy:false, timer:null};
+                notes:[], busy:false, timer:null, lastCounts:'', lastNarr:0, det:null};
     feed.video.play().catch(()=>{});
     feeds.push(feed);
   }
@@ -141,10 +144,56 @@ function toggle(){
   stat();
 }
 
+let detBusy=false;
 async function loop(feed){
   if(!running) return;
-  if(!feed.busy) await analyse(feed);
-  feed.timer=setTimeout(()=>loop(feed), (+$('#cadence').value||7)*1000);
+  await tick(feed);
+  feed.timer=setTimeout(()=>loop(feed), 1200);
+}
+
+async function tick(feed){
+  if(feed.video.readyState<2) return;
+  // 1) local YOLO — fast, free, draws the live overlay
+  let changed=false;
+  if(!detBusy){
+    detBusy=true;
+    try{
+      const r=await fetch('/api/vision/detect',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({image:grabFrame(feed.video)})});
+      const j=await r.json();
+      if(j && j.detector){
+        drawBoxes(feed, j.boxes||[]);
+        const key=Object.entries(j.counts||{}).map(([k,v])=>k+':'+v).join(',');
+        feed.card.querySelector('.counts').textContent = key.replaceAll(',', '  ') || '—';
+        if(key!==feed.lastCounts){ changed=true; feed.lastCounts=key; }
+      }
+    }catch(e){}
+    detBusy=false;
+  }
+  // 2) narrate the moment something changes, else keep a heartbeat every quiet-gap seconds
+  const quiet=(+$('#cadence').value||20)*1000;
+  if(!feed.busy && (changed || Date.now()-feed.lastNarr>quiet)){
+    feed.lastNarr=Date.now();
+    analyse(feed, changed?'change detected':'heartbeat');
+  }
+}
+
+function drawBoxes(feed, boxes){
+  const v=feed.video, c=feed.card.querySelector('.overlay');
+  if(!v.videoWidth) return;
+  c.width=v.clientWidth; c.height=v.clientHeight;
+  // video uses object-fit:contain — compute letterbox transform
+  const s=Math.min(c.width/v.videoWidth, c.height/v.videoHeight);
+  const ox=(c.width-v.videoWidth*s)/2, oy=(c.height-v.videoHeight*s)/2;
+  const g=c.getContext('2d'); g.clearRect(0,0,c.width,c.height);
+  g.strokeStyle='#31c48d'; g.lineWidth=1.5; g.font='10px Consolas'; g.fillStyle='#31c48d';
+  // detect ran on a 480px-wide grab — rescale from grab space to video space
+  const gs=Math.min(v.videoWidth,480)/v.videoWidth;
+  for(const b of boxes){
+    const [x1,y1,x2,y2]=b.box.map(n=>n/gs);
+    g.strokeRect(ox+x1*s, oy+y1*s, (x2-x1)*s, (y2-y1)*s);
+    g.fillText(b.label, ox+x1*s+2, oy+y1*s-2);
+  }
 }
 
 function grabFrame(v){
@@ -154,7 +203,7 @@ function grabFrame(v){
   return c.toDataURL('image/jpeg',0.7).split(',')[1];
 }
 
-async function analyse(feed){
+async function analyse(feed, reason){
   if(feed.video.readyState<2) return;
   feed.busy=true;
   const head=feed.card.querySelector('.llmhead'), dot=head.querySelector('.dot'),
@@ -164,7 +213,7 @@ async function analyse(feed){
   dot.className='dot think'; minfo.textContent='analysing…';
   const vt=feed.video.currentTime, t0=performance.now();
   const div=document.createElement('div'); div.className='note cur';
-  div.innerHTML=`<div class="ts"><span>▶ ${vt.toFixed(1)}s of clip</span><span class="lat"></span></div><div class="body"></div>`;
+  div.innerHTML=`<div class="ts"><span>▶ ${vt.toFixed(1)}s</span><span>${reason||''}</span><span class="lat"></span></div><div class="body"></div>`;
   if(notesEl.querySelector('.empty')) notesEl.innerHTML='';
   notesEl.prepend(div);
   const body=div.querySelector('.body');
@@ -174,12 +223,18 @@ async function analyse(feed){
         context:feed.notes.slice(-3).join('\n'), t:vt.toFixed(1)})});
     if(!r.ok || !r.body){ body.textContent='error: HTTP '+r.status; }
     else{
-      const reader=r.body.getReader(), dec=new TextDecoder(); let text='', n=0;
+      const reader=r.body.getReader(), dec=new TextDecoder(); let text='', raw='';
       while(true){ const {done,value}=await reader.read(); if(done) break;
-        const chunk=dec.decode(value); text+=chunk; n++;
-        body.textContent=text; tok.textContent=text.length+' ch'; }
+        raw+=dec.decode(value);
+        if(raw.startsWith('\x01')){
+          const nl=raw.indexOf('\n');
+          if(nl<0) continue;
+          try{ const meta=JSON.parse(raw.slice(1,nl));
+               head.querySelector('.model').textContent=meta.provider+' · '+meta.model.split('/').pop(); }catch(e){}
+          raw=raw.slice(nl+1);
+        }
+        text=raw; body.textContent=text; tok.textContent=text.length+' ch'; }
       feed.notes.push(`[clip ${vt.toFixed(1)}s] `+text);
-      const hdr=r.headers.get('X-Vision-Model'); if(hdr) head.querySelector('.model').textContent=hdr;
     }
   }catch(e){ body.textContent='stream failed: '+e.message; }
   div.classList.remove('cur');

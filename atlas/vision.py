@@ -37,7 +37,7 @@ from . import config as cfg
 MODELS_DIR = cfg.DATA_DIR / "models"
 SNAP_DIR = cfg.DATA_DIR / "snapshots"
 YOLO_WEIGHTS = os.environ.get("VISION_YOLO", str(MODELS_DIR / "yolov8n.pt"))
-DEFAULT_VLM = os.environ.get("VISION_MODEL", "anthropic/claude-haiku-4.5")
+DEFAULT_VLM = os.environ.get("VISION_MODEL", "minimax/minimax-m3:free")   # free by default; set VISION_MODEL for paid eyes
 DEFAULT_VLM_PROVIDER = os.environ.get("VISION_PROVIDER", "openrouter")
 MAX_SIDE = 960                      # frames are downscaled to this before detection / VLM
 FRAME_TIMEOUT = float(os.environ.get("VISION_GRAB_TIMEOUT", "12"))
@@ -312,6 +312,34 @@ def _vlm_cfg(model: str = "") -> tuple[str, str, str]:
     return pc.get("base_url", "https://openrouter.ai/api/v1").rstrip("/"), key, (model or DEFAULT_VLM)
 
 
+def vlm_chain(model: str = "") -> list[dict[str, str]]:
+    """Ordered free-first provider chain for vision calls. Each entry: {name, base, key, model}.
+    A caller-forced model pins the call to the OpenRouter entry; otherwise we try Groq (fastest),
+    then Gemini (best free quota), then the configured OpenRouter free model. Keys come from env:
+    GROQ_API_KEY, GEMINI_API_KEY — each is a separate free daily bucket, so the chain stacks quota."""
+    base, orkey, _m = _vlm_cfg()
+    if model:                                        # explicit model (theatre dropdown / config) → no silent substitution
+        return [{"name": "openrouter", "base": base, "key": orkey, "model": model}]
+    chain: list[dict[str, str]] = []
+    gq = os.environ.get("GROQ_API_KEY", "").strip()
+    if gq:
+        chain.append({"name": "groq", "base": "https://api.groq.com/openai/v1", "key": gq,
+                      "model": os.environ.get("GROQ_VISION_MODEL", "qwen/qwen3.8-27b")})
+    gm = os.environ.get("GEMINI_API_KEY", "").strip()
+    if gm:
+        chain.append({"name": "gemini", "base": "https://generativelanguage.googleapis.com/v1beta/openai", "key": gm,
+                      "model": os.environ.get("GEMINI_VISION_MODEL", "gemini-2.5-flash-lite")})
+    if orkey:
+        chain.append({"name": "openrouter", "base": base, "key": orkey, "model": DEFAULT_VLM})
+    return chain
+
+
+def _retryable(status: int) -> bool:
+    # any provider-side failure moves us down the chain (wrong model id, quota, auth, outage) —
+    # the request payload is identical for every OpenAI-compatible provider, so 4xx here means "this provider", not "this request"
+    return status >= 400
+
+
 def vlm_ready() -> bool:
     return bool(_vlm_cfg()[1])
 
@@ -319,31 +347,39 @@ def vlm_ready() -> bool:
 def describe(jpeg: bytes, question: str, model: str = "", context: str = "", max_tokens: int = 400,
              transport: httpx.BaseTransport | None = None) -> str:
     """Ask the vision model one question about the frame. Plain-text answer, never invents what it can't see."""
-    base, key, model = _vlm_cfg(model)
-    if not key:
-        raise RuntimeError("no vision model key (set OPENROUTER_API_KEY or config/providers.json openrouter.api_key)")
+    chain = [e for e in vlm_chain(model) if e["key"]]
+    if not chain:
+        raise RuntimeError("no vision model key (set OPENROUTER_API_KEY / GROQ_API_KEY / GEMINI_API_KEY)")
     system = ("You are the vision analyst of a small business's operations desk. You look at one camera frame and "
               "answer the owner's question precisely. State only what is visible; say 'not visible' rather than guess. "
               "Count carefully. Keep it under 80 words unless asked for detail. Plain text only — no markdown, no headings, no asterisks. "
               "Never identify people by name.")
     if context:
         system += "\n\nContext: " + context[:800]
-    payload = {
-        "model": model, "max_tokens": max_tokens, "temperature": 0.1,
-        "messages": [
-            {"role": "system", "content": system},
-            {"role": "user", "content": [
-                {"type": "text", "text": question.strip() or "Describe what is happening in this frame."},
-                {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64," + base64.b64encode(jpeg).decode()}},
-            ]},
-        ],
-    }
-    headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json",
-               "HTTP-Referer": "https://atlas-ops.onrender.com", "X-Title": "Atlas Desk vision"}
+    msgs = [
+        {"role": "system", "content": system},
+        {"role": "user", "content": [
+            {"type": "text", "text": question.strip() or "Describe what is happening in this frame."},
+            {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64," + base64.b64encode(jpeg).decode()}},
+        ]},
+    ]
+    r = None
     with httpx.Client(timeout=90, transport=transport) as c:
-        r = c.post(base + "/chat/completions", headers=headers, json=payload)
-    if r.status_code >= 400:
-        raise RuntimeError(f"vision model HTTP {r.status_code}: {r.text[:200]}")
+        for i, e in enumerate(chain):
+            headers = {"Authorization": f"Bearer {e['key']}", "Content-Type": "application/json",
+                       "HTTP-Referer": "https://atlas-ops.onrender.com", "X-Title": "Atlas Desk vision"}
+            try:
+                r = c.post(e["base"] + "/chat/completions", headers=headers,
+                           json={"model": e["model"], "max_tokens": max_tokens, "temperature": 0.1, "messages": msgs})
+            except httpx.HTTPError:
+                if i + 1 < len(chain):
+                    continue
+                raise
+            if _retryable(r.status_code) and i + 1 < len(chain):
+                continue
+            break
+    if r is None or r.status_code >= 400:
+        raise RuntimeError(f"vision model HTTP {r.status_code if r is not None else '?'}: {r.text[:200] if r is not None else 'no provider reachable'}")
     j = r.json()
     try:
         msg = j["choices"][0]["message"]["content"]
@@ -578,42 +614,51 @@ def describe_video(source: str, question: str = "", model: str = "", frames: int
 def describe_stream(jpeg: bytes, question: str, model: str = "", context: str = "", max_tokens: int = 220):
     """Streaming variant of describe(): yields text deltas as the vision model produces them.
     Used by the live theatre page."""
-    base, key, model = _vlm_cfg(model)
-    if not key:
-        raise RuntimeError("no vision model key (set OPENROUTER_API_KEY or config/providers.json openrouter.api_key)")
+    chain = [e for e in vlm_chain(model) if e["key"]]
+    if not chain:
+        raise RuntimeError("no vision model key (set OPENROUTER_API_KEY / GROQ_API_KEY / GEMINI_API_KEY)")
     system = ("You are the live vision commentator of a small business's operations desk. You get one CCTV frame every "
               "few seconds from a feed you are watching continuously. In 1-2 short sentences, log what is happening NOW "
               "and what CHANGED since your previous notes (given as context). Count people carefully. State only what "
               "is visible; never invent details; never identify anyone by name. Plain text, no markdown.")
     if context:
         system += "\n\nYour previous notes on this feed:\n" + context[:1200]
-    payload = {
-        "model": model, "max_tokens": max_tokens, "temperature": 0.1, "stream": True,
-        "messages": [
-            {"role": "system", "content": system},
-            {"role": "user", "content": [
-                {"type": "text", "text": question.strip() or "What is happening in this frame? What changed?"},
-                {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64," + base64.b64encode(jpeg).decode()}},
-            ]},
-        ],
-    }
-    headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json",
-               "HTTP-Referer": "https://atlas-ops.onrender.com", "X-Title": "Atlas Desk live vision"}
+    msgs = [
+        {"role": "system", "content": system},
+        {"role": "user", "content": [
+            {"type": "text", "text": question.strip() or "What is happening in this frame? What changed?"},
+            {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64," + base64.b64encode(jpeg).decode()}},
+        ]},
+    ]
     with httpx.Client(timeout=120) as c:
-        with c.stream("POST", base + "/chat/completions", headers=headers, json=payload) as r:
-            if r.status_code >= 400:
-                r.read()
-                raise RuntimeError(f"vision model HTTP {r.status_code}: {r.text[:200]}")
-            for line in r.iter_lines():
-                if not line.startswith("data: "):
+        for i, e in enumerate(chain):
+            headers = {"Authorization": f"Bearer {e['key']}", "Content-Type": "application/json",
+                       "HTTP-Referer": "https://atlas-ops.onrender.com", "X-Title": "Atlas Desk live vision"}
+            try:
+                with c.stream("POST", e["base"] + "/chat/completions", headers=headers,
+                              json={"model": e["model"], "max_tokens": max_tokens, "temperature": 0.1,
+                                    "stream": True, "messages": msgs}) as r:
+                    if r.status_code >= 400:
+                        r.read()
+                        if _retryable(r.status_code) and i + 1 < len(chain):
+                            continue
+                        raise RuntimeError(f"vision model HTTP {r.status_code}: {r.text[:200]}")
+                    yield {"provider": e["name"], "model": e["model"]}     # meta first, then text deltas
+                    for line in r.iter_lines():
+                        if not line.startswith("data: "):
+                            continue
+                        data = line[6:].strip()
+                        if data == "[DONE]":
+                            break
+                        try:
+                            j = json.loads(data)
+                            delta = j["choices"][0].get("delta", {}).get("content") or ""
+                        except (KeyError, IndexError, json.JSONDecodeError):
+                            continue
+                        if delta:
+                            yield delta
+                    return
+            except httpx.HTTPError:
+                if i + 1 < len(chain):
                     continue
-                data = line[6:].strip()
-                if data == "[DONE]":
-                    break
-                try:
-                    j = json.loads(data)
-                    delta = j["choices"][0].get("delta", {}).get("content") or ""
-                except (KeyError, IndexError, json.JSONDecodeError):
-                    continue
-                if delta:
-                    yield delta
+                raise
