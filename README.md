@@ -102,3 +102,26 @@ brings its own tools (terminal, browser, web search, memory, skills, MCP servers
 
 Optional: expose the desk's own tools (CRM, approvals, connectors) to Hermes Agent as an MCP server in its
 `~/.hermes/config.yaml` under `mcp_servers:` so it can queue actions through the same approval gate.
+
+## Browser hand (a browser agent for sites with no API)
+
+Any agent with the `browse` tool can operate a real Chromium: read JavaScript-heavy or logged-in pages, fill
+forms, search portals, use client systems that have no API. `atlas/browser.py` snapshots the page into a numbered
+list of elements plus text, the model acts by number (one action per step), and every action is a deterministic
+Playwright call. Screenshots with the numbers drawn on are attached when the model asks (`look`) or gets stuck.
+
+* **Submits are gated.** Anything that sends, pays, posts, books or deletes stops with `needs_approval`; the desk
+  queues a `browser_action` for the owner and performs it on approval by replaying the recorded steps.
+* **CAPTCHAs stop it.** It never tries to solve a human check.
+* **Macros.** Successful runs can be recorded (`record`) and replayed without a model (`macro`), with `{{vars}}`;
+  the model only takes over where a step breaks.
+* **Budgets.** `BROWSER_MAX_STEPS` (40), `BROWSER_MAX_INPUT_TOKENS` (250k), `BROWSER_MODEL`
+  (default `anthropic/claude-sonnet-4.5`), optional allowed-domain list.
+
+```
+pip install playwright && playwright install chromium --with-deps
+py -m atlas.browser login https://web.whatsapp.com --profile desk1     # log in once; the profile keeps the session
+py -m atlas.browser run "Find the price of X" --url https://example.com --record find_x
+py -m atlas.browser replay find_x --var q=drain
+```
+Profiles live in `data/browser/profiles/<name>`; a desk uses `desk<id>`.

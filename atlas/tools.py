@@ -233,6 +233,22 @@ SCHEMAS: dict[str, dict[str, Any]] = {
             },
         },
     },
+    "browse": {
+        "name": "browse",
+        "description": "Operate a real web browser to complete ONE task on a website: read pages that need JavaScript or a login, fill forms, search portals, use systems that have no API. A browser agent runs the task step by step and reports what it found or did. Anything that sends, pays, posts, books or deletes stops at the submit and is queued for the owner's approval - you can still ask for it; just do not claim it was sent. Prefer web_fetch for plain public pages (cheaper). Give a precise, self-contained task and the URL to start at.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "task": {"type": "string", "description": "Exactly what to do or find, with every value to enter. One task."},
+                "url": {"type": "string", "description": "Where to start (https://...)."},
+                "macro": {"type": "string", "description": "Name of a previously recorded macro to replay first (optional)."},
+                "record": {"type": "string", "description": "Save the successful run as a macro with this name so it can be replayed without a model next time (optional)."},
+                "vars": {"type": "object", "description": "Values substituted into macro text as {{name}} (optional)."},
+                "max_steps": {"type": "integer", "description": "Step budget (default 40)."},
+            },
+            "required": ["task"],
+        },
+    },
     "camera_events": {
         "name": "camera_events",
         "description": "Search what the cameras and sensors have seen: the event log (time, camera, objects counted, motion, alert reason, analyst's answer). Use it to answer 'what happened at the door last night', 'when was the last delivery', 'how busy were we between 12 and 2'. Read-only.",
@@ -271,7 +287,7 @@ SCHEMAS: dict[str, dict[str, Any]] = {
 ALL_TOOL_NAMES = list(SCHEMAS.keys())
 ORCHESTRATOR_ONLY = {"delegate", "list_agents", "finish", "assemble_team", "video_describe", "queue_action", "crm_lookup", "crm_update",
                      "list_connectors", "http_request", "schedule_task", "remember", "recall",
-                     "calendar_free_slots", "calendar_book", "generate_media", "camera_look", "camera_events"}
+                     "calendar_free_slots", "calendar_book", "generate_media", "camera_look", "camera_events", "browse"}
 
 
 def schema_for(names: list[str]) -> list[dict[str, Any]]:

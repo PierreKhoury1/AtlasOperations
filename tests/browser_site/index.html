@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Northgate Plumbing – test site</title>
+<style>body{font-family:sans-serif;max-width:720px;margin:30px auto}.hidden{display:none}.card{border:1px solid #ccc;padding:10px;margin:8px 0}nav a{margin-right:12px}#toast{color:green;font-weight:bold}</style></head>
+<body>
+<nav><a href="index.html" id="nav-home">Home</a><a href="prices.html">Prices</a><a href="contact.html">Contact</a><a href="login.html">Client login</a></nav>
+<h1>Northgate Plumbing</h1>
+<p>Emergency plumbing across SW1. Same-day call-outs, Gas Safe registered engineers.</p>
+
+<form id="search" onsubmit="return doSearch(event)">
+  <label for="q">Search services</label>
+  <input id="q" name="q" type="search" placeholder="e.g. boiler">
+  <button type="submit">Search</button>
+</form>
+<div id="results"></div>
+
+<h2>Book a call-out</h2>
+<form id="book" onsubmit="return doBook(event)">
+  <label for="name">Your name</label><input id="name" name="name" placeholder="Full name">
+  <label for="phone">Phone</label><input id="phone" name="phone" placeholder="07..." type="tel">
+  <label for="slot">Preferred slot</label>
+  <select id="slot" name="slot"><option value="">Choose…</option><option value="am">Morning 08:00–12:00</option><option value="pm">Afternoon 12:00–17:00</option></select>
+  <label><input type="checkbox" id="urgent" name="urgent"> Emergency (no hot water / leak)</label>
+  <button type="submit" id="bookbtn">Book call-out</button>
+</form>
+<p id="toast" class="hidden"></p>
+
+<div class="card">Opening hours: Mon–Sat 07:30–18:00. Emergency line 24/7.</div>
+<div style="height:1400px"></div>
+<p id="footer-note">Company number 12345678 · VAT GB123456789</p>
+<a href="#" id="unsub" onclick="return false">Unsubscribe</a>
+
+<script>
+const SERVICES = {boiler: "Boiler repair from £95 · same day", leak: "Leak detection £120", bathroom: "Bathroom fitting from £2,400", drain: "Drain unblocking £85"};
+function doSearch(e){ e.preventDefault(); const q=document.getElementById('q').value.toLowerCase().trim(); const hits=Object.keys(SERVICES).filter(k=>k.includes(q)||SERVICES[k].toLowerCase().includes(q));
+  document.getElementById('results').innerHTML = hits.length ? '<ul>'+hits.map(k=>'<li class="hit">'+SERVICES[k]+' <a href="prices.html#'+k+'">details</a></li>').join('')+'</ul>' : '<p class="nohit">No services match “'+q+'”.</p>'; return false; }
+function doBook(e){ e.preventDefault(); const n=document.getElementById('name').value, p=document.getElementById('phone').value, s=document.getElementById('slot').value;
+  const t=document.getElementById('toast'); t.classList.remove('hidden');
+  if(!n||!p||!s){ t.style.color='red'; t.textContent='Please fill name, phone and slot.'; return false; }
+  t.style.color='green'; t.textContent='Booked: '+n+' ('+p+') '+(s==='am'?'morning':'afternoon')+(document.getElementById('urgent').checked?' · EMERGENCY':'')+' · ref NG-4812'; return false; }
+</script>
+</body></html>

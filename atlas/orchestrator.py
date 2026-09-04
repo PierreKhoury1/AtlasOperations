@@ -9,6 +9,7 @@ Everything reports through `emit(Event)` so any UI (or CLI) can render it.
 from __future__ import annotations
 
 import json
+import os
 import re
 import threading
 import time
@@ -437,6 +438,48 @@ class Orchestrator:
         except Exception:
             pass
 
+    # ------------------------------------------------------------------ browser hand
+    def _browse(self, agent: dict[str, Any], args: dict[str, Any]) -> str:
+        """Run one browser task through atlas.browser. The model never self-approves submits: allow_submit comes
+        only from orchestration config (browser_allow_submit); otherwise the run stops at the submit and the
+        action is queued for the owner like any other outbound action."""
+        from . import browser as BR
+        aid = agent["id"]
+        task = str(args.get("task", "") or "").strip()
+        url = str(args.get("url", "") or "").strip()
+        if not task:
+            return "browse: `task` is required"
+        allow = bool(self.orch.get("browser_allow_submit", False))
+        desk_id = getattr(self.store, "desk_id", None)
+        profile = f"desk{desk_id}" if desk_id else "default"
+        pname = BR.DEFAULT_PROVIDER or agent.get("provider") or ""
+        provider = self.pool.get(pname)
+        model = os.environ.get("BROWSER_MODEL") or agent.get("model") or BR.DEFAULT_MODEL
+        if provider.__class__.__name__ == "DemoProvider":
+            return "browse: not available in demo mode (no model key)"
+        macro = BR.load_macro(str(args.get("macro") or "")) if args.get("macro") else None
+        self.emit("tool", aid, f"browse -> {url or '(current page)'}: {task[:140]}")
+        try:
+            res = BR.run_task(task, url, provider, model, allow_submit=allow, profile=profile,
+                              max_steps=max(3, min(80, int(args.get("max_steps") or BR.MAX_STEPS))),
+                              macro=macro, vars_=dict(args.get("vars") or {}), record_name=str(args.get("record") or ""),
+                              on_event=lambda k, t: self.emit("log" if k == "log" else "tool", aid, t))
+        except Exception as exc:
+            return f"browse failed to start: {type(exc).__name__}: {str(exc)[:200]}"
+        with self._usage_lock:
+            self.tokens_in += res.tokens_in
+            self.tokens_out += res.tokens_out
+        out = res.summary()
+        if res.status == "needs_approval" and res.pending and self.store:
+            host = re.sub(r"^https?://", "", res.pending.get("url") or url).split("/")[0][:80]
+            body = json.dumps({"task": task, "url": url, "profile": profile, "pending": res.pending}, ensure_ascii=False)
+            qid = self.store.add_action(self.run_id, aid, "browser_action", host, res.pending.get("description", "")[:200], body,
+                                        "browser submit needs owner approval")
+            self.emit("approval", aid, f"browser_action -> {host}: {res.pending.get('description', '')[:100]}",
+                      action_id=qid, action_kind="browser_action", to=host)
+            out += f"\nQueued for owner approval (id={qid}). Do not tell anyone it was sent."
+        return out
+
     def _tool(self, agent: dict[str, Any], call: ToolCall, depth: int) -> str:
         args = call.args or {}
         name = call.name
@@ -566,6 +609,8 @@ class Orchestrator:
                 lines.append("Analyst: " + (res["answer"] or "(no vision model configured — answer unavailable; detections above are all we have)"))
             lines.append(f"Event #{ev['id']} logged; snapshot saved.")
             return "\n".join(lines)
+        if name == "browse":
+            return self._browse(agent, args)
         if name == "camera_events":
             if not self.store or not hasattr(self.store, "vision_events"):
                 return "no camera log in this context"

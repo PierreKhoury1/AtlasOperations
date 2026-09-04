@@ -1165,6 +1165,13 @@ def _dispatch(desk: dict[str, Any], row: dict[str, Any]) -> str:
         if not conn:
             return f"[simulated {kind} — no {' / '.join(I.CHANNELS[kind])} connector; add one under Integrations]"
         return "[" + I.deliver(conn, kind, row["to"], row["subject"] or "", row["body"] or "") + "]"
+    if kind == "browser_action":
+        from .. import browser as BR
+        try:
+            spec = json.loads(row["body"] or "{}")
+            return "[" + BR.perform_pending(spec.get("pending") or {}, spec.get("profile") or f"desk{desk['id']}") + "]"
+        except Exception as exc:
+            return f"[browser action failed - {type(exc).__name__}: {str(exc)[:160]}]"
     if kind == "api_call":
         conn = dstore.connector_by_name(row["to"])
         if not conn:
