@@ -1,4 +1,5 @@
 """Portal API tests (Flask test client, demo mode, accounts on)."""
+import pytest
 import json
 import time
 
@@ -111,3 +112,36 @@ def test_other_user_cannot_see_my_desk(app_client):
     c.post("/signup", json={"name": "U2", "email": "u2@example.com", "password": "password2"})
     assert c.post(f"/api/desks/{mine}/select").status_code == 404
     assert J(c.get("/api/config"))["needs_desk"] is True
+
+
+def test_live_mode_never_falls_back_to_scripted(monkeypatch):
+    """DESK_MODE=auto with no model key used to run scripted agents silently. Now it is live, reports why it cannot
+    run, and refuses to start a run or a Design Studio session with a 503 instead of faking one."""
+    import json as _json
+    from werkzeug.exceptions import HTTPException
+    from atlas.desk import app as A
+    from atlas import config as C
+    monkeypatch.setenv("DESK_MODE", "auto")
+    monkeypatch.setenv("DESK_PROVIDER", "openrouter")
+    for k in ("OPENROUTER_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY"):
+        monkeypatch.delenv(k, raising=False)
+    monkeypatch.setattr(C, "load", lambda name, default: _json.loads(_json.dumps(C.DEFAULT_PROVIDERS)) if name == "providers" else default)
+    assert A._mode() == "live"
+    assert "OPENROUTER_API_KEY" in A._live_reason()
+    with A.app.test_request_context():
+        with pytest.raises(HTTPException) as ei:
+            A._require_live()
+        assert ei.value.response.status_code == 503 and b"no_model_key" in ei.value.response.get_data()
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-test")
+    assert A._live_reason() == ""
+    monkeypatch.setenv("DESK_MODE", "demo")
+    assert A._mode() == "demo" and A._live_reason() == ""
+
+
+def test_config_exposes_engine(app_client):
+    c = app_client
+    c.post("/signup", json={"name": "E", "company": "Co", "email": "e@example.com", "password": "password1"})
+    c.post("/api/desks", json={"name": "Engine desk", "template": "sales_desk", "tier": "free"})
+    cfg = J(c.get("/api/config"))
+    assert "live_ready" in cfg and all("engine" in a for a in cfg["agents"])
+    assert all(a["engine"] in ("atlas", "hermes_agent") for a in cfg["agents"])

@@ -205,7 +205,8 @@ class Orchestrator:
         messages: list[Any] = [provider.user_message(prompt)]
         assignment = re.sub(r"\s+", " ", task).strip()[:160]
         self.emit("agent_start", agent_id, f"{agent['name']}{'' if inst == agent_id else ' #' + inst.split('#')[1]} ← task ({len(prompt)} chars)",
-                  depth=depth, model=model, inst=inst, assignment=assignment, parent=parent or "")
+                  depth=depth, model=model, inst=inst, assignment=assignment, parent=parent or "",
+                  engine=agent.get("engine") or "atlas", provider=agent.get("provider") or "")
         final_text = ""
         budget = int(self.orch.get("agent_token_budget", 60000))
         spent_in = 0

@@ -46,8 +46,16 @@ How to run the conversation
 Design rules
 - Atlas (id "atlas") is always the root orchestrator; every other agent has "reports_to": "atlas".
 - 2-6 specialist agents. Each agent: short id (a-z, _), name, role (3-6 words), goal (1-2 sentences: what it produces
-  and the quality bar), tools (subset of: read_file, list_files, web_fetch, run_python, save_deliverable), and
-  "strong": true only if the role needs top-tier judgement or client-facing writing.
+  and the quality bar), tools (subset of: read_file, list_files, web_fetch, run_python, save_deliverable),
+  "strong": true only if the role needs top-tier judgement or client-facing writing,
+  "instructions": 3-6 short operating rules written for THIS role in THIS business (what to check first, what it
+  must never do, the exact shape of what it hands back) - these become the agent's standing orders, and
+  "engine": "hermes_agent" or "atlas". Use "hermes_agent" (the Nous Research Hermes Agent runtime: own browser,
+  terminal, file system, skills and per-client long-term memory) for roles that must browse live websites, run code
+  or shell commands, work through files over many steps, reconcile data, or remember a client between runs.
+  Use "atlas" (the fast built-in loop) for drafting, replying, classifying, summarising and QA.
+- Design the team for THIS job. Never reuse a stock line-up: the roles, their instructions and the workflow steps
+  must follow from what the owner actually described.
 - Workflows: 1-3, each with an id, name, trigger {"kind": webhook|inbox|schedule|manual, "detail": text} and ordered
   "steps": list of agent ids. Atlas reviews and approves outbound messages implicitly; do not list atlas in steps.
 - Connectors the desk needs: kinds smtp (send email), imap (watch inbox), http (any REST API), mcp (tool server:
@@ -216,6 +224,10 @@ def normalise(bp: dict[str, Any] | None, prev: dict[str, Any] | None = None) -> 
         seen.add(aid)
         tools = a.get("tools") if isinstance(a.get("tools"), list) else []
         tools = [t for t in tools if t in SPECIALIST_TOOLS] or ["read_file", "list_files"]
+        instr = a.get("instructions")
+        if isinstance(instr, str):
+            instr = [x.strip(" -•\t") for x in instr.splitlines()]
+        instr = [str(x).strip()[:220] for x in (instr if isinstance(instr, list) else []) if str(x).strip()][:8]
         agents.append({
             "id": aid,
             "name": str(a.get("name") or aid.replace("_", " ").title())[:40],
@@ -225,6 +237,7 @@ def normalise(bp: dict[str, Any] | None, prev: dict[str, Any] | None = None) -> 
             "reports_to": "atlas" if aid != "atlas" else "",
             "strong": bool(a.get("strong")),
             "engine": "hermes_agent" if str(a.get("engine") or "").lower() in ("hermes_agent", "hermes") else "atlas",
+            "instructions": instr,
         })
     agents = [a for a in agents if a["id"] != "atlas"][:8]
     for i, a in enumerate(agents):
@@ -526,6 +539,9 @@ def _agent_prompt(a: dict[str, Any], biz: dict[str, Any]) -> str:
         lines.append(f"House tone: {biz['tone']}")
     if biz.get("description"):
         lines.append(f"About the business: {biz['description']}")
+    if a.get("instructions"):
+        lines.append("Standing orders for this role:")
+        lines.extend(f"- {x}" for x in a["instructions"])
     lines.append("Be specific and concise. Never invent facts about the client; say what you assumed. "
                  "Do not include prices, fees or placeholders like [name] in anything customer-facing unless the task supplies them.")
     return "\n".join(lines)

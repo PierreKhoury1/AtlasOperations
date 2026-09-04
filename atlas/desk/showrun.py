@@ -72,6 +72,9 @@ class ShowRunner:
     def offline_reason(self) -> str:
         if self.ctx["mode"]() == "demo":
             return "no model key on the server - showing a recorded real run"
+        blocked = self.ctx.get("blocked")
+        if blocked and blocked():
+            return "no model key on the server - showing a recorded real run"
         return ""
 
     def touch(self) -> None:

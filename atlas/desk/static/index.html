@@ -499,12 +499,13 @@ async function loadCfg(){
   colors = Object.fromEntries(CFG.agents.map(a=>[a.id, a.color || '#7c3aed']));
   $('#bizname').textContent = CFG.business.name; $('#wshint').textContent = (CFG.template || '').replace('_', ' ') + ' · ' + CFG.mode;
   $('#mode').textContent = CFG.mode.toUpperCase();
-  $('#modehint').textContent = CFG.mode==='demo' ? 'scripted agents' : 'live models';
+  $('#modehint').textContent = CFG.mode==='demo' ? 'scripted agents' : (CFG.live_reason ? '⚠ ' + CFG.live_reason : 'live models');
+  $('#modehint').style.color = CFG.live_reason ? '#dc2626' : '';
   $('#agents').innerHTML = CFG.agents.map(a=>`<div class="agentline"><i style="background:${a.color||'#7c3aed'}"></i><b>${esc(a.name)}</b><span style="color:var(--muted);margin-left:auto;text-align:right;font-size:12px">${esc(a.role)}</span></div>`).join('');
   const modes = ['<option value="auto">auto (Atlas decides)</option>'].concat(CFG.workflows.map(w=>`<option value="${w.id}">${esc(w.name)}</option>`)).join('');
   $('#l-mode').innerHTML = modes; $('#r-mode').innerHTML = modes;
   $('#setup-biz').innerHTML = `<h2>Business</h2><div class="md">${esc(Object.entries(CFG.business).map(([k,v])=>`${k}: ${Array.isArray(v)?v.join(', '):v}`).join('\n'))}</div>`;
-  $('#setup-agents').innerHTML = `<h2>Agents &amp; tools</h2>` + CFG.agents.map(a=>`<div style="margin-bottom:10px"><div class="agentline"><i style="background:${a.color||'#7c3aed'}"></i><b>${esc(a.name)}</b> <span class="tag">${a.id}</span></div><div style="color:var(--muted);font-size:12px;margin-left:18px">${esc(a.role)} <span class="model">· ${esc(a.model||'')}</span><br>tools: ${a.tools.map(t=>`<span class="tag">${t}</span>`).join(' ')}</div></div>`).join('') + `<h2 style="margin-top:14px">Workflows</h2>` + CFG.workflows.map(w=>`<div><b>${esc(w.name)}</b> <span style="color:var(--muted)">— ${esc(w.description)}</span></div>`).join('');
+  $('#setup-agents').innerHTML = `<h2>Agents &amp; tools</h2>` + CFG.agents.map(a=>`<div style="margin-bottom:10px"><div class="agentline"><i style="background:${a.color||'#7c3aed'}"></i><b>${esc(a.name)}</b> <span class="tag">${a.id}</span> ${a.engine==='hermes_agent' ? '<span class="tag" style="background:#0b5fcb;color:#fff">Hermes Agent runtime</span>' : (a.id==='atlas' ? '<span class="tag">orchestrator loop</span>' : '<span class="tag">built-in loop</span>')}${a.engine_note ? ' <span style="color:#b45309;font-size:12px">⚠ ' + esc(a.engine_note) + '</span>' : ''}</div><div style="color:var(--muted);font-size:12px;margin-left:18px">${esc(a.role)} <span class="model">· ${esc(a.model||'')}</span><br>tools: ${a.tools.map(t=>`<span class="tag">${t}</span>`).join(' ')}</div></div>`).join('') + `<h2 style="margin-top:14px">Workflows</h2>` + CFG.workflows.map(w=>`<div><b>${esc(w.name)}</b> <span style="color:var(--muted)">— ${esc(w.description)}</span></div>`).join('');
   if (document.getElementById('setup-models')) renderModels();
   return true;
 }
@@ -691,6 +692,7 @@ function applyLive(e, live){
     const a = agentState(e);
     if (e.kind === 'agent_start') { a.status = 'thinking'; a.done = false; a.text = ''; a.think = ''; a.iters = 0; a.chips = [];
       if (e.data.assignment) a.assignment = e.data.assignment; if (e.data.parent) a.parent = e.data.parent;
+      if (e.data.engine) a.engine = e.data.engine; if (e.data.model) a.model = e.data.model;
       if (a.id !== 'atlas') S.edges[a.id] = 'on'; }
     else if (e.kind === 'token') {
       if (e.data && e.data.thinking) { a.think += e.text; if (a.think.length > 1500) a.think = a.think.slice(-1500); a.status = 'thinking'; }
@@ -749,7 +751,7 @@ function renderLive(){
     const a = S.agents[key]; const node = document.getElementById(nid(key)); if (!node) return;
     const st = a ? a.status : 'idle';
     node.classList.toggle('busy', !!a && !a.done && st !== 'idle'); node.classList.toggle('fin', !!a && a.done);
-    $('#st-' + nid(key)).textContent = st;
+    $('#st-' + nid(key)).textContent = st + (a && a.engine === 'hermes_agent' ? ' · Hermes Agent' : '') + (a && a.model ? ' · ' + a.model.split('/').pop() : '');
     if (a) {
       const roleEl = $('#role-' + nid(key));
       if (roleEl && a.assignment && key !== 'atlas') { roleEl.textContent = a.assignment; roleEl.title = a.assignment; roleEl.classList.add('assign'); }

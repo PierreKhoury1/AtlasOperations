@@ -98,12 +98,29 @@ def _mode() -> str:
     m = os.environ.get("DESK_MODE", "auto").lower()
     if m in ("demo", "live"):
         return m
-    if os.environ.get("DESK_PROVIDER", "").strip():
-        return "live"
+    return "live"      # auto = live. Scripted agents only when DESK_MODE=demo is set on purpose, never as a silent fallback.
+
+
+def _live_reason() -> str:
+    """Why real runs cannot happen right now ('' = ready). A live desk without a model key says so instead of
+    quietly running the scripted designer/agents in its place."""
+    if _mode() == "demo":
+        return ""
     prov = cfg.load("providers", cfg.DEFAULT_PROVIDERS)
-    name = prov.get("default_provider", "anthropic")
-    key = cfg.resolve_api_key(prov["providers"].get(name, {"type": "anthropic"}))
-    return "live" if key else "demo"
+    name = os.environ.get("DESK_PROVIDER", "").strip() or prov.get("default_provider", "openrouter")
+    pc = (prov.get("providers") or {}).get(name) or cfg.DEFAULT_PROVIDERS["providers"].get(name) or {"type": "anthropic"}
+    base = str(pc.get("base_url") or "")
+    needs_key = pc.get("type") == "anthropic" or "openrouter" in base or "api.openai.com" in base
+    if not needs_key or cfg.resolve_api_key({**pc, "name": name}):
+        return ""
+    env = "ANTHROPIC_API_KEY" if pc.get("type") == "anthropic" else "OPENROUTER_API_KEY"
+    return f"no model key: set {env} for provider '{name}' - real models only, no scripted stand-in"
+
+
+def _require_live() -> None:
+    r = _live_reason()
+    if r:
+        abort(Response(json.dumps({"error": "no_model_key", "message": r}), 503, mimetype="application/json"))
 
 
 _LEGACY_COLOURS = {"#c084fc": "#0b5fcb", "#60a5fa": "#7c3aed", "#f472b6": "#db2777", "#34d399": "#1f9d63", "#fbbf24": "#b45309",
@@ -394,7 +411,8 @@ def api_me():
 
 from . import showrun as _SR
 
-_SHOW = _SR.ShowRunner({"store": store, "desk_configs": desk_configs, "mode": _mode, "templates": templates, "template": DEFAULT_TEMPLATE})
+_SHOW = _SR.ShowRunner({"store": store, "desk_configs": desk_configs, "mode": _mode, "blocked": _live_reason,
+                        "templates": templates, "template": DEFAULT_TEMPLATE})
 
 
 @app.get("/api/orch/live")
@@ -413,7 +431,10 @@ def api_orch_live():
 
 @app.get("/api/health")
 def api_health():
-    return jsonify({"ok": True, "mode": _mode(), "db": store.backend, "db_ok": store.ping()})
+    reason = _live_reason()
+    return jsonify({"ok": True, "mode": _mode(), "live_ready": not reason, "live_reason": reason,
+                    "hermes_agent": bool(os.environ.get("HERMES_AGENT_URL", "").strip()),
+                    "db": store.backend, "db_ok": store.ping()})
 
 
 # ---------------------------------------------------------------------------- static
@@ -571,11 +592,15 @@ def api_config():
     if not desk:
         return jsonify({"mode": _mode(), "needs_desk": True, "protected": not OPEN})
     c = desk_configs(desk)
+    reason = _live_reason()
     return jsonify({
-        "mode": c["mode"], "template": desk["template"], "tier": desk.get("tier", "free"), "business": c["business"],
+        "mode": c["mode"], "live_ready": not reason, "live_reason": reason,
+        "template": desk["template"], "tier": desk.get("tier", "free"), "business": c["business"],
         "desk": _desk_public(desk),
         "agents": [{"id": a["id"], "name": a["name"], "role": a.get("role", ""), "color": a.get("color", ""),
-                    "tools": a.get("tools", []), "model": a.get("model", "") or "(provider default)"} for a in c["agents"]],
+                    "tools": a.get("tools", []), "model": a.get("model", "") or "(provider default)",
+                    "engine": a.get("engine") or "atlas", "provider": a.get("provider") or "",
+                    "engine_note": a.get("engine_note") or ""} for a in c["agents"]],
         "workflows": [{"id": w["id"], "name": w["name"], "description": w.get("description", "")} for w in c["workflows"]],
         "protected": not OPEN,
     })
@@ -610,6 +635,7 @@ def _prune_runs() -> None:
 
 
 def _start_run(desk: dict[str, Any], task: str, mode: str, lead_id: int | None = None) -> str:
+    _require_live()
     configs = desk_configs(desk)
     paid = any(":free" not in (a.get("model") or "") and a.get("model") for a in configs["agents"])
     if configs["mode"] != "demo" and paid:                # free-tier desks cost nothing and are never blocked by the spend cap
@@ -1846,8 +1872,9 @@ def hook_vision(token):
         except Exception:
             snap = ""
     trigger = str(d.get("trigger", "1")).lower() not in ("0", "false", "no")
+    backend = "".join(ch for ch in str(d.get("backend") or "external")[:32] if ch.isalnum() or ch in "/-_.") or "external"
     dstore = store.for_desk(desk["id"])
-    ev = dstore.add_vision_event(camera, counts, motion=float(d.get("motion") or 0), backend="external",
+    ev = dstore.add_vision_event(camera, counts, motion=float(d.get("motion") or 0), backend=backend,
                                  reason=note or "external event", snapshot=snap, triggered=trigger, source="hook")
     rid = ""
     if trigger:
@@ -1895,6 +1922,7 @@ def api_design_start():
     u = current_user()
     if not u and not OPEN:
         abort(401)
+    _require_live()
     d = request.get_json(silent=True) or {}
     tier = d.get("tier") if d.get("tier") in templates.TIERS else "free"
     s = DS.new_session(_mode(), tier)
@@ -1922,6 +1950,8 @@ def api_design_study(sid):
     if not links:
         return jsonify({"error": "no links"}), 400
     s.links = links
+    if s.mode != "demo":
+        _require_live()
     import queue
     q: "queue.Queue[dict[str, Any] | None]" = queue.Queue()
     providers = None if s.mode == "demo" else _providers_cfg()
@@ -1975,6 +2005,8 @@ def api_design_say(sid):
     text = str(d.get("text") or "").strip()[:4000]
     if not text:
         return jsonify({"error": "empty"}), 400
+    if s.mode != "demo":
+        _require_live()
     import queue
     q: "queue.Queue[dict[str, Any] | None]" = queue.Queue()
     providers = None if s.mode == "demo" else _providers_cfg()
@@ -2167,7 +2199,7 @@ if _n_enc:
     print(f"encrypted {_n_enc} legacy connector config(s)")
 if OPEN and os.environ.get("RENDER"):
     print("WARNING: DESK_OPEN=1 on a public deployment - the portal and every desk are reachable without login")
-scheduler.LIVE = lambda: _mode() != "demo"
+scheduler.LIVE = lambda: _mode() != "demo" and not _live_reason()
 scheduler.start(store, _start_run, store.desk)
 threading.Thread(target=_watchdog_loop, daemon=True, name="atlas-watchdog").start()
 

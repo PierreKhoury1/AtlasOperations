@@ -8,7 +8,15 @@ services:
     healthCheckPath: /api/health
     envVars:
       - key: DESK_MODE
-        value: auto        # live as soon as OPENROUTER_API_KEY is set in the Render dashboard; scripted fallback otherwise
+        value: live        # real models only. Without OPENROUTER_API_KEY the portal reports "no model key" - it never runs scripted agents.
+      - key: OPENROUTER_API_KEY   # paste in the dashboard: Design Studio + every desk run on real models through OpenRouter
+        sync: false
+      - key: DESK_DEFAULT_ENGINE
+        value: hermes_agent # every specialist runs on the Hermes Agent runtime when HERMES_AGENT_URL is set (built-in loop otherwise)
+      - key: HERMES_AGENT_URL     # public URL of a running Hermes Agent API server (hermes gateway, API_SERVER_ENABLED=true), e.g. Tailscale Funnel / VPS
+        sync: false
+      - key: HERMES_AGENT_KEY     # that server's API_SERVER_KEY
+        sync: false
       - key: DESK_OPEN
         value: "1"
       - key: DESK_SECRET

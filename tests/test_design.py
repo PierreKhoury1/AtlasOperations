@@ -121,3 +121,18 @@ def test_design_http_flow(app_client):
     assert revived["turn"] == 1 and revived["desk_id"] == b["desk"]["id"]
     assert [a["name"] for a in revived["blueprint"]["agents"]][0] == "Lead Researcher"
     assert A.store.load_design_session("never-existed") is None
+
+
+def test_blueprint_keeps_role_instructions_and_engine():
+    bp = D.normalise({"business": {"name": "Vet Haifa"},
+                      "agents": [{"id": "invoice_check", "name": "Invoice Checker", "role": "Reconciles supplier invoices",
+                                  "tools": ["run_python", "read_file"], "engine": "hermes_agent",
+                                  "instructions": ["Match every line to a delivery note", "Never approve a total you did not recompute"]},
+                                 {"id": "writer", "name": "Writer", "role": "Drafts", "instructions": "- be brief\n- no prices"}],
+                      "workflows": [], "connectors": [], "policy": {}})
+    a = {x["id"]: x for x in bp["agents"]}
+    assert a["invoice_check"]["engine"] == "hermes_agent" and len(a["invoice_check"]["instructions"]) == 2
+    assert a["writer"]["instructions"] == ["be brief", "no prices"] and a["writer"]["engine"] == "atlas"
+    conf = D.blueprint_to_desk(bp, "free")
+    inv = next(x for x in conf["agents"] if x["id"] == "invoice_check")
+    assert inv["engine"] == "hermes_agent" and "Standing orders" in inv["system_prompt"] and "delivery note" in inv["system_prompt"]
