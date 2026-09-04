@@ -850,13 +850,24 @@ async function analyseVideo(){
   btn.disabled = false; $('#vid-status').textContent = '';
 }
 async function loadCameras(){
-  const R = await api('/cameras'); if (!R) return; CAMS = R.cameras;
-  $('#n-cams').textContent = CAMS.length;
+  const R = await api('/cameras'); if (!R) return; CAMS = R.cameras; const NODES = R.nodes || [];
+  $('#n-cams').textContent = CAMS.length + NODES.length;
   $('#vision-hook-url').value = R.hook_url || '';
   const det = $('#cam-det'); det.textContent = R.detector.available ? 'local detector: ' + R.detector.weights : 'no local detector'; det.style.color = R.detector.available ? 'var(--ok)' : 'var(--muted)'; det.title = R.detector.error || 'ultralytics YOLO, runs on this machine';
   const v = $('#cam-vlm'); v.textContent = R.vlm.ready ? 'analyst: ' + R.vlm.model.split('/').pop() : (R.mode==='demo' ? 'analyst: demo' : 'analyst: no key'); v.style.color = R.vlm.ready ? 'var(--ok)' : 'var(--muted)';
-  const sel = $('#ev-cam'); const cur = sel.value; sel.innerHTML = '<option value="">all cameras</option>' + CAMS.map(c=>`<option value="${esc(c.name)}" ${c.name===cur?'selected':''}>${esc(c.name)}</option>`).join('');
-  if (!CAMS.length) { $('#cam-grid').innerHTML = '<div class="empty" style="grid-column:1/-1">No cameras yet. Add your laptop webcam (source <b>0</b>) to try it in ten seconds, or an RTSP / snapshot URL for a real camera.</div>'; return; }
+  const sel = $('#ev-cam'); const cur = sel.value; sel.innerHTML = '<option value="">all cameras</option>' + CAMS.concat(NODES).map(c=>`<option value="${esc(c.name)}" ${c.name===cur?'selected':''}>${esc(c.name)}</option>`).join('');
+  const nodeCards = NODES.map(n => { const le = n.last_event || {}; const c = le.counts || {}; const fresh = (Date.now()/1000 - n.last_ts) < 900;
+    return `<div class="cam node">
+      <div class="shot" onclick="${le.snapshot_url?`zoom('${le.snapshot_url}')`:''}">${le.snapshot_url ? `<img src="${le.snapshot_url}" alt="">` : '<span>no keyframe yet</span>'}
+        <div class="ov">${Object.entries(c).map(([k,v])=>`<span class="tag">${v} ${esc(k)}</span>`).join('')}${le.triggered ? '<span class="tag" style="color:var(--warn);border-color:var(--warn)">alert</span>' : ''}</div>
+        <span class="live ${fresh?'on':''}">${fresh ? 'live · node' : 'node · quiet'}</span></div>
+      <div class="body">
+        <h3>${esc(n.name)}<small title="reports through the sensor hook">${esc(n.backend)}${n.last_ts ? ' · ' + hms(n.last_ts) : ''}</small></h3>
+        <div class="hint" style="margin:0">${esc(le.seen || '—')}${le.reason ? ` · ${esc(le.reason)}` : ''}</div>
+        <div class="hint" style="margin:0">${n.events} event${n.events===1?'':'s'} · ${n.alerts} alert${n.alerts===1?'':'s'} in 24h · watched continuously by the node, every frame</div>
+        <div class="act"><button class="btn sm" onclick="$('#ev-cam').value='${esc(n.name)}';loadVisionEvents();document.getElementById('ev-list').scrollIntoView({behavior:'smooth'})">Events ›</button><span class="spacer"></span>${le.run_id ? `<button class="btn sm" onclick="liveWant='${le.run_id}';go('live')">See run ›</button>` : ''}</div>
+      </div></div>`; }).join('');
+  if (!CAMS.length && !NODES.length) { $('#cam-grid').innerHTML = '<div class="empty" style="grid-column:1/-1">No cameras yet. Add your laptop webcam (source <b>0</b>) to try it in ten seconds, or an RTSP / snapshot URL for a real camera.</div>'; return; }
   $('#cam-grid').innerHTML = CAMS.map(c => {
     const s = c.seen || {}, le = c.last_event, ts = s.ts || (le && le.ts), busy = _camBusy.has(c.id);
     const seenTxt = s.counts ? countsText(s.counts) : (le ? le.seen : '—');
@@ -874,7 +885,7 @@ async function loadCameras(){
         ${(s.answer || (le && le.answer)) ? `<div class="ans">${esc(s.answer || le.answer)}</div>` : ''}
         <div class="act"><input id="camq-${c.id}" placeholder="ask the analyst about this frame…" onkeydown="if(event.key==='Enter')lookCam(${c.id})"><button class="btn sm p" onclick="lookCam(${c.id})" ${busy?'disabled':''}>${busy?'…':'Look now'}</button></div>
         <div class="act"><button class="btn sm ${watching?'':'p'}" onclick="watchCam(${c.id}, ${watching?'false':'true'})">${watching ? 'Stop watching' : 'Watch'}</button><button class="btn sm" onclick="lookCam(${c.id}, true)" title="Force an alert run now (demo / test)">Trigger alert</button><span class="spacer"></span>${s.run_id ? `<button class="btn sm" onclick="liveWant='${s.run_id}';go('live')">See run ›</button>` : ''}<button class="btn sm d" onclick="delCam(${c.id})">✕</button></div>
-      </div></div>`; }).join('');
+      </div></div>`; }).join('') + nodeCards;
 }
 function countsText(c){ const e = Object.entries(c||{}); if (!e.length) return 'nothing recognised'; return e.map(([k,n]) => k==='person' ? (n===1?'1 person':n+' people') : n+' '+k+(n!==1&&!k.endsWith('s')?'s':'')).join(', '); }
 async function lookCam(id, trigger){

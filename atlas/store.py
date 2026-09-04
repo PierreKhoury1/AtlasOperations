@@ -295,6 +295,21 @@ class Store:
         sql += " ORDER BY ts DESC LIMIT ?"; args.append(limit)
         return [self._vrow(r) for r in _rows(self._conn.execute(sql, args))]
 
+    def hook_cameras(self, desk_id: int, since: float, exclude: tuple[str, ...] = ()) -> list[dict[str, Any]]:
+        """Cameras that report through /hook/<token>/vision (vision nodes, PIR sensors, NVRs) - they are not connectors,
+        so the Cameras page learns about them from the log: per camera the last event plus 24h counts."""
+        rows = _rows(self._conn.execute(
+            "SELECT camera, COUNT(*) AS n, SUM(triggered) AS alerts, MAX(ts) AS last_ts, MAX(backend) AS backend FROM vision_events "
+            "WHERE desk_id=? AND source='hook' AND ts>=? GROUP BY camera ORDER BY MAX(ts) DESC", (desk_id, since)))
+        out = []
+        for r in rows:
+            if r["camera"] in exclude:
+                continue
+            last = self.last_vision_event(desk_id, r["camera"])
+            out.append({"name": r["camera"], "events": int(r["n"] or 0), "alerts": int(r["alerts"] or 0), "backend": r["backend"] or "external",
+                        "last_ts": float(r["last_ts"] or 0), "last_event": last})
+        return out
+
     def last_vision_event(self, desk_id: int, camera: str, triggered_only: bool = False) -> dict[str, Any] | None:
         rows = self.vision_events(desk_id, camera, 0, "", 1, triggered_only)
         return rows[0] if rows else None
@@ -634,5 +649,6 @@ class DeskStore:
         return self.s.vision_events(self.desk_id, camera, since, query, limit, triggered_only)
     def vision_event(self, vid): return self.s.vision_event(vid)
     def last_vision_event(self, camera, triggered_only=False): return self.s.last_vision_event(self.desk_id, camera, triggered_only)
+    def hook_cameras(self, since, exclude=()): return self.s.hook_cameras(self.desk_id, since, exclude)
     def set_vision_run(self, vid, run_id): return self.s.set_vision_run(vid, run_id)
     def vision_stats(self, since): return self.s.vision_stats(self.desk_id, since)

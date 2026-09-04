@@ -131,3 +131,15 @@ def test_hook_records_node_backend(cam_client):
     assert r.status_code == 200 and json.loads(r.data)["run_id"] == ""
     e = json.loads(c.get("/api/vision/events?camera=node-counter").data)[0]
     assert e["backend"] == "node/openvinoscript" and e["counts"] == {"person": 3} and e["reason"].startswith("count:")
+
+
+def test_cameras_api_lists_hook_only_cameras(cam_client):
+    """Feeds that only ever report through the hook (vision nodes) appear as `nodes` on /api/cameras."""
+    c = cam_client[0]
+    hook = json.loads(c.get("/api/cameras").data)["hook_url"].replace("http://localhost", "")
+    c.post(hook, json={"camera": "node-street", "labels": {"car": 2}, "note": "count: 2 car", "trigger": False, "backend": "node/openvino"})
+    c.post(hook, json={"camera": "node-street", "labels": {"car": 1}, "note": "left: car left", "trigger": False, "backend": "node/openvino"})
+    R = json.loads(c.get("/api/cameras").data)
+    n = next(x for x in R["nodes"] if x["name"] == "node-street")
+    assert n["events"] >= 2 and n["backend"] == "node/openvino" and n["last_event"]["counts"] == {"car": 1}
+    assert "node-street" not in [x["name"] for x in R["cameras"]]          # not a connector

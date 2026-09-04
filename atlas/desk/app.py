@@ -1384,7 +1384,9 @@ def api_cameras():
                      "watch_job": next((j for j in store.jobs(desk["id"]) if j["kind"] == "camera_watch" and
                                         (j["task"] or "").find(f'"connector": "{c["name"]}"') >= 0), None)})
     hook = request.host_url.rstrip("/") + "/hook/" + store.ensure_hook_token(desk["id"]) + "/vision"
-    return jsonify({"cameras": cams, "mode": _mode(),
+    nodes = [{**n, "last_event": _vev_public(n["last_event"]) if n.get("last_event") else None}
+             for n in store.hook_cameras(desk["id"], time.time() - 86400, tuple(c["name"] for c in cams))]
+    return jsonify({"cameras": cams, "nodes": nodes, "mode": _mode(),
                     "detector": {"available": V.DETECTOR.available, "error": V.DETECTOR.error, "weights": os.path.basename(V.YOLO_WEIGHTS)},
                     "vlm": {"ready": V.vlm_ready() and _mode() != "demo", "model": V.DEFAULT_VLM},
                     "stats": store.vision_stats(desk["id"], time.time() - 86400), "hook_url": hook})
