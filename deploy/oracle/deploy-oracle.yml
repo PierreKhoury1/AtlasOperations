@@ -1,0 +1,25 @@
+# Deploy-on-push to the Oracle VM (replaces Render auto-deploy).
+# INSTALL: copy this file to .github/workflows/deploy-oracle.yml (GitHub web UI: Actions -> New workflow -> set up yourself),
+#          the git token on this PC lacks the `workflow` scope so it cannot push workflow files itself.
+# Repo secrets needed: ORACLE_HOST (public IP or hostname), ORACLE_SSH_KEY (private key whose public half is on the VM),
+# optional ORACLE_USER (default ubuntu).
+name: deploy-oracle
+on:
+  push:
+    branches: [master, main]
+  workflow_dispatch:
+concurrency: deploy-oracle
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      HAS_HOST: ${{ secrets.ORACLE_HOST != '' }}
+    steps:
+      - if: env.HAS_HOST == 'true'
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.ORACLE_HOST }}
+          username: ${{ secrets.ORACLE_USER || 'ubuntu' }}
+          key: ${{ secrets.ORACLE_SSH_KEY }}
+          script: bash /opt/atlas/src/deploy/oracle/deploy.sh
