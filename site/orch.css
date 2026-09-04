@@ -23,7 +23,7 @@
 .op.live .b::after { content: ""; display: inline-block; width: 5px; height: 11px; background: var(--c); vertical-align: -1px; margin-left: 2px; animation: vcur 1s steps(2) infinite; }
 .orch-merge { padding: 10px 14px; border-bottom: 1px solid var(--line); border-left: 3px solid var(--line); transition: border-color .3s; }
 .orch-merge.live { border-left-color: var(--ok); }
-.orch-merge p { margin: 0; font-size: 13px; line-height: 1.45; color: var(--text); min-height: 20px; }
+.orch-merge p { margin: 0; font-size: 13px; line-height: 1.45; color: var(--text); min-height: 20px; white-space: pre-line; max-height: 120px; overflow: hidden; }
 .orch-merge .q { display: inline-block; margin-top: 8px; font-family: var(--mono); font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: #fff; background: var(--ok); padding: 4px 8px; border-radius: 3px; }
 .orch-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0; }
 .orch-stats span { padding: 8px 10px; font-family: var(--mono); font-size: 9.5px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); border-right: 1px solid var(--line); }
@@ -31,3 +31,12 @@
 .orch-stats b { display: block; font-family: Inter, sans-serif; font-size: 18px; font-weight: 600; letter-spacing: -.01em; color: var(--text); font-variant-numeric: tabular-nums; margin-bottom: 1px; }
 @media (max-width: 960px) { .orch-panels { grid-template-columns: 1fr 1fr; } #orchCanvas { height: 200px; } }
 @media (max-width: 520px) { .orch-panels { grid-template-columns: 1fr; } .orch-stats { grid-template-columns: 1fr 1fr; } .orch-stats span:nth-child(2) { border-right: 0; } }
+
+/* live / replay badge + error state (orch.js event engine) */
+.orch-mode { display: inline-block; margin-left: 8px; font-family: var(--mono); font-size: 9.5px; letter-spacing: .12em; text-transform: uppercase; padding: 2px 7px; border-radius: 3px; vertical-align: 1px; background: var(--panel2); color: var(--muted); border: 1px solid var(--line); }
+.orch-mode.live { background: var(--ok-soft); color: var(--ok); border-color: transparent; }
+.orch-mode.live::before { content: ""; display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--ok); margin-right: 5px; animation: vcur 1.2s steps(2) infinite; }
+.orch-mode.replay { background: var(--accent-soft); color: var(--accent); border-color: transparent; }
+.op.err { opacity: 1; border-left-color: var(--danger); } .op.err .st { color: var(--danger); }
+.orch-merge.done { border-left-color: var(--ok); }
+.orch-panels:empty { display: none; }

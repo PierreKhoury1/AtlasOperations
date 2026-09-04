@@ -222,7 +222,7 @@ def ensure_demo_desk() -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------- auth + desk context
-PUBLIC_API = {"/api/health", "/api/stats", "/api/me", "/api/vision/demo", "/api/vision/demo/ask"}
+PUBLIC_API = {"/api/health", "/api/stats", "/api/me", "/api/vision/demo", "/api/vision/demo/ask", "/api/orch/live"}
 
 
 def current_user() -> dict[str, Any] | None:
@@ -389,6 +389,25 @@ def logout():
 def api_me():
     u = current_user()
     return jsonify(u or {"id": None, "name": "Guest", "email": "", "company": "", "open": OPEN})
+
+
+from . import showrun as _SR
+
+_SHOW = _SR.ShowRunner({"store": store, "desk_configs": desk_configs, "mode": _mode, "templates": templates, "template": DEFAULT_TEMPLATE})
+
+
+@app.get("/api/orch/live")
+def api_orch_live():
+    """Public: the site hero's live orchestration feed (a real run on the free model while people watch).
+    ?since=<n> returns events after index n; ?run=<id> lets the client notice a new run. Polling, not SSE, so it
+    never holds a gunicorn thread."""
+    try:
+        since = int(request.args.get("since", "0") or 0)
+    except ValueError:
+        since = 0
+    resp = jsonify(_SHOW.snapshot(since, request.args.get("run", "")))
+    resp.headers["Cache-Control"] = "no-store"
+    return resp
 
 
 @app.get("/api/health")
