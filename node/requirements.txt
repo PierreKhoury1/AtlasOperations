@@ -1,0 +1,10 @@
+# Atlas Vision Node - CPU only (Oracle A1 ARM64, Hetzner, NUC). Torch CPU wheels come from the PyTorch index
+# (see Dockerfile); on ARM64 the PyPI wheels are already CPU-only.
+ultralytics>=8.3
+openvino>=2024.6
+torch>=2.2
+torchvision>=0.17
+opencv-python>=4.10
+numpy>=1.26
+httpx>=0.27
+lap>=0.5.12

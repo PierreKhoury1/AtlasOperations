@@ -1,0 +1,31 @@
+{
+  "hook": "https://atlas-ops.onrender.com/hook/YOUR_DESK_TOKEN/vision",
+  "model": "yolov8n.pt",
+  "device": "openvino",
+  "imgsz": 640,
+  "conf": 0.35,
+  "vid_stride": 2,
+  "heartbeat_min": 30,
+  "max_posts_per_min": 20,
+  "cameras": [
+    {
+      "name": "counter",
+      "source": "rtsp://user:password@camera-host:554/Streaming/Channels/101",
+      "watch_for": ["person"],
+      "min_count": 3,
+      "dwell_s": 0,
+      "hours": "",
+      "cooldown_s": 180
+    },
+    {
+      "name": "rear door",
+      "source": "rtsp://user:password@camera-host:554/Streaming/Channels/201",
+      "watch_for": ["person"],
+      "min_count": 1,
+      "dwell_s": 45,
+      "hours": "08:00-20:00",
+      "alert_outside_hours": true,
+      "cooldown_s": 300
+    }
+  ]
+}

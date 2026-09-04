@@ -1,0 +1,19 @@
+# docker compose -f node/docker-compose.yml up -d --build      (run from the repo root)
+services:
+  atlas-node:
+    build:
+      context: ..
+      dockerfile: node/Dockerfile
+    image: atlas-node
+    container_name: atlas-node
+    restart: unless-stopped
+    environment:
+      - ATLAS_HOOK=${ATLAS_HOOK:-}          # or put "hook" in config/node.json
+    volumes:
+      - /opt/atlas-node/config:/config     # node.json lives here
+      - /opt/atlas-node/models:/models     # weights + OpenVINO export cache
+    ports:
+      - "127.0.0.1:8765:8765"              # health JSON, loopback only (curl localhost:8765 over SSH)
+    logging:
+      driver: json-file
+      options: { max-size: "20m", max-file: "5" }
