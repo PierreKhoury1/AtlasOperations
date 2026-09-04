@@ -309,7 +309,7 @@ function selectNode(key) {
   const I = $('#ds-insp'); I.classList.add('on');
   const bp = DSG.bp;
   if (key === 'atlas') {
-    I.innerHTML = `<h3><i style="background:#0b5fcb"></i>Atlas${xbtn()}</h3><p class="hint" style="margin:6px 0 10px">Orchestrator. Plans each task, delegates to the specialists, reviews their work, updates the CRM and queues every outbound message for your approval. Always present; configured by Atlas Ops.</p>
+    I.innerHTML = `<h3><i style="background:#0b5fcb"></i>Atlas${xbtn()}</h3><p class="hint" style="margin:6px 0 10px">Orchestrator. Plans each task, delegates to the specialists, reviews their work, updates the CRM and queues every outbound message for your approval. Always present; configured by Atlas Desks.</p>
       <label>Tools</label><div class="md" style="font-size:12px;color:var(--muted)">delegate · crm_lookup · crm_update · queue_action · http_request · schedule_task · mcp · run_python · remember · recall</div>
       <label>Specialists</label><div class="md" style="font-size:12px;color:var(--muted)">${esc(bp.agents.map(a => a.name).join(' · '))}</div>`;
     return;

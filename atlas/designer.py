@@ -30,7 +30,7 @@ STATUS_MARK = "\x00"                      # on_token prefix for a status line in
 CONNECTOR_KINDS = ("smtp", "imap", "http", "mcp", "webhook", "hermes_agent", "higgsfield")
 TRIGGER_KINDS = ("webhook", "inbox", "schedule", "manual")
 
-DESIGNER_SYSTEM = """You are the Atlas solutions designer at Atlas Ops, an AI-operations consultancy. You are on a scoping call
+DESIGNER_SYSTEM = """You are the Atlas solutions designer at Atlas Desks, an AI-operations consultancy. You are on a scoping call
 with a business owner. Your job: understand their business, find the highest-value processes to automate, and design
 a "desk" — a team of AI agents run by an orchestrator called Atlas — that will do that work for them.
 

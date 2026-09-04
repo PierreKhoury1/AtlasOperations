@@ -1632,7 +1632,7 @@ def api_vision_demo():
                "messages": [{"role": "system", "content": system},
                             {"role": "user", "content": [{"type": "text", "text": user_txt},
                                                          {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64," + base64.b64encode(jpeg).decode()}}]}]}
-    headers = _demo_headers(key, "Atlas Ops site vision demo")
+    headers = _demo_headers(key, "Atlas Desks site vision demo")
 
     return Response(_demo_stream(base, headers, payload, model), mimetype="text/event-stream", headers=hdr)
 
@@ -1753,7 +1753,7 @@ def api_vision_demo_ask():
               "no markdown, no lists. Never identify a person.\n\nEVENT LOG\n" + log)
     payload = {"model": model, "max_tokens": 160, "temperature": 0.2, "stream": True,
                "messages": [{"role": "system", "content": system}, {"role": "user", "content": q}]}
-    headers = _demo_headers(key, "Atlas Ops site vision ask")
+    headers = _demo_headers(key, "Atlas Desks site vision ask")
     return Response(_demo_stream(base, headers, payload, model, first={"used": used, "of": len(events)}),
                     mimetype="text/event-stream", headers=hdr)
 

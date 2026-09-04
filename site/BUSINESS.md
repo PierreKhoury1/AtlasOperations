@@ -1,4 +1,4 @@
-# Atlas Ops — business one-pager
+# Atlas Desks — business one-pager
 
 **What it is.** An AI-operations consultancy. Clients bring a business and a process; we install and *operate* an AI desk (a team of specialised agents + approval queue) for one function, then improve it monthly. Not "AI runs your company" — one function, done properly, human approval on anything sensitive.
 
@@ -52,6 +52,6 @@ Not the framework. Industry-specific workflows, integrations, accumulated operat
 ## Before launch — replace placeholders
 
 - Legal entity, address, company number in `privacy.html`
-- Real inbox for `BRAND.email` in `script.js` (currently `hello@atlasops.co`, domain not registered)
+- Real inbox for `BRAND.email` in `script.js` (currently `hello@atlasdesks.com`, domain not registered)
 - Decide final brand name (change `BRAND.name` + `<title>`/OG tags)
 - Host: Render static site (same flow as BOOKLI) or Netlify — no backend needed

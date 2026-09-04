@@ -1,4 +1,4 @@
-/* Cinema — scroll-driven motion for the Atlas Ops site.
+/* Cinema — scroll-driven motion for the Atlas Desks site.
    GSAP + ScrollTrigger (+ Lenis inertia scroll when present). Everything reverses
    when you scroll back up. Falls back to IntersectionObserver reveals when GSAP is
    missing or the visitor prefers reduced motion. */

@@ -1,10 +1,10 @@
-# Atlas Ops — what the business is, how it makes money, how we find clients
+# Atlas Desks — what the business is, how it makes money, how we find clients
 
 *Written 1 September 2026. Everything in "What exists today" is running code, not a plan.*
 
 ## 1. The business in one paragraph
 
-Atlas Ops is an **AI-operations consultancy**. A small business tells us which process eats its week — answering enquiries, writing proposals, triaging an inbox, chasing quotes — and we **install and operate a "desk"**: a team of AI agents, run by an orchestrator called Atlas, that does that work every day. Nothing customer-facing leaves without the owner's approval. We charge a setup fee to design and install the desk and a monthly fee to run, monitor and improve it. We sell an outcome ("your enquiries are answered within the hour, qualified, and in your CRM"), not software.
+Atlas Desks is an **AI-operations consultancy**. A small business tells us which process eats its week — answering enquiries, writing proposals, triaging an inbox, chasing quotes — and we **install and operate a "desk"**: a team of AI agents, run by an orchestrator called Atlas, that does that work every day. Nothing customer-facing leaves without the owner's approval. We charge a setup fee to design and install the desk and a monthly fee to run, monitor and improve it. We sell an outcome ("your enquiries are answered within the hour, qualified, and in your CRM"), not software.
 
 The customer is an owner-led business with 5–250 staff — estate and lettings agents, clinics and dental groups, trades, agencies, consultancies, accountancies, e-commerce brands. They will never write a prompt or manage an API key. That is the whole point.
 
@@ -73,7 +73,7 @@ Businesses where **response time visibly converts to money** and enquiries arriv
 Signals the studio already detects from a website: a contact form, a published WhatsApp number, no live chat, no booking widget, reviews mentioning slow replies. Those are the prospects.
 
 ### How
-1. **Let the product prospect.** A "Growth desk" for Atlas Ops itself: agents research target businesses (Hermes Agent browses), score fit from the same signals the studio uses, and draft a personalised first email — every email waits in the approval queue for Pierre. Same machine we sell; first real workload. (Started 1 Sep 2026.)
+1. **Let the product prospect.** A "Growth desk" for Atlas Desks itself: agents research target businesses (Hermes Agent browses), score fit from the same signals the studio uses, and draft a personalised first email — every email waits in the approval queue for Pierre. Same machine we sell; first real workload. (Started 1 Sep 2026.)
 2. **Show, don't pitch.** The email offers one thing: *"Send me a link, I'll send back a one-page blueprint of what we'd automate first — free, no call."* The studio produces that page in under a minute. Reply rate on a concrete artefact beats any cold pitch.
 3. **Scoping call → paid pilot.** 30 minutes, share the blueprint, agree one workflow and the success number (e.g. "every web enquiry answered inside an hour, 7 days a week"). Invoice the pilot setup fee before install.
 4. **Channels in order of expected yield:** warm network and existing contacts (BOOKLI outreach lists in Jerusalem/Ramallah are a second market); LinkedIn direct to owners with the blueprint offer; local business groups and trade bodies (Checkatrade-listed firms, BDA/dental groups, ARLA agents); partnerships with bookkeepers and web agencies who already serve these SMEs and can refer.

@@ -22,7 +22,7 @@ from urllib.parse import urljoin, urlparse
 MAX_LINKS = 4
 MAX_PAGES = 8
 PAGE_CHARS = 5000
-UA = "AtlasOps-Designer/1.0 (+business scoping; reads public pages only)"
+UA = "AtlasDesks-Designer/1.0 (+business scoping; reads public pages only)"
 _INTERESTING = re.compile(r"(about|service|what-we-do|treatment|pricing|price|fees|plans|contact|book|appointment|team|faq|"
                           r"product|shop|menu|locations?|areas|reviews?|testimonials|how-it-works|case|work|portfolio)", re.I)
 _SKIP = re.compile(r"(privacy|cookie|terms|login|sign-?in|cart|wp-|\.pdf|\.jpg|\.png|mailto:|tel:|javascript:|#)", re.I)
@@ -282,7 +282,7 @@ def heuristic_profile(crawl_result: dict[str, Any], links: list[str]) -> dict[st
             "errors": crawl_result["errors"], "links": links}
 
 
-STUDY_PROMPT = """You are the Atlas Ops solutions designer. Below is text scraped from a business's public web pages, plus
+STUDY_PROMPT = """You are the Atlas Desks solutions designer. Below is text scraped from a business's public web pages, plus
 signals detected in the HTML. Produce a compact JSON profile for a scoping call. Ground every claim in the text; where
 unknown, use "" or []. Then write the opening message you would say to the owner: 2-4 sentences showing you understood
 their business (name, what they do, who for, where, how customers reach them), followed by the 2-3 processes you would

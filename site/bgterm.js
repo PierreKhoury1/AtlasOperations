@@ -1,4 +1,4 @@
-/* Background film for the Atlas Ops site: a canvas of terminal panes running desk scripts and one pane
+/* Background film for the Atlas Desks site: a canvas of terminal panes running desk scripts and one pane
    streaming model tokens. Rendered at half resolution and blurred by CSS (see cinema.css .film canvas).
    Every `.film` gets its own canvas; loops pause when off-screen or the tab is hidden. No video needed. */
 (function () {

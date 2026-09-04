@@ -1,5 +1,5 @@
 // ---- brand config: change once here ----
-const BRAND = { name: "Atlas Ops", email: "hello@atlasops.co" };
+const BRAND = { name: "Atlas Desks", email: "hello@atlasdesks.com" };
 
 document.querySelectorAll("[data-brand]").forEach(el => (el.textContent = BRAND.name));
 document.querySelectorAll("[data-email]").forEach(el => { el.textContent = BRAND.email; el.href = "mailto:" + BRAND.email; });

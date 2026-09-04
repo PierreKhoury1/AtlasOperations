@@ -33,7 +33,7 @@ class Fake:
         if "api.resend.com/emails" in url:
             return httpx.Response(200, json={"id": "re_123"})
         if "api.resend.com/domains" in url:
-            return httpx.Response(200, json={"data": [{"name": "atlasops.co"}]})
+            return httpx.Response(200, json={"data": [{"name": "atlasdesks.com"}]})
         if "graph.facebook.com" in url and url.endswith("/messages"):
             return httpx.Response(200, json={"messages": [{"id": "wamid.ABC"}]})
         if "graph.facebook.com" in url:
@@ -94,11 +94,11 @@ def test_phone_and_mask():
 
 
 def test_resend_send_and_test(fake):
-    out = I.send_resend({"api_key": "re_k", "from_email": "desk@atlasops.co", "from_name": "Atlas"}, "lead@x.com", "Hi", "Body")
+    out = I.send_resend({"api_key": "re_k", "from_email": "desk@atlasdesks.com", "from_name": "Atlas"}, "lead@x.com", "Hi", "Body")
     assert "re_123" in out
     m, url, body = fake.sent("emails")[0]
-    assert body["from"] == "Atlas <desk@atlasops.co>" and body["to"] == ["lead@x.com"] and body["text"] == "Body"
-    assert "atlasops.co" in I.test_resend({"api_key": "re_k"})
+    assert body["from"] == "Atlas <desk@atlasdesks.com>" and body["to"] == ["lead@x.com"] and body["text"] == "Body"
+    assert "atlasdesks.com" in I.test_resend({"api_key": "re_k"})
     with pytest.raises(RuntimeError):
         I.send_resend({"api_key": ""}, "a@b.c", "s", "b")
 
@@ -228,7 +228,7 @@ def test_portal_real_send_crm_mirror_slack(app_client, fake):
     assert set(R["kinds"]) >= {"resend", "whatsapp", "twilio", "hubspot", "pipedrive", "gcal", "slack"}
     assert R["channels"] == {"email": False, "whatsapp": False, "sms": False, "booking": False}
     assert R["whatsapp_hook_url"].endswith("/whatsapp") and R["sms_hook_url"].endswith("/sms")
-    for kind, name, cfg in [("resend", "resend", {"api_key": "re_k", "from_email": "desk@atlasops.co", "from_name": "Maya"}),
+    for kind, name, cfg in [("resend", "resend", {"api_key": "re_k", "from_email": "desk@atlasdesks.com", "from_name": "Maya"}),
                             ("hubspot", "hubspot", {"access_token": "pat"}),
                             ("slack", "slack", {"webhook_url": "https://hooks.slack.com/services/T/B/X"})]:
         r = J(c.post("/api/connectors", json={"kind": kind, "name": name, "config": cfg}))
@@ -245,9 +245,9 @@ def test_portal_real_send_crm_mirror_slack(app_client, fake):
     slack_before = len(fake.sent("hooks.slack.com"))
     assert slack_before >= 1                                          # approval ping from the orchestrator
     row = J(c.post(f"/api/actions/{pend[0]['id']}/decide", json={"status": "approved", "note": "go"}))
-    assert row["status"] == "sent" and "sent via Resend as desk@atlasops.co" in row["note"], row["note"]
+    assert row["status"] == "sent" and "sent via Resend as desk@atlasdesks.com" in row["note"], row["note"]
     sent = fake.sent("api.resend.com/emails")[-1][2]
-    assert sent["to"] == ["hannah@x.com"] and sent["from"] == "Maya <desk@atlasops.co>"
+    assert sent["to"] == ["hannah@x.com"] and sent["from"] == "Maya <desk@atlasdesks.com>"
     assert len(fake.sent("hooks.slack.com")) == slack_before + 1      # "Sent" ping
     assert fake.sent("/objects/contacts/search"), "contact should be mirrored to HubSpot on send"
     detail = J(c.get(f"/api/runs/{row['run_id']}"))
