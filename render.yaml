@@ -19,3 +19,9 @@ services:
         value: "0.8"
       - key: PYTHON_VERSION
         value: "3.11.9"
+      - key: DATABASE_URL     # postgres://... (Supabase / Render Postgres). Set in the dashboard; without it SQLite is wiped on every deploy.
+        sync: false
+      - key: VISION_DEMO_MODEL
+        value: minimax/minimax-m3:free
+      - key: VISION_DEMO_KEY  # OpenRouter key used only by the public site demos (narration + ask)
+        sync: false

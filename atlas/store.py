@@ -1,4 +1,5 @@
-"""SQLite store: runs/events, CRM contacts, approval queue, leads, users and desks.
+"""Store: runs/events, CRM contacts, approval queue, leads, users and desks. SQLite locally, PostgreSQL when
+DATABASE_URL is set (Render's disk is ephemeral - see atlas/db.py).
 
 Multi-tenant: every business object belongs to a desk (`desk_id`). `Store.for_desk(desk_id)` returns a
 `DeskStore` view that pre-binds the desk so the orchestrator and the API never pass it explicitly.
@@ -6,11 +7,11 @@ Multi-tenant: every business object belongs to a desk (`desk_id`). `Store.for_de
 from __future__ import annotations
 
 import json
-import sqlite3
 import threading
 import time
 from typing import Any
 
+from . import db as DB
 from .config import DATA_DIR
 
 DB_PATH = DATA_DIR / "atlas.db"
@@ -91,20 +92,28 @@ def _rows(cur) -> list[dict[str, Any]]:
 class Store:
     STAGES = STAGES
 
-    def __init__(self, path=DB_PATH):
+    def __init__(self, path=DB_PATH, url: str | None = None):
+        """SQLite file at `path`, or PostgreSQL when `url` is a postgres:// URL (see atlas/db.py)."""
         self._lock = threading.Lock()
-        self._conn = sqlite3.connect(str(path), check_same_thread=False)
+        self._conn = DB.connect(path, url)
+        self.backend = "postgres" if isinstance(self._conn, DB.PgConn) else "sqlite"
         self._conn.executescript(_SCHEMA)
         for table, col, decl in _MIGRATIONS:
-            have = {r[1] for r in self._conn.execute(f"PRAGMA table_info({table})")}
-            if col not in have:
-                self._conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {decl}")
-        # the old schema had a UNIQUE index on contacts.email; drop it so two desks can hold the same person
-        for r in self._conn.execute("PRAGMA index_list(contacts)").fetchall():
-            if r[2] == 1 and r[1].startswith("sqlite_autoindex"):
-                self._rebuild_contacts()
-                break
+            if col not in DB.columns(self._conn, table):
+                DB.add_column(self._conn, table, col, decl)
+        # the old SQLite schema had a UNIQUE index on contacts.email; drop it so two desks can hold the same person
+        if self.backend == "sqlite":
+            for r in self._conn.execute("PRAGMA index_list(contacts)").fetchall():
+                if r[2] == 1 and r[1].startswith("sqlite_autoindex"):
+                    self._rebuild_contacts()
+                    break
         self._conn.commit()
+
+    def ping(self) -> bool:
+        try:
+            return self._conn.execute("SELECT 1").fetchone()[0] == 1
+        except Exception:
+            return False
 
     def _rebuild_contacts(self):
         c = self._conn

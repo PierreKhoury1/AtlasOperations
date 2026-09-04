@@ -42,7 +42,8 @@ STATIC_DIR = Path(__file__).resolve().parent / "static"
 DB_PATH = cfg.DATA_DIR / "desk.db"
 
 app = Flask(__name__, static_folder=None)
-store = Store(DB_PATH)
+# DATABASE_URL (postgres://...) makes accounts, desks and approvals survive deploys; without it SQLite in DATA_DIR.
+store = Store(DB_PATH, url=os.environ.get("DATABASE_URL", "").strip() or None)
 
 
 def _secret() -> str:
@@ -412,7 +413,7 @@ def api_orch_live():
 
 @app.get("/api/health")
 def api_health():
-    return jsonify({"ok": True, "mode": _mode()})
+    return jsonify({"ok": True, "mode": _mode(), "db": store.backend, "db_ok": store.ping()})
 
 
 # ---------------------------------------------------------------------------- static
