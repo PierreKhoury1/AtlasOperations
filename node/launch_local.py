@@ -115,7 +115,7 @@ def main() -> int:
     say("hook:", re.sub(r"/hook/[^/]+", "/hook/<token>", hook))
     say("cameras:", ", ".join(c["name"] for c in cfg["cameras"]))
     os.environ.setdefault("OPENCV_VIDEOIO_PRIORITY_MSMF", "0")     # Windows webcams open reliably through DirectShow
-    webbrowser.open(PORTAL + "/cameras")
+    webbrowser.open(PORTAL + "/desk#cameras")
     sys.path.insert(0, str(HERE))
     import atlas_node
     return atlas_node.main(["--config", str(CFG)])
