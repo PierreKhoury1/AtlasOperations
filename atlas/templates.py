@@ -310,7 +310,24 @@ SITE_WATCH: dict[str, Any] = {
 }
 
 
+
+BLANK: dict[str, Any] = {
+    "business": {
+        "name": "My business", "model": "blank", "tagline": "", "description": "",
+        "services": [], "target_clients": "",
+        "tone": "Clear, warm, specific. Short messages with one next step.",
+        "currency": "GBP", "pricing_notes": "", "extra_context": "",
+    },
+    "agents": [
+        _atlas("You currently have no specialists. Do the work yourself, or - if the task clearly needs a team - "
+               "use assemble_team to create focused specialists for this run. Anything customer-facing goes through "
+               "queue_action so the owner can approve it."),
+    ],
+    "workflows": [],
+}
+
 BUILTIN: dict[str, dict[str, Any]] = {
+    "blank": BLANK,
     "sales_desk": SALES_DESK,
     "site_watch": SITE_WATCH,
     "consultancy": CONSULTANCY,
@@ -344,6 +361,8 @@ def export_current(name: str, business: dict, agents: list, workflows: list) -> 
 
 # ---------------------------------------------------------------------------- desk catalogue (onboarding)
 DESK_TYPES: list[dict[str, Any]] = [
+    {"id": "blank", "label": "Blank desk", "tagline": "Start from scratch: just Atlas. Add agents, cameras and integrations as you go.",
+     "does": ["Atlas alone on any task", "Add specialists yourself", "Or ask Atlas to design the team"], "for": "Anyone who wants to build it up piece by piece"},
     {"id": "sales_desk", "label": "Sales desk", "tagline": "Inbound leads answered, researched, drafted, CRM kept clean.",
      "does": ["Research every lead", "Personalised first reply", "CRM stage + next action", "Follow-ups"], "for": "Estate agents, clinics, trades, B2B services"},
     {"id": "site_watch", "label": "Site watch desk", "tagline": "Cameras and sensors watched, incidents logged, the right person told, questions answered over footage.",

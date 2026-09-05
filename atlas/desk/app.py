@@ -31,6 +31,7 @@ from .. import designer as DS
 from .. import integrations as I
 from .. import metrics as MX
 from .. import templates
+from .. import tools as T
 from .. import vision as V
 from . import scheduler
 from ..orchestrator import Event, Orchestrator
@@ -135,6 +136,11 @@ def desk_configs(desk: dict[str, Any]) -> dict[str, Any]:
     business = {**t["business"], **(over.get("business") or {})}
     agents = over.get("agents") or t["agents"]
     workflows = over.get("workflows") or t["workflows"]
+    for a in agents:                                   # a roster edited in the portal is stored raw: fill what the engine expects
+        a.setdefault("enabled", True)
+        a.setdefault("tools", ["read_file", "list_files"])
+        if a.get("id") != "atlas" and templates._SPECIALIST_SUFFIX.strip() not in (a.get("system_prompt") or ""):
+            a["system_prompt"] = (a.get("system_prompt") or f"You are {a.get('name', a.get('id'))}, {a.get('role', '')}.").rstrip() + templates._SPECIALIST_SUFFIX
     for a in agents:                                   # desks built before the rename stored the orchestrator as "hermes"
         if a.get("id") == "hermes":
             a["id"], a["name"] = "atlas", "Atlas"
@@ -485,7 +491,62 @@ def desk_static(path):
 def _desk_public(d: dict[str, Any]) -> dict[str, Any]:
     b = (d.get("config") or {}).get("business") or {}
     return {"id": d["id"], "name": d["name"], "template": d["template"], "tier": d.get("tier", "free"),
-            "business_name": b.get("name", d["name"]), "created": d.get("created")}
+            "business_name": b.get("name", d["name"]), "created": d.get("created"),
+            "ui_level": (d.get("config") or {}).get("ui_level") or "simple"}
+
+
+# tools a specialist may be given from the Team page. Everything else in ORCHESTRATOR_ONLY stays with Atlas;
+# finish / assemble_team are never assignable. Approvals still gate every outbound tool.
+SPECIALIST_OK = {"crm_lookup", "crm_update", "queue_action", "camera_look", "camera_events", "remember", "recall",
+                 "browse", "http_request", "calendar_free_slots", "calendar_book", "generate_media", "video_describe"}
+NEVER_ASSIGN = {"finish", "assemble_team"}
+_COLOURS = ["#7c3aed", "#1f9d63", "#db2777", "#ea580c", "#b45309", "#0891b2"]
+
+
+def _clean_roster(raw: Any, current: list[dict[str, Any]]) -> list[dict[str, Any]] | str:
+    """Validate a roster from the portal. Returns the cleaned list or an error string."""
+    if not isinstance(raw, list) or not raw:
+        return "agents must be a non-empty list"
+    prev = {a["id"]: a for a in current}
+    out: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for i, a in enumerate(raw):
+        if not isinstance(a, dict):
+            return f"agent #{i + 1} is not an object"
+        aid = re.sub(r"[^a-z0-9_]+", "_", str(a.get("id") or a.get("name") or "").strip().lower()).strip("_")[:24]
+        if not aid:
+            return f"agent #{i + 1} needs a name"
+        if aid in seen:
+            return f"two agents share the id '{aid}'"
+        seen.add(aid)
+        name = str(a.get("name") or aid).strip()[:40]
+        role = str(a.get("role") or "").strip()[:200]
+        prompt = str(a.get("system_prompt") or "").strip()[:6000]
+        tools_in = [str(t) for t in (a.get("tools") or []) if isinstance(t, str)]
+        if aid == "atlas":
+            tools = [t for t in tools_in if t in T.SCHEMAS or t == "mcp"]
+            for must in ("delegate", "list_agents", "save_deliverable", "read_file", "list_files"):
+                if must not in tools:
+                    tools.append(must)
+            prompt = prompt or templates._BASE_ATLAS_PROMPT
+            enabled = True
+        else:
+            tools = [t for t in tools_in if (t in T.SCHEMAS and (t not in T.ORCHESTRATOR_ONLY or t in SPECIALIST_OK)) or t == "mcp"]
+            tools = [t for t in tools if t not in NEVER_ASSIGN]
+            enabled = bool(a.get("enabled", True))
+        colour = str(a.get("color") or "").strip()
+        if not re.fullmatch(r"#[0-9a-fA-F]{6}", colour):
+            colour = prev.get(aid, {}).get("color") or ("#0b5fcb" if aid == "atlas" else _COLOURS[len(out) % len(_COLOURS)])
+        keep = prev.get(aid, {})
+        ent = {"id": aid, "name": name, "role": role, "enabled": enabled, "provider": keep.get("provider", ""),
+               "model": keep.get("model", "") if aid != "atlas" else "", "tools": tools, "system_prompt": prompt, "color": colour}
+        if keep.get("engine") in ("atlas", "hermes_agent"):
+            ent["engine"] = keep["engine"]
+        out.append(ent)
+    if "atlas" not in seen:
+        return "the roster must include Atlas (id 'atlas')"
+    out.sort(key=lambda x: 0 if x["id"] == "atlas" else 1)
+    return out
 
 
 @app.get("/api/templates")
@@ -543,6 +604,22 @@ def api_update_desk(did):
         conf = d.get("config") or {}
         conf["business"] = {**(conf.get("business") or {}), **body["business"]}
         fields["config"] = conf
+    if body.get("ui_level") in ("simple", "full"):
+        conf = fields.get("config") or d.get("config") or {}
+        conf["ui_level"] = body["ui_level"]
+        fields["config"] = conf
+    if body.get("reset_agents"):
+        conf = fields.get("config") or d.get("config") or {}
+        conf.pop("agents", None)
+        fields["config"] = conf
+    elif "agents" in body:
+        conf = fields.get("config") or d.get("config") or {}
+        cur = conf.get("agents") or templates.get(d.get("template") or DEFAULT_TEMPLATE)["agents"]
+        roster = _clean_roster(body["agents"], cur)
+        if isinstance(roster, str):
+            return jsonify({"error": roster}), 400
+        conf["agents"] = roster
+        fields["config"] = conf
     if isinstance(body.get("models"), dict):           # per-agent model landscape: {agent_id: {model, provider, engine}}
         conf = fields.get("config") or d.get("config") or {}
         cur = conf.get("models") or {}
@@ -597,10 +674,15 @@ def api_config():
         "mode": c["mode"], "live_ready": not reason, "live_reason": reason,
         "template": desk["template"], "tier": desk.get("tier", "free"), "business": c["business"],
         "desk": _desk_public(desk),
+        "ui_level": (desk.get("config") or {}).get("ui_level") or "simple",
+        "custom_roster": bool((desk.get("config") or {}).get("agents")),
+        "tools": [{"id": n, "description": (sc.get("description") or "").split(". ")[0][:140], "orchestrator_only": n in T.ORCHESTRATOR_ONLY}
+                  for n, sc in T.SCHEMAS.items() if n not in NEVER_ASSIGN] + [{"id": "mcp", "description": "Tools from connected MCP servers", "orchestrator_only": False}],
         "agents": [{"id": a["id"], "name": a["name"], "role": a.get("role", ""), "color": a.get("color", ""),
                     "tools": a.get("tools", []), "model": a.get("model", "") or "(provider default)",
                     "engine": a.get("engine") or "atlas", "provider": a.get("provider") or "",
-                    "engine_note": a.get("engine_note") or ""} for a in c["agents"]],
+                    "engine_note": a.get("engine_note") or "", "enabled": a.get("enabled", True),
+                    "system_prompt": (a.get("system_prompt") or "").replace(templates._SPECIALIST_SUFFIX, "")} for a in c["agents"]],
         "workflows": [{"id": w["id"], "name": w["name"], "description": w.get("description", "")} for w in c["workflows"]],
         "protected": not OPEN,
     })

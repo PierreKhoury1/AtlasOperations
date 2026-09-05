@@ -155,6 +155,37 @@ tr.click{cursor:pointer}tr.click:hover{background:var(--panel2)}
 .choice small{color:var(--muted);font-size:12px;display:block;line-height:1.4}
 .choice ul{margin:8px 0 0;padding-left:16px;color:var(--muted);font-size:12px}
 .hint{color:var(--faint);font-size:12px;margin-top:4px}
+/* ---------- start page */
+.start{max-width:920px}
+.start .choices{grid-template-columns:repeat(3,1fr);gap:14px}
+.start .choice{cursor:default;padding:20px 22px;display:flex;flex-direction:column;gap:6px;min-height:230px;position:relative}
+.start .choice:hover{border-color:var(--line)}
+.start .choice.rec{border-color:var(--accent)}
+.start .choice .tag{position:absolute;top:12px;right:12px;color:var(--accent);border-color:var(--accent);background:var(--accent-soft)}
+.start .choice b{font-size:16px;margin:8px 0 2px}
+.start .choice small{font-size:13px;flex:1}
+.start .choice .row{margin-top:12px}
+.start .choice input{flex:1;min-width:0}
+@media(max-width:900px){.start .choices{grid-template-columns:1fr}}
+/* ---------- simple / full navigation */
+aside.simple [data-lvl="full"]{display:none}
+.lvl{display:block;width:100%;margin-top:10px;background:none;border:1px dashed var(--line2);color:var(--muted);padding:7px 10px;border-radius:3px;font:inherit;font-size:12px;font-weight:600;cursor:pointer;text-align:left}
+.lvl:hover{color:var(--accent);border-color:var(--accent)}
+/* ---------- team page */
+.tm{border-top:3px solid var(--c,#7c3aed)}
+.tm.off{opacity:.6}
+.tm .th{display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap}
+.tm .th input[type=color]{width:30px;height:30px;padding:2px;flex:0 0 auto;cursor:pointer}
+.tm .th .nm{flex:1;min-width:120px;font-weight:600}
+.tm .th .rl{flex:1.4;min-width:140px}
+.tm .th .act{margin:0;display:flex;gap:5px;align-items:center;white-space:nowrap;font-size:12px}
+.tm .th .act input{width:auto}
+.tm .sp{font-family:var(--mono);font-size:12px;min-height:0}
+.tchips{display:flex;gap:6px;flex-wrap:wrap}
+.tchip{display:inline-flex;align-items:center;gap:5px;font-family:var(--mono);font-size:11px;padding:3px 8px;border:1px solid var(--line);border-radius:2px;background:var(--panel2);color:var(--muted);cursor:pointer;margin:0;font-weight:500}
+.tchip input{width:auto;margin:0}
+.tchip.on{border-color:var(--c,var(--accent));color:var(--text);background:var(--panel)}
+.tchip .g{color:var(--warn)}
 .ws{position:relative}
 .wsmenu{position:absolute;left:0;right:0;top:calc(100% + 4px);background:var(--panel);border:1px solid var(--line2);border-radius:var(--r);z-index:20;padding:6px;box-shadow:0 12px 32px rgba(16,22,29,.14)}
 .wsmenu button{display:block;width:100%;text-align:left;background:none;border:0;color:var(--text);padding:8px 10px;border-radius:3px;font:inherit;font-size:13px;cursor:pointer}
@@ -198,23 +229,25 @@ tr.click{cursor:pointer}tr.click:hover{background:var(--panel2)}
   <div class="brand"><i></i>Atlas Desk</div>
   <div class="ws" title="Switch desk" onclick="toggleWs(event)"><div><b id="bizname">…</b><small id="wshint">sales desk</small></div><div class="wsmenu hide" id="wsmenu"></div><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m7 15 5 5 5-5M7 9l5-5 5 5"/></svg></div>
   <nav id="nav">
-    <button data-p="design"><svg viewBox="0 0 24 24"><path d="M3 21v-4L16 4l4 4L7 21H3z"/><path d="m13 7 4 4"/><path d="M14 3h7v7"/></svg>Design studio</button>
-    <button data-p="dash" class="on"><svg viewBox="0 0 24 24"><path d="M3 12 12 3l9 9"/><path d="M5 10v10h14V10"/></svg>Dashboard</button>
+    <button data-p="design" data-lvl="full"><svg viewBox="0 0 24 24"><path d="M3 21v-4L16 4l4 4L7 21H3z"/><path d="m13 7 4 4"/><path d="M14 3h7v7"/></svg>Design studio</button>
+    <button data-p="dash" class="on"><svg viewBox="0 0 24 24"><path d="M3 12 12 3l9 9"/><path d="M5 10v10h14V10"/></svg>Home</button>
     <button data-p="live"><svg viewBox="0 0 24 24"><path d="M3 12h4l3-8 4 16 3-8h4"/></svg>Live desk <span class="dot" id="n-live"></span></button>
     <button data-p="leads"><svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c0-3.5 3-6 6.5-6s6.5 2.5 6.5 6"/><path d="M17 8h5M19.5 5.5v5"/></svg>Leads <span class="pill" id="n-leads">0</span></button>
     <button data-p="approvals"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="m8 12 3 3 5-6"/></svg>Approvals <span class="pill" id="n-pending">0</span></button>
-    <button data-p="crm"><svg viewBox="0 0 24 24"><ellipse cx="12" cy="6" rx="8" ry="3"/><path d="M4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6"/><path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/></svg>CRM</button>
+    <button data-p="team"><svg viewBox="0 0 24 24"><circle cx="12" cy="6" r="3"/><circle cx="6" cy="17" r="3"/><circle cx="18" cy="17" r="3"/><path d="M10.5 8.5 7.5 14M13.5 8.5l3 5.5M9 17h6"/></svg>Team</button>
+    <button data-p="crm" data-lvl="full"><svg viewBox="0 0 24 24"><ellipse cx="12" cy="6" rx="8" ry="3"/><path d="M4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6"/><path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/></svg>CRM</button>
     <div class="grp">Operate</div>
-    <button data-p="integrations"><svg viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1"/><path d="M14 11a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1"/></svg>Integrations</button>
     <button data-p="cameras"><svg viewBox="0 0 24 24"><path d="M3 8h4l2-3h6l2 3h4v11H3z"/><circle cx="12" cy="13" r="3.5"/></svg>Cameras <span class="pill" id="n-cams">0</span></button>
-    <button data-p="automations"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>Automations <span class="pill" id="n-jobs">0</span></button>
-    <div class="grp">Records</div>
-    <button data-p="runs"><svg viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13"/><path d="M3 6h.01M3 12h.01M3 18h.01"/></svg>Runs</button>
-    <button data-p="audit"><svg viewBox="0 0 24 24"><path d="M6 2h9l5 5v15H6z"/><path d="M14 2v6h6"/><path d="M9 13h7M9 17h7"/></svg>Audit log</button>
-    <button data-p="report"><svg viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>Monthly report</button>
-    <div class="grp">Account</div>
-    <button data-p="setup"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>Desk setup</button>
+    <button data-p="integrations" data-lvl="full"><svg viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1"/><path d="M14 11a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1"/></svg>Integrations</button>
+    <button data-p="automations" data-lvl="full"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>Automations <span class="pill" id="n-jobs">0</span></button>
+    <div class="grp" data-lvl="full">Records</div>
+    <button data-p="runs" data-lvl="full"><svg viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13"/><path d="M3 6h.01M3 12h.01M3 18h.01"/></svg>Runs</button>
+    <button data-p="audit" data-lvl="full"><svg viewBox="0 0 24 24"><path d="M6 2h9l5 5v15H6z"/><path d="M14 2v6h6"/><path d="M9 13h7M9 17h7"/></svg>Audit log</button>
+    <button data-p="report" data-lvl="full"><svg viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>Monthly report</button>
+    <div class="grp" data-lvl="full">Account</div>
+    <button data-p="setup" data-lvl="full"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>Desk setup</button>
   </nav>
+  <button class="lvl" id="lvl-btn" onclick="toggleLevel()" title="Switch between the simple view and the full framework">Show everything ›</button>
   <div class="mode">
     <div class="u"><div class="av" id="whoav">?</div><div><b id="who">…</b><small id="whoco"></small></div></div>
     Mode <b id="mode">…</b> · <span id="modehint"></span><br><a href="/" style="color:var(--muted)">← site</a> · <a href="/logout" style="color:var(--accent2)">Log out</a>
@@ -280,7 +313,22 @@ tr.click{cursor:pointer}tr.click:hover{background:var(--panel2)}
       <div class="full"><label style="display:flex;gap:8px;align-items:center;margin-top:4px"><input type="checkbox" id="ob-nofig" style="width:auto" checked> Block any money or fee figure in outbound messages (policy layer)</label></div>
     </div></div>
     <div class="panel step"><div class="ph"><h2><span class="num">4</span>Which brain?</h2><span class="hint" id="ob-modehint"></span></div><div class="pb"><div class="choices" id="ob-tiers"></div></div></div>
-    <div class="row"><button class="btn p" onclick="createDesk()">Create desk →</button><span class="hint">You can seed three sample leads right after and watch the desk run.</span><button class="btn sm" onclick="openStudio(true)">Use the Design studio instead</button></div>
+    <div class="row"><button class="btn p" onclick="createDesk()">Create desk →</button><span class="hint">You can seed three sample leads right after and watch the desk run.</span><button class="btn sm" onclick="openStudio(true)">Use the Design studio instead</button><button class="btn sm" onclick="showStart()">← Other ways to begin</button></div>
+  </div>
+</section>
+
+<!-- START (new desk) -->
+<section id="p-start" class="hide">
+  <div class="phead"><div><h1>New desk</h1><p class="lead">Three ways to begin. Every desk can be changed later.</p></div></div>
+  <div class="start">
+    <div class="choices">
+      <div class="choice rec"><span class="tag">recommended</span><b>Let Atlas design it</b><small>Chat for two minutes. Atlas studies your business, proposes the team and triggers, you approve, then you can change anything.</small>
+        <div class="row"><button class="btn p" onclick="openStudio(true)">Open the Design studio →</button></div></div>
+      <div class="choice"><b>Ready-made desk</b><small>Pick a sales, site-watch, consultancy, agency, SaaS or e-commerce desk and fill in a short form.</small>
+        <div class="row"><button class="btn" onclick="showOnboardingForm()">Choose a desk →</button></div></div>
+      <div class="choice"><b>Start from scratch</b><small>Just Atlas. Add agents, cameras and integrations yourself as you go.</small>
+        <div class="row"><input id="st-name" placeholder="Business name" onkeydown="if(event.key==='Enter')startBlank()"><button class="btn" id="st-go" onclick="startBlank()">Create →</button></div></div>
+    </div>
   </div>
 </section>
 
@@ -299,7 +347,7 @@ tr.click{cursor:pointer}tr.click:hover{background:var(--panel2)}
     <div class="pb"><div class="row"><input id="d-task" placeholder="e.g. Research our 5 nearest competitors and draft a one-page comparison · Chase every quote that went quiet this month · Prepare Monday's client update" style="flex:1" onkeydown="if(event.key==='Enter')dashTask()"><button class="btn p" onclick="dashTask()">Deploy the team →</button></div></div></div>
   <div class="grid g2" style="grid-template-columns:1.5fr 1fr">
     <div class="panel"><div class="ph"><h2>Live activity</h2><button class="link" onclick="go('audit')">Explore ›</button></div><div class="pb"><div class="log" id="dash-log" style="max-height:340px;border:0;padding:0;background:transparent">(nothing yet)</div></div></div>
-    <div class="panel"><div class="ph"><h2>Agents on this desk</h2><button class="link" onclick="go('setup')">Explore ›</button></div><div class="pb" id="agents"></div></div>
+    <div class="panel"><div class="ph"><h2>Agents on this desk</h2><button class="link" onclick="go('team')">Explore ›</button></div><div class="pb" id="agents"></div></div>
   </div>
   <div class="panel" style="margin-top:14px"><div class="ph"><h2>System health</h2><span id="hz-badge" class="tag">…</span></div>
     <div class="pb" id="hz-body"><div class="empty">Loading…</div></div></div>
@@ -344,6 +392,15 @@ tr.click{cursor:pointer}tr.click:hover{background:var(--panel2)}
   <h1>Approvals</h1><p class="lead">Outbound actions the agents want to take. Edit, approve or reject. Approved = sent (simulated in demo) and logged.</p>
   <div class="tabs"><button class="on" data-f="pending" onclick="setAf('pending')">Pending</button><button data-f="sent" onclick="setAf('sent')">Sent</button><button data-f="rejected" onclick="setAf('rejected')">Rejected</button><button data-f="" onclick="setAf('')">All</button></div>
   <div id="approvals" class="grid"></div>
+</section>
+
+<!-- TEAM -->
+<section id="p-team" class="hide">
+  <div class="phead"><div><h1>Team</h1><p class="lead">Who works on this desk and what each one may do. Atlas leads; specialists get focused jobs. Anything outbound still waits for your approval.</p></div>
+    <div class="ctl"><span class="tag pending hide" id="tm-unsaved">unsaved</span><button class="btn sm hide" id="tm-discard" onclick="teamDiscard()">Discard</button><button class="btn p" id="tm-save" onclick="saveTeam()" disabled>Save team</button><button class="btn" onclick="teamAdd()">+ Add agent</button><button class="btn" onclick="openStudio(true)">Ask Atlas to design it</button><button class="btn sm d hide" id="tm-reset" onclick="resetTeam()">Reset to template</button></div></div>
+  <div class="grid g2" id="tm-cards"><div class="empty">Loading…</div></div>
+  <div class="empty hide" id="tm-empty" style="margin-top:14px">Atlas works alone until you add specialists. <button class="link" style="color:var(--accent2);font-weight:600;background:none;border:0;cursor:pointer;font:inherit" onclick="teamAdd()">Add one here</button>, or <button class="link" style="color:var(--accent2);font-weight:600;background:none;border:0;cursor:pointer;font:inherit" onclick="openStudio(true)">let Atlas design the team</button>.</div>
+  <p class="hint" style="margin-top:12px">Tools marked approval-gated (queue_action, calendar_book, browse, http_request POST) never act without you.</p>
 </section>
 
 <!-- CRM -->
@@ -497,11 +554,12 @@ async function loadCfg(){
   loadDesks();
   const me = await api('/me'); if (me && me.id) { $('#who').textContent = me.name; $('#whoco').textContent = me.company || me.email; $('#whoav').textContent = (me.name||'?').trim()[0].toUpperCase(); } else { $('#who').textContent = 'Guest'; $('#whoco').textContent = 'open test mode'; document.querySelectorAll('a[href="/logout"]').forEach(a => a.remove()); }
   colors = Object.fromEntries(CFG.agents.map(a=>[a.id, a.color || '#7c3aed']));
+  applyLevel();
   $('#bizname').textContent = CFG.business.name; $('#wshint').textContent = (CFG.template || '').replace('_', ' ') + ' · ' + CFG.mode;
   $('#mode').textContent = CFG.mode.toUpperCase();
   $('#modehint').textContent = CFG.mode==='demo' ? 'scripted agents' : (CFG.live_reason ? '⚠ ' + CFG.live_reason : 'live models');
   $('#modehint').style.color = CFG.live_reason ? '#dc2626' : '';
-  $('#agents').innerHTML = CFG.agents.map(a=>`<div class="agentline"><i style="background:${a.color||'#7c3aed'}"></i><b>${esc(a.name)}</b><span style="color:var(--muted);margin-left:auto;text-align:right;font-size:12px">${esc(a.role)}</span></div>`).join('');
+  $('#agents').innerHTML = CFG.agents.map(a=>`<div class="agentline" ${a.enabled===false?'style="opacity:.5" title="inactive"':''}><i style="background:${a.color||'#7c3aed'}"></i><b>${esc(a.name)}</b><span style="color:var(--muted);margin-left:auto;text-align:right;font-size:12px">${esc(a.role)}</span></div>`).join('');
   const modes = ['<option value="auto">auto (Atlas decides)</option>'].concat(CFG.workflows.map(w=>`<option value="${w.id}">${esc(w.name)}</option>`)).join('');
   $('#l-mode').innerHTML = modes; $('#r-mode').innerHTML = modes;
   $('#setup-biz').innerHTML = `<h2>Business</h2><div class="md">${esc(Object.entries(CFG.business).map(([k,v])=>`${k}: ${Array.isArray(v)?v.join(', '):v}`).join('\n'))}</div>`;
@@ -519,6 +577,7 @@ async function refresh(){
   if (page==='live') liveRefreshList();
   if (page==='leads') loadLeads();
   if (page==='approvals') loadApprovals();
+  if (page==='team') loadTeam();
   if (page==='crm') loadCrm();
   if (page==='runs') { loadRuns(); if (curRun) loadRun(curRun, true); }
   if (page==='audit') loadAudit();
@@ -778,8 +837,38 @@ async function loadDesks(){
 function toggleWs(ev){ ev.stopPropagation(); $('#wsmenu').classList.toggle('hide'); }
 document.addEventListener('click', () => { const m = $('#wsmenu'); if (m) m.classList.add('hide'); });
 async function switchDesk(id, ev){ ev.stopPropagation(); await api(`/desks/${id}/select`, {method:'POST', body:{}}); location.hash = '#dash'; location.reload(); }
-function newDesk(ev){ ev.stopPropagation(); openStudio(true); }
-async function showOnboarding(){ return openStudio(true); }
+function newDesk(ev){ ev.stopPropagation(); showStart(); }
+async function showOnboarding(){ return showStart(); }
+/* ---- start page: three ways to begin */
+async function showStart(){
+  document.querySelectorAll('main > section').forEach(s=>s.classList.toggle('hide', s.id!=='p-start'));
+  document.querySelectorAll('#nav button').forEach(b=>b.classList.remove('on'));
+  $('#bizname').textContent = 'New desk'; $('#wshint').textContent = 'not created yet';
+  loadDesks();
+  const me = await api('/me');
+  if (me && me.id) { $('#who').textContent = me.name; $('#whoco').textContent = me.company || me.email; $('#whoav').textContent = (me.name||'?').trim()[0].toUpperCase(); if (me.company && !$('#st-name').value) $('#st-name').value = me.company; }
+  else if (me) { $('#who').textContent = 'Guest'; $('#whoco').textContent = 'open test mode'; }
+}
+async function startBlank(){
+  const name = $('#st-name').value.trim(); if (!name) { toast('Give the desk a business name'); $('#st-name').focus(); return; }
+  const btn = $('#st-go'); btn.disabled = true;
+  const r = await api('/desks', {method:'POST', body:{name, template:'blank', tier:'free'}}); btn.disabled = false;
+  if (!r || r.error) return toast(r?.error || 'failed');
+  toast('Desk created — just Atlas for now'); location.hash = '#team'; location.reload();
+}
+/* ---- simple / full navigation */
+function applyLevel(){
+  const full = CFG.ui_level === 'full';
+  document.querySelector('aside').classList.toggle('simple', !full);
+  const b = $('#lvl-btn'); if (b) b.textContent = full ? '‹ Simple view' : 'Show everything ›';
+}
+async function toggleLevel(){
+  const did = (CFG.desk || {}).id; if (!did) return;
+  const lvl = CFG.ui_level === 'full' ? 'simple' : 'full';
+  const r = await api(`/desks/${did}`, {method:'PATCH', body:{ui_level: lvl}});
+  if (!r || r.error) return toast(r?.error || 'failed');
+  await loadCfg();
+}
 async function showOnboardingForm(){
   const T = await api('/templates'); OB.types = T.desks; OB.tiers = T.tiers;
   document.querySelectorAll('main > section').forEach(s=>s.classList.toggle('hide', s.id!=='p-onboard'));
@@ -803,6 +892,109 @@ async function createDesk(){
     banned_phrases: v('ob-banned'), extra_context: v('ob-extra'), no_money_figures: $('#ob-nofig').checked };
   const r = await api('/desks', {method:'POST', body}); if (!r || r.error) return toast(r?.error || 'failed');
   toast('Desk created'); location.hash = '#dash'; location.reload();
+}
+
+/* ================= TEAM ================= */
+const TEAM = { agents: [], dirty: false, key: '' };
+const TOOL_HIDE = ['finish', 'assemble_team'];
+const TOOL_SAFE = ['crm_lookup','crm_update','queue_action','camera_look','camera_events','remember','recall','browse','http_request','calendar_free_slots','calendar_book','generate_media'];   // orchestrator-only in the catalogue but fine on specialists (approvals still gate)
+const TOOL_GATED = ['queue_action','calendar_book','browse','http_request'];
+const TEAM_COLORS = ['#7c3aed','#1f9d63','#db2777','#ea580c','#b45309','#0891b2'];
+const slug = s => String(s||'').toLowerCase().replace(/[^a-z0-9_]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 24);
+function teamFromCfg(){
+  const list = (CFG.agents || []).map(a => ({ id:a.id, name:a.name || a.id, role:a.role || '', system_prompt:a.system_prompt || '', tools:[...(a.tools || [])], enabled:a.enabled !== false, color:a.color || '#7c3aed', model:a.model || '', engine:a.engine || '', _srv:true }));
+  return [...list.filter(a => a.id === 'atlas'), ...list.filter(a => a.id !== 'atlas')];
+}
+function loadTeam(){
+  if (!CFG.agents) return;
+  if (TEAM.dirty) return;                                                         // never clobber an edit in progress
+  const key = JSON.stringify(teamFromCfg()) + '|' + !!CFG.custom_roster;
+  if (key === TEAM.key && $('#tm-cards').querySelector('.tm')) return;
+  if ($('#tm-cards').contains(document.activeElement)) return;                    // user is in a field but hasn't typed yet
+  TEAM.key = key; TEAM.agents = teamFromCfg(); renderTeam();
+}
+function teamCatalogue(a){
+  const isAtlas = a.id === 'atlas';
+  let cat = (CFG.tools && CFG.tools.length) ? CFG.tools : [...new Set(CFG.agents.flatMap(x => x.tools || []))].map(id => ({id, description:'', orchestrator_only:false}));
+  cat = cat.filter(t => !TOOL_HIDE.includes(t.id) && (isAtlas || !t.orchestrator_only || TOOL_SAFE.includes(t.id)));
+  a.tools.forEach(id => { if (!TOOL_HIDE.includes(id) && !cat.find(t => t.id === id)) cat.push({id, description:'', orchestrator_only:false}); });   // keep anything the agent already has
+  return cat;
+}
+function renderTeam(){
+  $('#tm-cards').innerHTML = TEAM.agents.map((a, i) => {
+    const isAtlas = a.id === 'atlas';
+    const chips = teamCatalogue(a).map(t => { const on = a.tools.includes(t.id), gated = TOOL_GATED.includes(t.id);
+      return `<label class="tchip ${on?'on':''}" title="${esc(t.description || t.id)}${gated ? ' — approval-gated' : ''}"><input type="checkbox" ${on?'checked':''} onchange="teamTool(${i},'${esc(t.id)}',this)">${esc(t.id)}${gated ? ' <span class="g" title="approval-gated">⏸</span>' : ''}</label>`; }).join('');
+    return `<div class="card tm ${a.enabled?'':'off'}" style="--c:${esc(a.color)}">
+      <div class="th"><input type="color" value="${esc(a.color)}" title="Colour" oninput="teamField(${i},'color',this.value)"><input class="nm" value="${esc(a.name)}" placeholder="Name" oninput="teamField(${i},'name',this.value)"><input class="rl" value="${esc(a.role)}" placeholder="${isAtlas ? 'Role — e.g. Orchestrator' : 'Role — e.g. Researcher'}" oninput="teamField(${i},'role',this.value)">
+        <label class="act" title="${isAtlas ? 'Atlas is always active' : 'Inactive agents are skipped on the next run'}"><input type="checkbox" ${a.enabled?'checked':''} ${isAtlas?'disabled':''} onchange="teamField(${i},'enabled',this.checked)"> active</label>
+        ${isAtlas ? '<span class="tag" title="Atlas leads the desk and cannot be removed">lead</span>' : `<button class="btn sm d" title="Remove agent" onclick="teamRemove(${i})">✕</button>`}</div>
+      <div class="hint" style="margin:0 0 4px"><span class="tag">${esc(a.id || 'id from name')}</span> <span class="model">${esc(a.model || '(default model)')}${a.engine ? ' · ' + esc(a.engine) : ''}</span></div>
+      <label>System prompt</label><textarea rows="5" class="sp" placeholder="${isAtlas ? 'How Atlas should run this desk, who it delegates to, what it must never do…' : 'What this agent does, how it works, what it must never do…'}" oninput="teamField(${i},'system_prompt',this.value)">${esc(a.system_prompt)}</textarea>
+      <label>Tools</label><div class="tchips">${chips || '<span class="hint" style="margin:0">no tools in the catalogue</span>'}</div>
+    </div>`;
+  }).join('') || '<div class="empty">No agents — reload the page</div>';
+  $('#tm-empty').classList.toggle('hide', TEAM.agents.some(a => a.id !== 'atlas'));
+  $('#tm-reset').classList.toggle('hide', !CFG.custom_roster);
+  teamSetDirty(TEAM.dirty);
+}
+function teamSetDirty(d){ TEAM.dirty = d; $('#tm-save').disabled = !d; $('#tm-unsaved').classList.toggle('hide', !d); $('#tm-discard').classList.toggle('hide', !d); }
+function teamField(i, k, v){
+  const a = TEAM.agents[i]; if (!a) return; a[k] = v;
+  const card = $('#tm-cards').children[i];
+  if (card && k === 'color') card.style.setProperty('--c', v);
+  if (card && k === 'enabled') card.classList.toggle('off', !v);
+  teamSetDirty(true);
+}
+function teamTool(i, t, el){
+  const a = TEAM.agents[i]; if (!a) return;
+  a.tools = a.tools.filter(x => x !== t); if (el.checked) a.tools.push(t);
+  const lab = el.closest('.tchip'); if (lab) lab.classList.toggle('on', el.checked);
+  teamSetDirty(true);
+}
+function teamAdd(){
+  const n = TEAM.agents.length;
+  TEAM.agents.push({ id:'', name:'New agent', role:'', system_prompt:'', tools:['read_file','list_files','web_fetch'], enabled:true, color:TEAM_COLORS[Math.max(0, n-1) % TEAM_COLORS.length], model:'', engine:'', _srv:false });
+  teamSetDirty(true); renderTeam();
+  const cards = $('#tm-cards').children, last = cards[cards.length-1];
+  if (last) { last.scrollIntoView({behavior:'smooth', block:'center'}); const nm = last.querySelector('.nm'); if (nm) { nm.focus(); nm.select(); } }
+}
+function teamRemove(i){
+  const a = TEAM.agents[i]; if (!a || a.id === 'atlas') return;
+  if (a._srv && !confirm(`Remove ${a.name} from this desk?`)) return;
+  TEAM.agents.splice(i, 1); teamSetDirty(true); renderTeam();
+}
+function teamPayload(){
+  const used = new Set(TEAM.agents.filter(a => a._srv && a.id).map(a => a.id)); let n = 0;
+  return TEAM.agents.map(a => {
+    if (a.id === 'atlas') return { id:'atlas', name:a.name.trim() || 'Atlas', role:a.role.trim(), system_prompt:a.system_prompt, tools:a.tools, enabled:true, color:a.color };
+    let id = a.id;
+    if (!a._srv || !id) {                                                         // new agent: id from name, unique, [a-z0-9_] max 24
+      id = slug(a.name) || ('agent' + (++n));
+      while (used.has(id) || ['atlas','system','owner'].includes(id)) id = id.slice(0, 20) + '_' + (++n);
+      used.add(id);
+    }
+    return { id, name:a.name.trim() || id, role:a.role.trim(), system_prompt:a.system_prompt, tools:a.tools, enabled:!!a.enabled, color:a.color };
+  });
+}
+async function saveTeam(){
+  const did = (CFG.desk || {}).id; if (!did) return toast('No desk selected');
+  const agents = teamPayload();
+  if (!agents.find(a => a.id === 'atlas')) return toast('The team must include Atlas');
+  const bad = TEAM.agents.find(a => !a.name.trim()); if (bad) return toast('Every agent needs a name');
+  $('#tm-save').disabled = true;
+  const r = await api(`/desks/${did}`, {method:'PATCH', body:{agents}});
+  if (!r || r.error) { $('#tm-save').disabled = false; return toast(r?.error || 'failed'); }
+  toast('Team saved — applies to the next run');
+  teamSetDirty(false); TEAM.key = ''; await loadCfg(); loadTeam();
+}
+function teamDiscard(){ teamSetDirty(false); TEAM.key = ''; if (document.activeElement) document.activeElement.blur(); loadTeam(); }
+async function resetTeam(){
+  const did = (CFG.desk || {}).id; if (!did) return;
+  if (!confirm('Drop your custom roster and go back to the template team?')) return;
+  const r = await api(`/desks/${did}`, {method:'PATCH', body:{reset_agents:true}});
+  if (!r || r.error) return toast(r?.error || 'failed');
+  toast('Back to the template team'); teamSetDirty(false); TEAM.key = ''; await loadCfg(); loadTeam();
 }
 
 /* ================= INTEGRATIONS ================= */

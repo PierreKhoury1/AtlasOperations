@@ -42,6 +42,17 @@ Tools per agent: `delegate`, `list_agents`, `finish` (orchestrator), `save_deliv
     py -m atlas.desk                     # http://localhost:8094/  (site)  ·  /desk (portal)
     DESK_MODE=demo|live|auto  DESK_TEMPLATE=sales_desk  DESK_PASSWORD=...  PORT=8094
 
+Three ways to start a desk: **Let Atlas design it** (Design studio chat: it studies your links, proposes the team and
+triggers, you approve), **Ready-made desk** (pick a template, short form), or **Start from scratch** (template `blank`:
+just Atlas; add specialists on the **Team** page, cameras under Cameras, connectors under Integrations). Every desk
+opens in the **simple view** (Home, Live desk, Leads, Approvals, Team, Cameras); **Show everything** in the sidebar
+unlocks CRM, Integrations, Automations, Runs, Audit, Report, Desk setup and the Design studio (`ui_level` on the desk).
+
+The **Team** page edits the roster in place: name, role, prompt, colour, active flag and tool grants per agent.
+Saved rosters live in the desk's `config.agents` (`PATCH /api/desks/<id> {agents:[...]}`, `{reset_agents:true}` goes
+back to the template). Specialists may only receive tools outside `ORCHESTRATOR_ONLY` plus the safe set in
+`SPECIALIST_OK`; `finish` / `assemble_team` are never assignable; approvals still gate everything outbound.
+
 The portal runs the same engine for one *desk* (business-model template): leads → Atlas plans and
 delegates (research / writer / CRM in parallel) → `crm_update` → `queue_action` → **approval queue**
 → owner approves → sent (simulated; wire SMTP/WhatsApp in `api_decide`) → audit log → monthly report.
