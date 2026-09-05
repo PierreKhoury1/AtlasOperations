@@ -544,6 +544,12 @@ def _clean_roster(raw: Any, current: list[dict[str, Any]]) -> list[dict[str, Any
                "model": keep.get("model", "") if aid != "atlas" else "", "tools": tools, "system_prompt": prompt, "color": colour}
         if keep.get("engine") in ("atlas", "hermes_agent"):
             ent["engine"] = keep["engine"]
+        pos = a.get("pos") if isinstance(a.get("pos"), dict) else keep.get("pos")
+        if isinstance(pos, dict):
+            try:
+                ent["pos"] = {"x": max(0.0, min(8000.0, float(pos.get("x")))), "y": max(0.0, min(8000.0, float(pos.get("y"))))}
+            except (TypeError, ValueError):
+                pass
         out.append(ent)
     if "atlas" not in seen:
         return "the roster must include Atlas (id 'atlas')"
@@ -684,7 +690,7 @@ def api_config():
                     "tools": a.get("granted_tools") or a.get("tools", []), "runtime_tools": a.get("tools", []),
                     "model": a.get("model", "") or "(provider default)",
                     "engine": a.get("engine") or "atlas", "provider": a.get("provider") or "",
-                    "engine_note": a.get("engine_note") or "", "enabled": a.get("enabled", True),
+                    "engine_note": a.get("engine_note") or "", "enabled": a.get("enabled", True), "pos": a.get("pos"),
                     "system_prompt": (a.get("system_prompt") or "").replace(templates._SPECIALIST_SUFFIX, "")} for a in c["agents"]],
         "workflows": [{"id": w["id"], "name": w["name"], "description": w.get("description", "")} for w in c["workflows"]],
         "protected": not OPEN,

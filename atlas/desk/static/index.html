@@ -38,8 +38,8 @@ aside .mode .av{width:28px;height:28px;border-radius:3px;background:var(--grad);
 aside .mode .u b{color:var(--text);display:block;font-size:13px;line-height:1.2}
 aside .mode .u small{display:block;color:var(--muted);font-size:11px}
 /* ---------- main */
-main{padding:28px 32px 60px;max-width:1440px}
-.phead{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:20px}
+main{padding:36px 40px 72px;max-width:1440px}
+.phead{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:26px}
 h1{font-weight:600;font-size:24px;letter-spacing:-.02em;line-height:1.2;margin-bottom:2px}
 h1 b{font-weight:600}
 .lead{color:var(--muted);margin:0 0 20px;font-size:13.5px}
@@ -51,15 +51,15 @@ h2{font-size:15px;font-weight:600;margin-bottom:10px}
 .tabs{display:flex;gap:2px;border-bottom:1px solid var(--line);margin-bottom:18px}
 .tabs button{background:none;border:0;border-bottom:2px solid transparent;color:var(--muted);padding:8px 12px;font:inherit;font-weight:600;font-size:13px;cursor:pointer;margin-bottom:-1px}
 .tabs button.on{color:var(--accent2);border-bottom-color:var(--accent)}
-.grid{display:grid;gap:14px}.g5{grid-template-columns:repeat(5,1fr)}.g4{grid-template-columns:repeat(4,1fr)}.g2{grid-template-columns:1fr 1fr}.g3{grid-template-columns:repeat(3,1fr)}
+.grid{display:grid;gap:20px}.g5{grid-template-columns:repeat(5,1fr)}.g4{grid-template-columns:repeat(4,1fr)}.g2{grid-template-columns:1fr 1fr}.g3{grid-template-columns:repeat(3,1fr)}
 .card,.panel{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:18px 20px}
 .panel{padding:0}
 .panel .ph{display:flex;align-items:center;justify-content:space-between;padding:14px 20px;border-bottom:1px solid var(--line)}
 .panel .ph h2{margin:0}
 .panel .ph a,.panel .ph button.link{color:var(--muted);font-size:12px;font-weight:600;background:none;border:0;cursor:pointer;font-family:inherit}
 .panel .ph a:hover,.panel .ph button.link:hover{color:var(--text)}
-.panel .pb{padding:16px 20px}
-.kpi{display:flex;flex-direction:column;gap:6px;position:relative}
+.panel .pb{padding:20px 24px}
+.kpi{display:flex;flex-direction:column;gap:8px;position:relative;min-height:108px;justify-content:center}
 .kpi span{color:var(--muted);font-size:12.5px;font-weight:600}
 .kpi b{font-weight:600;font-size:28px;line-height:1.1;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
 .kpi small{color:var(--faint);font-size:11.5px}
@@ -171,16 +171,60 @@ tr.click{cursor:pointer}tr.click:hover{background:var(--panel2)}
 aside.simple [data-lvl="full"]{display:none}
 .lvl{display:block;width:100%;margin-top:10px;background:none;border:1px dashed var(--line2);color:var(--muted);padding:7px 10px;border-radius:3px;font:inherit;font-size:12px;font-weight:600;cursor:pointer;text-align:left}
 .lvl:hover{color:var(--accent);border-color:var(--accent)}
-/* ---------- team page */
-.tm{border-top:3px solid var(--c,#7c3aed)}
-.tm.off{opacity:.6}
-.tm .th{display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap}
-.tm .th input[type=color]{width:30px;height:30px;padding:2px;flex:0 0 auto;cursor:pointer}
-.tm .th .nm{flex:1;min-width:120px;font-weight:600}
-.tm .th .rl{flex:1.4;min-width:140px}
-.tm .th .act{margin:0;display:flex;gap:5px;align-items:center;white-space:nowrap;font-size:12px}
-.tm .th .act input{width:auto}
-.tm .sp{font-family:var(--mono);font-size:12px;min-height:0}
+/* ---------- team page: workspace canvas */
+.tmbar input{flex:1;min-width:260px}
+.tmbar #tm-speed,.tmbar #tm-run{min-width:0}
+.tmbar #tm-run{max-width:340px}
+.tmws{position:relative;overflow:hidden;min-height:72vh;border:1px solid var(--line);border-radius:var(--r);background-color:var(--panel);background-image:radial-gradient(var(--line) 1px,transparent 1px);background-size:24px 24px;background-position:0 0;user-select:none}
+.tmws svg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
+.tme{fill:none;stroke:var(--line2);stroke-width:1.5}
+.tme.on{stroke:var(--c,var(--accent2));stroke-width:2;stroke-dasharray:6 8;animation:flow .7s linear infinite}
+.tme.done{stroke:var(--c,var(--accent2));stroke-width:2;opacity:.5}
+.tme.cam{stroke-dasharray:4 4}
+.tmn{position:absolute;width:220px;background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:12px 14px 10px;cursor:grab;box-shadow:0 1px 2px rgba(16,22,29,.05);transition:border-color .2s,box-shadow .2s,opacity .2s;font-size:13px;touch-action:none}
+.tmn::before{content:"";position:absolute;left:-1px;right:-1px;top:-1px;height:3px;background:var(--c,#7c3aed);border-radius:var(--r) var(--r) 0 0}
+.tmn.atlas{width:250px;padding-top:14px}
+.tmn.atlas .nm b{font-size:14.5px}
+.tmn.drag{cursor:grabbing;box-shadow:0 14px 34px rgba(16,22,29,.18);z-index:5}
+.tmn.sel{border-color:var(--accent);box-shadow:0 0 0 2px rgba(45,114,210,.22)}
+.tmn.off{opacity:.55}
+.tmn.busy{border-color:var(--c);box-shadow:0 0 0 1px var(--c),0 0 20px color-mix(in srgb,var(--c) 28%,transparent)}
+.tmn.fin{border-color:color-mix(in srgb,var(--c) 45%,var(--line))}
+.tmn.err{border-color:var(--danger);box-shadow:0 0 0 1px var(--danger)}
+.tmn.ghost{border-style:dashed;background:var(--panel2);cursor:default;z-index:2}
+.tmn.cam{border-style:dashed;width:190px;cursor:pointer}
+.tmn.cam:hover{border-color:var(--line2)}
+.tmn .nm{display:flex;align-items:center;gap:6px;margin-bottom:2px}
+.tmn .nm b{flex:1 1 auto;min-width:0;font-weight:600;font-size:13.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tmn .nm .tag{flex:0 0 auto}
+.tmn .st{flex:0 0 auto;font-size:10px;letter-spacing:.08em;text-transform:uppercase;padding:2px 7px;border-radius:2px;background:var(--panel2);color:var(--muted);font-weight:600;border:1px solid var(--line);max-width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tmn.busy .st{background:var(--c);color:#fff;border-color:var(--c)}
+.tmn.err .st{background:var(--danger);color:#fff;border-color:var(--danger)}
+.tmn .role{color:var(--muted);font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tmn .asg{font-size:12px;color:var(--text);font-style:italic;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-top:4px}
+.tmn .chips{display:flex;gap:4px;flex-wrap:wrap;margin-top:7px}
+.tmn .chips:empty{display:none}
+.tmn .chip.bye{opacity:0;transition:opacity .25s}
+.tmn .chip.warn{border-color:var(--warn);color:var(--warn)}
+.tmn .nf{display:flex;gap:8px;margin-top:8px;font-size:11px;color:var(--faint);font-family:var(--mono);align-items:center;min-height:15px}
+.tmn .nf .eng{color:#0b5fcb;font-weight:500}
+.tmn .nf .badge{margin-left:auto;background:var(--warn);color:#fff;border-radius:9px;padding:0 6px;font-weight:600}
+.tmn .ring{position:absolute;inset:-4px;border:2px solid var(--c,#7c3aed);border-radius:5px;pointer-events:none;animation:tmring .6s ease-out forwards}
+@keyframes tmring{from{opacity:.85;transform:scale(1)}to{opacity:0;transform:scale(1.14)}}
+.tmhint{position:absolute;max-width:270px;font-size:12.5px;color:var(--muted);background:var(--panel);border:1px dashed var(--line2);border-radius:var(--r);padding:10px 12px;line-height:1.5;z-index:3}
+.tmhint button{color:var(--accent2);font-weight:600;background:none;border:0;cursor:pointer;font:inherit;padding:0}
+.tmi{position:absolute;top:0;right:0;bottom:0;width:380px;max-width:100%;background:var(--panel);border-left:1px solid var(--line);padding:16px 18px 20px;overflow:auto;transform:translateX(100%);transition:transform .16s ease;z-index:8;cursor:default;user-select:text;box-shadow:-8px 0 24px rgba(16,22,29,.06)}
+.tmi.on{transform:none}
+.tmi .hd{display:flex;gap:8px;align-items:center}
+.tmi .hd input[type=color]{width:34px;height:34px;padding:2px;flex:0 0 auto;cursor:pointer}
+.tmi .hd .nm{flex:1;min-width:0;font-weight:600}
+.tmi .x{flex:0 0 auto;background:none;border:0;color:var(--muted);cursor:pointer;font-size:20px;line-height:1;padding:0 2px}
+.tmi .x:hover{color:var(--text)}
+.tmi .act{display:flex;gap:6px;align-items:center;font-size:12px;margin:12px 0 0;white-space:nowrap}
+.tmi .act input{width:auto;margin:0}
+.tmi .sp{font-family:var(--mono);font-size:12px;min-height:0}
+.tmi .foot{margin-top:18px;padding-top:12px;border-top:1px solid var(--line);display:flex;gap:8px}
+@media(prefers-reduced-motion:reduce){.tme.on,.tmn .ring{animation:none}.tmi{transition:none}}
 .tchips{display:flex;gap:6px;flex-wrap:wrap}
 .tchip{display:inline-flex;align-items:center;gap:5px;font-family:var(--mono);font-size:11px;padding:3px 8px;border:1px solid var(--line);border-radius:2px;background:var(--panel2);color:var(--muted);cursor:pointer;margin:0;font-weight:500}
 .tchip input{width:auto;margin:0}
@@ -234,7 +278,7 @@ aside.simple [data-lvl="full"]{display:none}
     <button data-p="live"><svg viewBox="0 0 24 24"><path d="M3 12h4l3-8 4 16 3-8h4"/></svg>Live desk <span class="dot" id="n-live"></span></button>
     <button data-p="leads"><svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c0-3.5 3-6 6.5-6s6.5 2.5 6.5 6"/><path d="M17 8h5M19.5 5.5v5"/></svg>Leads <span class="pill" id="n-leads">0</span></button>
     <button data-p="approvals"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="m8 12 3 3 5-6"/></svg>Approvals <span class="pill" id="n-pending">0</span></button>
-    <button data-p="team"><svg viewBox="0 0 24 24"><circle cx="12" cy="6" r="3"/><circle cx="6" cy="17" r="3"/><circle cx="18" cy="17" r="3"/><path d="M10.5 8.5 7.5 14M13.5 8.5l3 5.5M9 17h6"/></svg>Team</button>
+    <button data-p="team"><svg viewBox="0 0 24 24"><circle cx="12" cy="6" r="3"/><circle cx="6" cy="17" r="3"/><circle cx="18" cy="17" r="3"/><path d="M10.5 8.5 7.5 14M13.5 8.5l3 5.5M9 17h6"/></svg>Team <span class="dot" id="n-team"></span></button>
     <button data-p="crm" data-lvl="full"><svg viewBox="0 0 24 24"><ellipse cx="12" cy="6" rx="8" ry="3"/><path d="M4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6"/><path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/></svg>CRM</button>
     <div class="grp">Operate</div>
     <button data-p="cameras"><svg viewBox="0 0 24 24"><path d="M3 8h4l2-3h6l2 3h4v11H3z"/><circle cx="12" cy="13" r="3.5"/></svg>Cameras <span class="pill" id="n-cams">0</span></button>
@@ -396,11 +440,25 @@ aside.simple [data-lvl="full"]{display:none}
 
 <!-- TEAM -->
 <section id="p-team" class="hide">
-  <div class="phead"><div><h1>Team</h1><p class="lead">Who works on this desk and what each one may do. Atlas leads; specialists get focused jobs. Anything outbound still waits for your approval.</p></div>
+  <div class="phead"><div><h1>Team</h1><p class="lead">Who works on this desk and what each one may do. Atlas leads; specialists get focused jobs. Drag agents to arrange the workspace, click one to edit it, deploy a job to watch them work.</p></div>
     <div class="ctl"><span class="tag pending hide" id="tm-unsaved">unsaved</span><button class="btn sm hide" id="tm-discard" onclick="teamDiscard()">Discard</button><button class="btn p" id="tm-save" onclick="saveTeam()" disabled>Save team</button><button class="btn" onclick="teamAdd()">+ Add agent</button><button class="btn" onclick="openStudio(true)">Ask Atlas to design it</button><button class="btn sm d hide" id="tm-reset" onclick="resetTeam()">Reset to template</button></div></div>
-  <div class="grid g2" id="tm-cards"><div class="empty">Loading…</div></div>
-  <div class="empty hide" id="tm-empty" style="margin-top:14px">Atlas works alone until you add specialists. <button class="link" style="color:var(--accent2);font-weight:600;background:none;border:0;cursor:pointer;font:inherit" onclick="teamAdd()">Add one here</button>, or <button class="link" style="color:var(--accent2);font-weight:600;background:none;border:0;cursor:pointer;font:inherit" onclick="openStudio(true)">let Atlas design the team</button>.</div>
-  <p class="hint" style="margin-top:12px">Tools marked approval-gated (queue_action, calendar_book, browse, http_request POST) never act without you.</p>
+  <div class="livebar tmbar">
+    <input id="tm-task" placeholder="Give the team a job and watch it deploy…" onkeydown="if(event.key==='Enter')teamDeploy()">
+    <button class="btn p" onclick="teamDeploy()">Deploy →</button>
+    <select id="tm-run" title="Recent runs" onchange="teamReplay()"><option value="">no runs yet</option></select>
+    <button class="btn" onclick="teamReplay()" title="Replay the selected run on the canvas">▶ Replay</button>
+    <span class="kv"><span class="dot" id="tm-dot"></span> <span id="tm-status">idle</span></span>
+    <select id="tm-speed" title="Replay speed"><option value="1">1×</option><option value="3" selected>3×</option><option value="10">10×</option></select>
+  </div>
+  <div class="tmws" id="tm-ws" onclick="teamCanvasClick(event)">
+    <svg id="tm-edges" xmlns="http://www.w3.org/2000/svg"></svg>
+    <div id="tm-cams"></div>
+    <div id="tm-nodes"><div class="empty" style="margin:40px;border:0">Loading…</div></div>
+    <div id="tm-ghosts"></div>
+    <div class="tmhint hide" id="tm-hint">Atlas works alone until you add specialists. <button onclick="teamAdd()">+ Add agent</button>, or <button onclick="openStudio(true)">let Atlas design the team</button>.</div>
+    <div class="tmi" id="tm-insp" onclick="event.stopPropagation()" onpointerdown="event.stopPropagation()"></div>
+  </div>
+  <p class="hint" style="margin-top:12px">Drag to arrange · click an agent to edit it · Esc closes the editor · tools marked ⏸ (queue_action, calendar_book, browse, http_request POST) never act without you.</p>
 </section>
 
 <!-- CRM -->
@@ -569,6 +627,7 @@ async function loadCfg(){
 }
 
 async function refresh(){
+  if (page !== 'team') teamLeave();                                             // close the team canvas stream/timers when the owner moves on
   const s = await api('/stats'); if(!s || s.needs_desk) return;
   $('#n-leads').textContent = s.leads; $('#n-pending').textContent = s.pending;
   $('#k-leads').textContent = s.leads; $('#k-pending').textContent = s.pending; $('#k-sent').textContent = s.approved; $('#k-qual').textContent = s.qualified; $('#k-active').textContent = s.active_runs; $('#d-dot').classList.toggle('live', s.active_runs > 0); $('#k-tok').textContent = ((s.tokens_in||0)+(s.tokens_out||0)).toLocaleString(); $('#k-cost').textContent = 'model cost £' + (((s.tokens_in||0)*5+(s.tokens_out||0)*25)/1e6*0.78).toFixed(2);
@@ -894,23 +953,28 @@ async function createDesk(){
   toast('Desk created'); location.hash = '#dash'; location.reload();
 }
 
-/* ================= TEAM ================= */
-const TEAM = { agents: [], dirty: false, key: '' };
+/* ================= TEAM (workspace canvas) ================= */
+const TEAM = { agents: [], dirty: false, key: '', sel: -1, cams: null, played: false, seq: 0 };
 const TOOL_HIDE = ['finish', 'assemble_team'];
-const TOOL_SAFE = ['crm_lookup','crm_update','queue_action','camera_look','camera_events','remember','recall','browse','http_request','calendar_free_slots','calendar_book','generate_media'];   // orchestrator-only in the catalogue but fine on specialists (approvals still gate)
+const TOOL_SAFE = ['crm_lookup','crm_update','queue_action','camera_look','camera_events','remember','recall','browse','http_request','calendar_free_slots','calendar_book','generate_media','video_describe'];   // orchestrator-only in the catalogue but fine on specialists (approvals still gate)
 const TOOL_GATED = ['queue_action','calendar_book','browse','http_request'];
 const TEAM_COLORS = ['#7c3aed','#1f9d63','#db2777','#ea580c','#b45309','#0891b2'];
 const slug = s => String(s||'').toLowerCase().replace(/[^a-z0-9_]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 24);
+const tkid = k => 'tmn-' + String(k).replace(/[^a-zA-Z0-9_]/g, '-');                   // DOM id for an agent key ("watcher", "watcher#2", "new3")
 function teamFromCfg(){
-  const list = (CFG.agents || []).map(a => ({ id:a.id, name:a.name || a.id, role:a.role || '', system_prompt:a.system_prompt || '', tools:[...(a.tools || [])], enabled:a.enabled !== false, color:a.color || '#7c3aed', model:a.model || '', engine:a.engine || '', _srv:true }));
+  const list = (CFG.agents || []).map(a => ({ id:a.id, _k:a.id, name:a.name || a.id, role:a.role || '', system_prompt:a.system_prompt || '', tools:[...(a.tools || [])], enabled:a.enabled !== false, color:a.color || '#7c3aed', model:a.model || '', engine:a.engine || '',
+    pos:(a.pos && isFinite(a.pos.x) && isFinite(a.pos.y)) ? { x:+a.pos.x, y:+a.pos.y } : null, _srv:true }));
   return [...list.filter(a => a.id === 'atlas'), ...list.filter(a => a.id !== 'atlas')];
 }
 function loadTeam(){
   if (!CFG.agents) return;
-  if (TEAM.dirty) return;                                                         // never clobber an edit in progress
+  const ws = $('#tm-ws'); if (!ws || !ws.clientWidth) return;                          // section hidden — lay out when it is visible
+  if (TEAM.cams === null) { TEAM.cams = []; api('/cameras').then(R => { TEAM.cams = (R && Array.isArray(R.cameras)) ? R.cameras : []; if (page === 'team') teamRenderCams(); }); }
+  teamRuns();
+  if (TEAM.dirty) return;                                                              // never clobber an edit in progress
   const key = JSON.stringify(teamFromCfg()) + '|' + !!CFG.custom_roster;
-  if (key === TEAM.key && $('#tm-cards').querySelector('.tm')) return;
-  if ($('#tm-cards').contains(document.activeElement)) return;                    // user is in a field but hasn't typed yet
+  if (key === TEAM.key && ws.querySelector('.tmn[data-i]')) return;                    // cheap: nothing changed
+  if (ws.contains(document.activeElement) && document.activeElement !== ws) return;   // user is in the inspector but hasn't typed yet
   TEAM.key = key; TEAM.agents = teamFromCfg(); renderTeam();
 }
 function teamCatalogue(a){
@@ -920,61 +984,162 @@ function teamCatalogue(a){
   a.tools.forEach(id => { if (!TOOL_HIDE.includes(id) && !cat.find(t => t.id === id)) cat.push({id, description:'', orchestrator_only:false}); });   // keep anything the agent already has
   return cat;
 }
+/* ---- canvas render + layout */
 function renderTeam(){
-  $('#tm-cards').innerHTML = TEAM.agents.map((a, i) => {
-    const isAtlas = a.id === 'atlas';
-    const chips = teamCatalogue(a).map(t => { const on = a.tools.includes(t.id), gated = TOOL_GATED.includes(t.id);
-      return `<label class="tchip ${on?'on':''}" title="${esc(t.description || t.id)}${gated ? ' — approval-gated' : ''}"><input type="checkbox" ${on?'checked':''} onchange="teamTool(${i},'${esc(t.id)}',this)">${esc(t.id)}${gated ? ' <span class="g" title="approval-gated">⏸</span>' : ''}</label>`; }).join('');
-    return `<div class="card tm ${a.enabled?'':'off'}" style="--c:${esc(a.color)}">
-      <div class="th"><input type="color" value="${esc(a.color)}" title="Colour" oninput="teamField(${i},'color',this.value)"><input class="nm" value="${esc(a.name)}" placeholder="Name" oninput="teamField(${i},'name',this.value)"><input class="rl" value="${esc(a.role)}" placeholder="${isAtlas ? 'Role — e.g. Orchestrator' : 'Role — e.g. Researcher'}" oninput="teamField(${i},'role',this.value)">
-        <label class="act" title="${isAtlas ? 'Atlas is always active' : 'Inactive agents are skipped on the next run'}"><input type="checkbox" ${a.enabled?'checked':''} ${isAtlas?'disabled':''} onchange="teamField(${i},'enabled',this.checked)"> active</label>
-        ${isAtlas ? '<span class="tag" title="Atlas leads the desk and cannot be removed">lead</span>' : `<button class="btn sm d" title="Remove agent" onclick="teamRemove(${i})">✕</button>`}</div>
-      <div class="hint" style="margin:0 0 4px"><span class="tag">${esc(a.id || 'id from name')}</span> <span class="model">${esc(a.model || '(default model)')}${a.engine ? ' · ' + esc(a.engine) : ''}</span>${a.engine === 'hermes_agent' ? '<br><span style="color:var(--warn)">Runs inside the Hermes Agent runtime with its own tools; the grants below apply when it runs on the built-in engine.</span>' : ''}</div>
-      <label>System prompt</label><textarea rows="5" class="sp" placeholder="${isAtlas ? 'How Atlas should run this desk, who it delegates to, what it must never do…' : 'What this agent does, how it works, what it must never do…'}" oninput="teamField(${i},'system_prompt',this.value)">${esc(a.system_prompt)}</textarea>
-      <label>Tools</label><div class="tchips">${chips || '<span class="hint" style="margin:0">no tools in the catalogue</span>'}</div>
-    </div>`;
-  }).join('') || '<div class="empty">No agents — reload the page</div>';
-  $('#tm-empty').classList.toggle('hide', TEAM.agents.some(a => a.id !== 'atlas'));
+  const box = $('#tm-nodes');
+  box.innerHTML = TEAM.agents.map((a, i) => {
+    const isAtlas = a.id === 'atlas'; if (!a._k) a._k = a.id || ('new' + (++TEAM.seq));
+    const k = tkid(a._k), nt = a.tools.length;
+    return `<div class="tmn ${isAtlas ? 'atlas' : ''} ${a.enabled ? '' : 'off'}" id="${k}" data-i="${i}" data-key="${esc(a._k)}" style="--c:${esc(a.color)}" title="Click to edit · drag to move">
+      <div class="nm"><b id="nm-${k}">${esc(a.name)}</b>${isAtlas ? '<span class="tag" title="Atlas leads the desk and cannot be removed">lead</span>' : ''}<span class="st" id="st-${k}">${a.enabled ? 'idle' : 'off'}</span></div>
+      <div class="role" id="role-${k}">${esc(a.role) || '<span style="color:var(--faint)">no role yet</span>'}</div>
+      <div class="asg hide" id="asg-${k}"></div>
+      <div class="chips" id="chips-${k}"></div>
+      <div class="nf"><span id="tools-${k}">${nt} tool${nt === 1 ? '' : 's'}</span>${a.engine === 'hermes_agent' ? '<span class="eng" title="Runs inside the Hermes Agent runtime">Hermes</span>' : ''}<span id="it-${k}"></span><span class="badge hide" id="ap-${k}"></span></div></div>`;
+  }).join('') || '<div class="empty" style="margin:40px;border:0">No agents — reload the page</div>';
+  box.querySelectorAll('.tmn[data-i]').forEach(el => el.addEventListener('pointerdown', teamDown));
+  teamPlace();
   $('#tm-reset').classList.toggle('hide', !CFG.custom_roster);
   teamSetDirty(TEAM.dirty);
+  if (TEAM.sel >= 0 && TEAM.agents[TEAM.sel]) teamInspect(TEAM.sel); else teamClose();
+  teamEdges();
 }
+function teamClamp(x, y, el){
+  const ws = $('#tm-ws'); const W = ws.clientWidth, H = ws.clientHeight;
+  return { x: Math.round(Math.max(8, Math.min(W - el.offsetWidth - 8, x))), y: Math.round(Math.max(8, Math.min(H - el.offsetHeight - 8, y))) };
+}
+function teamPlace(){
+  // Atlas at (38%, 42%) centre, specialists on an arc to its right, unless the agent carries a saved pos
+  const ws = $('#tm-ws'); const W = ws.clientWidth || 900, H = ws.clientHeight || 600;
+  const put = (a, x, y) => { const el = document.getElementById(tkid(a._k)); if (!el) return; const p = teamClamp(x, y, el); el.style.left = p.x + 'px'; el.style.top = p.y + 'px'; };
+  const atlas = TEAM.agents.find(a => a.id === 'atlas'); const A = atlas && document.getElementById(tkid(atlas._k));
+  const cx = W * 0.32, cy = H * 0.46;
+  if (atlas) put(atlas, atlas.pos ? atlas.pos.x : cx - (A ? A.offsetWidth / 2 : 125), atlas.pos ? atlas.pos.y : cy - (A ? A.offsetHeight / 2 : 55));
+  const ac = A ? { x: A.offsetLeft + A.offsetWidth / 2, y: A.offsetTop + A.offsetHeight / 2, r: A.offsetLeft + A.offsetWidth } : { x: cx, y: cy, r: cx + 125 };
+  const sp = TEAM.agents.filter(a => a.id !== 'atlas'), n = sp.length;
+  // specialists in generous columns to the right of Atlas: up to 4 per column, 130px pitch, columns 270px apart
+  const perCol = 4, pitch = 130, colGap = 270, x0 = ac.r + 150;
+  sp.forEach((a, j) => {
+    if (a.pos) { put(a, a.pos.x, a.pos.y); return; }
+    const col = Math.floor(j / perCol), rows = Math.min(perCol, n - col * perCol), row = j % perCol;
+    const el = document.getElementById(tkid(a._k)); const h = el ? el.offsetHeight : 90;
+    const y = ac.y - ((rows - 1) * pitch) / 2 + row * pitch - h / 2;
+    put(a, x0 + col * colGap, y);
+  });
+  const hint = $('#tm-hint'); hint.classList.toggle('hide', n > 0);
+  if (A && !n) { hint.style.left = A.offsetLeft + 'px'; hint.style.top = (A.offsetTop + A.offsetHeight + 18) + 'px'; }
+}
+function teamRenderCams(){
+  const box = $('#tm-cams'); if (!box) return; const cams = TEAM.cams || [];
+  box.innerHTML = cams.length ? cams.map((c, j) => {
+    const labs = c.rule && c.rule.labels; const w = Array.isArray(labs) ? labs.join(', ') : (labs && typeof labs === 'object' ? Object.keys(labs).join(', ') : (labs || 'person'));
+    return `<div class="tmn cam" id="tmc-${j}" style="left:40px;top:${40 + j * 96}px" onclick="go('cameras')" title="${esc((c.config || {}).source || '')} — open Cameras"><div class="nm"><b>📷 ${esc(c.name)}</b></div><div class="role">camera · watches ${esc(w)}</div></div>`;
+  }).join('') : `<div class="tmn cam" id="tmc-add" style="left:40px;top:40px" onclick="go('cameras')"><div class="nm"><b>+ Add a camera</b></div><div class="role">cameras feed Atlas what they see</div></div>`;
+  teamEdges();
+}
+function teamEdges(){
+  const svg = $('#tm-edges'), ws = $('#tm-ws'); if (!svg || !ws) return;
+  svg.setAttribute('viewBox', `0 0 ${ws.clientWidth} ${ws.clientHeight}`);
+  const atlas = TEAM.agents.find(a => a.id === 'atlas'); const A = atlas && document.getElementById(tkid(atlas._k)); if (!A) { svg.innerHTML = ''; return; }
+  const box = el => ({ l: el.offsetLeft, r: el.offsetLeft + el.offsetWidth, cx: el.offsetLeft + el.offsetWidth / 2, cy: el.offsetTop + el.offsetHeight / 2 });
+  const curve = (from, to, cls, color) => { const rt = to.cx >= from.cx; const x1 = rt ? from.r : from.l, y1 = from.cy, x2 = rt ? to.l : to.r, y2 = to.cy, mx = (x1 + x2) / 2;
+    return `<path class="tme ${cls}" style="--c:${color}" d="M${x1},${y1} C${mx},${y1} ${mx},${y2} ${x2},${y2}"/>`; };
+  const ab = box(A); let out = '';
+  ws.querySelectorAll('#tm-cams .tmn').forEach(el => { out += curve(box(el), ab, 'cam', 'var(--line2)'); });
+  ws.querySelectorAll('#tm-nodes .tmn[data-i]').forEach(el => { if (el === A) return; out += curve(ab, box(el), TMLIVE.edges[el.dataset.key] || '', el.style.getPropertyValue('--c') || '#7c3aed'); });
+  ws.querySelectorAll('#tm-ghosts .tmn').forEach(el => { const from = (el.dataset.base && document.getElementById(tkid(el.dataset.base))) || A; out += curve(box(from), box(el), TMLIVE.edges[el.dataset.key] || '', el.style.getPropertyValue('--c') || '#7c3aed'); });
+  svg.innerHTML = out;
+}
+/* ---- drag / select */
+let TMD = null;
+function teamDown(ev){
+  if (ev.button !== 0) return; const el = ev.currentTarget;
+  TMD = { el, i: +el.dataset.i, sx: ev.clientX, sy: ev.clientY, ox: el.offsetLeft, oy: el.offsetTop, moved: false };
+  try { el.setPointerCapture(ev.pointerId); } catch (_) {}
+  ev.preventDefault();
+  el.addEventListener('pointermove', teamMove); el.addEventListener('pointerup', teamUp); el.addEventListener('pointercancel', teamUp);
+}
+function teamMove(ev){
+  if (!TMD) return; const dx = ev.clientX - TMD.sx, dy = ev.clientY - TMD.sy;
+  if (!TMD.moved && Math.hypot(dx, dy) < 4) return;                                   // a click, not a drag
+  if (!TMD.moved) { TMD.moved = true; TMD.el.classList.add('drag'); }
+  const p = teamClamp(TMD.ox + dx, TMD.oy + dy, TMD.el); TMD.el.style.left = p.x + 'px'; TMD.el.style.top = p.y + 'px'; teamEdges();
+}
+function teamUp(){
+  const d = TMD; if (!d) return; TMD = null;
+  d.el.removeEventListener('pointermove', teamMove); d.el.removeEventListener('pointerup', teamUp); d.el.removeEventListener('pointercancel', teamUp);
+  d.el.classList.remove('drag');
+  if (d.moved) { const a = TEAM.agents[d.i]; if (a) { a.pos = { x: d.el.offsetLeft, y: d.el.offsetTop }; teamSetDirty(true); } }
+  else teamInspect(d.i);
+}
+function teamCanvasClick(ev){
+  if (ev.target.closest('.tmn') || ev.target.closest('.tmi') || ev.target.closest('.tmhint')) return;
+  teamClose();
+  if (!TMLIVE.active && !TMLIVE.replay && Object.keys(TMLIVE.inst).length) teamResetVisuals();   // finished play → back to idle
+}
+document.addEventListener('keydown', ev => { if (ev.key === 'Escape' && page === 'team' && TEAM.sel >= 0) teamClose(); });
+window.addEventListener('resize', () => { if (page === 'team' && $('#tm-ws').clientWidth) { teamPlace(); teamEdges(); } });
+/* ---- inspector (edit on touch) */
+function teamInspect(i){
+  const a = TEAM.agents[i], insp = $('#tm-insp'); if (!a) return teamClose();
+  TEAM.sel = i; const isAtlas = a.id === 'atlas';
+  document.querySelectorAll('#tm-nodes .tmn').forEach(el => el.classList.toggle('sel', +el.dataset.i === i));
+  const chips = teamCatalogue(a).map(t => { const on = a.tools.includes(t.id), gated = TOOL_GATED.includes(t.id);
+    return `<label class="tchip ${on ? 'on' : ''}" title="${esc(t.description || t.id)}${gated ? ' — approval-gated' : ''}"><input type="checkbox" ${on ? 'checked' : ''} onchange="teamTool(${i},'${esc(t.id)}',this)">${esc(t.id)}${gated ? ' <span class="g" title="approval-gated">⏸</span>' : ''}</label>`; }).join('');
+  insp.innerHTML = `<div class="hd"><input type="color" value="${esc(a.color)}" title="Colour" oninput="teamField(${i},'color',this.value)"><input class="nm" id="tm-i-name" value="${esc(a.name)}" placeholder="Name" oninput="teamField(${i},'name',this.value)">${isAtlas ? '<span class="tag" title="Atlas leads the desk and cannot be removed">lead</span>' : ''}<button class="x" onclick="teamClose()" title="Close (Esc)">×</button></div>
+    <label>Role</label><input value="${esc(a.role)}" placeholder="${isAtlas ? 'Role — e.g. Orchestrator' : 'Role — e.g. Researcher'}" oninput="teamField(${i},'role',this.value)">
+    <label class="act" title="${isAtlas ? 'Atlas is always active' : 'Inactive agents are skipped on the next run'}"><input type="checkbox" ${a.enabled ? 'checked' : ''} ${isAtlas ? 'disabled' : ''} onchange="teamField(${i},'enabled',this.checked)"> active</label>
+    <div class="hint" style="margin-top:10px"><span class="tag">${esc(a.id || 'id from name')}</span> <span class="model">${esc(a.model || '(default model)')}${a.engine ? ' · ' + esc(a.engine) : ''}</span>${a.engine === 'hermes_agent' ? '<br><span style="color:var(--warn)">Runs inside the Hermes Agent runtime with its own tools; the grants below apply when it runs on the built-in engine.</span>' : ''}</div>
+    <label>System prompt</label><textarea rows="9" class="sp" placeholder="${isAtlas ? 'How Atlas should run this desk, who it delegates to, what it must never do…' : 'What this agent does, how it works, what it must never do…'}" oninput="teamField(${i},'system_prompt',this.value)">${esc(a.system_prompt)}</textarea>
+    <label>Tools</label><div class="tchips">${chips || '<span class="hint" style="margin:0">no tools in the catalogue</span>'}</div>
+    ${isAtlas ? '' : `<div class="foot"><button class="btn sm d" onclick="teamRemove(${i})">✕ Remove agent</button><span class="hint" style="margin:0;align-self:center">${a._srv ? 'Removed on save' : 'Not saved yet'}</span></div>`}`;
+  insp.classList.add('on');
+}
+function teamClose(){ TEAM.sel = -1; const insp = $('#tm-insp'); if (insp) insp.classList.remove('on'); document.querySelectorAll('#tm-nodes .tmn.sel').forEach(el => el.classList.remove('sel')); }
 function teamSetDirty(d){ TEAM.dirty = d; $('#tm-save').disabled = !d; $('#tm-unsaved').classList.toggle('hide', !d); $('#tm-discard').classList.toggle('hide', !d); }
 function teamField(i, k, v){
   const a = TEAM.agents[i]; if (!a) return; a[k] = v;
-  const card = $('#tm-cards').children[i];
-  if (card && k === 'color') card.style.setProperty('--c', v);
-  if (card && k === 'enabled') card.classList.toggle('off', !v);
+  const el = document.getElementById(tkid(a._k)), id = tkid(a._k);
+  if (el && k === 'color') { el.style.setProperty('--c', v); teamEdges(); }
+  if (el && k === 'enabled') { el.classList.toggle('off', !v); const st = document.getElementById('st-' + id); if (st && !el.classList.contains('busy') && !el.classList.contains('fin')) st.textContent = v ? 'idle' : 'off'; }
+  if (k === 'name') { const b = document.getElementById('nm-' + id); if (b) b.textContent = v; }
+  if (k === 'role') { const r = document.getElementById('role-' + id); if (r) r.innerHTML = esc(v) || '<span style="color:var(--faint)">no role yet</span>'; }
   teamSetDirty(true);
 }
 function teamTool(i, t, el){
   const a = TEAM.agents[i]; if (!a) return;
   a.tools = a.tools.filter(x => x !== t); if (el.checked) a.tools.push(t);
   const lab = el.closest('.tchip'); if (lab) lab.classList.toggle('on', el.checked);
+  const c = document.getElementById('tools-' + tkid(a._k)); if (c) c.textContent = a.tools.length + ' tool' + (a.tools.length === 1 ? '' : 's');
   teamSetDirty(true);
 }
 function teamAdd(){
-  const n = TEAM.agents.length;
-  TEAM.agents.push({ id:'', name:'New agent', role:'', system_prompt:'', tools:['read_file','list_files','web_fetch'], enabled:true, color:TEAM_COLORS[Math.max(0, n-1) % TEAM_COLORS.length], model:'', engine:'', _srv:false });
+  const n = TEAM.agents.length; const atlas = TEAM.agents.find(a => a.id === 'atlas'); const A = atlas && document.getElementById(tkid(atlas._k));
+  const k = 'new' + (++TEAM.seq);
+  TEAM.agents.push({ id:'', _k:k, name:'New agent', role:'', system_prompt:'', tools:['read_file','list_files','web_fetch'], enabled:true, color:TEAM_COLORS[Math.max(0, n-1) % TEAM_COLORS.length], model:'', engine:'', _srv:false,
+    pos: A ? { x: A.offsetLeft + A.offsetWidth + 60 + ((n - 1) % 3) * 24, y: A.offsetTop + A.offsetHeight + 40 + ((n - 1) % 3) * 24 } : null });
   teamSetDirty(true); renderTeam();
-  const cards = $('#tm-cards').children, last = cards[cards.length-1];
-  if (last) { last.scrollIntoView({behavior:'smooth', block:'center'}); const nm = last.querySelector('.nm'); if (nm) { nm.focus(); nm.select(); } }
+  const a = TEAM.agents[TEAM.agents.length - 1], el = document.getElementById(tkid(k)); if (el) a.pos = { x: el.offsetLeft, y: el.offsetTop };   // keep the clamped position
+  teamInspect(TEAM.agents.length - 1);
+  const nm = $('#tm-i-name'); if (nm) { nm.focus(); nm.select(); }
 }
 function teamRemove(i){
   const a = TEAM.agents[i]; if (!a || a.id === 'atlas') return;
   if (a._srv && !confirm(`Remove ${a.name} from this desk?`)) return;
-  TEAM.agents.splice(i, 1); teamSetDirty(true); renderTeam();
+  TEAM.agents.splice(i, 1); teamClose(); teamSetDirty(true); renderTeam();
 }
 function teamPayload(){
   const used = new Set(TEAM.agents.filter(a => a._srv && a.id).map(a => a.id)); let n = 0;
+  const pos = a => a.pos ? { x: Math.round(a.pos.x), y: Math.round(a.pos.y) } : undefined;   // omitted when the node was never placed by hand
   return TEAM.agents.map(a => {
-    if (a.id === 'atlas') return { id:'atlas', name:a.name.trim() || 'Atlas', role:a.role.trim(), system_prompt:a.system_prompt, tools:a.tools, enabled:true, color:a.color };
+    if (a.id === 'atlas') return { id:'atlas', name:a.name.trim() || 'Atlas', role:a.role.trim(), system_prompt:a.system_prompt, tools:a.tools, enabled:true, color:a.color, pos:pos(a) };
     let id = a.id;
     if (!a._srv || !id) {                                                         // new agent: id from name, unique, [a-z0-9_] max 24
       id = slug(a.name) || ('agent' + (++n));
       while (used.has(id) || ['atlas','system','owner'].includes(id)) id = id.slice(0, 20) + '_' + (++n);
       used.add(id);
     }
-    return { id, name:a.name.trim() || id, role:a.role.trim(), system_prompt:a.system_prompt, tools:a.tools, enabled:!!a.enabled, color:a.color };
+    return { id, name:a.name.trim() || id, role:a.role.trim(), system_prompt:a.system_prompt, tools:a.tools, enabled:!!a.enabled, color:a.color, pos:pos(a) };
   });
 }
 async function saveTeam(){
@@ -986,15 +1151,166 @@ async function saveTeam(){
   const r = await api(`/desks/${did}`, {method:'PATCH', body:{agents}});
   if (!r || r.error) { $('#tm-save').disabled = false; return toast(r?.error || 'failed'); }
   toast('Team saved — applies to the next run');
-  teamSetDirty(false); TEAM.key = ''; await loadCfg(); loadTeam();
+  teamSetDirty(false); TEAM.key = ''; teamClose(); if (document.activeElement) document.activeElement.blur(); await loadCfg(); loadTeam();
 }
-function teamDiscard(){ teamSetDirty(false); TEAM.key = ''; if (document.activeElement) document.activeElement.blur(); loadTeam(); }
+function teamDiscard(){ teamSetDirty(false); TEAM.key = ''; teamClose(); if (document.activeElement) document.activeElement.blur(); loadTeam(); }
 async function resetTeam(){
   const did = (CFG.desk || {}).id; if (!did) return;
   if (!confirm('Drop your custom roster and go back to the template team?')) return;
   const r = await api(`/desks/${did}`, {method:'PATCH', body:{reset_agents:true}});
   if (!r || r.error) return toast(r?.error || 'failed');
-  toast('Back to the template team'); teamSetDirty(false); TEAM.key = ''; await loadCfg(); loadTeam();
+  toast('Back to the template team'); teamSetDirty(false); TEAM.key = ''; teamClose(); await loadCfg(); loadTeam();
+}
+
+/* ---- deployment animation: the roster nodes act out a run (live or replayed) */
+const TMLIVE = { runId:null, active:false, es:null, timer:null, tick:null, replay:null, inst:{}, edges:{}, t0:0, tEnd:0, n:0, tok:0 };
+const teamSpeed = () => +($('#tm-speed') && $('#tm-speed').value) || 3;
+function teamStop(){
+  TMLIVE.tok++;                                                                  // invalidates any pending replay step / attach
+  if (TMLIVE.es) { TMLIVE.es.close(); TMLIVE.es = null; }
+  clearTimeout(TMLIVE.timer); clearInterval(TMLIVE.tick); TMLIVE.timer = TMLIVE.tick = null; TMLIVE.replay = null; TMLIVE.active = false;
+  const nd = $('#n-team'); if (nd) nd.classList.remove('live'); const d = $('#tm-dot'); if (d) d.classList.remove('live');
+}
+function teamLeave(){                                                            // called from refresh() whenever the page isn't 'team'
+  if (TMLIVE.es || TMLIVE.timer || TMLIVE.tick || TMLIVE.replay) teamStop();
+  if (TMLIVE.runId) TMLIVE.runId = null;
+  TEAM.played = false; TEAM.cams = null;
+}
+function teamRuns(){
+  api('/runs').then(R => {
+    if (!Array.isArray(R) || page !== 'team') return;
+    const sel = $('#tm-run');
+    const opts = R.slice(0, 15).map(r => `<option value="${r.id}">${r.active ? '● ' : ''}${esc(r.task.replace(/^New inbound lead[^\n]*\n(Name: )?/, '')).split('\n')[0].slice(0, 48)} · ${when(r.created)} · ${r.active ? 'running' : r.status}</option>`).join('') || '<option value="">no runs yet</option>';
+    if (sel.innerHTML !== opts) { const cur = sel.value; sel.innerHTML = opts; if (cur && [...sel.options].some(o => o.value === cur)) sel.value = cur; }
+    const active = R.find(r => r.active);
+    if (active && !TMLIVE.replay && TMLIVE.runId !== active.id) teamAttach(active.id, true);       // something is deploying right now → watch it
+    else if (!TEAM.played && R.length) teamAttach(R[0].id, false);                                 // first visit: replay the latest run once
+  });
+}
+async function teamDeploy(){
+  const t = $('#tm-task').value.trim(); if (!t) return $('#tm-task').focus();
+  const r = await api('/runs', {method:'POST', body:{task:t, mode:'auto'}}); if (!r || r.error) return toast(r?.error || 'failed');
+  $('#tm-task').value = ''; toast('Team deployed'); curRun = r.run_id;
+  teamAttach(r.run_id, true); teamRuns();
+}
+function teamReplay(){ const id = $('#tm-run').value; if (!id) return toast('No runs yet — deploy the team first'); teamAttach(id, false); }
+async function teamAttach(runId, live){
+  teamStop(); TMLIVE.runId = runId; TEAM.played = true;
+  const tok = TMLIVE.tok; $('#tm-status').textContent = 'loading…';
+  const r = await api('/runs/' + runId); if (!r || r.error || tok !== TMLIVE.tok || page !== 'team') return;
+  const evs = (r.events || []).filter(e => e && e.kind !== 'token' && e.kind !== 'usage');
+  const sel = $('#tm-run'); if ([...sel.options].some(o => o.value === runId)) sel.value = runId;
+  teamResetVisuals(); TMLIVE.t0 = r.created || (evs[0] && evs[0].ts) || 0; TMLIVE.tEnd = 0;
+  if (live && r.active) {
+    TMLIVE.active = true; $('#n-team').classList.add('live'); $('#tm-dot').classList.add('live');
+    evs.forEach(teamApply);                                                      // history instantly, then follow the stream
+    TMLIVE.es = new EventSource('/api/stream?since=now&run=' + encodeURIComponent(runId));
+    TMLIVE.es.onmessage = ev => { if (page !== 'team') return; try { teamApply(JSON.parse(ev.data)); } catch (_) {} };
+    TMLIVE.es.onerror = () => {};                                                // browser auto-reconnects
+    TMLIVE.tick = setInterval(() => { if (TMLIVE.active) $('#tm-status').textContent = 'deploying · ' + Math.max(0, Date.now() / 1000 - TMLIVE.t0).toFixed(0) + 's'; }, 500);
+    $('#tm-status').textContent = 'deploying';
+    teamEdges();
+  } else teamPlay(evs);
+}
+function teamPlay(events){
+  // compressed replay: gap between events = min(real gap, 1.4s) ÷ speed, never under 60ms
+  teamStop(); teamResetVisuals();
+  const tok = TMLIVE.tok, total = events.length; let i = 0;
+  if (!total) { $('#tm-status').textContent = 'nothing to replay'; return; }
+  TMLIVE.replay = { events, i: 0, t0: Date.now() }; if (!TMLIVE.t0) TMLIVE.t0 = events[0].ts || 0;
+  $('#tm-dot').classList.add('live');
+  const step = () => {
+    if (tok !== TMLIVE.tok) return;
+    const e = events[i++]; teamApply(e); TMLIVE.replay.i = i;
+    if (i >= total) { teamSettle(e); return; }
+    $('#tm-status').textContent = `replaying · ${i}/${total}`;
+    const dt = Math.min(Math.max(0, (events[i].ts || 0) - (e.ts || 0)), 1.4) / teamSpeed();
+    TMLIVE.timer = setTimeout(step, Math.max(60, dt * 1000));
+  };
+  step();
+}
+function teamSettle(last){
+  Object.values(TMLIVE.inst).forEach(s => { if (!s.done) teamNodeDone(s); });
+  Object.keys(TMLIVE.edges).forEach(k => TMLIVE.edges[k] = 'done'); teamEdges();
+  const t = (TMLIVE.tEnd || (last && last.ts) || 0) - (TMLIVE.t0 || 0);
+  $('#tm-status').textContent = 'done' + (t > 0 && t < 86400 ? ' · ' + t.toFixed(0) + 's' : '');
+  teamStop();
+}
+function teamResetVisuals(){
+  $('#tm-ghosts').innerHTML = ''; TMLIVE.inst = {}; TMLIVE.edges = {}; TMLIVE.n = 0;
+  TEAM.agents.forEach(a => {
+    const k = tkid(a._k), el = document.getElementById(k); if (!el) return;
+    el.classList.remove('busy', 'fin', 'err'); el.querySelectorAll('.ring').forEach(r => r.remove());
+    const st = document.getElementById('st-' + k); if (st) st.textContent = a.enabled ? 'idle' : 'off';
+    ['asg', 'ap'].forEach(p => { const x = document.getElementById(p + '-' + k); if (x) { x.classList.add('hide'); x.textContent = ''; } });
+    ['chips', 'it'].forEach(p => { const x = document.getElementById(p + '-' + k); if (x) x.innerHTML = ''; });
+  });
+  $('#tm-status').textContent = 'idle'; teamEdges();
+}
+function teamInst(key){
+  // one state per agent *instance*: "watcher" is the roster node, "watcher#2" a parallel ghost, unknown ids are dynamic ghosts
+  if (TMLIVE.inst[key]) return TMLIVE.inst[key];
+  const base = key.split('#')[0], n = key.includes('#') ? key.split('#')[1] : '';
+  const roster = TEAM.agents.find(a => a._k === base);
+  const s = { key, base, iters: 0, apr: 0, done: false, ghost: !(roster && !n), eid: tkid(key) };
+  if (s.ghost) teamGhost(s, roster, n);
+  TMLIVE.inst[key] = s; return s;
+}
+function teamGhost(s, roster, n){
+  const box = $('#tm-ghosts'); const eid = s.eid = 'g-' + tkid(s.key);
+  const base = roster ? document.getElementById(tkid(roster._k)) : null;
+  const atlas = TEAM.agents.find(a => a.id === 'atlas'); const A = atlas && document.getElementById(tkid(atlas._k));
+  const color = roster ? roster.color : (colors[s.base] || '#7c3aed');
+  const name = (roster ? roster.name : s.base) + (n ? ' #' + n : '');
+  let x = 300, y = 300;
+  if (base) { const sib = [...box.children].filter(g => g.dataset.base === roster._k).length; x = base.offsetLeft + 28 * (sib + 1); y = base.offsetTop + base.offsetHeight + 14 + 22 * sib; }
+  else if (A) { const dyn = [...box.children].filter(g => !g.dataset.base).length; x = A.offsetLeft + (dyn % 3) * 236; y = A.offsetTop + A.offsetHeight + 64 + Math.floor(dyn / 3) * 104; }
+  const el = document.createElement('div'); el.className = 'tmn ghost'; el.id = eid; el.dataset.key = s.key; if (roster) el.dataset.base = roster._k; el.style.setProperty('--c', color);
+  el.innerHTML = `<div class="nm"><b id="nm-${eid}">${esc(name)}</b><span class="st" id="st-${eid}">idle</span></div><div class="role" id="role-${eid}">${esc(roster ? roster.role : 'dynamic agent · ' + s.base)}</div><div class="asg hide" id="asg-${eid}"></div><div class="chips" id="chips-${eid}"></div><div class="nf"><span id="tools-${eid}">${n ? 'parallel instance' : 'assembled by Atlas'}</span><span id="it-${eid}"></span><span class="badge hide" id="ap-${eid}"></span></div>`;
+  box.appendChild(el); const p = teamClamp(x, y, el); el.style.left = p.x + 'px'; el.style.top = p.y + 'px';
+  el.animate([{opacity: 0, transform: 'scale(.9)'}, {opacity: 1, transform: 'none'}], {duration: 300, easing: 'ease-out'});
+}
+const tmSt = (s, t) => { const x = document.getElementById('st-' + s.eid); if (x) x.textContent = t; };
+function tmChip(s, name, cls){
+  const c = document.getElementById('chips-' + s.eid); if (!c) return;
+  const sp = document.createElement('span'); sp.className = 'chip new' + (cls ? ' ' + cls : ''); sp.textContent = name; c.appendChild(sp);
+  while (c.children.length > 5) { const old = c.firstElementChild; if (old.classList.contains('bye')) { old.remove(); continue; } old.classList.add('bye'); setTimeout(() => old.remove(), 260); break; }
+  teamEdges();
+}
+function teamNodeDone(s){
+  s.done = true; const el = document.getElementById(s.eid); if (el) { el.classList.remove('busy'); el.classList.add('fin'); }
+  tmSt(s, 'done ✓'); if (TMLIVE.edges[s.key]) { TMLIVE.edges[s.key] = 'done'; teamEdges(); }
+}
+function teamApply(e){
+  if (!e || e.kind === 'token' || e.kind === 'usage') return;
+  if (typeof e.data === 'string') { try { e.data = JSON.parse(e.data || '{}'); } catch (_) { e.data = {}; } }
+  e.data = e.data || {}; TMLIVE.n++;
+  if (e.kind === 'team' && Array.isArray(e.data.agents)) e.data.agents.forEach(g => { const id = typeof g === 'string' ? g : (g && (g.id || g.name)); if (id) teamInst(String(id)); });
+  if (e.agent && e.agent !== 'system' && e.agent !== 'owner') {
+    const key = String(e.data.inst || e.agent), s = teamInst(key), el = document.getElementById(s.eid); if (!el) return;
+    if (e.kind === 'agent_start') {
+      s.done = false; s.iters = 0; el.classList.remove('fin', 'err'); el.classList.add('busy'); tmSt(s, 'working');
+      const asg = e.data.assignment, ax = document.getElementById('asg-' + s.eid); if (ax && asg) { ax.textContent = asg; ax.title = asg; ax.classList.remove('hide'); }
+      if (s.base !== 'atlas') TMLIVE.edges[key] = 'on';
+      const ring = document.createElement('span'); ring.className = 'ring'; el.appendChild(ring); setTimeout(() => ring.remove(), 700);
+      teamEdges();
+    }
+    else if (e.kind === 'tool') {
+      const name = String(e.text || '').split(/[( →:]/)[0] || 'tool'; tmChip(s, name, ''); tmSt(s, 'tool: ' + name);
+      if (name === 'delegate') { const m = String(e.text).match(/delegate → (\w+)/); if (m) { TMLIVE.edges[m[1]] = 'on'; teamEdges(); } }
+    }
+    else if (e.kind === 'approval') { tmChip(s, '⏸ approval', 'warn'); s.apr++; const b = document.getElementById('ap-' + s.eid); if (b) { b.textContent = s.apr + ' ⏸'; b.classList.remove('hide'); } }
+    else if (e.kind === 'deliverable') tmChip(s, '📄 saved', '');
+    else if (e.kind === 'agent_end') teamNodeDone(s);
+    else if (e.kind === 'error') { el.classList.remove('busy'); el.classList.add('err'); tmSt(s, 'error'); }
+    else if (e.kind === 'log') { s.iters++; const it = document.getElementById('it-' + s.eid); if (it) it.textContent = '· ' + s.iters + ' turn' + (s.iters === 1 ? '' : 's'); }
+  }
+  if (e.kind === 'done') {
+    TMLIVE.tEnd = e.ts || Date.now() / 1000;
+    const sum = String(e.text || '').replace(/\s+/g, ' ').trim(); if (sum) toast('Done — ' + sum.slice(0, 80));
+    if (TMLIVE.active) teamSettle(e);
+    else { Object.values(TMLIVE.inst).forEach(s => { if (!s.done) teamNodeDone(s); }); Object.keys(TMLIVE.edges).forEach(k => TMLIVE.edges[k] = 'done'); teamEdges(); }
+  }
 }
 
 /* ================= INTEGRATIONS ================= */

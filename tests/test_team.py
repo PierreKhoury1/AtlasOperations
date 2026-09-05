@@ -63,6 +63,13 @@ def test_roster_edit_validation_and_reset(app_client):
     eng_ra = next(a for a in eng["agents"] if a["id"] == "research_analyst")
     assert eng_ra["system_prompt"].endswith(T._SPECIALIST_SUFFIX)
     assert next(a for a in eng["agents"] if a["id"] == "writer")["enabled"] is False
+    # node positions from the workspace canvas persist, junk is dropped
+    placed = [atlas, {"id": "research_analyst", "name": "Research Analyst", "tools": ["web_fetch"], "pos": {"x": 412.5, "y": "88"}},
+              {"name": "Writer", "pos": {"x": "nope"}}]
+    assert c.patch(f"/api/desks/{did}", json={"agents": placed}).status_code == 200
+    cfg = J(c.get("/api/config"))
+    assert next(a for a in cfg["agents"] if a["id"] == "research_analyst")["pos"] == {"x": 412.5, "y": 88.0}
+    assert next(a for a in cfg["agents"] if a["id"] == "writer")["pos"] is None
     # invalid rosters
     assert c.patch(f"/api/desks/{did}", json={"agents": []}).status_code == 400
     assert c.patch(f"/api/desks/{did}", json={"agents": [{"name": "solo", "tools": []}]}).status_code == 400   # no atlas
