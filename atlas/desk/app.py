@@ -141,6 +141,8 @@ def desk_configs(desk: dict[str, Any]) -> dict[str, Any]:
         a.setdefault("tools", ["read_file", "list_files"])
         if a.get("id") != "atlas" and templates._SPECIALIST_SUFFIX.strip() not in (a.get("system_prompt") or ""):
             a["system_prompt"] = (a.get("system_prompt") or f"You are {a.get('name', a.get('id'))}, {a.get('role', '')}.").rstrip() + templates._SPECIALIST_SUFFIX
+    for a in agents:                                   # what the owner granted, before any engine (Hermes) strips or adds tools
+        a["granted_tools"] = list(a.get("tools", []))
     for a in agents:                                   # desks built before the rename stored the orchestrator as "hermes"
         if a.get("id") == "hermes":
             a["id"], a["name"] = "atlas", "Atlas"
@@ -679,7 +681,8 @@ def api_config():
         "tools": [{"id": n, "description": (sc.get("description") or "").split(". ")[0][:140], "orchestrator_only": n in T.ORCHESTRATOR_ONLY}
                   for n, sc in T.SCHEMAS.items() if n not in NEVER_ASSIGN] + [{"id": "mcp", "description": "Tools from connected MCP servers", "orchestrator_only": False}],
         "agents": [{"id": a["id"], "name": a["name"], "role": a.get("role", ""), "color": a.get("color", ""),
-                    "tools": a.get("tools", []), "model": a.get("model", "") or "(provider default)",
+                    "tools": a.get("granted_tools") or a.get("tools", []), "runtime_tools": a.get("tools", []),
+                    "model": a.get("model", "") or "(provider default)",
                     "engine": a.get("engine") or "atlas", "provider": a.get("provider") or "",
                     "engine_note": a.get("engine_note") or "", "enabled": a.get("enabled", True),
                     "system_prompt": (a.get("system_prompt") or "").replace(templates._SPECIALIST_SUFFIX, "")} for a in c["agents"]],
