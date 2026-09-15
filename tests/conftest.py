@@ -13,6 +13,8 @@ os.environ["DESK_MODE"] = "demo"
 os.environ["DEMO_DELAY"] = "0"
 os.environ.pop("DESK_OPEN", None)
 os.environ["DESK_SECRET"] = "test-secret"
+os.environ["VISION_EMBED"] = "hash"          # no CLIP / API in the suite: deterministic hashed vectors
+os.environ["VISION_INDEX_SYNC"] = "1"        # embed inline so retrieval tests see the index immediately
 _TMP = Path(tempfile.mkdtemp(prefix="atlas-tests-"))
 os.environ["ATLAS_DATA_DIR"] = str(_TMP)
 

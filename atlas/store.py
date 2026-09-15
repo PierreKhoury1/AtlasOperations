@@ -66,6 +66,11 @@ CREATE TABLE IF NOT EXISTS vision_events (
   snapshot TEXT DEFAULT '', triggered INTEGER DEFAULT 0, run_id TEXT DEFAULT '', source TEXT DEFAULT 'camera'
 );
 CREATE INDEX IF NOT EXISTS ix_vision_desk ON vision_events(desk_id, ts);
+CREATE TABLE IF NOT EXISTS vision_vectors (
+  event_id INTEGER PRIMARY KEY, desk_id INTEGER, ts REAL, model TEXT DEFAULT '', dim INTEGER DEFAULT 0,
+  text_vec BLOB, image_vec BLOB
+);
+CREATE INDEX IF NOT EXISTS ix_vvec_desk ON vision_vectors(desk_id, model, ts);
 """
 
 # columns added after the first release — applied idempotently on open
@@ -266,7 +271,50 @@ class Store:
                  snapshot, 1 if triggered else 0, run_id or "", source))
             self._conn.commit()
             vid = cur.lastrowid
-        return self.vision_event(vid)  # type: ignore[return-value]
+        ev = self.vision_event(vid)
+        try:                                            # embed for retrieval (background unless VISION_INDEX_SYNC=1)
+            from . import rag
+            rag.on_event(self, ev)
+        except Exception:
+            pass
+        return ev  # type: ignore[return-value]
+
+    # ------------------------------------------------------------------ vision vectors (RAG index)
+    def put_vision_vector(self, event_id: int, desk_id: int, ts: float, model: str, dim: int,
+                          text_vec: bytes | None, image_vec: bytes | None) -> None:
+        with self._lock:
+            self._conn.execute("DELETE FROM vision_vectors WHERE event_id=?", (event_id,))
+            self._conn.execute("INSERT INTO vision_vectors(event_id,desk_id,ts,model,dim,text_vec,image_vec) VALUES(?,?,?,?,?,?,?)",
+                               (event_id, desk_id, ts, model, dim, text_vec, image_vec))
+            self._conn.commit()
+
+    def vision_vectors(self, desk_id: int, since: float = 0, model: str = "", limit: int = 5000) -> list[dict[str, Any]]:
+        sql = "SELECT event_id, ts, model, dim, text_vec, image_vec FROM vision_vectors WHERE desk_id=? AND ts>=?"
+        args: list[Any] = [desk_id, since]
+        if model:
+            sql += " AND model=?"; args.append(model)
+        sql += " ORDER BY ts DESC LIMIT ?"; args.append(limit)
+        return _rows(self._conn.execute(sql, args))
+
+    def vision_vector_count(self, desk_id: int, model: str = "") -> int:
+        sql = "SELECT COUNT(*) FROM vision_vectors WHERE desk_id=?"
+        args: list[Any] = [desk_id]
+        if model:
+            sql += " AND model=?"; args.append(model)
+        return int(self._conn.execute(sql, args).fetchone()[0])
+
+    def unindexed_vision_events(self, desk_id: int, model: str, limit: int = 32) -> list[dict[str, Any]]:
+        """Newest events on the desk that have no vector row for `model`."""
+        rows = _rows(self._conn.execute(
+            "SELECT e.* FROM vision_events e LEFT JOIN vision_vectors v ON v.event_id=e.id AND v.model=? "
+            "WHERE e.desk_id=? AND v.event_id IS NULL ORDER BY e.ts DESC LIMIT ?", (model, desk_id, limit)))
+        return [self._vrow(r) for r in rows]
+
+    def vision_events_by_ids(self, ids: list[int]) -> list[dict[str, Any]]:
+        if not ids:
+            return []
+        q = ",".join("?" for _ in ids)
+        return [self._vrow(r) for r in _rows(self._conn.execute(f"SELECT * FROM vision_events WHERE id IN ({q})", list(ids)))]
 
     def vision_event(self, vid: int) -> dict[str, Any] | None:
         rows = _rows(self._conn.execute("SELECT * FROM vision_events WHERE id=?", (vid,)))
@@ -648,6 +696,11 @@ class DeskStore:
     def vision_events(self, camera="", since=0, query="", limit=100, triggered_only=False):
         return self.s.vision_events(self.desk_id, camera, since, query, limit, triggered_only)
     def vision_event(self, vid): return self.s.vision_event(vid)
+    def put_vision_vector(self, *a, **k): return self.s.put_vision_vector(*a, **k)
+    def vision_vectors(self, since=0, model="", limit=5000): return self.s.vision_vectors(self.desk_id, since, model, limit)
+    def vision_vector_count(self, model=""): return self.s.vision_vector_count(self.desk_id, model)
+    def unindexed_vision_events(self, model, limit=32): return self.s.unindexed_vision_events(self.desk_id, model, limit)
+    def vision_events_by_ids(self, ids): return self.s.vision_events_by_ids(ids)
     def last_vision_event(self, camera, triggered_only=False): return self.s.last_vision_event(self.desk_id, camera, triggered_only)
     def hook_cameras(self, since, exclude=()): return self.s.hook_cameras(self.desk_id, since, exclude)
     def set_vision_run(self, vid, run_id): return self.s.set_vision_run(vid, run_id)

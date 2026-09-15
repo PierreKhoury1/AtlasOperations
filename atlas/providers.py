@@ -175,6 +175,20 @@ class AnthropicProvider(Provider):
         return [{"role": "user", "content": content}]
 
 
+# Per-model request extras for OpenAI-compatible endpoints (prefix match on the model id). ling-3.0-flash-vl:free is a
+# reasoning model: with reasoning on it burns max_tokens in hidden thought and returns content=null, so we switch it off.
+MODEL_EXTRAS: dict[str, dict[str, Any]] = {
+    "inclusionai/ling-3.0": {"reasoning": {"enabled": False}},
+}
+
+
+def model_extras(model: str) -> dict[str, Any]:
+    for prefix, extra in MODEL_EXTRAS.items():
+        if (model or "").startswith(prefix):
+            return dict(extra)
+    return {}
+
+
 class OpenAICompatProvider(Provider):
     name = "openai"
 
@@ -204,6 +218,7 @@ class OpenAICompatProvider(Provider):
         }
         if tools:
             payload["tools"] = self._tools(tools)
+        payload.update(model_extras(model))
         payload.update(getattr(self, "_extra_payload", None) or {})
         headers = {"Content-Type": "application/json"}
         if self.api_key:

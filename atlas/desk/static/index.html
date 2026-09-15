@@ -441,7 +441,7 @@ aside.simple [data-lvl="full"]{display:none}
 <!-- TEAM -->
 <section id="p-team" class="hide">
   <div class="phead"><div><h1>Team</h1><p class="lead">Who works on this desk and what each one may do. Atlas leads; specialists get focused jobs. Drag agents to arrange the workspace, click one to edit it, deploy a job to watch them work.</p></div>
-    <div class="ctl"><span class="tag pending hide" id="tm-unsaved">unsaved</span><button class="btn sm hide" id="tm-discard" onclick="teamDiscard()">Discard</button><button class="btn p" id="tm-save" onclick="saveTeam()" disabled>Save team</button><button class="btn" onclick="teamAdd()">+ Add agent</button><button class="btn" onclick="openStudio(true)">Ask Atlas to design it</button><button class="btn sm d hide" id="tm-reset" onclick="resetTeam()">Reset to template</button></div></div>
+    <div class="ctl"><span class="tag pending hide" id="tm-unsaved">unsaved</span><button class="btn sm hide" id="tm-discard" onclick="teamDiscard()">Discard</button><button class="btn p" id="tm-save" onclick="saveTeam()" disabled>Save team</button><button class="btn" onclick="teamAdd()">+ Add agent</button><button class="btn" onclick="openStudio(true)">Ask Atlas to design it</button><button class="btn" onclick="teamDesignJob()" title="Type the job below first: Atlas designs a team for that job (leads, members, tools, plan), you review, then apply">Design a team for the job</button><button class="btn sm d hide" id="tm-reset" onclick="resetTeam()">Reset to template</button></div></div>
   <div class="livebar tmbar">
     <input id="tm-task" placeholder="Give the team a job and watch it deploy…" onkeydown="if(event.key==='Enter')teamDeploy()">
     <button class="btn p" onclick="teamDeploy()">Deploy →</button>
@@ -450,6 +450,9 @@ aside.simple [data-lvl="full"]{display:none}
     <span class="kv"><span class="dot" id="tm-dot"></span> <span id="tm-status">idle</span></span>
     <select id="tm-speed" title="Replay speed"><option value="1">1×</option><option value="3" selected>3×</option><option value="10">10×</option></select>
   </div>
+  <div class="panel hide" id="tm-proposal" style="margin-bottom:12px"><div class="ph"><h2>Proposed team for this job</h2><span class="hint" id="tm-prop-meta"></span></div>
+    <div class="pb"><pre id="tm-prop-tree" style="white-space:pre-wrap;font-size:12.5px;margin:0 0 8px"></pre><div id="tm-prop-why" class="hint" style="margin:0 0 8px"></div><div id="tm-prop-plan" style="font-size:12.5px;margin:0 0 10px"></div><div id="tm-prop-warn" class="hint" style="color:var(--warn);margin:0 0 10px"></div>
+    <div class="row"><button class="btn p" onclick="teamApplyProposal(false)">Apply team</button><button class="btn" onclick="teamApplyProposal(true)">Apply &amp; deploy →</button><button class="btn" onclick="$('#tm-proposal').classList.add('hide')">Dismiss</button></div></div></div>
   <div class="tmws" id="tm-ws" onclick="teamCanvasClick(event)">
     <svg id="tm-edges" xmlns="http://www.w3.org/2000/svg"></svg>
     <div id="tm-cams"></div>
@@ -956,13 +959,14 @@ async function createDesk(){
 /* ================= TEAM (workspace canvas) ================= */
 const TEAM = { agents: [], dirty: false, key: '', sel: -1, cams: null, played: false, seq: 0 };
 const TOOL_HIDE = ['finish', 'assemble_team'];
-const TOOL_SAFE = ['crm_lookup','crm_update','queue_action','camera_look','camera_events','remember','recall','browse','http_request','calendar_free_slots','calendar_book','generate_media','video_describe'];   // orchestrator-only in the catalogue but fine on specialists (approvals still gate)
+const TOOL_SAFE = ['crm_lookup','crm_update','queue_action','camera_look','camera_events','camera_ask','remember','recall','browse','http_request','calendar_free_slots','calendar_book','generate_media','video_describe'];   // orchestrator-only in the catalogue but fine on specialists (approvals still gate)
 const TOOL_GATED = ['queue_action','calendar_book','browse','http_request'];
 const TEAM_COLORS = ['#7c3aed','#1f9d63','#db2777','#ea580c','#b45309','#0891b2'];
 const slug = s => String(s||'').toLowerCase().replace(/[^a-z0-9_]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 24);
 const tkid = k => 'tmn-' + String(k).replace(/[^a-zA-Z0-9_]/g, '-');                   // DOM id for an agent key ("watcher", "watcher#2", "new3")
 function teamFromCfg(){
   const list = (CFG.agents || []).map(a => ({ id:a.id, _k:a.id, name:a.name || a.id, role:a.role || '', system_prompt:a.system_prompt || '', tools:[...(a.tools || [])], enabled:a.enabled !== false, color:a.color || '#7c3aed', model:a.model || '', engine:a.engine || '',
+    reports_to:(a.id === 'atlas' ? '' : (a.reports_to || 'atlas')), members:[...(a.members || [])], goal:a.goal || '', instructions:[...(a.instructions || [])],
     pos:(a.pos && isFinite(a.pos.x) && isFinite(a.pos.y)) ? { x:+a.pos.x, y:+a.pos.y } : null, _srv:true }));
   return [...list.filter(a => a.id === 'atlas'), ...list.filter(a => a.id !== 'atlas')];
 }
@@ -991,7 +995,7 @@ function renderTeam(){
     const isAtlas = a.id === 'atlas'; if (!a._k) a._k = a.id || ('new' + (++TEAM.seq));
     const k = tkid(a._k), nt = a.tools.length;
     return `<div class="tmn ${isAtlas ? 'atlas' : ''} ${a.enabled ? '' : 'off'}" id="${k}" data-i="${i}" data-key="${esc(a._k)}" style="--c:${esc(a.color)}" title="Click to edit · drag to move">
-      <div class="nm"><b id="nm-${k}">${esc(a.name)}</b>${isAtlas ? '<span class="tag" title="Atlas leads the desk and cannot be removed">lead</span>' : ''}<span class="st" id="st-${k}">${a.enabled ? 'idle' : 'off'}</span></div>
+      <div class="nm"><b id="nm-${k}">${esc(a.name)}</b>${isAtlas ? '<span class="tag" title="Atlas leads the desk and cannot be removed">lead</span>' : (a.members && a.members.length ? `<span class="tag" title="Leads a sub-team: ${esc(a.members.join(', '))}">sub-team lead</span>` : (a.reports_to && a.reports_to !== 'atlas' ? `<span class="tag" title="Reports to ${esc(a.reports_to)}">member</span>` : ''))}<span class="st" id="st-${k}">${a.enabled ? 'idle' : 'off'}</span></div>
       <div class="role" id="role-${k}">${esc(a.role) || '<span style="color:var(--faint)">no role yet</span>'}</div>
       <div class="asg hide" id="asg-${k}"></div>
       <div class="chips" id="chips-${k}"></div>
@@ -1019,6 +1023,21 @@ function teamPlace(){
   const sp = TEAM.agents.filter(a => a.id !== 'atlas'), n = sp.length;
   // specialists in generous columns to the right of Atlas: up to 4 per column, 130px pitch, columns 270px apart
   const perCol = 4, pitch = 130, colGap = 270, x0 = ac.r + 150;
+  const leadIds = new Set(sp.filter(a => a.reports_to && a.reports_to !== 'atlas').map(a => a.reports_to));
+  if (leadIds.size) {                                                                 // hierarchy: tops in column 0, members beside their lead
+    const tops = sp.filter(a => !a.reports_to || a.reports_to === 'atlas'), pitchT = 150;
+    let yCursor = ac.y - ((tops.length - 1) * pitchT) / 2;
+    tops.forEach(t => {
+      const el = document.getElementById(tkid(t._k)); const h = el ? el.offsetHeight : 90;
+      const mem = sp.filter(m => m.reports_to === t.id); const block = Math.max(1, mem.length) * 118;
+      const yT = mem.length ? yCursor + (block - 118) / 2 : yCursor;
+      if (!t.pos) put(t, x0, yT - h / 2); else put(t, t.pos.x, t.pos.y);
+      mem.forEach((m, r) => { if (m.pos) { put(m, m.pos.x, m.pos.y); return; } const me = document.getElementById(tkid(m._k)); put(m, x0 + colGap, yCursor + r * 118 - (me ? me.offsetHeight : 90) / 2); });
+      yCursor += Math.max(block, pitchT);
+    });
+    const hint0 = $('#tm-hint'); hint0.classList.toggle('hide', n > 0);
+    return;
+  }
   sp.forEach((a, j) => {
     if (a.pos) { put(a, a.pos.x, a.pos.y); return; }
     const col = Math.floor(j / perCol), rows = Math.min(perCol, n - col * perCol), row = j % perCol;
@@ -1046,7 +1065,10 @@ function teamEdges(){
     return `<path class="tme ${cls}" style="--c:${color}" d="M${x1},${y1} C${mx},${y1} ${mx},${y2} ${x2},${y2}"/>`; };
   const ab = box(A); let out = '';
   ws.querySelectorAll('#tm-cams .tmn').forEach(el => { out += curve(box(el), ab, 'cam', 'var(--line2)'); });
-  ws.querySelectorAll('#tm-nodes .tmn[data-i]').forEach(el => { if (el === A) return; out += curve(ab, box(el), TMLIVE.edges[el.dataset.key] || '', el.style.getPropertyValue('--c') || '#7c3aed'); });
+  ws.querySelectorAll('#tm-nodes .tmn[data-i]').forEach(el => { if (el === A) return;
+    const ag = TEAM.agents[+el.dataset.i]; let from = ab;
+    if (ag && ag.reports_to && ag.reports_to !== 'atlas') { const lead = TEAM.agents.find(x => x.id === ag.reports_to); const L = lead && document.getElementById(tkid(lead._k)); if (L) from = box(L); }
+    out += curve(from, box(el), TMLIVE.edges[el.dataset.key] || '', el.style.getPropertyValue('--c') || '#7c3aed'); });
   ws.querySelectorAll('#tm-ghosts .tmn').forEach(el => { const from = (el.dataset.base && document.getElementById(tkid(el.dataset.base))) || A; out += curve(box(from), box(el), TMLIVE.edges[el.dataset.key] || '', el.style.getPropertyValue('--c') || '#7c3aed'); });
   svg.innerHTML = out;
 }
@@ -1089,6 +1111,7 @@ function teamInspect(i){
   insp.innerHTML = `<div class="hd"><input type="color" value="${esc(a.color)}" title="Colour" oninput="teamField(${i},'color',this.value)"><input class="nm" id="tm-i-name" value="${esc(a.name)}" placeholder="Name" oninput="teamField(${i},'name',this.value)">${isAtlas ? '<span class="tag" title="Atlas leads the desk and cannot be removed">lead</span>' : ''}<button class="x" onclick="teamClose()" title="Close (Esc)">×</button></div>
     <label>Role</label><input value="${esc(a.role)}" placeholder="${isAtlas ? 'Role — e.g. Orchestrator' : 'Role — e.g. Researcher'}" oninput="teamField(${i},'role',this.value)">
     <label class="act" title="${isAtlas ? 'Atlas is always active' : 'Inactive agents are skipped on the next run'}"><input type="checkbox" ${a.enabled ? 'checked' : ''} ${isAtlas ? 'disabled' : ''} onchange="teamField(${i},'enabled',this.checked)"> active</label>
+    ${isAtlas ? '' : `<label>Reports to</label><select onchange="teamField(${i},'reports_to',this.value)"><option value="atlas" ${(!a.reports_to || a.reports_to === 'atlas') ? 'selected' : ''}>Atlas (top level)</option>${TEAM.agents.filter(x => x.id && x.id !== 'atlas' && x.id !== a.id && (!x.reports_to || x.reports_to === 'atlas')).map(x => `<option value="${esc(x.id)}" ${a.reports_to === x.id ? 'selected' : ''}>${esc(x.name)} (sub-team lead)</option>`).join('')}</select><div class="hint" style="margin-top:4px">A sub-team lead delegates only to its members and hands Atlas one merged result.</div>`}
     <div class="hint" style="margin-top:10px"><span class="tag">${esc(a.id || 'id from name')}</span> <span class="model">${esc(a.model || '(default model)')}${a.engine ? ' · ' + esc(a.engine) : ''}</span>${a.engine === 'hermes_agent' ? '<br><span style="color:var(--warn)">Runs inside the Hermes Agent runtime with its own tools; the grants below apply when it runs on the built-in engine.</span>' : ''}</div>
     <label>System prompt</label><textarea rows="9" class="sp" placeholder="${isAtlas ? 'How Atlas should run this desk, who it delegates to, what it must never do…' : 'What this agent does, how it works, what it must never do…'}" oninput="teamField(${i},'system_prompt',this.value)">${esc(a.system_prompt)}</textarea>
     <label>Tools</label><div class="tchips">${chips || '<span class="hint" style="margin:0">no tools in the catalogue</span>'}</div>
@@ -1139,8 +1162,30 @@ function teamPayload(){
       while (used.has(id) || ['atlas','system','owner'].includes(id)) id = id.slice(0, 20) + '_' + (++n);
       used.add(id);
     }
-    return { id, name:a.name.trim() || id, role:a.role.trim(), system_prompt:a.system_prompt, tools:a.tools, enabled:!!a.enabled, color:a.color, pos:pos(a) };
+    return { id, name:a.name.trim() || id, role:a.role.trim(), system_prompt:a.system_prompt, tools:a.tools, enabled:!!a.enabled, color:a.color, pos:pos(a), reports_to:a.reports_to || 'atlas', goal:a.goal || '', instructions:a.instructions || [] };
   });
+}
+let TMPROP = null;
+async function teamDesignJob(){
+  const t = $('#tm-task').value.trim(); if (!t) { $('#tm-task').focus(); return toast('Type the job in the box first'); }
+  const did = (CFG.desk || {}).id; if (!did) return toast('No desk selected');
+  const p = $('#tm-proposal'); p.classList.remove('hide'); $('#tm-prop-tree').textContent = 'Designing the team for this job…'; $('#tm-prop-why').textContent = ''; $('#tm-prop-plan').innerHTML = ''; $('#tm-prop-warn').textContent = ''; $('#tm-prop-meta').textContent = '';
+  const r = await api(`/desks/${did}/team/design`, {method:'POST', body:{task:t}});
+  if (!r || r.error) { $('#tm-prop-tree').textContent = r?.error || 'failed'; return; }
+  TMPROP = r.team;
+  $('#tm-prop-tree').textContent = r.tree;
+  $('#tm-prop-why').textContent = r.team.rationale || '';
+  $('#tm-prop-plan').innerHTML = (r.team.workflow || []).map((s, i) => `<div>${i + 1}. <b>${esc(s.agents.join(' + '))}</b>${s.task ? ' — ' + esc(s.task) : ''}</div>`).join('') + ((r.team.deliverables || []).length ? `<div style="margin-top:6px"><b>Deliverables:</b> ${esc(r.team.deliverables.join('; '))}</div>` : '');
+  $('#tm-prop-warn').textContent = (r.errors || []).length ? 'Still off-contract: ' + r.errors.join('; ') : ((r.warnings || []).length ? 'Repaired after the first draft: ' + r.warnings.join('; ') : '');
+  $('#tm-prop-meta').textContent = r.mode === 'demo' ? 'demo design (no model) — structure only' : `designed by ${(r.team.source || {}).model || 'the desk model'} in ${r.turns} turn(s)`;
+}
+async function teamApplyProposal(deploy){
+  const did = (CFG.desk || {}).id; if (!did || !TMPROP) return;
+  const r = await api(`/desks/${did}/team/apply`, {method:'POST', body:{team:TMPROP}});
+  if (!r || r.error) return toast(r?.error || 'failed');
+  toast(`Team applied: ${r.agents.length} agent(s)`); $('#tm-proposal').classList.add('hide'); TMPROP = null;
+  CFG = await api('/config'); TEAM.key = ''; TEAM.dirty = false; loadTeam();
+  if (deploy) teamDeploy();
 }
 async function saveTeam(){
   const did = (CFG.desk || {}).id; if (!did) return toast('No desk selected');
@@ -1425,7 +1470,9 @@ async function askCams(){
   const r = await api('/vision/ask', {method:'POST', body:{question:q, hours:+$('#ask-hours').value, camera:$('#ev-cam').value}}); btn.disabled = false;
   if (!r || r.error) { $('#ask-out').textContent = r?.error || 'failed'; return; }
   $('#ask-out').innerHTML = esc(r.answer).replace(/\[#?(\d+)\]/g, (m,id)=>`<span class="cite" title="event ${id}">[#${id}]</span>`);
-  $('#ask-ev').innerHTML = (r.evidence||[]).length ? `${r.events_considered||r.evidence.length} event(s) considered · ` + r.evidence.slice(-6).map(e=>`<span class="cite">#${e.id}</span> ${esc(e.camera)} ${hms(e.ts).slice(0,5)}${e.snapshot_url?` <a href="#" onclick="zoom('${e.snapshot_url}');return false">↗</a>`:''}`).join(' · ') : '';
+  const m = r.retrieval || {};
+  const how = m.embedder ? `<div class="hint" style="margin:0 0 4px">retrieval: ${esc(m.embedder)} · window ${esc(m.window || '')} · ${m.considered ?? 0} events, ${m.indexed ?? 0} indexed · ${esc(m.grounding || '')}${(m.looked_at || []).length ? ' · re-looked at ' + m.looked_at.map(id => `<span class="cite">#${id}</span>`).join(' ') : ''}</div>` : '';
+  $('#ask-ev').innerHTML = how + ((r.evidence||[]).length ? `${r.events_considered||r.evidence.length} event(s) considered · ` + r.evidence.slice(-6).map(e=>`<span class="cite">#${e.id}</span> ${esc(e.camera)} ${hms(e.ts).slice(0,5)}${e.snapshot_url?` <a href="#" onclick="zoom('${e.snapshot_url}');return false">↗</a>`:''}`).join(' · ') : '');
 }
 function zoom(url){ const d = document.createElement('div'); d.className = 'lightbox'; d.innerHTML = `<img src="${url}">`; d.onclick = ()=>d.remove(); document.body.appendChild(d); }
 async function testVisionHook(){

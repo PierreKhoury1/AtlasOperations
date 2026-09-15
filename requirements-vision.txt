@@ -1,3 +1,6 @@
 # Local computer vision (not installed on Render — the vision model covers detection there)
 ultralytics>=8.3
 opencv-python>=4.10
+# Local CLIP embeddings for the camera RAG (optional; without them retrieval uses the API embedder or hashed vectors)
+open_clip_torch>=2.24
+torch>=2.2

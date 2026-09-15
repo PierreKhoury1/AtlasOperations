@@ -4,6 +4,8 @@ Any JSON file dropped into templates/ with the same shape is picked up too.
 """
 from __future__ import annotations
 
+import os
+
 import json
 from typing import Any
 
@@ -41,7 +43,7 @@ def _atlas(extra: str = "") -> dict[str, Any]:
                   _BASE_ATLAS_PROMPT + ("\n\n" + extra if extra else ""),
                   tools=["delegate", "list_agents", "save_deliverable", "read_file", "list_files",
                          "crm_lookup", "crm_update", "queue_action", "list_connectors", "http_request", "schedule_task", "calendar_free_slots", "calendar_book",
-                         "mcp", "run_python", "remember", "recall", "generate_media", "camera_look", "camera_events"],
+                         "mcp", "run_python", "remember", "recall", "generate_media", "camera_look", "camera_events", "camera_ask"],
                   color="#0b5fcb")
 
 
@@ -285,12 +287,12 @@ SITE_WATCH: dict[str, Any] = {
     "agents": [
         _agent("atlas", "Atlas", "Site desk orchestrator",
                _BASE_ATLAS_PROMPT + "\n\nThis is a Site Watch desk: cameras and sensors feed you events. For every camera alert: look again if useful (camera_look with a precise question), check what happened before (camera_events), decide severity (routine / worth telling staff / urgent for the owner), log a one-line incident note with remember(key='incident YYYY-MM-DD HH:MM', ...), and if someone should be told, queue a short message with queue_action (kind=whatsapp or sms or email) — never send directly. For questions about footage, answer from camera_events with times and counts; say plainly when the log has nothing. Routine events (staff during hours, expected deliveries) get logged only.",
-               tools=["delegate", "list_agents", "camera_look", "camera_events", "queue_action", "crm_lookup", "crm_update", "save_deliverable", "read_file", "list_files",
+               tools=["delegate", "list_agents", "camera_look", "camera_events", "camera_ask", "queue_action", "crm_lookup", "crm_update", "save_deliverable", "read_file", "list_files",
                       "list_connectors", "http_request", "schedule_task", "mcp", "run_python", "remember", "recall"],
                color="#0b5fcb"),
         _agent("watcher", "Vision Analyst", "Interprets camera frames and event history",
                "You are the vision analyst for a physical site. Given a camera event (counts, motion, time, the analyst's answer), decide what most likely happened and how sure you are. Use camera_look with one precise question when a second look would change the decision; use camera_events to compare with the pattern for that camera and time. Output: what happened (1-2 lines), confidence (low/medium/high), severity (routine / notify staff / urgent), evidence (times, counts). Never identify individuals; describe clothing/vehicle only when it matters operationally.",
-               tools=["camera_look", "camera_events", "recall", "read_file", "list_files"], color="#7c3aed"),
+               tools=["camera_look", "camera_events", "camera_ask", "recall", "read_file", "list_files"], color="#7c3aed"),
         _agent("comms", "Site Comms", "Drafts alerts and digests for staff and owner",
                "You write short operational messages for site staff and the owner: what was seen, where, when, and the one thing to do (check, ignore, call). Under 60 words for alerts, plain text, no markdown. Daily digests: bullet-free plain lines grouped by camera with counts and notable times. Sign off with the sender name.",
                color="#db2777"),
@@ -430,7 +432,7 @@ SAMPLE_LEADS: dict[str, list[dict[str, str]]] = {
 
 # model tiers: which agents get the strong model. Provider stays whatever the desk runs on (OpenRouter by default).
 TIERS: dict[str, dict[str, Any]] = {
-    "free":     {"label": "Free",     "strong": [], "hermes_model": "minimax/minimax-m3:free",
+    "free":     {"label": "Free",     "strong": [], "hermes_model": os.environ.get("ATLAS_FREE_MODEL", "inclusionai/ling-3.0-flash-vl:free"),
                  "note": "£0 per lead. Free MiniMax everywhere - inside the Hermes Agent runtime it still scored 3/3 on research, writing and data. Planning is weaker; drafts run long and get bounced by policy."},
     "frugal":   {"label": "Frugal",   "strong": [], "orchestrator": "anthropic/claude-haiku-4.5", "hermes_model": "anthropic/claude-haiku-4.5",
                  "note": "≈ 5-8p per lead. Claude Haiku orchestrates and powers Hermes Agent: fast, tidy, near-perfect on tool tasks."},
@@ -440,7 +442,9 @@ TIERS: dict[str, dict[str, Any]] = {
                  "note": "≈ 35p per lead. Sonnet everywhere, including inside Hermes Agent. Only where the words are the product."},
 }
 STRONG_MODEL = "anthropic/claude-sonnet-4.5"
-FREE_MODEL = "minimax/minimax-m3:free"
+# The free-tier model. minimax/minimax-m3:free was withdrawn from OpenRouter on 15 Sep 2026; ling-3.0-flash-vl:free takes
+# images and tool calls (reasoning is switched off per request in providers.MODEL_EXTRAS). Override with ATLAS_FREE_MODEL.
+FREE_MODEL = os.environ.get("ATLAS_FREE_MODEL", "inclusionai/ling-3.0-flash-vl:free")
 
 
 def apply_tier(agents: list[dict[str, Any]], tier: str) -> None:

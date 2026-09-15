@@ -44,7 +44,10 @@ How to run the conversation
   and press Approve & build.
 
 Design rules
-- Atlas (id "atlas") is always the root orchestrator; every other agent has "reports_to": "atlas".
+- Atlas (id "atlas") is always the root orchestrator. Every other agent has "reports_to": "atlas", except members of a
+  sub-team, whose "reports_to" is their lead's id. Use a sub-team (one lead + 2-4 members, max depth atlas -> lead ->
+  member) only when the work naturally splits into parallel strands with their own coordinator (a research pod over
+  several markets, one writer per channel). Flat is the default.
 - 2-6 specialist agents. Each agent: short id (a-z, _), name, role (3-6 words), goal (1-2 sentences: what it produces
   and the quality bar), tools (subset of: read_file, list_files, web_fetch, run_python, save_deliverable),
   "strong": true only if the role needs top-tier judgement or client-facing writing,
@@ -234,7 +237,7 @@ def normalise(bp: dict[str, Any] | None, prev: dict[str, Any] | None = None) -> 
             "role": str(a.get("role") or "Specialist")[:60],
             "goal": str(a.get("goal") or a.get("description") or "")[:600],
             "tools": tools if aid != "atlas" else list(ATLAS_TOOLS),
-            "reports_to": "atlas" if aid != "atlas" else "",
+            "reports_to": (_slug(a.get("reports_to") or "atlas") or "atlas") if aid != "atlas" else "",
             "strong": bool(a.get("strong")),
             "engine": "hermes_agent" if str(a.get("engine") or "").lower() in ("hermes_agent", "hermes") else "atlas",
             "instructions": instr,
@@ -242,6 +245,15 @@ def normalise(bp: dict[str, Any] | None, prev: dict[str, Any] | None = None) -> 
     agents = [a for a in agents if a["id"] != "atlas"][:8]
     for i, a in enumerate(agents):
         a["color"] = PALETTE[i % len(PALETTE)]
+    # hierarchy contract shared with atlas/team.py: unknown leads, cycles and chains deeper than 2 collapse to atlas
+    from . import team as TM
+    shape, _errs = TM.validate_team({"agents": [{**a, "instructions": a.get("instructions") or ["as briefed", "as briefed"]} for a in agents]},
+                                    allowed_tools=SPECIALIST_TOOLS)
+    struct = {s["id"]: s for s in shape["agents"]}
+    for a in agents:
+        s = struct.get(a["id"], {})
+        a["reports_to"] = s.get("reports_to", "atlas")
+        a["members"] = list(s.get("members") or [])
     out["agents"] = agents
     ids = {a["id"] for a in agents}
 
@@ -558,14 +570,24 @@ def blueprint_to_desk(bp: dict[str, Any], tier: str = "free") -> dict[str, Any]:
     pol = bp.get("policy") or {}
     b["policy"] = {"no_money_figures": bool(pol.get("no_money_figures", True)), "max_words": int(pol.get("max_words") or 220),
                    "banned_phrases": list(pol.get("banned_phrases") or [])}
-    roster = "\n".join(f"- {a['id']}: {a['name']} — {a['role']}" for a in bp.get("agents") or [])
+    roster = "\n".join(f"- {a['id']}: {a['name']} — {a['role']}" + (f" (leads: {', '.join(a['members'])})" if a.get("members") else "")
+                       for a in bp.get("agents") or [] if (a.get("reports_to") or "atlas") == "atlas")
     atlas_extra = ("Specialists on this desk:\n" + roster + "\n\nEvery customer-facing message goes through queue_action for owner "
                     "approval. Keep CRM up to date with crm_update.") if roster else ""
     agents = [T._atlas(atlas_extra)]
+    from . import team as TM
+    by_id = {a["id"]: a for a in bp.get("agents") or []}
     for a in bp.get("agents") or []:
-        agents.append(T._agent(a["id"], a["name"], a["role"], _agent_prompt(a, b), tools=a["tools"], color=a["color"]))
+        tools = list(a["tools"])
+        if a.get("members"):                                   # a sub-team lead: needs delegate for its members
+            tools = list(dict.fromkeys(TM.LEAD_TOOLS + tools))
+        agents.append(T._agent(a["id"], a["name"], a["role"], TM.agent_prompt(a, b, by_id), tools=tools, color=a["color"]))
         agents[-1]["strong"] = bool(a.get("strong"))
-        agents[-1]["engine"] = a.get("engine") or "atlas"
+        agents[-1]["engine"] = "atlas" if a.get("members") else (a.get("engine") or "atlas")
+        agents[-1]["reports_to"] = a.get("reports_to") or "atlas"
+        agents[-1]["members"] = list(a.get("members") or [])
+        agents[-1]["instructions"] = list(a.get("instructions") or [])
+        agents[-1]["goal"] = a.get("goal", "")
     strong_ids = {a["id"] for a in bp.get("agents") or [] if a.get("strong")}
     T.apply_tier(agents, tier)
     if tier == "best":

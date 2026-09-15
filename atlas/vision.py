@@ -37,7 +37,7 @@ from . import config as cfg
 MODELS_DIR = cfg.DATA_DIR / "models"
 SNAP_DIR = cfg.DATA_DIR / "snapshots"
 YOLO_WEIGHTS = os.environ.get("VISION_YOLO", str(MODELS_DIR / "yolov8n.pt"))
-DEFAULT_VLM = os.environ.get("VISION_MODEL", "minimax/minimax-m3:free")   # free by default; set VISION_MODEL for paid eyes
+DEFAULT_VLM = os.environ.get("VISION_MODEL", os.environ.get("ATLAS_FREE_MODEL", "inclusionai/ling-3.0-flash-vl:free"))   # free by default; set VISION_MODEL for paid eyes
 DEFAULT_VLM_PROVIDER = os.environ.get("VISION_PROVIDER", "openrouter")
 MAX_SIDE = 960                      # frames are downscaled to this before detection / VLM
 FRAME_TIMEOUT = float(os.environ.get("VISION_GRAB_TIMEOUT", "12"))
@@ -370,7 +370,7 @@ def describe(jpeg: bytes, question: str, model: str = "", context: str = "", max
                        "HTTP-Referer": "https://atlas-ops.onrender.com", "X-Title": "Atlas Desk vision"}
             try:
                 r = c.post(e["base"] + "/chat/completions", headers=headers,
-                           json={"model": e["model"], "max_tokens": max_tokens, "temperature": 0.1, "messages": msgs})
+                           json={"model": e["model"], "max_tokens": max_tokens, "temperature": 0.1, "messages": msgs, **_extras(e["model"])})
             except httpx.HTTPError:
                 if i + 1 < len(chain):
                     continue
@@ -388,6 +388,11 @@ def describe(jpeg: bytes, question: str, model: str = "", context: str = "", max
     if isinstance(msg, list):
         msg = " ".join(p.get("text", "") for p in msg if isinstance(p, dict))
     return (msg or "").strip()
+
+
+def _extras(model: str) -> dict[str, Any]:
+    from .providers import model_extras
+    return model_extras(model)
 
 
 def vlm_detect(jpeg: bytes, labels: list[str], model: str = "", transport: httpx.BaseTransport | None = None) -> list[dict[str, Any]]:
@@ -573,6 +578,45 @@ def sample_video_frames(source: str, n: int = 8) -> tuple[list[tuple[float, byte
     return frames, dur
 
 
+def chat_images(system: str, text: str, images: list[tuple[str, bytes]], model: str = "", max_tokens: int = 500,
+                transport: httpx.BaseTransport | None = None) -> str:
+    """One vision-model call with several labelled frames (RAG re-look, comparisons). Same free-first provider
+    chain as describe(); each image is preceded by its label so the model can cite it."""
+    chain = [e for e in vlm_chain(model) if e["key"]]
+    if not chain:
+        raise RuntimeError("no vision model key (set OPENROUTER_API_KEY / GROQ_API_KEY / GEMINI_API_KEY)")
+    content: list[dict[str, Any]] = [{"type": "text", "text": text}]
+    for label, jpeg in images:
+        content.append({"type": "text", "text": f"Frame {label}:"})
+        content.append({"type": "image_url", "image_url": {"url": "data:image/jpeg;base64," + base64.b64encode(jpeg).decode()}})
+    msgs = [{"role": "system", "content": system}, {"role": "user", "content": content}]
+    r = None
+    with httpx.Client(timeout=120, transport=transport) as c:
+        for i, e in enumerate(chain):
+            headers = {"Authorization": f"Bearer {e['key']}", "Content-Type": "application/json",
+                       "HTTP-Referer": "https://atlas-ops.onrender.com", "X-Title": "Atlas Desk vision"}
+            try:
+                r = c.post(e["base"] + "/chat/completions", headers=headers,
+                           json={"model": e["model"], "max_tokens": max_tokens, "temperature": 0.1, "messages": msgs, **_extras(e["model"])})
+            except httpx.HTTPError:
+                if i + 1 < len(chain):
+                    continue
+                raise
+            if _retryable(r.status_code) and i + 1 < len(chain):
+                continue
+            break
+    if r is None or r.status_code >= 400:
+        raise RuntimeError(f"vision model HTTP {r.status_code if r is not None else '?'}: {r.text[:200] if r is not None else 'no provider reachable'}")
+    j = r.json()
+    try:
+        msg = j["choices"][0]["message"]["content"]
+    except (KeyError, IndexError, TypeError) as exc:
+        raise RuntimeError(f"vision model returned no answer: {json.dumps(j)[:200]}") from exc
+    if isinstance(msg, list):
+        msg = " ".join(p.get("text", "") for p in msg if isinstance(p, dict))
+    return (msg or "").strip()
+
+
 def describe_video(source: str, question: str = "", model: str = "", frames: int = 8, context: str = "",
                    transport: httpx.BaseTransport | None = None) -> dict[str, Any]:
     """Watch a video: sample frames evenly, send them all to the vision model in one call, get a timeline
@@ -593,7 +637,7 @@ def describe_video(source: str, question: str = "", model: str = "", frames: int
         content.append({"type": "text", "text": f"[frame at {t:.1f}s]"})
         content.append({"type": "image_url", "image_url": {"url": "data:image/jpeg;base64," + base64.b64encode(jpeg).decode()}})
     payload = {"model": model, "max_tokens": 700, "temperature": 0.1,
-               "messages": [{"role": "system", "content": system}, {"role": "user", "content": content}]}
+               "messages": [{"role": "system", "content": system}, {"role": "user", "content": content}], **_extras(model)}
     headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json",
                "HTTP-Referer": "https://atlas-ops.onrender.com", "X-Title": "Atlas Desk vision"}
     with httpx.Client(timeout=180, transport=transport) as c:

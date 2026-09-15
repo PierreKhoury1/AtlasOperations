@@ -45,6 +45,8 @@ SCHEMAS: dict[str, dict[str, Any]] = {
                             "tools": {"type": "array", "items": {"type": "string"}, "description": "Tool names to grant (subset of the desk's tools)."},
                             "engine": {"type": "string", "enum": ["atlas", "hermes_agent"], "description": "hermes_agent = run on the Hermes Agent runtime (its own browser/terminal/memory) when one is connected."},
                             "model": {"type": "string", "description": "Optional model id override."},
+                            "reports_to": {"type": "string", "description": "'atlas' (default) or the id of another NEW agent in this same call that leads a sub-team of 2-4 members. A lead coordinates and reviews its members; max depth atlas -> lead -> member."},
+                            "instructions": {"type": "array", "items": {"type": "string"}, "description": "3-6 standing orders for this role on this job."},
                         },
                         "required": ["id", "name", "role", "system_prompt"],
                     },
@@ -249,6 +251,19 @@ SCHEMAS: dict[str, dict[str, Any]] = {
             "required": ["task"],
         },
     },
+    "camera_ask": {
+        "name": "camera_ask",
+        "description": "Ask the camera log a question in plain English and get a grounded answer with event ids cited. Retrieval is semantic (embeddings over event text and snapshot images), time phrases in the question ('last night', 'yesterday afternoon', 'between 2 and 4pm') set the window, and the vision model re-looks at the best matching frames before answering. Use for anything about the past; use camera_look for right now.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "question": {"type": "string"},
+                "camera": {"type": "string", "description": "Restrict to one camera (name), optional."},
+                "hours": {"type": "number", "description": "Fallback window when the question names no time (default 24)."},
+            },
+            "required": ["question"],
+        },
+    },
     "camera_events": {
         "name": "camera_events",
         "description": "Search what the cameras and sensors have seen: the event log (time, camera, objects counted, motion, alert reason, analyst's answer). Use it to answer 'what happened at the door last night', 'when was the last delivery', 'how busy were we between 12 and 2'. Read-only.",
@@ -287,7 +302,7 @@ SCHEMAS: dict[str, dict[str, Any]] = {
 ALL_TOOL_NAMES = list(SCHEMAS.keys())
 ORCHESTRATOR_ONLY = {"delegate", "list_agents", "finish", "assemble_team", "video_describe", "queue_action", "crm_lookup", "crm_update",
                      "list_connectors", "http_request", "schedule_task", "remember", "recall",
-                     "calendar_free_slots", "calendar_book", "generate_media", "camera_look", "camera_events", "browse"}
+                     "calendar_free_slots", "calendar_book", "generate_media", "camera_look", "camera_events", "camera_ask", "browse"}
 
 
 def schema_for(names: list[str]) -> list[dict[str, Any]]:

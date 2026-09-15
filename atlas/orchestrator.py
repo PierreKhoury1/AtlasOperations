@@ -131,19 +131,44 @@ class Orchestrator:
         return "\n".join(p for p in parts if p is not None).strip()
 
     def roster_text(self, exclude: str = "atlas") -> str:
+        """Who `exclude` may delegate to. Atlas sees the top level with sub-team members nested under their lead;
+        a lead sees only its own members (the team structure is enforced in delegate, not just described)."""
+        me = self.agents.get(exclude) or {}
         lines = []
+        if exclude != "atlas" and me.get("members"):
+            for mid in me["members"]:
+                a = self.agents.get(mid)
+                if a:
+                    lines.append(f"- {a['id']}: {a['name']} — {a.get('role','')}")
+            return "\n".join(lines) or "(your team has no members)"
+        nested = {m for a in self.agents.values() for m in (a.get("members") or [])}
         for a in self.agents.values():
-            if a["id"] == exclude:
+            if a["id"] == exclude or a["id"] in nested:
                 continue
-            lines.append(f"- {a['id']}: {a['name']} — {a.get('role','')}")
+            lead = f" (lead of a sub-team: {', '.join(a['members'])})" if a.get("members") else ""
+            lines.append(f"- {a['id']}: {a['name']} — {a.get('role','')}{lead}")
+            for mid in a.get("members") or []:
+                m = self.agents.get(mid)
+                if m:
+                    lines.append(f"    · {m['id']}: {m['name']} — {m.get('role','')} (via {a['id']})")
         return "\n".join(lines) or "(no specialists configured)"
+
+    def team_tree(self) -> str:
+        return self.roster_text("atlas")
 
     def system_prompt(self, agent: dict[str, Any]) -> str:
         parts = [agent.get("system_prompt", "")]
         if agent["id"] == "atlas" or self.orch.get("include_business_context_in_specialists", True):
             parts.append(self.business_context())
         if "delegate" in agent.get("tools", []):
-            parts.append("Specialist agents available via delegate(agent_id, ...):\n" + self.roster_text(agent["id"]))
+            if agent["id"] != "atlas" and agent.get("members"):
+                parts.append("You lead a sub-team. Your members, available via delegate(agent_id, ...):\n" + self.roster_text(agent["id"])
+                             + "\nBrief them, run independent work in parallel, review what comes back, return one merged result. "
+                               "You cannot delegate outside your team.")
+            else:
+                parts.append("Specialist agents available via delegate(agent_id, ...):\n" + self.roster_text(agent["id"])
+                             + ("\nLeads run their own members: delegate to the lead, not to the nested members."
+                                if any(a.get("members") for a in self.agents.values()) else ""))
         if "assemble_team" in agent.get("tools", []):
             parts.append("If the configured roster does not fit the task, design your own team first with assemble_team "
                          "(you decide how many specialists and what each one does), then delegate to them.")
@@ -306,6 +331,17 @@ class Orchestrator:
             return f"ERROR: team too large ({len(specs)}); max_team_agents is {cap}. Merge roles."
         hermes_cfgs = {n: c for n, c in self.configs["providers"].get("providers", {}).items()
                        if (c.get("type") or "") == "hermes_agent"}
+        # the structure contract (ids, reports_to graph, depth) is shared with the Design Studio and the team API
+        from . import team as TM
+        shape, errs = TM.validate_team({"agents": [{**sp, "instructions": sp.get("instructions") or ["as briefed"] * 2,
+                                                    "tools": sp.get("tools") or ["web_fetch", "read_file", "list_files", "save_deliverable"]}
+                                                   for sp in specs]},
+                                       allowed_tools=[t for t in T.SCHEMAS if t not in self.GRANTABLE_DENY and t != "delegate"],
+                                       max_agents=cap, hermes_available=bool(hermes_cfgs))
+        hard = [e for e in errs if "reports_to" in e or "cycle" in e or "reserved" in e or "used twice" in e or "no agents" in e]
+        if hard:
+            return "ERROR: fix the team structure and call assemble_team again:\n- " + "\n- ".join(hard)
+        structure = {a["id"]: a for a in shape["agents"]}
         made = []
         for sp in specs:
             sid = re.sub(r"[^a-z0-9_]+", "_", str(sp.get("id", "")).strip().lower())[:24]
@@ -313,9 +349,15 @@ class Orchestrator:
                 return f"ERROR: bad agent id {sp.get('id')!r}"
             tools = [t for t in (sp.get("tools") or ["web_fetch", "read_file", "list_files", "save_deliverable"])
                      if t in T.SCHEMAS and t not in self.GRANTABLE_DENY]
+            st = structure.get(sid, {})
+            if st.get("members"):                       # a lead: it must be able to delegate to its members
+                tools = list(dict.fromkeys(["delegate", "list_agents"] + tools))
             new = {"id": sid, "name": str(sp.get("name") or sid)[:40], "role": str(sp.get("role") or "")[:200],
                    "system_prompt": str(sp.get("system_prompt") or "")[:4000], "tools": tools,
-                   "enabled": True, "dynamic": True}
+                   "enabled": True, "dynamic": True, "reports_to": st.get("reports_to", "atlas"), "members": list(st.get("members") or [])}
+            if new["members"]:
+                new["system_prompt"] += ("\n\nYou lead a sub-team (" + ", ".join(new["members"]) + "): brief them with delegate, "
+                                         "review their work, return one merged result. Do not delegate outside your team.")
             want_model = str(sp.get("model") or "")
             if want_model and ("/" in want_model or want_model == "hermes-agent"):
                 new["model"] = want_model
@@ -334,10 +376,13 @@ class Orchestrator:
                     new["engine_note"] = "no Hermes Agent connected - running on the built-in engine"
             self.agents[sid] = new
             made.append(f"{sid} ({new['name']}: {new['role'][:60]}; engine={new.get('engine', 'atlas')}; "
-                        f"tools={','.join(new['tools']) or 'hermes-runtime'})")
+                        f"reports_to={new['reports_to']}" + (f"; leads={','.join(new['members'])}" if new["members"] else "")
+                        + f"; tools={','.join(new['tools']) or 'hermes-runtime'})")
         self.emit("team", agent["id"], f"team assembled: {len(made)} agent(s)" + (f" - {reason[:120]}" if reason else ""),
-                  agents=[m.split(" ")[0] for m in made])
-        return "Team ready. Delegate to them now:\n" + "\n".join("- " + m for m in made)
+                  agents=[m.split(" ")[0] for m in made], tree=self.team_tree())
+        soft = [e for e in errs if e not in hard]
+        return ("Team ready. Delegate to the top-level agents now (leads run their own members):\n" + "\n".join("- " + m for m in made)
+                + ("\n\nNotes: " + "; ".join(soft) if soft else ""))
 
     def _video_describe(self, agent, source, question, frames):
         from . import vision as V
@@ -486,6 +531,9 @@ class Orchestrator:
         aid = agent["id"]
         if name == "delegate":
             target = str(args.get("agent_id", "")).strip()
+            if aid != "atlas" and agent.get("members") is not None and target not in (agent.get("members") or []) and target in self.agents:
+                return (f"ERROR: {target} is not in your team. You may delegate only to: "
+                        f"{', '.join(agent.get('members') or []) or '(nobody)'}")
             self.emit("tool", aid, f"delegate → {target}: {str(args.get('task',''))[:160]}")
             return self.run_agent(target, str(args.get("task", "")), str(args.get("context", "") or ""), depth + 1,
                                   parent=getattr(self._tl, "inst", None) or aid)
@@ -611,6 +659,34 @@ class Orchestrator:
             return "\n".join(lines)
         if name == "browse":
             return self._browse(agent, args)
+        if name == "camera_ask":
+            if not self.store or not hasattr(self.store, "vision_events") or not hasattr(self.store, "desk_id"):
+                return "no camera log in this context"
+            from . import rag
+            q = str(args.get("question", "") or "").strip()
+            if not q:
+                return "ERROR: question required"
+            try:
+                hours = float(args.get("hours") or 24)
+            except Exception:
+                hours = 24.0
+            demo = (self.configs["providers"].get("providers", {}).get(self.configs["providers"].get("default_provider", ""), {}).get("type") == "demo")
+
+            def text_answer(system: str, prompt: str) -> str:
+                prov = self.pool.get(agent.get("provider") or "")
+                r = prov.chat(system, [prov.user_message(prompt)], [], agent.get("model") or "")
+                return r.text or ""
+
+            try:
+                res = rag.ask(self.store.s, self.store.desk_id, q, hours, str(args.get("camera", "") or ""), self.business,
+                              mode="demo" if demo else "live", text_answer=text_answer)
+            except Exception as exc:
+                return f"ERROR: camera_ask failed: {type(exc).__name__}: {str(exc)[:200]}"
+            m = res["retrieval"]
+            self.emit("tool", aid, f"camera_ask({q[:80]}) → {m['considered']} events, {m['window']}, {m['grounding']}",
+                      looked_at=m.get("looked_at", []))
+            return (res["answer"] + f"\n\n[retrieval: {m['embedder']} · window {m['window']} · {m['considered']} events considered · "
+                    f"{m['grounding']}]")
         if name == "camera_events":
             if not self.store or not hasattr(self.store, "vision_events"):
                 return "no camera log in this context"
@@ -623,8 +699,18 @@ class Orchestrator:
                 limit = max(1, min(int(args.get("limit") or 40), 200))
             except Exception:
                 limit = 40
-            rows = self.store.vision_events(str(args.get("camera", "") or ""), time.time() - hours * 3600,
-                                            str(args.get("query", "") or ""), limit, bool(args.get("alerts_only")))
+            query = str(args.get("query", "") or "").strip()
+            if query and hasattr(self.store, "desk_id"):          # semantic + keyword retrieval over the log
+                from . import rag
+                try:
+                    ret = rag.retrieve(self.store.s, self.store.desk_id, query, hours, str(args.get("camera", "") or ""),
+                                       k=limit, alerts_only=bool(args.get("alerts_only")), strict=True)
+                    rows = list(reversed(ret["rows"]))
+                except Exception:
+                    rows = self.store.vision_events(str(args.get("camera", "") or ""), time.time() - hours * 3600, query, limit, bool(args.get("alerts_only")))
+            else:
+                rows = self.store.vision_events(str(args.get("camera", "") or ""), time.time() - hours * 3600,
+                                                query, limit, bool(args.get("alerts_only")))
             self.emit("tool", aid, f"camera_events({args.get('camera','') or 'all'}, {hours:g}h) → {len(rows)}")
             if not rows:
                 return f"No camera events in the last {hours:g} hours" + (f" matching {args.get('query')!r}" if args.get("query") else "") + "."

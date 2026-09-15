@@ -22,7 +22,15 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("soak", help="long-running soak test against a simulated company (see atlas/soak.py --help)", add_help=False)
     sub.add_parser("bench", help="benchmark engines/models on real tasks (see atlas/bench.py --help)", add_help=False)
     sub.add_parser("scenario", help="run a live multi-camera scenario (see atlas/scenario.py --help)", add_help=False)
+    sub.add_parser("rag", help="vision RAG: index the camera log / ask it (see atlas/rag.py --help)", add_help=False)
+    sub.add_parser("team", help="design a team for a job (see atlas/team.py --help)", add_help=False)
     args, rest = p.parse_known_args(argv)
+    if args.cmd == "rag":
+        from .rag import main as rag_main
+        return rag_main(rest)
+    if args.cmd == "team":
+        from .team import main as team_main
+        return team_main(rest)
     if args.cmd == "eval":
         from .eval import main as eval_main
         return eval_main(rest)

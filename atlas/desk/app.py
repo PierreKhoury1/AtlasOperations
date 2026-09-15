@@ -33,6 +33,8 @@ from .. import metrics as MX
 from .. import templates
 from .. import tools as T
 from .. import vision as V
+from .. import rag as RAG
+from .. import team as TM
 from . import scheduler
 from ..orchestrator import Event, Orchestrator
 from ..store import Store
@@ -187,10 +189,12 @@ def desk_configs(desk: dict[str, Any]) -> dict[str, Any]:
     if any(c["kind"] == "camera" for c in _conns):    # desks built before cameras existed keep their stored agent list
         for a in agents:
             if a["id"] == "atlas" or "camera_look" in a.get("tools", []):
-                a["tools"] = list(dict.fromkeys(list(a.get("tools", [])) + ["camera_look", "camera_events"]))
+                a["tools"] = list(dict.fromkeys(list(a.get("tools", [])) + ["camera_look", "camera_events", "camera_ask"]))
     for a in agents:                                   # the lead can always redesign its team and watch videos
         if a["id"] == "atlas":
             a["tools"] = list(dict.fromkeys(list(a.get("tools", [])) + ["assemble_team", "video_describe"]))
+        if "camera_events" in a.get("tools", []) and "camera_ask" not in a["tools"]:   # desks built before the RAG tool existed
+            a["tools"] = list(a["tools"]) + ["camera_ask"]
     hconn = next((c for c in _conns if c["kind"] == "hermes_agent"), None)
     if hconn:
         hcfg = hconn["config"]
@@ -499,7 +503,7 @@ def _desk_public(d: dict[str, Any]) -> dict[str, Any]:
 
 # tools a specialist may be given from the Team page. Everything else in ORCHESTRATOR_ONLY stays with Atlas;
 # finish / assemble_team are never assignable. Approvals still gate every outbound tool.
-SPECIALIST_OK = {"crm_lookup", "crm_update", "queue_action", "camera_look", "camera_events", "remember", "recall",
+SPECIALIST_OK = {"crm_lookup", "crm_update", "queue_action", "camera_look", "camera_events", "camera_ask", "remember", "recall",
                  "browse", "http_request", "calendar_free_slots", "calendar_book", "generate_media", "video_describe"}
 NEVER_ASSIGN = {"finish", "assemble_team"}
 _COLOURS = ["#7c3aed", "#1f9d63", "#db2777", "#ea580c", "#b45309", "#0891b2"]
@@ -544,6 +548,15 @@ def _clean_roster(raw: Any, current: list[dict[str, Any]]) -> list[dict[str, Any
                "model": keep.get("model", "") if aid != "atlas" else "", "tools": tools, "system_prompt": prompt, "color": colour}
         if keep.get("engine") in ("atlas", "hermes_agent"):
             ent["engine"] = keep["engine"]
+        if a.get("engine") in ("atlas", "hermes_agent"):
+            ent["engine"] = a["engine"]
+        if aid != "atlas":
+            rt = re.sub(r"[^a-z0-9_]+", "_", str(a.get("reports_to") if "reports_to" in a else keep.get("reports_to") or "atlas").strip().lower()).strip("_")[:24]
+            ent["reports_to"] = rt or "atlas"
+            for k in ("goal", "instructions"):
+                v = a.get(k) if k in a else keep.get(k)
+                if v:
+                    ent[k] = v if k == "goal" else [str(x)[:240] for x in v][:8]
         pos = a.get("pos") if isinstance(a.get("pos"), dict) else keep.get("pos")
         if isinstance(pos, dict):
             try:
@@ -554,6 +567,20 @@ def _clean_roster(raw: Any, current: list[dict[str, Any]]) -> list[dict[str, Any
     if "atlas" not in seen:
         return "the roster must include Atlas (id 'atlas')"
     out.sort(key=lambda x: 0 if x["id"] == "atlas" else 1)
+    # hierarchy (shared contract with atlas/team.py): unknown lead / cycle / too deep -> atlas; leads can delegate to members
+    shape, _errs = TM.validate_team({"agents": [{**a, "instructions": a.get("instructions") or ["as briefed", "as briefed"]}
+                                                for a in out if a["id"] != "atlas"]},
+                                    allowed_tools=[t for t in T.SCHEMAS if t not in NEVER_ASSIGN and t != "delegate"] + ["mcp"])
+    struct = {s["id"]: s for s in shape["agents"]}
+    for a in out:
+        if a["id"] == "atlas":
+            continue
+        s = struct.get(a["id"], {})
+        a["reports_to"] = s.get("reports_to", "atlas")
+        a["members"] = list(s.get("members") or [])
+        a["tools"] = [t for t in a["tools"] if t not in ("delegate", "list_agents")]
+        if a["members"]:
+            a["tools"] = list(dict.fromkeys(["delegate", "list_agents"] + a["tools"]))
     return out
 
 
@@ -645,9 +672,106 @@ def api_update_desk(did):
     return jsonify(_desk_public(store.desk(did)))
 
 
+def _team_tree(agents: list[dict[str, Any]]) -> str:
+    by_id = {a["id"]: a for a in agents}
+    nested = {m for a in agents for m in (a.get("members") or [])}
+    lines = ["atlas: Atlas"]
+    for a in agents:
+        if a["id"] == "atlas" or a["id"] in nested:
+            continue
+        lines.append(f"  - {a['id']}: {a['name']} — {a.get('role', '')}" + (f" (leads {', '.join(a['members'])})" if a.get("members") else ""))
+        for m in a.get("members") or []:
+            if m in by_id:
+                lines.append(f"      - {m}: {by_id[m]['name']} — {by_id[m].get('role', '')}")
+    return "\n".join(lines)
+
+
+def _team_context(desk: dict[str, Any]) -> tuple[dict[str, Any], list[str], bool, list[str]]:
+    configs = desk_configs(desk)
+    conns = store.connectors(desk["id"])
+    cams = [c["name"] for c in conns if c["kind"] == "camera"]
+    cams += [h["name"] for h in store.hook_cameras(desk["id"], time.time() - 7 * 86400, tuple(cams)) if h.get("name")]
+    hermes = configs["mode"] != "demo" and (any(c["kind"] == "hermes_agent" for c in conns) or bool(os.environ.get("HERMES_AGENT_URL", "").strip()))
+    allowed = [t for t in TM.ALLOWED_TOOLS if cams or not t.startswith("camera_")]
+    return configs, cams, hermes, allowed
+
+
+def _design_team_for(desk: dict[str, Any], task: str, reuse: bool = False) -> dict[str, Any]:
+    configs, cams, hermes, allowed = _team_context(desk)
+    if configs["mode"] == "demo":
+        team = TM.demo_team(configs["business"], task, cams)
+        res: dict[str, Any] = {"team": team, "errors": [], "warnings": [], "turns": 0}
+    else:
+        _require_live()
+        from ..providers import ProviderPool
+        atlas_agent = next((a for a in configs["agents"] if a["id"] == "atlas"), {})
+        prov = ProviderPool(configs["providers"]).get(atlas_agent.get("provider") or "")
+        existing = [a for a in configs["agents"] if a["id"] != "atlas"] if reuse else None
+        res = TM.design_team(configs["business"], task, prov, atlas_agent.get("model", "") or "", allowed_tools=allowed,
+                             hermes_available=hermes, cameras=cams, existing=existing)
+    res["tree"] = TM.tree(res["team"])
+    res["mode"] = configs["mode"]
+    return res
+
+
+def _apply_team(desk: dict[str, Any], team_raw: Any) -> dict[str, Any] | str:
+    configs, cams, hermes, allowed = _team_context(desk)
+    team, errors = TM.validate_team(team_raw, allowed_tools=allowed, hermes_available=hermes)
+    if not team["agents"]:
+        return "team has no agents"
+    conf = desk.get("config") or {}
+    cur_atlas = next((a for a in (conf.get("agents") or []) if a.get("id") == "atlas"), None)
+    agents = TM.team_to_agents(team, configs["business"], desk.get("tier") or "free", keep_atlas=cur_atlas)
+    for a in agents:                                   # stored raw; desk_configs re-applies tier + engine at run time
+        a.pop("model", None)
+    conf["agents"] = agents
+    conf["team"] = team
+    wf = TM.workflow_for(team)
+    if wf:
+        wfs = [w for w in (conf.get("workflows") or templates.get(desk.get("template") or DEFAULT_TEMPLATE)["workflows"]) if w.get("id") != wf["id"]]
+        conf["workflows"] = wfs + [wf]
+    store.update_desk(desk["id"], config=conf)
+    return {"team": team, "errors": errors, "agents": [a["id"] for a in agents], "tree": TM.tree(team),
+            "workflow": wf["id"] if wf else ""}
+
+
+def _owned_desk(did: int) -> dict[str, Any]:
+    u = current_user()
+    d = store.desk(did)
+    if not d or (u and d["owner_id"] != u["id"] and not OPEN):
+        abort(404)
+    return d
+
+
+@app.post("/api/desks/<int:did>/team/design")
+def api_team_design(did):
+    """Design a team for a job (business + task -> validated hierarchy). Nothing is saved until /team/apply."""
+    d = _owned_desk(did)
+    body = request.get_json(force=True) or {}
+    task = str(body.get("task") or "").strip()
+    if not task:
+        return jsonify({"error": "task required"}), 400
+    try:
+        res = _design_team_for(d, task, bool(body.get("reuse")))
+    except Exception as exc:
+        return jsonify({"error": f"design failed: {type(exc).__name__}: {str(exc)[:200]}"}), 502
+    return jsonify({k: res[k] for k in ("team", "tree", "errors", "warnings", "turns", "mode")})
+
+
+@app.post("/api/desks/<int:did>/team/apply")
+def api_team_apply(did):
+    d = _owned_desk(did)
+    body = request.get_json(force=True) or {}
+    res = _apply_team(d, body.get("team") if isinstance(body.get("team"), dict) else body)
+    if isinstance(res, str):
+        return jsonify({"error": res}), 400
+    return jsonify(res)
+
+
 # curated model catalogue for the landscape picker. `tools` = supports native tool-calling on OpenRouter.
 MODEL_CATALOG = [
-    {"id": "minimax/minimax-m3:free", "label": "MiniMax M3 (free)", "provider": "openrouter", "tools": True, "cost": "free tier", "engine": "atlas"},
+    {"id": "inclusionai/ling-3.0-flash-vl:free", "label": "Ling 3.0 Flash VL (free, vision)", "provider": "openrouter", "tools": True, "vision": True, "cost": "free tier", "engine": "atlas",
+     "note": "the free default since 15 Sep 2026 (MiniMax M3 free was withdrawn); reasoning switched off per request"},
     {"id": "nvidia/nemotron-3-super-120b-a12b:free", "label": "Nemotron 3 Super (free)", "provider": "openrouter", "tools": True, "cost": "free tier", "engine": "atlas"},
     {"id": "anthropic/claude-sonnet-4.5", "label": "Claude Sonnet 4.5", "provider": "openrouter", "tools": True, "vision": True, "cost": "≈£2.3/M in", "engine": "atlas", "paid": True},
     {"id": "anthropic/claude-haiku-4.5", "label": "Claude Haiku 4.5", "provider": "openrouter", "tools": True, "vision": True, "cost": "≈£0.8/M in", "engine": "atlas", "paid": True},
@@ -686,7 +810,10 @@ def api_config():
         "custom_roster": bool((desk.get("config") or {}).get("agents")),
         "tools": [{"id": n, "description": (sc.get("description") or "").split(". ")[0][:140], "orchestrator_only": n in T.ORCHESTRATOR_ONLY}
                   for n, sc in T.SCHEMAS.items() if n not in NEVER_ASSIGN] + [{"id": "mcp", "description": "Tools from connected MCP servers", "orchestrator_only": False}],
+        "team_tree": _team_tree(c["agents"]),
         "agents": [{"id": a["id"], "name": a["name"], "role": a.get("role", ""), "color": a.get("color", ""),
+                    "reports_to": (a.get("reports_to") or "atlas") if a["id"] != "atlas" else "",
+                    "members": list(a.get("members") or []), "goal": a.get("goal", ""), "instructions": list(a.get("instructions") or []),
                     "tools": a.get("granted_tools") or a.get("tools", []), "runtime_tools": a.get("tools", []),
                     "model": a.get("model", "") or "(provider default)",
                     "engine": a.get("engine") or "atlas", "provider": a.get("provider") or "",
@@ -820,6 +947,16 @@ def api_run_task():
     task = (d.get("task") or "").strip()
     if not task:
         return jsonify({"error": "task required"}), 400
+    if d.get("design_team"):                            # one shot: design the team for this job, save it, then run it
+        try:
+            res = _design_team_for(desk, task, bool(d.get("reuse")))
+        except Exception as exc:
+            return jsonify({"error": f"design failed: {type(exc).__name__}: {str(exc)[:200]}"}), 502
+        applied = _apply_team(desk, res["team"])
+        if isinstance(applied, str):
+            return jsonify({"error": applied}), 400
+        desk = store.desk(desk["id"])
+        return jsonify({"run_id": _start_run(desk, task, "auto"), "team": applied["team"], "tree": applied["tree"], "warnings": res["warnings"]})
     return jsonify({"run_id": _start_run(desk, task, d.get("mode", "auto"))})
 
 
@@ -1692,17 +1829,8 @@ def api_vision_snapshot(vid):
 
 
 def _rag_rows(desk_id: int, question: str, camera: str, hours: float, limit: int = 60) -> list[dict[str, Any]]:
-    """Retrieval for 'ask the cameras': keyword-scored over the recent event log, recency as tiebreak."""
-    rows = store.vision_events(desk_id, camera, time.time() - hours * 3600, "", 600)
-    words = {w for w in re.findall(r"[a-z]{3,}", question.lower())
-             if w not in {"the", "was", "were", "what", "when", "how", "many", "did", "there", "any", "last", "this", "that", "and", "with", "from"}}
-    def score(r):
-        blob = f"{r['camera']} {json.dumps(r['counts'])} {r.get('reason','')} {r.get('answer','')} {r.get('question','')}".lower()
-        return sum(1 for w in words if w in blob) + (2 if r.get("triggered") else 0)
-    rows.sort(key=lambda r: (score(r), r["ts"]), reverse=True)
-    picked = rows[:limit]
-    picked.sort(key=lambda r: r["ts"])
-    return picked
+    """Retrieval for 'ask the cameras' (kept for callers): hybrid semantic + keyword + time-window, see atlas/rag.py."""
+    return RAG.retrieve(store, desk_id, question, hours, camera, k=limit)["rows"]
 
 
 def _sse(obj: dict[str, Any]) -> str:
@@ -1896,42 +2024,22 @@ def api_vision_ask():
         hours = float(d.get("hours") or 24)
     except (TypeError, ValueError):
         hours = 24.0
-    rows = _rag_rows(desk["id"], q, str(d.get("camera") or ""), hours)
-    lines = [f"[#{r['id']}] {time.strftime('%a %d %b %H:%M', time.localtime(r['ts']))} | {r['camera']} | {V.counts_text(r['counts'])} | motion {r['motion']:.2f}"
-             + (" | ALERT " + (r.get("reason") or "") if r.get("triggered") else (" | " + r["reason"] if r.get("reason") else ""))
-             + (f" | analyst: {r['answer'][:200]}" if r.get("answer") else "") for r in rows]
-    if not rows:
-        return jsonify({"answer": f"The camera log has nothing in the last {hours:g} hours" + (f" for {d.get('camera')}" if d.get("camera") else "") + ".",
-                        "evidence": [], "mode": _mode()})
-    if _mode() == "demo":
-        cams = sorted({r["camera"] for r in rows})
-        alerts = [r for r in rows if r.get("triggered")]
-        tot: dict[str, int] = {}
-        for r in rows:
-            for k, v in (r["counts"] or {}).items():
-                tot[k] = tot.get(k, 0) + v
-        last = rows[-1]
-        answer = (f"Demo mode (no live model). In the last {hours:g}h the log has {len(rows)} event(s) on {', '.join(cams)}; "
-                  f"{len(alerts)} woke the desk. Totals seen: {V.counts_text(tot)}. Most recent: {last['camera']} at "
-                  f"{time.strftime('%H:%M', time.localtime(last['ts']))} — {V.counts_text(last['counts'])}"
-                  + (f"; analyst said: {last['answer'][:160]}" if last.get("answer") else "") + ".")
-    else:
+    configs = desk_configs(desk)
+    text_answer = None
+    if _mode() != "demo":
         from ..providers import ProviderPool
-        configs = desk_configs(desk)
         atlas_agent = next((a for a in configs["agents"] if a["id"] == "atlas"), {})
-        pool = ProviderPool(configs["providers"])
-        prov = pool.get(atlas_agent.get("provider") or "")
-        system = ("You answer the owner's questions about what their cameras and sensors saw, using ONLY the event log below. "
-                  "Each line: [#id] time | camera | objects counted | motion score | alert reason | analyst answer (from a vision model that saw the frame). "
-                  "Give times, cameras and counts. Cite event ids in square brackets. If the log does not contain the answer, say so plainly — never invent. "
-                  f"Today is {time.strftime('%A %d %B %Y %H:%M')}. Business context: {configs['business'].get('name','')} — {configs['business'].get('extra_context','')[:400]}")
-        prompt = "Event log (oldest first):\n" + "\n".join(lines) + f"\n\nQuestion: {q}"
-        try:
-            resp = prov.chat(system, [prov.user_message(prompt)], [], model=atlas_agent.get("model", ""))
-            answer = (resp.text or "").strip() or "(no answer)"
-        except Exception as exc:
-            return jsonify({"error": f"model error: {type(exc).__name__}: {str(exc)[:200]}", "evidence": [_vev_public(r) for r in rows]}), 502
-    return jsonify({"answer": answer, "evidence": [_vev_public(r) for r in rows[-12:]], "mode": _mode(), "events_considered": len(rows)})
+        prov = ProviderPool(configs["providers"]).get(atlas_agent.get("provider") or "")
+
+        def text_answer(system: str, prompt: str) -> str:   # noqa: F811 - text-only fallback on the desk's Atlas model
+            return (prov.chat(system, [prov.user_message(prompt)], [], model=atlas_agent.get("model", "")).text or "").strip()
+    try:
+        res = RAG.ask(store, desk["id"], q, hours, str(d.get("camera") or ""), configs["business"], mode=_mode(),
+                      text_answer=text_answer, vlm_model=str(d.get("model") or ""))
+    except Exception as exc:
+        return jsonify({"error": f"model error: {type(exc).__name__}: {str(exc)[:200]}"}), 502
+    return jsonify({"answer": res["answer"], "evidence": [_vev_public(r) for r in res["evidence"]], "mode": _mode(),
+                    "events_considered": res["events_considered"], "retrieval": res["retrieval"]})
 
 
 @app.route("/hook/<token>/vision", methods=["GET", "POST"])
