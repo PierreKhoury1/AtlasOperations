@@ -263,8 +263,9 @@ def team_to_agents(team: dict[str, Any], business: dict[str, Any], tier: str = "
     extra = ("Team designed for this job:\n" + roster + (f"\n\nPlan:\n{plan}" if plan else "")
              + (f"\n\nDeliverables: {'; '.join(team['deliverables'])}" if team.get("deliverables") else "")
              + (f"\nDone means: {'; '.join(team['checks'])}" if team.get("checks") else "")
-             + "\n\nDelegate to the leads listed above; leads run their own members. Every customer-facing message goes "
-               "through queue_action for owner approval. Keep CRM up to date with crm_update.")
+             + "\n\nYou lead this team: delegate to the agents listed above (leads run their own members), run independent "
+               "strands in parallel, review what comes back, then merge. Never do a specialist's job yourself. Every "
+               "customer-facing message goes through queue_action for owner approval. Keep CRM up to date with crm_update.")
     if keep_atlas:
         atlas = dict(keep_atlas)
         atlas["system_prompt"] = (atlas.get("system_prompt") or T._BASE_ATLAS_PROMPT).rstrip() + "\n\n" + extra

@@ -1734,6 +1734,14 @@ def desk_theatre_clip(name):
     return send_file(f, mimetype="video/mp4", conditional=True, max_age=3600)
 
 
+@app.get("/desk/workspace")
+def desk_workspace():
+    """The cinematic front door: talk to Atlas, watch it assemble the team, build, deploy, see every agent work live."""
+    if not current_user() and not OPEN:
+        return redirect("/login?next=/desk/workspace")
+    return send_from_directory(STATIC_DIR, "workspace.html")
+
+
 @app.get("/desk/theatre")
 def desk_theatre():
     need_desk()

@@ -531,6 +531,8 @@ class Orchestrator:
         aid = agent["id"]
         if name == "delegate":
             target = str(args.get("agent_id", "")).strip()
+            if aid == "atlas":
+                self._delegated = True
             if aid != "atlas" and agent.get("members") is not None and target not in (agent.get("members") or []) and target in self.agents:
                 return (f"ERROR: {target} is not in your team. You may delegate only to: "
                         f"{', '.join(agent.get('members') or []) or '(nobody)'}")
@@ -544,6 +546,14 @@ class Orchestrator:
         if name == "video_describe":
             return self._video_describe(agent, str(args.get("source", "")), str(args.get("question", "") or ""),
                                         int(args.get("frames") or 8))
+        if name in ("finish", "queue_action") and aid == "atlas" and not getattr(self, "_delegated", True) and getattr(self, "_team_nudges", 0) < 2:
+            team = [a for a in self.agents.values() if a["id"] != "atlas" and a.get("enabled", True)]
+            if team and self.orch.get("require_delegation", True):
+                self._team_nudges = getattr(self, "_team_nudges", 0) + 1
+                self.emit("policy", aid, "Atlas tried to " + name + " without briefing the team - sent back to delegate")
+                return ("NOT ALLOWED YET: this desk has a team and you have not delegated anything. Your job is to brief them, "
+                        "not to do their work. Delegate the strands now (in parallel where independent), then review what "
+                        "comes back and only then " + name + ". Team:\n" + self.roster_text("atlas"))
         if name == "finish":
             self.emit("tool", aid, "finish")
             return str(args.get("summary", ""))
@@ -797,6 +807,8 @@ class Orchestrator:
         self.tokens_in = self.tokens_out = 0
         self.deliverables = []
         self._policy_hits = {}
+        self._delegated = False
+        self._team_nudges = 0
         self._counts = {"queued": 0, "sent": 0, "crm": 0, "jobs": 0}
         self._inst_counts = {}
         self._tl.inst = None

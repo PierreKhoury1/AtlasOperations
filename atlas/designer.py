@@ -30,9 +30,10 @@ STATUS_MARK = "\x00"                      # on_token prefix for a status line in
 CONNECTOR_KINDS = ("smtp", "imap", "http", "mcp", "webhook", "hermes_agent", "higgsfield")
 TRIGGER_KINDS = ("webhook", "inbox", "schedule", "manual")
 
-DESIGNER_SYSTEM = """You are the Atlas solutions designer at Atlas Desks, an AI-operations consultancy. You are on a scoping call
-with a business owner. Your job: understand their business, find the highest-value processes to automate, and design
-a "desk" — a team of AI agents run by an orchestrator called Atlas — that will do that work for them.
+DESIGNER_SYSTEM = """You are Atlas, the orchestrator of an AI operations desk, talking to a business owner for the first time.
+Your job: understand their business, find the highest-value processes to take off their plate, and assemble your own
+team - the specialist agents you will brief, run and review - to do that work. Speak in the first person ("I'll add a
+researcher who…"); you are the one who will lead this team.
 
 How to run the conversation
 - Professional, plain English, no hype. 40-110 words per turn. One focused question per turn.
@@ -52,8 +53,11 @@ Design rules
   and the quality bar), tools (subset of: read_file, list_files, web_fetch, run_python, save_deliverable),
   "strong": true only if the role needs top-tier judgement or client-facing writing,
   "instructions": 3-6 short operating rules written for THIS role in THIS business (what to check first, what it
-  must never do, the exact shape of what it hands back) - these become the agent's standing orders, and
-  "engine": "hermes_agent" or "atlas". Use "hermes_agent" (the Nous Research Hermes Agent runtime: own browser,
+  must never do, the exact shape of what it hands back) - these become the agent's standing orders,
+  "engine": "hermes_agent" or "atlas", and "reports_to": "atlas" for a top-level agent or the id of the lead it
+  works under. A lead is just an agent whose members name it in "reports_to" - e.g. {"id": "enquiries_lead",
+  "reports_to": "atlas"} with {"id": "stock", "reports_to": "enquiries_lead"}. When the owner asks for a pod, a
+  sub-team, or "put X under Y", you MUST set reports_to on the members - the structure is drawn from that field. Use "hermes_agent" (the Nous Research Hermes Agent runtime: own browser,
   terminal, file system, skills and per-client long-term memory) for roles that must browse live websites, run code
   or shell commands, work through files over many steps, reconcile data, or remember a client between runs.
   Use "atlas" (the fast built-in loop) for drafting, replying, classifying, summarising and QA.
@@ -77,10 +81,10 @@ exactly one machine block and nothing after it:
 The blueprint must be COMPLETE each time (full current state, not a diff). On the very first turn, before the owner
 has said anything substantive, "blueprint" may be null."""
 
-GREETING = ("Welcome. I design AI desks for businesses — a small team of agents, run by Atlas, that takes a whole process "
-            "off your plate. Tell me what your business does and which task eats the most time each week: answering "
-            "enquiries, writing proposals, chasing invoices, watching an inbox, anything repetitive. I will sketch the "
-            "team as we talk.")
+GREETING = ("Hi, I'm Atlas. I run a team of AI agents for your business — I brief them, check their work, and nothing goes "
+            "out without your approval. Tell me what your business does and which task eats the most time each week: "
+            "answering enquiries, writing proposals, chasing invoices, watching an inbox, anything repetitive. I'll "
+            "assemble the team in front of you as we talk.")
 GREETING_SUGGESTIONS = ["We get enquiries we answer too slowly", "Proposals take us days to write",
                         "Our inbox needs triage every morning", "Customers need order updates"]
 
@@ -408,7 +412,7 @@ def _live_turn(session: DesignSession, providers_cfg: dict[str, Any] | None, mod
                + chr(10) + '<atlas-design>{"suggestions": ["Mostly by email", "Through our website form", "Phone and WhatsApp"], "ready": false, "blueprint": null}</atlas-design>')
     # repair pass: the prose came back without a usable machine block -> ask for the block alone (not streamed)
     _, data = split_reply(raw)
-    if session.turn >= 1 and not (data and isinstance(data.get("blueprint"), dict)):
+    if not (data and isinstance(data.get("blueprint"), dict)):        # every turn after the owner's first message deserves a sketch
         try:
             fix = prov.chat(system, msgs + [{"role": "assistant", "content": raw},
                                            prov.user_message("Output ONLY the <atlas-design>{...}</atlas-design> block, nothing else. "
@@ -572,7 +576,9 @@ def blueprint_to_desk(bp: dict[str, Any], tier: str = "free") -> dict[str, Any]:
                    "banned_phrases": list(pol.get("banned_phrases") or [])}
     roster = "\n".join(f"- {a['id']}: {a['name']} — {a['role']}" + (f" (leads: {', '.join(a['members'])})" if a.get("members") else "")
                        for a in bp.get("agents") or [] if (a.get("reports_to") or "atlas") == "atlas")
-    atlas_extra = ("Specialists on this desk:\n" + roster + "\n\nEvery customer-facing message goes through queue_action for owner "
+    atlas_extra = ("Specialists on this desk:\n" + roster + "\n\nYou lead this team: brief the specialists with delegate (leads run "
+                   "their own members), run independent strands in parallel, review what comes back, then merge. Never do a "
+                   "specialist's job yourself. Every customer-facing message goes through queue_action for owner "
                     "approval. Keep CRM up to date with crm_update.") if roster else ""
     agents = [T._atlas(atlas_extra)]
     from . import team as TM

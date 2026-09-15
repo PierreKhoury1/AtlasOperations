@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Atlas Workspace</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="/desk/static/workspace.css">
+</head>
+<body>
+<div id="ws" class="meet">
+
+  <!-- top bar (appears once the workspace opens) -->
+  <header id="bar">
+    <a class="brand" href="/desk" title="Back to the desk"><i></i>Atlas</a>
+    <div class="crumbs"><span id="bz-name">New desk</span><span class="sep">·</span><span id="phase-label">designing the team</span></div>
+    <div class="spacer"></div>
+    <div id="jobbar" class="hide"><input id="job" placeholder="Give the team a job… e.g. a customer enquiry, a report to prepare, a list to chase" onkeydown="if(event.key==='Enter')deploy()"><button class="btn p" id="deploy-btn" onclick="deploy()">Deploy →</button></div>
+    <button class="btn ghost" id="approvals-btn" onclick="toggleApprovals()" title="Outbound actions waiting for you">Approvals <span class="badge hide" id="ap-n">0</span></button>
+    <button class="btn ghost" id="help-btn" onclick="tutStart(true)" title="Show the tutorial again">?</button>
+  </header>
+
+  <!-- left: the conversation with Atlas -->
+  <section id="chat">
+    <div id="orbwrap"><div id="orb"><span></span><span></span><span></span><b>A</b></div><div id="orbname">Atlas</div><div id="orbstate">listening</div></div>
+    <div id="msgs"></div>
+    <div id="sugg"></div>
+    <div id="composer">
+      <textarea id="say" rows="2" placeholder="Tell Atlas what your business does and what eats your time…" onkeydown="sayKey(event)"></textarea>
+      <button class="btn p" id="send" onclick="send()">Send</button>
+    </div>
+    <div id="chat-foot">
+      <button class="btn" id="build-btn" onclick="buildDesk()" disabled>Build this desk →</button>
+      <span class="hint" id="build-hint">Atlas needs a first draft of the team before you can build.</span>
+    </div>
+  </section>
+
+  <!-- right: the workspace canvas -->
+  <section id="stage">
+    <div id="canvas">
+      <svg id="edges"></svg>
+      <div id="nodes"></div>
+      <div id="empty" class="hide">The team appears here as Atlas assigns it.</div>
+    </div>
+    <div id="feedwrap"><div id="feed"></div></div>
+  </section>
+
+  <!-- inspector drawer -->
+  <aside id="insp" class="drawer"><div class="dh"><b id="insp-name"></b><button class="x" onclick="closeInsp()">×</button></div><div class="db" id="insp-body"></div></aside>
+
+  <!-- approvals drawer -->
+  <aside id="apdrawer" class="drawer"><div class="dh"><b>Waiting for your approval</b><button class="x" onclick="toggleApprovals(false)">×</button></div><div class="db" id="ap-body"></div></aside>
+
+  <!-- run summary card -->
+  <div id="summary" class="hide"><div class="sh"><b>Run finished</b><button class="x" onclick="$('#summary').classList.add('hide')">×</button></div><pre id="summary-text"></pre></div>
+
+  <!-- tutorial coach -->
+  <div id="coach" class="hide"><div id="coach-box"><div id="coach-step"></div><h3 id="coach-title"></h3><p id="coach-text"></p><div class="row"><button class="btn" onclick="tutSkip()">Skip</button><span class="spacer"></span><button class="btn p" id="coach-next" onclick="tutNext()">Next</button></div></div></div>
+  <div id="toast"></div>
+</div>
+<script src="/desk/static/workspace.js"></script>
+</body>
+</html>

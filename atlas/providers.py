@@ -11,6 +11,7 @@ Both expose the same surface so the orchestrator loop is provider-agnostic:
 from __future__ import annotations
 
 import json
+import time
 import re
 from dataclasses import dataclass, field
 from typing import Any, Callable
@@ -233,6 +234,9 @@ class OpenAICompatProvider(Provider):
             try:
                 err = r.json().get("error")
                 msg = err.get("message", msg) if isinstance(err, dict) else (err or msg)
+                meta = err.get("metadata") if isinstance(err, dict) else None
+                if isinstance(meta, dict) and meta.get("raw"):
+                    msg = f"{msg} [{meta.get('provider_name', 'upstream')}: {str(meta['raw'])[:240]}]"
             except Exception:
                 pass
             if "free-models-per-day" in str(msg):
@@ -248,9 +252,23 @@ class OpenAICompatProvider(Provider):
             try:
                 body = self._once(client, payload, on_token, _raise, limits)
             except RuntimeError as exc:
-                code = str(exc)[:9]
-                retryable = any(code.startswith(f"HTTP {c}") for c in ("402", "429", "500", "502", "503", "529"))
-                if fallback and fallback != model and retryable:
+                text = str(exc)
+                code = text[:9]
+                upstream = code.startswith("HTTP 400") and "Provider returned error" in text     # OpenRouter wrapping a flaky upstream
+                retryable = upstream or any(code.startswith(f"HTTP {c}") for c in ("402", "429", "500", "502", "503", "529"))
+                if not retryable:
+                    raise
+                if upstream or code.startswith(("HTTP 500", "HTTP 502", "HTTP 503", "HTTP 529")):
+                    try:                                             # same model, one more time (upstream blips are usually seconds)
+                        time.sleep(2.0)
+                        body = self._once(client, payload, on_token, _raise, limits)
+                    except RuntimeError:
+                        if not (fallback and fallback != model):
+                            raise
+                        payload["model"] = fallback
+                        body = self._once(client, payload, on_token, _raise, limits)
+                        body["_fallback_from"] = model
+                elif fallback and fallback != model:
                     payload["model"] = fallback
                     body = self._once(client, payload, on_token, _raise, limits)
                     body["_fallback_from"] = model
