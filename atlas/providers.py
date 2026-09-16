@@ -283,8 +283,13 @@ class OpenAICompatProvider(Provider):
             fn = tc.get("function", {})
             try:
                 args = json.loads(fn.get("arguments") or "{}")
+                if not isinstance(args, dict):
+                    raise json.JSONDecodeError("not an object", "", 0)
             except json.JSONDecodeError:
+                # a truncated / malformed tool call (free models do this). Keep the raw text for the tool error, but
+                # rewrite the stored assistant message so the next request validates upstream instead of 400-ing forever.
                 args = {"_raw": fn.get("arguments")}
+                fn["arguments"] = json.dumps({"_raw": str(fn.get("arguments") or "")[:2000], "_error": "malformed arguments, resend"})
             calls.append(ToolCall(tc.get("id") or f"call_{len(calls)}", fn.get("name", ""), args))
         usage = body.get("usage") or {}
         return LLMResponse(
