@@ -1823,6 +1823,40 @@ def api_vision_journal():
     camera = str(request.args.get("camera") or "")
     text = JR.diary_read(desk["id"], day, camera)
     path = JR.diary_path(desk["id"], day)
+    if request.args.get("format") == "html":
+        import html as _html
+        days = JR.diary_days(desk["id"])
+        cams = sorted({c["name"] for c in store.connectors(desk["id"]) if c["kind"] == "camera"})
+        parts = []
+        for block in re.split(r"(?m)^(?=### )", text or ""):
+            block = block.strip()
+            if not block:
+                continue
+            if block.startswith("# "):
+                continue
+            head, _, body = block.partition("\n")
+            head = head.lstrip("# ").strip()
+            summary = " Summary " in f" {head} "
+            parts.append(f'<article class="{"sum" if summary else "note"}"><h3>{_html.escape(head)}</h3>'
+                         + "".join(f"<p>{_html.escape(line)}</p>" for line in body.strip().splitlines() if line.strip()) + "</article>")
+        nav = " ".join(f'<a href="?format=html&date={d}{"&camera=" + camera if camera else ""}"{" class=on" if d == path.stem else ""}>{d}</a>' for d in days[:14])
+        camnav = " ".join([f'<a href="?format=html&date={path.stem}"{" class=on" if not camera else ""}>all cameras</a>']
+                          + [f'<a href="?format=html&date={path.stem}&camera={_html.escape(c)}"{" class=on" if c == camera else ""}>{_html.escape(c)}</a>' for c in cams])
+        page = f"""<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Camera journal {path.stem}</title><style>
+:root{{--bg:#f6f7f9;--card:#fff;--ink:#16181d;--mute:#667085;--line:#e4e7ec;--accent:#2563eb;--sum:#eef4ff}}
+@media (prefers-color-scheme:dark){{:root{{--bg:#0f1115;--card:#171a21;--ink:#e6e8ec;--mute:#98a2b3;--line:#2a2f3a;--accent:#7aa2ff;--sum:#1a2233}}}}
+body{{margin:0;background:var(--bg);color:var(--ink);font:15px/1.55 system-ui,-apple-system,Segoe UI,sans-serif}}
+main{{max-width:860px;margin:0 auto;padding:24px 16px 60px}} h1{{font-size:22px;margin:0 0 4px}} .mute{{color:var(--mute);font-size:13px}}
+nav{{margin:12px 0;display:flex;flex-wrap:wrap;gap:6px}} nav a{{font-size:13px;padding:4px 10px;border:1px solid var(--line);border-radius:99px;color:var(--ink);text-decoration:none;background:var(--card)}}
+nav a.on{{border-color:var(--accent);color:var(--accent)}}
+article{{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px 16px;margin:10px 0}}
+article.sum{{background:var(--sum);border-color:var(--accent)}} h3{{margin:0 0 6px;font-size:13px;color:var(--mute);font-weight:600}}
+article.sum h3{{color:var(--accent)}} p{{margin:4px 0;overflow-wrap:anywhere}}
+</style></head><body><main><h1>Camera journal</h1><div class="mute">{_html.escape(path.stem)} · {len(parts)} entries · newest at the bottom ·
+<a href="?download=1&date={path.stem}{"&camera=" + _html.escape(camera) if camera else ""}">download</a></div>
+<nav>{camnav}</nav><nav>{nav}</nav>{"".join(parts) or '<p class="mute">Nothing written yet for this day.</p>'}</main></body></html>"""
+        return Response(page, mimetype="text/html; charset=utf-8")
     if request.args.get("download") or request.args.get("format") == "text":
         body = text or f"No journal entries for {path.stem}" + (f" on {camera}" if camera else "") + ".\n"
         headers = {"Content-Disposition": f'attachment; filename="journal-{path.stem}.md"'} if request.args.get("download") else {}

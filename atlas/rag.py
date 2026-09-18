@@ -680,7 +680,9 @@ def ask(store, desk_id: int, question: str, hours: float = 24, camera: str = "",
         meta["grounding"] = "text only (no snapshots to re-look at)" if not frames else "text only (no vision model key)"
     else:
         raise RuntimeError("no model available to answer")
-    return {"answer": (answer or "").strip() or "(no answer)", "evidence": rows[-12:], "retrieval": meta,
+    answer = re.sub(r"\*\*(.+?)\*\*|__(.+?)__", lambda m: m.group(1) or m.group(2), answer or "")
+    answer = re.sub(r"(?m)^\s{0,3}#{1,6}\s+", "", answer)
+    return {"answer": answer.strip() or "(no answer)", "evidence": rows[-12:], "retrieval": meta,
             "events_considered": ret["considered"], "scores": ret["scores"]}
 
 

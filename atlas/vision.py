@@ -109,7 +109,8 @@ def _grab_video(path: str) -> bytes:
     dur = _VIDEO_DUR[path]
     t0 = _VIDEO_T0.setdefault(path, time.time())
     t = ((time.time() - t0) % dur) if dur > 0.5 else 0.0
-    cmd = [ff, "-nostdin", "-loglevel", "error", "-ss", f"{t:.2f}", "-i", path, "-frames:v", "1", "-f", "image2", "-q:v", "3", "pipe:1"]
+    cmd = [ff, "-nostdin", "-loglevel", "error", "-ss", f"{t:.2f}", "-i", path, "-frames:v", "1", "-pix_fmt", "yuvj420p",
+           "-f", "image2", "-q:v", "3", "pipe:1"]                  # yuvj420p: limited-range sources (MPEG-2, H.264) otherwise fail in mjpeg
     try:
         p = subprocess.run(cmd, capture_output=True, timeout=FRAME_TIMEOUT * 2)
     except subprocess.TimeoutExpired as exc:

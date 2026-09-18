@@ -13,6 +13,7 @@ through the normal orchestrator, so approvals, policy and the audit log apply ex
 from __future__ import annotations
 
 import json
+import os
 import threading
 import time
 import traceback
@@ -23,6 +24,9 @@ from .. import journal as JR
 from .. import vision as V
 
 TICK = 20.0
+CAMERA_WORKERS = int(os.environ.get("CAMERA_WORKERS", "8"))   # cameras processed at the same time
+_busy: set[int] = set()
+_busy_lock = threading.Lock()
 MIN_CAMERA_S = 5                                         # fastest camera_watch cadence (the portal allows every_s >= 5)
 LIVE = lambda: True                                       # replaced by the app: is this desk on live models?
 _last_frame: dict[tuple[int, str], bytes] = {}          # (desk_id, camera) -> last raw frame (motion baseline)
@@ -207,36 +211,63 @@ def _run_job(store, job: dict[str, Any], start_run: Callable, desk_for: Callable
     return f"unknown job kind {kind}"
 
 
+def _finish_job(store, job: dict[str, Any], start_run: Callable, desk_for: Callable) -> None:
+    """Run one job and schedule its next run."""
+    status = "ok"
+    try:
+        result = _run_job(store, job, start_run, desk_for)
+        if result.startswith(("no IMAP", "desk missing", "connector ", "task must", "unknown job", "no camera")):
+            status = "skipped"
+    except Exception as exc:
+        result = f"ERROR {type(exc).__name__}: {str(exc)[:300]}"
+        status = "error"
+        traceback.print_exc()
+    every = int(job.get("every_min") or 0)
+    fields = {"last_run": time.time(), "last_result": result, "last_status": status}
+    every_s = _camera_every(job)
+    if every_s > 0 and status != "skipped":
+        fields["next_run"] = time.time() + max(every_s, MIN_CAMERA_S)
+    elif every > 0:
+        # a skipped job (nothing to poll) backs off to hourly instead of hammering every tick
+        fields["next_run"] = time.time() + (max(every, 60) if status == "skipped" else every) * 60
+    else:
+        fields["enabled"] = 0
+    store.update_job(job["id"], **fields)
+
+
+def _camera_every(job: dict[str, Any]) -> int:
+    if job.get("kind") != "camera_watch":
+        return 0
+    try:
+        return int((json.loads(job["task"] or "{}") or {}).get("every_s") or 0)
+    except Exception:
+        return 0
+
+
+def _camera_worker(store, job, start_run, desk_for) -> None:
+    try:
+        _finish_job(store, job, start_run, desk_for)
+    finally:
+        with _busy_lock:
+            _busy.discard(job["id"])
+
+
 def _loop(store, start_run, desk_for):
+    """Camera jobs run on their own worker threads (one per camera at a time) so eight cameras each keep their own
+    pace instead of queueing behind each other's vision-model calls; every other job runs inline as before."""
     while not _stop.is_set():
         try:
             now = time.time()
             for job in store.due_jobs(now):
-                status = "ok"
-                try:
-                    result = _run_job(store, job, start_run, desk_for)
-                    if result.startswith(("no IMAP", "desk missing", "connector ", "task must", "unknown job", "no camera")):
-                        status = "skipped"
-                except Exception as exc:
-                    result = f"ERROR {type(exc).__name__}: {str(exc)[:300]}"
-                    status = "error"
-                    traceback.print_exc()
-                every = int(job.get("every_min") or 0)
-                fields = {"last_run": time.time(), "last_result": result, "last_status": status}
-                every_s = 0
                 if job["kind"] == "camera_watch":
-                    try:
-                        every_s = int((json.loads(job["task"] or "{}") or {}).get("every_s") or 0)
-                    except Exception:
-                        every_s = 0
-                if every_s > 0 and status != "skipped":
-                    fields["next_run"] = time.time() + max(every_s, MIN_CAMERA_S)
-                elif every > 0:
-                    # a skipped job (nothing to poll) backs off to hourly instead of hammering every tick
-                    fields["next_run"] = time.time() + (max(every, 60) if status == "skipped" else every) * 60
-                else:
-                    fields["enabled"] = 0
-                store.update_job(job["id"], **fields)
+                    with _busy_lock:
+                        if job["id"] in _busy or len(_busy) >= CAMERA_WORKERS:
+                            continue
+                        _busy.add(job["id"])
+                    threading.Thread(target=_camera_worker, args=(store, job, start_run, desk_for), daemon=True,
+                                     name=f"camera-{job['id']}").start()
+                    continue
+                _finish_job(store, job, start_run, desk_for)
         except Exception:
             traceback.print_exc()
         _stop.wait(_next_wait(store))

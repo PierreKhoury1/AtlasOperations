@@ -169,3 +169,26 @@ def test_team_agents_about_cameras_get_camera_tools():
     team, _ = TM.validate_team(raw)
     by = {a["id"]: a["tools"] for a in team["agents"]}
     assert {"camera_ask", "camera_events"} <= set(by["reporter"]) and "camera_ask" not in by["writer"]
+
+
+def test_answer_markdown_is_stripped():
+    import re as _re
+    from atlas import rag as R
+    src = open(R.__file__, encoding="utf-8").read()
+    assert "#{1,6}" in src
+    a = _re.sub(r"\*\*(.+?)\*\*|__(.+?)__", lambda m: m.group(1) or m.group(2), "**First** person at __06:02__")
+    assert a == "First person at 06:02"
+
+
+def test_journal_html_view(app_client):
+    c = app_client
+    c.post("/signup", json={"name": "J", "company": "J", "email": "journal@example.com", "password": "password1"})
+    c.post("/login", json={"email": "journal@example.com", "password": "password1"})
+    d = c.post("/api/desks", json={"name": "Diary", "template": "blank"}).get_json()
+    JR.diary_append(d["id"], time.time(), "door", "note", "A person in a red coat <b>enters</b>.", 5)
+    JR.diary_append(d["id"], time.time(), "door", "Summary 10:00-10:15", "Quiet morning.", 6)
+    r = c.get("/api/vision/journal?format=html")
+    body = r.get_data(as_text=True)
+    assert r.status_code == 200 and "text/html" in r.content_type
+    assert "red coat &lt;b&gt;enters&lt;/b&gt;" in body and 'class="sum"' in body and "2 entries" in body
+    assert "red coat" in c.get("/api/vision/journal?format=text").get_data(as_text=True)
