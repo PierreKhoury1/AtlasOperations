@@ -19,6 +19,8 @@ const W = {
   deskId: null, deskName: '',
   run: null,                // {id, es, inst: Map(instId -> state), active}
   sel: null, busy: false, edgeAnim: null,
+  cams: new Map(),          // name -> {name, id, source, sample, journal, alerts, el, seenTs, lastEv}
+  camPoll: null, evSince: 0,
 };
 
 /* ------------------------------------------------------------------ boot */
@@ -29,13 +31,20 @@ async function boot(){
   const q = new URLSearchParams(location.search);
   if (q.get('desk') && cfg.desk) {                                   // existing desk: open straight into run mode
     W.deskId = cfg.desk.id; W.deskName = cfg.business && cfg.business.name || cfg.desk.name;
+    W.tier = cfg.desk.tier || 'free'; $('#tier-pill').textContent = W.tier === 'free' ? 'free models' : 'paid models';
     loadAgentsFromConfig(cfg.agents || []);
     $('#bz-name').textContent = W.deskName;
-    addMsg('a', `This is the ${W.deskName} desk. Give the team a job below and watch them work, or ask me to change the team.`);
     await openWorkspace();
     await spawnAll();
+    const cams = await api('/cameras') || {};
+    const list = (cams.cameras || []).map(c => ({name: c.name, id: c.id, source: (c.config || {}).source || '', journal: ['1','true','on','yes'].includes(String((c.config || {}).journal || '').toLowerCase()), alerts: !(c.rule && c.rule.alerts === false)}));
+    if (list.length) await applyCams(list, true);
     enterRunMode();
-    tutStart(false, 'run');
+    if (W.cams.size) { startCamPoll(); setSugg(CAM_QUESTIONS); }
+    addMsg('a', W.cams.size
+      ? `This is the ${W.deskName} desk: ${W.agents.size} agent${W.agents.size === 1 ? '' : 's'} and ${W.cams.size} camera${W.cams.size === 1 ? '' : 's'} keeping a journal. Ask me anything about what the cameras saw, give the team a job in the bar above, or tell me what to change.`
+      : `This is the ${W.deskName} desk. Give the team a job in the bar above and watch them work.`);
+    tutStart(false, W.cams.size ? 'watching' : 'built');
     return;
   }
   const s = await api('/design/start', {method: 'POST', body: {tier: W.tier}});
@@ -45,6 +54,7 @@ async function boot(){
   const greet = (s.transcript && s.transcript[0] && s.transcript[0].text) || 'Tell me about your business.';
   await typeMsg(greet);
   setSugg(s.suggestions || []);
+  loadMyDesks();
   if (W.liveReason) addMsg('s', 'no model key: ' + W.liveReason + ' (running the scripted designer)');
   tutStart(false, 'meet');
 }
@@ -62,7 +72,10 @@ function addMsg(role, text, cls){ const d = document.createElement('div'); d.cla
 async function typeMsg(text){
   const d = addMsg('a', ''); const cur = document.createElement('i'); cur.className = 'cur'; d.appendChild(cur);
   $('#orbstate').textContent = 'speaking'; W.typing = true;
-  for (let i = 0; i < text.length; i++) { if (!W.typing) { d.textContent = text; break; } d.insertBefore(document.createTextNode(text[i]), cur); if (i % 3 === 0) await sleep(11); }
+  const t0 = performance.now(); let shown = 0;                      // time-based: ~260 chars/s even when timers are throttled
+  while (shown < text.length) { if (!W.typing) break; const want = Math.min(text.length, Math.max(shown + 1, Math.round((performance.now() - t0) * 0.26)));
+    d.insertBefore(document.createTextNode(text.slice(shown, want)), cur); shown = want; $('#msgs').scrollTop = 1e9; await sleep(16); }
+  if (shown < text.length) d.insertBefore(document.createTextNode(text.slice(shown)), cur);
   W.typing = false; cur.remove(); $('#orbstate').textContent = 'listening'; return d;
 }
 function setSugg(list){ $('#sugg').innerHTML = (list || []).map(s => `<button onclick="send(${JSON.stringify(s).replace(/"/g, '&quot;')})">${esc(s)}</button>`).join(''); }
@@ -71,6 +84,9 @@ function sayKey(ev){ if (ev.key === 'Enter' && !ev.shiftKey) { ev.preventDefault
 async function send(text){
   text = (text || $('#say').value).trim(); if (!text || W.busy) return;
   $('#say').value = ''; W.typing = false;
+  if (/^switch to the paid model/i.test(text) && W.sid) { await setTier('balanced'); return send(W.lastSaid || ''); }
+  if (W.phase === 'run' && W.cams.size && (!W.sid || looksLikeQuestion(text))) return askCams(text);
+  W.lastSaid = text;
   if (W.phase === 'run' && !W.sid) { $('#job').value = text; return deploy(); }
   addMsg('u', text); setSugg([]);
   W.busy = true; $('#send').disabled = true; $('#orb').classList.add('busy'); $('#orbstate').textContent = 'thinking';
@@ -154,6 +170,7 @@ async function applyBlueprint(bp){
   }
   moved.forEach(a => { const to = a.reports_to === 'atlas' ? 'Atlas' : (W.agents.get(a.reports_to) || {}).name || a.reports_to; addMsg('s', `↳ ${a.name} now reports to ${to}`, 'assign'); removeEdge(a.id); drawEdge(a.id, true); });
   changed.forEach(a => { const el = nodeEl(a.id); if (el) { renderNodeInner(el, a); el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash'); } });
+  await applyCams(bp.cameras || []);
   if (first) { tutHook('team'); }
   if (W.sel && !W.agents.has(W.sel)) closeInsp();
   else if (W.sel) inspect(W.sel);
@@ -269,10 +286,13 @@ async function buildDesk(){
   const r = await api(`/design/${W.sid}/build`, {method: 'POST', body: {blueprint: W.bp, tier: W.tier, name: W.deskName || 'New desk'}});
   if (!r || r.error) { $('#build-hint').textContent = (r && r.error) || 'build failed'; $('#build-btn').disabled = false; return; }
   W.deskId = r.desk.id; W.deskName = r.desk.business_name || r.desk.name; $('#bz-name').textContent = W.deskName;
-  addMsg('a', `Built. ${W.agents.size} specialist${W.agents.size === 1 ? '' : 's'} on the desk, every outbound message waits for your approval. Give the team a job above, or keep telling me what to change.`);
+  (r.cameras || []).forEach(c => { const k = W.cams.get(c.name); if (k) { k.id = c.id; k.journal = c.journal; setCamState(k, 'starting…', ''); } });
+  const camLine = (r.cameras || []).length ? ` ${r.cameras.length} camera${r.cameras.length === 1 ? ' is' : 's are'} now watching and writing the journal. Ask me anything about what they see.` : '';
+  const missing = (r.cameras_missing || []).length ? ` Still needed: the stream address for ${r.cameras_missing.join(', ')} (add it on the Cameras page of the full dashboard).` : '';
+  addMsg('a', `Built. ${W.agents.size} specialist${W.agents.size === 1 ? '' : 's'} on the desk, every outbound message waits for your approval.${camLine}${missing} Give the team a job in the bar above, or keep telling me what to change.`);
   toast('Desk built');
   enterRunMode();
-  tutHook('built');
+  if ((r.cameras || []).length) { startCamPoll(); setSugg(CAM_QUESTIONS); tutHook('watching'); } else tutHook('built');
 }
 function enterRunMode(){
   W.phase = 'run'; $('#ws').classList.add('run');
@@ -396,6 +416,15 @@ const TUT_STEPS = {
   running: [
     {t: '#nodes', h: 'Watch them work', p: 'Cards light up as agents start, tool calls appear as chips, and each agent\'s output streams onto its card. Click a card to read the full live output.', end: true},
   ],
+  cameras: [
+    {t: '#camstrip', h: 'Cameras join the desk', p: 'Each tile is a camera. With the journal on, it writes a detailed note whenever something changes, and a summary every 15 minutes. After you build, the live picture and the latest note show here.', end: true},
+  ],
+  watching: [
+    {t: '#camstrip', h: 'The cameras are documenting', p: 'Every few seconds each camera looks, compares with its last note and writes down what changed: who arrived or left, what they wear and carry, how long they waited.'},
+    {t: '#composer', h: 'Ask anything', p: 'Type a question like "Was any bag left unattended?" or "How long did the guest at reception wait?". Atlas answers from the journal with times, and shows the frames it used.'},
+    {t: '#journal-link', h: 'Read the whole day', p: 'The journal is also a readable page, one per day, filterable by camera.'},
+    {t: '#jobbar', h: 'Give the team a job', p: 'Ask for a report or a summary, paste an enquiry, anything. You watch every agent work, and nothing leaves without your approval.', end: true},
+  ],
   approval: [
     {t: '#approvals-btn', h: 'Nothing goes out without you', p: 'An agent wants to send something. Open Approvals, edit the text if you like, then approve or reject with a note — the note tunes the agents next time.', end: true},
   ],
@@ -423,3 +452,114 @@ function tutNext(){
 }
 function tutEnd(){ TUT.on = false; $('#coach').classList.add('hide'); document.querySelectorAll('.coach-target').forEach(e => e.classList.remove('coach-target')); if (TUT.steps === TUT_STEPS.done || TUT.steps === TUT_STEPS.approval) localStorage.setItem('ws_tut_done', '1'); }
 function tutSkip(){ TUT.auto = false; localStorage.setItem('ws_tut_done', '1'); tutEnd(); }
+
+
+/* ------------------------------------------------------------------ cameras: tiles, live picture, journal, questions */
+const CAM_QUESTIONS = ['What happened in the last 10 minutes?', 'Was anything left behind?', 'Who waited the longest?', 'Describe everyone who came in'];
+function camKind(src){ src = String(src || ''); if (!src) return 'needs a stream address'; if (src.startsWith('sample:') || /AtlasDemo[\\/]videos/i.test(src)) return 'sample footage'; if (/^rtsps?:/i.test(src)) return 'RTSP camera'; if (/^https?:/i.test(src)) return 'snapshot URL'; if (/^\d+$/.test(src)) return 'webcam'; if (/\.(mp4|mov|avi|mkv|webm)$/i.test(src)) return 'recording'; return 'camera'; }
+function setCamState(k, text, cls){ if (!k.el) return; const t = k.el.querySelector('.cn .tag'); t.textContent = text; t.className = 'tag ' + (cls || ''); }
+async function applyCams(list, instant){
+  const incoming = new Map((list || []).map(c => [c.name, c]));
+  const first = !W.cams.size && incoming.size;
+  W.cams.forEach((k, name) => { if (!incoming.has(name)) { if (k.el) { k.el.classList.add('spawn'); setTimeout(() => k.el.remove(), 500); } W.cams.delete(name); addMsg('s', `− camera ${name} removed`, 'assign'); } });
+  $('#camstrip').classList.toggle('hide', !incoming.size);
+  $('#ws').classList.toggle('hascams', incoming.size > 0);
+  if (first) { layoutAll(true); animateEdges(700); }
+  for (const [name, c] of incoming) {
+    const k = W.cams.get(name);
+    if (k) { Object.assign(k, {source: c.source, journal: c.journal !== false, alerts: !!c.alerts, id: c.id || k.id}); k.el.querySelector('.kind').textContent = camKind(c.source); continue; }
+    const nk = {name, id: c.id || null, source: c.source || '', journal: c.journal !== false, alerts: !!c.alerts, el: null, seenTs: 0};
+    const el = document.createElement('div'); el.className = 'cam' + (instant ? '' : ' spawn');
+    el.innerHTML = `<div class="pic"><span class="kind">${esc(camKind(c.source))}</span></div><div class="cb"><div class="cn">${esc(name)}<span class="tag ${nk.journal ? 'on' : ''}">${nk.journal ? 'journal on' : 'rules only'}</span></div><div class="note">${esc(c.notes || c.focus || 'waiting for the first note')}</div></div>`;
+    el.onclick = () => openLive(name);
+    $('#cams').appendChild(el); nk.el = el; W.cams.set(name, nk);
+    if (!instant) { addMsg('s', `+ camera ${name}: ${camKind(c.source)}${nk.journal ? ', keeping a journal' : ''}`, 'assign'); void el.offsetWidth; await sleep(30); el.classList.remove('spawn'); await sleep(170); }
+  }
+  if (first && !instant) tutHook('cameras');
+}
+function startCamPoll(){ clearInterval(W.camPoll); W.evSince = Date.now() / 1000 - 5; pollCams(); W.camPoll = setInterval(pollCams, 4000); }
+async function pollCams(){
+  if (!W.cams.size) return;
+  if (W.deskId) await api(`/desks/${W.deskId}/select`, {method: 'POST', body: {}});
+  const r = await api('/cameras'); if (!r || !r.cameras) return;
+  for (const c of r.cameras) {
+    const k = W.cams.get(c.name); if (!k) continue; k.id = c.id;
+    const s = c.seen || {}; const le = c.last_event || {};
+    const ts = s.ts || le.ts || 0;
+    if (ts && ts !== k.seenTs) {
+      k.seenTs = ts;
+      const pic = k.el.querySelector('.pic'); let img = pic.querySelector('img');
+      const src = `/api/cameras/${c.id}/frame.jpg?t=${Math.round(ts * 1000)}`;
+      const pre = new Image(); pre.onload = () => { if (!img) { img = document.createElement('img'); pic.appendChild(img); if (!pic.querySelector('.live')) { const lv = document.createElement('span'); lv.className = 'live'; lv.textContent = 'live'; pic.appendChild(lv); } } img.src = src; }; pre.src = src;
+      const counts = Object.entries(s.counts || le.counts || {}).map(([k2, v]) => `${v} ${k2}`).join(', ');
+      setCamState(k, s.journal ? 'writing note' : (counts || 'watching'), s.journal ? 'on' : (k.journal ? 'on' : ''));
+    }
+    const note = s.journal || (le.source === 'journal' || le.source === 'digest' ? le.answer : '');
+    if (note && note !== k.note) { k.note = note; const n = k.el.querySelector('.note'); n.textContent = note; n.classList.remove('new'); void n.offsetWidth; n.classList.add('new'); }
+  }
+  const ev = await api(`/vision/events?hours=1&limit=20`) || [];
+  if (Array.isArray(ev)) ev.filter(e => e.ts > W.evSince && (e.source === 'journal' || e.source === 'digest')).sort((a, b) => a.ts - b.ts).forEach(e => {
+    W.evSince = Math.max(W.evSince, e.ts);
+    feed({ts: e.ts, agent: e.camera, kind: e.source === 'digest' ? 'summary' : 'journal', text: e.answer || e.reason || '', data: {}}, e.source);
+    const k = W.cams.get(e.camera); if (k && k.el) { k.el.classList.remove('flash'); void k.el.offsetWidth; k.el.classList.add('flash'); setTimeout(() => k.el.classList.remove('flash'), 900); }
+  });
+}
+function looksLikeQuestion(t){ return /\?\s*$/.test(t) || /^(who|what|when|where|why|how|was|were|did|does|do|is|are|has|have|had|any|anyone|anything|show|describe|tell me|list|summar|count)\b/i.test(t.trim()); }
+async function askCams(text){
+  addMsg('u', text); setSugg([]);
+  W.busy = true; $('#send').disabled = true; $('#orb').classList.add('busy'); $('#orbstate').textContent = 'reading the journal';
+  if (W.deskId) await api(`/desks/${W.deskId}/select`, {method: 'POST', body: {}});
+  const r = await api('/vision/ask', {method: 'POST', body: {question: text, hours: 24}});
+  W.busy = false; $('#send').disabled = false; $('#orb').classList.remove('busy'); $('#orbstate').textContent = 'listening';
+  if (!r || r.error) { addMsg('a', (r && r.error) || 'I could not read the journal just now. Try again.'); return; }
+  const d = await typeMsg(r.answer || 'Nothing in the journal answers that yet.');
+  d.classList.add('cams');
+  const ev = (r.evidence || []).filter(e => e.snapshot_url).slice(-6);
+  if (ev.length) {
+    const row = document.createElement('div'); row.className = 'evid';
+    row.innerHTML = ev.map(e => `<a href="${esc(e.snapshot_url)}" target="_blank" rel="noopener" title="${esc(e.camera)} #${e.id}"><img src="${esc(e.snapshot_url)}" loading="lazy" alt=""><span>#${e.id} ${esc(e.camera)}</span></a>`).join('');
+    d.appendChild(row); $('#msgs').scrollTop = 1e9;
+    [...new Set(ev.map(e => e.camera))].forEach(n => { const k = W.cams.get(n); if (k && k.el) { k.el.classList.add('flash'); setTimeout(() => k.el.classList.remove('flash'), 1400); } });
+  }
+  const m = r.retrieval || {}; if (m.considered) addMsg('s', `searched ${m.considered} journal entries (${m.window || 'last 24h'}), ${m.grounding || ''}`);
+  setSugg(CAM_QUESTIONS);
+}
+
+/* ------------------------------------------------------------------ front door: my desks, guide */
+async function loadMyDesks(){
+  const r = await api('/desks'); const list = (r && r.desks || []).filter(d => d.name && d.name !== 'My business').slice(0, 8);
+  if (!list.length) return;
+  const box = $('#mydesks');
+  box.innerHTML = '<span>Or open one of your desks:</span>' + list.map(d => `<button onclick="openDesk(${d.id})">${esc(d.business_name || d.name)}</button>`).join('');
+  box.classList.remove('hide');
+}
+async function openDesk(id){ await api(`/desks/${id}/select`, {method: 'POST', body: {}}); location.href = '/desk/workspace?desk=' + id; }
+function openGuide(){ $('#guide').classList.remove('hide'); }
+function closeGuide(){ $('#guide').classList.add('hide'); }
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && !$('#guide').classList.contains('hide')) closeGuide(); });
+
+
+/* ------------------------------------------------------------------ free / paid models (always the owner's click) */
+async function setTier(tier){
+  if (!W.sid) return toast(W.deskId ? 'This desk was built on ' + (W.tier === 'free' ? 'free' : 'paid') + ' models; change it in Desk setup' : 'Start a conversation first');
+  const r = await api(`/design/${W.sid}/tier`, {method: 'POST', body: {tier}});
+  if (!r || r.error) return toast((r && r.error) || 'could not switch');
+  W.tier = r.tier; const lbl = W.tier === 'free' ? 'free models' : 'paid models (about 3p a message)'; $('#tier-btn').textContent = lbl; $('#tier-pill').textContent = lbl;
+  addMsg('s', W.tier === 'free' ? 'switched to free models' : 'switched to paid models: Claude for design, a paid vision model for the cameras', 'assign');
+}
+function toggleTier(){ return setTier(W.tier === 'free' ? 'balanced' : 'free'); }
+
+
+/* ------------------------------------------------------------------ live view of one camera (motion JPEG with detections) */
+function openLive(name){
+  const k = W.cams.get(name); if (!k) return;
+  if (!k.id) return toast('This camera goes live once the desk is built');
+  $('#live-name').textContent = name;
+  $('#live-note').textContent = k.note || 'The first journal note appears here within a few seconds.';
+  $('#live-journal').href = `/api/vision/journal?format=html&camera=${encodeURIComponent(name)}`;
+  $('#live-img').src = `/api/cameras/${k.id}/live.mjpg?fps=12&t=${Date.now()}`;
+  $('#liveview').classList.remove('hide'); W.liveCam = name;
+}
+function closeLive(){ $('#live-img').src = ''; $('#liveview').classList.add('hide'); W.liveCam = null; }
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && W.liveCam) closeLive(); });
+setInterval(() => { if (W.liveCam) { const k = W.cams.get(W.liveCam); if (k && k.note) $('#live-note').textContent = k.note; } }, 2000);

@@ -372,10 +372,10 @@ def login():
         store.touch_login(u["id"])
         if request.is_json:
             return jsonify({"ok": True})
-        nxt = request.args.get("next", "/desk")
-        return redirect(nxt if nxt.startswith("/desk") else "/desk")
+        nxt = request.args.get("next", "/desk/workspace")          # the workspace chat is the front door
+        return redirect(nxt if nxt.startswith("/desk") else "/desk/workspace")
     if current_user():
-        return redirect("/desk")
+        return redirect("/desk/workspace")
     return _page("login.html", error="", email="")
 
 
@@ -404,9 +404,9 @@ def signup():
         session["uid"] = u["id"]
         if request.is_json:
             return jsonify({"ok": True})
-        return redirect("/desk")
+        return redirect("/desk/workspace")                     # new owners start in the workspace chat
     if current_user():
-        return redirect("/desk")
+        return redirect("/desk/workspace")
     return _page("signup.html", error="", name="", company="", email="")
 
 
@@ -2192,8 +2192,9 @@ def api_vision_ask():
         def text_answer(system: str, prompt: str) -> str:   # noqa: F811 - text-only fallback on the desk's Atlas model
             return (prov.chat(system, [prov.user_message(prompt)], [], model=atlas_agent.get("model", "")).text or "").strip()
     try:
+        vlm = str(d.get("model") or "") or (DS.PAID_VLM if (desk.get("tier") or "free") != "free" else "")
         res = RAG.ask(store, desk["id"], q, hours, str(d.get("camera") or ""), configs["business"], mode=_mode(),
-                      text_answer=text_answer, vlm_model=str(d.get("model") or ""))
+                      text_answer=text_answer, vlm_model=vlm)
     except Exception as exc:
         return jsonify({"error": f"model error: {type(exc).__name__}: {str(exc)[:200]}"}), 502
     return jsonify({"answer": res["answer"], "evidence": [_vev_public(r) for r in res["evidence"]], "mode": _mode(),
@@ -2426,6 +2427,20 @@ def api_design_blueprint(sid):
     return jsonify({"blueprint": s.blueprint, "ready": s.ready})
 
 
+@app.post("/api/design/<sid>/tier")
+def api_design_tier(sid):
+    """Switch a design conversation between free and paid models (the owner's explicit choice in the workspace)."""
+    s = _design_session(sid)
+    if not current_user() and not OPEN:
+        abort(401)
+    tier = str((request.get_json(silent=True) or {}).get("tier") or "")
+    if tier not in templates.TIERS:
+        return jsonify({"error": "unknown tier"}), 400
+    s.tier = tier
+    _save_design(s)
+    return jsonify({"tier": s.tier, "label": templates.TIERS[tier]["label"]})
+
+
 @app.post("/api/design/<sid>/build")
 def api_design_build(sid):
     """Approve the blueprint: create the desk, schedule its triggers, return what still needs connecting."""
@@ -2440,6 +2455,8 @@ def api_design_build(sid):
     tier = d.get("tier") if d.get("tier") in templates.TIERS else s.tier
     conf = DS.blueprint_to_desk(bp, tier)
     name = (d.get("name") or (bp.get("business") or {}).get("name") or "New desk").strip()
+    if not (bp.get("business") or {}).get("name"):                 # never show the template's placeholder business name
+        conf["business"]["name"] = name
     if s.desk_id and store.desk(s.desk_id):
         store.update_desk(s.desk_id, name=name, tier=tier, config=conf)
         desk = store.desk(s.desk_id)
@@ -2460,8 +2477,41 @@ def api_design_build(sid):
             jobs.append(store.add_job(desk["id"], "task", jname, f"Run workflow '{w['name']}': {t.get('detail') or 'scheduled sweep'}. Mode: {w['id']}", 1440, time.time() + 86400))
         elif t.get("kind") == "inbox":
             jobs.append(store.add_job(desk["id"], "inbox_watch", jname, "", 2, time.time() + 120))
+    cameras, cams_missing = _build_cameras(desk, bp)
     _save_design(s)
-    return jsonify({"desk": _desk_public(desk), "connect": _connect_plan(desk, bp), "jobs": jobs})
+    return jsonify({"desk": _desk_public(desk), "connect": _connect_plan(desk, bp), "jobs": jobs,
+                    "cameras": cameras, "cameras_missing": cams_missing})
+
+
+def _build_cameras(desk: dict[str, Any], bp: dict[str, Any]) -> tuple[list[dict[str, Any]], list[str]]:
+    """Blueprint cameras -> camera connectors (journal on by default) + a fast watch job each. Cameras without a
+    usable source are returned by name so the owner can add the address later."""
+    made, missing = [], []
+    have = {c["name"]: c for c in store.connectors(desk["id"]) if c["kind"] == "camera"}
+    for cam in bp.get("cameras") or []:
+        src = DS.resolve_camera_source(cam.get("source", ""))
+        if not src:
+            missing.append(cam["name"])
+            continue
+        journal = bool(cam.get("journal", True))
+        config = {"source": src, "watch_for": cam.get("watch_for") or "person", "min_count": 1,
+                  "alerts": "1" if cam.get("alerts") else "0", "notes": cam.get("notes", ""),
+                  "journal": "1" if journal else "", "journal_every_s": "30", "journal_min_gap_s": "8",
+                  "journal_rollup_min": "15", "journal_focus": cam.get("focus", "")}
+        if (desk.get("tier") or "free") != "free":
+            config["vlm_model"] = DS.PAID_VLM
+        c = have.get(cam["name"])
+        if c:
+            store.update_connector(c["id"], config=config)
+            c = store.connector(c["id"])
+        else:
+            c = store.add_connector(desk["id"], "camera", cam["name"], config, False)
+        if not any(j["kind"] == "camera_watch" and f'"connector": "{cam["name"]}"' in (j["task"] or "") for j in store.jobs(desk["id"])):
+            store.add_job(desk["id"], "camera_watch", f"Watch {cam['name']}",
+                          json.dumps({"connector": cam["name"], "every_s": 8 if journal else 30}), 1, time.time())
+        made.append({"id": c["id"], "name": c["name"], "sample": str(cam.get("source", "")).startswith("sample:"),
+                     "journal": journal, "alerts": bool(cam.get("alerts"))})
+    return made, missing
 
 
 def _connect_plan(desk: dict[str, Any], bp: dict[str, Any]) -> dict[str, Any]:

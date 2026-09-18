@@ -192,3 +192,101 @@ def test_journal_html_view(app_client):
     assert r.status_code == 200 and "text/html" in r.content_type
     assert "red coat &lt;b&gt;enters&lt;/b&gt;" in body and 'class="sum"' in body and "2 entries" in body
     assert "red coat" in c.get("/api/vision/journal?format=text").get_data(as_text=True)
+
+
+# ----------------------------------------------------------------------------- workspace: cameras from the conversation
+@pytest.fixture()
+def samples(tmp_path, monkeypatch):
+    d = tmp_path / "samples"
+    d.mkdir()
+    for n in ("hotel-lobby_LeftBag", "hotel-lobby_Browse4", "corner-store_ezymart"):
+        (d / f"{n}.mp4").write_bytes(b"not really a video")
+    monkeypatch.setenv("ATLAS_SAMPLE_VIDEOS", str(d))
+    return d
+
+
+def test_designer_blueprint_carries_cameras(samples):
+    from atlas import designer as DS
+    assert "hotel-lobby_LeftBag" in DS.camera_guide() and "sample:<name>" in DS.camera_guide()
+    assert DS.resolve_camera_source("sample:hotel-lobby_LeftBag").endswith("hotel-lobby_LeftBag.mp4")
+    assert DS.resolve_camera_source("sample:nope") == "" and DS.resolve_camera_source("rtsp://x/1") == "rtsp://x/1"
+    bp = DS.normalise({"agents": [{"id": "rep", "name": "Rep", "role": "r", "tools": ["camera_ask", "web_fetch"]}],
+                       "cameras": [{"name": "Front Door!", "source": "sample:hotel-lobby_LeftBag", "alerts": "true"}, "back door"]})
+    assert [c["name"] for c in bp["cameras"]] == ["front-door", "back-door"]
+    assert bp["cameras"][0]["journal"] is True and bp["cameras"][0]["alerts"] is True and bp["cameras"][1]["source"] == ""
+    assert "camera_ask" in bp["agents"][0]["tools"]
+    assert DS.normalise({"agents": []}, bp)["cameras"] == bp["cameras"]            # later turns keep the cameras
+    s = DS.new_session("demo")
+    assert "Try it on sample hotel footage" in s.suggestions
+    res = DS.reply(s, "We run a small hotel and want the lobby cameras documented")
+    cams = res["blueprint"]["cameras"]
+    assert {c["name"] for c in cams} >= {"reception", "lobby-seating"} and all(c["source"].startswith("sample:") for c in cams)
+    assert any("camera_ask" in a["tools"] for a in res["blueprint"]["agents"])
+
+
+def test_build_creates_journal_cameras(app_client, samples):
+    c = app_client
+    c.post("/signup", json={"name": "W", "company": "Lobby Co", "email": "ws-cams@example.com", "password": "password1"})
+    c.post("/login", json={"email": "ws-cams@example.com", "password": "password1"})
+    s = c.post("/api/design/start", json={}).get_json()
+    bp = {"business": {"name": "Lobby Co"},
+          "agents": [{"id": "rep", "name": "Reporter", "role": "Reads the camera journal", "tools": ["camera_ask"]}],
+          "cameras": [{"name": "seating", "source": "sample:hotel-lobby_LeftBag", "focus": "bags left behind"},
+                      {"name": "back-door", "source": ""}]}
+    r = c.post(f"/api/design/{s['sid']}/build", json={"blueprint": bp}).get_json()
+    assert [x["name"] for x in r["cameras"]] == ["seating"] and r["cameras"][0]["sample"] and r["cameras"][0]["journal"]
+    assert r["cameras_missing"] == ["back-door"]
+    cams = c.get("/api/cameras").get_json()["cameras"]
+    cfg = cams[0]["config"]
+    assert cams[0]["name"] == "seating" and cfg["journal"] == "1" and cfg["alerts"] == "0" and cfg["journal_focus"] == "bags left behind"
+    assert cfg["source"].endswith("hotel-lobby_LeftBag.mp4") and cams[0]["rule"]["alerts"] is False
+    job = cams[0]["watch_job"]
+    assert job and '"every_s": 8' in job["task"]
+    r2 = c.post(f"/api/design/{s['sid']}/build", json={"blueprint": bp}).get_json()   # rebuilding does not duplicate
+    assert len(c.get("/api/cameras").get_json()["cameras"]) == 1 and len(r2["cameras"]) == 1
+
+
+def test_login_lands_in_workspace(app_client):
+    c = app_client
+    c.post("/signup", json={"name": "L", "company": "L", "email": "ws-land@example.com", "password": "password1"})
+    c.get("/logout")
+    r = c.post("/login", data={"email": "ws-land@example.com", "password": "password1"})
+    assert r.status_code == 302 and r.headers["Location"].endswith("/desk/workspace")
+    page = c.get("/desk/workspace").get_data(as_text=True)
+    assert 'id="camstrip"' in page and 'id="guide"' in page and "How Atlas works" in page
+
+
+def test_free_quota_offers_paid_switch(app_client):
+    from atlas import designer as DS
+
+    class Broke:
+        def chat(self, *a, **k):
+            raise RuntimeError("HTTP 429: Rate limit exceeded: free-models-per-day-high-balance")
+        def user_message(self, t):
+            return {"role": "user", "content": t}
+
+    import atlas.providers as P
+    orig = P.ProviderPool.get
+    P.ProviderPool.get = lambda self, name="": Broke()
+    try:
+        s = DS.new_session("live")
+        res = DS.reply(s, "we run a hotel", providers_cfg={"providers": {}}, designer_model="x/y:free")
+    finally:
+        P.ProviderPool.get = orig
+    assert "free model allowance" in res["text"] and DS.SWITCH_TO_PAID in res["suggestions"]
+    c = app_client
+    c.post("/signup", json={"name": "T", "company": "T", "email": "ws-tier@example.com", "password": "password1"})
+    c.post("/login", json={"email": "ws-tier@example.com", "password": "password1"})
+    sid = c.post("/api/design/start", json={}).get_json()["sid"]
+    assert c.post(f"/api/design/{sid}/tier", json={"tier": "balanced"}).get_json()["tier"] == "balanced"
+    assert c.post(f"/api/design/{sid}/tier", json={"tier": "gold"}).status_code == 400
+
+
+def test_build_without_business_name_uses_desk_name(app_client):
+    c = app_client
+    c.post("/signup", json={"name": "N", "company": "N", "email": "ws-name@example.com", "password": "password1"})
+    c.post("/login", json={"email": "ws-name@example.com", "password": "password1"})
+    sid = c.post("/api/design/start", json={}).get_json()["sid"]
+    r = c.post(f"/api/design/{sid}/build", json={"name": "Harbour Hotel", "blueprint": {"agents": [{"id": "a", "name": "A", "role": "r"}]}}).get_json()
+    assert r["desk"]["name"] == "Harbour Hotel"
+    assert c.get("/api/config").get_json()["business"]["name"] == "Harbour Hotel"

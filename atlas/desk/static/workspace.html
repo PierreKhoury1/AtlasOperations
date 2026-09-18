@@ -17,7 +17,8 @@
     <div class="spacer"></div>
     <div id="jobbar" class="hide"><input id="job" placeholder="Give the team a job… e.g. a customer enquiry, a report to prepare, a list to chase" onkeydown="if(event.key==='Enter')deploy()"><button class="btn p" id="deploy-btn" onclick="deploy()">Deploy →</button></div>
     <button class="btn ghost" id="approvals-btn" onclick="toggleApprovals()" title="Outbound actions waiting for you">Approvals <span class="badge hide" id="ap-n">0</span></button>
-    <button class="btn ghost" id="help-btn" onclick="tutStart(true)" title="Show the tutorial again">?</button>
+    <button class="btn ghost" id="tier-pill" onclick="toggleTier()" title="Free models cost nothing but have a daily limit; paid models cost a few pence">free models</button>
+    <button class="btn ghost" id="help-btn" onclick="openGuide()" title="How to use Atlas">How it works</button>
   </header>
 
   <!-- left: the conversation with Atlas -->
@@ -25,10 +26,12 @@
     <div id="orbwrap"><div id="orb"><span></span><span></span><span></span><b>A</b></div><div id="orbname">Atlas</div><div id="orbstate">listening</div></div>
     <div id="msgs"></div>
     <div id="sugg"></div>
+    <div id="mydesks" class="hide"></div>
     <div id="composer">
       <textarea id="say" rows="2" placeholder="Tell Atlas what your business does and what eats your time…" onkeydown="sayKey(event)"></textarea>
       <button class="btn p" id="send" onclick="send()">Send</button>
     </div>
+    <div id="meet-foot"><button class="linkish" onclick="openGuide()">How it works</button><span>·</span><span>nothing leaves without your approval</span><span>·</span><button class="linkish" id="tier-btn" onclick="toggleTier()" title="Switch between free and paid models">free models</button></div>
     <div id="chat-foot">
       <button class="btn" id="build-btn" onclick="buildDesk()" disabled>Build this desk →</button>
       <span class="hint" id="build-hint">Atlas needs a first draft of the team before you can build.</span>
@@ -41,6 +44,10 @@
       <svg id="edges"></svg>
       <div id="nodes"></div>
       <div id="empty" class="hide">The team appears here as Atlas assigns it.</div>
+    </div>
+    <div id="camstrip" class="hide">
+      <div class="csh"><b>Cameras</b><span class="hint" id="cam-hint">each camera keeps a detailed written journal</span><span class="spacer"></span><a id="journal-link" href="/api/vision/journal?format=html" target="_blank" rel="noopener">Read today's journal ↗</a></div>
+      <div id="cams"></div>
     </div>
     <div id="feedwrap"><div id="feed"></div></div>
   </section>
@@ -56,6 +63,27 @@
 
   <!-- tutorial coach -->
   <div id="coach" class="hide"><div id="coach-box"><div id="coach-step"></div><h3 id="coach-title"></h3><p id="coach-text"></p><div class="row"><button class="btn" onclick="tutSkip()">Skip</button><span class="spacer"></span><button class="btn p" id="coach-next" onclick="tutNext()">Next</button></div></div></div>
+  <!-- live view of one camera -->
+  <div id="liveview" class="hide" onclick="if(event.target===this)closeLive()"><div id="live-box">
+    <div class="gh"><div><div class="gk">Live camera</div><h2 id="live-name"></h2></div><button class="x" onclick="closeLive()">×</button></div>
+    <img id="live-img" alt="">
+    <div class="lnote"><b>Latest journal note</b><p id="live-note"></p><a id="live-journal" target="_blank" rel="noopener">Read this camera's journal ↗</a></div>
+  </div></div>
+  <!-- how-to guide -->
+  <div id="guide" class="hide" onclick="if(event.target===this)closeGuide()"><div id="guide-box">
+    <div class="gh"><div><div class="gk">Guide</div><h2>How Atlas works</h2></div><button class="x" onclick="closeGuide()">×</button></div>
+    <ol class="gsteps">
+      <li><b>Talk to Atlas.</b> Say what your business does and what eats your time, in your own words. Tap a suggestion if you want a quick start. The workspace opens on its own as soon as Atlas has a first idea.</li>
+      <li><b>Watch the team appear.</b> Atlas draws the agents it will run for you. Click any card to read its brief. Reshape it by talking: "add a reviewer", "put the writers under one lead", "remove the researcher".</li>
+      <li><b>Add your cameras.</b> Say "I have cameras at the till and the back door" and paste the stream addresses (rtsp://...), or say "try it on sample hotel footage". Each camera keeps a detailed journal of what it sees: who arrives, what they wear and carry, how long they wait, what changes.</li>
+      <li><b>Build.</b> Press <i>Build this desk</i>. The agents and cameras go live. Camera tiles show the latest picture and the latest note.</li>
+      <li><b>Ask anything.</b> Type a question into the chat, for example "Was any bag left unattended?" or "How long did the guest at reception wait?". Atlas answers from the journal, with times, and shows the frames it used.</li>
+      <li><b>Give the team a job.</b> Use the bar at the top: a customer enquiry, a report, a daily summary. Every agent's work streams onto its card as it happens.</li>
+      <li><b>Approve.</b> Nothing leaves without you. Messages the agents want to send wait under <i>Approvals</i>; edit, approve or reject with a note.</li>
+      <li><b>Come back later.</b> Open Atlas again and pick your desk under "Or open one of your desks". The full dashboard is behind the Atlas logo, top left.</li>
+    </ol>
+    <div class="row"><button class="btn" onclick="closeGuide();tutStart(true)">Replay the walkthrough</button><span class="spacer"></span><button class="btn p" onclick="closeGuide()">Got it</button></div>
+  </div></div>
   <div id="toast"></div>
 </div>
 <script src="/desk/static/workspace.js"></script>

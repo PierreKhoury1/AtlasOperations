@@ -10,10 +10,12 @@ Flow
 from __future__ import annotations
 
 import json
+import os
 import re
 import threading
 import time
 import uuid
+from pathlib import Path
 from typing import Any, Callable
 
 from . import templates as T
@@ -22,7 +24,7 @@ from . import tools as TL
 _BLOCK = re.compile(r"<atlas-design>\s*(\{.*?\})\s*</atlas-design>", re.S)
 _FENCE = re.compile(r"```(?:json)?\s*(\{.*?\})\s*```", re.S)
 
-SPECIALIST_TOOLS = ["read_file", "list_files", "web_fetch", "run_python", "save_deliverable"]
+SPECIALIST_TOOLS = ["read_file", "list_files", "web_fetch", "run_python", "save_deliverable", "camera_look", "camera_events", "camera_ask"]
 ATLAS_TOOLS = ["delegate", "list_agents", "save_deliverable", "read_file", "list_files", "crm_lookup", "crm_update",
                 "queue_action", "list_connectors", "http_request", "schedule_task", "mcp", "run_python", "remember", "recall", "generate_media"]
 PALETTE = ["#7c3aed", "#db2777", "#1f9d63", "#b45309", "#0e7490", "#6d28d9", "#ea580c", "#15803d", "#a21caf", "#0369a1"]
@@ -86,7 +88,70 @@ GREETING = ("Hi, I'm Atlas. I run a team of AI agents for your business — I br
             "answering enquiries, writing proposals, chasing invoices, watching an inbox, anything repetitive. I'll "
             "assemble the team in front of you as we talk.")
 GREETING_SUGGESTIONS = ["We get enquiries we answer too slowly", "Proposals take us days to write",
-                        "Our inbox needs triage every morning", "Customers need order updates"]
+                        "Our inbox needs triage every morning", "I want my shop cameras documented"]
+
+CAMERA_GUIDE = """
+
+Cameras (the desk's eyes)
+- If the owner mentions cameras, CCTV, footage, a shop floor, a lobby, a kitchen, a till or "watching" anything, add a
+  "cameras" list to the blueprint: [{"name": "short-slug", "source": "...", "notes": "where it points",
+  "focus": "what to document in detail", "journal": true, "alerts": false, "watch_for": "person"}].
+- "source" is what the owner gave you: an RTSP address (rtsp://user:pass@ip:554/...), a snapshot URL, a webcam index
+  ("0"), or "sample:<clip>" for sample footage from the library below. If they have cameras but gave no address yet,
+  use "" and ask for the stream addresses (the owner can also add them later on the Cameras page).
+- "journal": true makes the camera keep a detailed, searchable written record of everything it sees (what people do,
+  wear, carry, how long they wait, what changes) - the owner can later ask questions about it. Default true.
+- "alerts": true only if the owner wants the agents woken when something specific happens; then say what in "focus".
+- Give any agent that reads or reports on the cameras the tools camera_ask and camera_events (camera_look for a fresh
+  frame). Agents never narrate feeds themselves - the journal does that.
+- If the owner wants to try it without their own cameras, offer the sample footage and use "sample:" sources."""
+
+
+SWITCH_TO_PAID = "Switch to the paid model"
+PAID_VLM = os.environ.get("ATLAS_PAID_VLM", "google/gemini-2.5-flash-lite")   # cheap paid eyes for desks off the free tier
+
+
+def sample_dir() -> Path:
+    return Path(os.environ.get("ATLAS_SAMPLE_VIDEOS") or (Path.home() / "AtlasDemo" / "videos"))
+
+
+SAMPLE_LABELS = {
+    "corner-store_ezymart": "corner shop till, real CCTV (a wallet is taken from a customer's backpack)",
+    "retail-store": "retail shop floor and checkout, real CCTV",
+    "liquor-store-delivery": "liquor shop counter, real CCTV",
+    "hotel-lobby_Browse4": "hotel lobby reception desk, ceiling camera",
+    "hotel-lobby_LeftBag": "hotel lobby seating, someone leaves a bag behind",
+    "hotel-lobby_Meet_Crowd": "hotel lobby entrance, a group meets and splits",
+    "hotel-lobby_Browse_WhileWaiting2": "hotel lobby waiting area, a guest waits",
+    "restaurant-sushi-counter": "sushi restaurant, chef at the counter",
+}
+
+
+SAMPLE_CAMERA_NAMES = {"corner-store_ezymart": "till", "retail-store": "shop-floor", "liquor-store-delivery": "liquor-counter",
+                       "hotel-lobby_Browse4": "reception", "hotel-lobby_LeftBag": "lobby-seating",
+                       "hotel-lobby_Meet_Crowd": "lobby-entrance", "hotel-lobby_Browse_WhileWaiting2": "lobby-waiting",
+                       "restaurant-sushi-counter": "sushi-counter"}
+
+
+def sample_clips() -> dict[str, str]:
+    """Sample footage the owner can try the desk on: {clip name: path}. Any .mp4 in the sample folder counts."""
+    d = sample_dir()
+    return {p.stem: str(p) for p in sorted(d.glob("*.mp4"))} if d.is_dir() else {}
+
+
+def resolve_camera_source(src: str) -> str:
+    src = (src or "").strip()
+    if src.lower().startswith("sample:"):
+        return sample_clips().get(src.split(":", 1)[1].strip(), "")
+    return src
+
+
+def camera_guide() -> str:
+    clips = sample_clips()
+    if not clips:
+        return CAMERA_GUIDE + "\n- No sample footage is installed on this desk."
+    return CAMERA_GUIDE + "\n- Sample footage library (use as \"sample:<name>\"):\n" + "\n".join(
+        f"  {n}: {SAMPLE_LABELS.get(n, n.replace('_', ' ').replace('-', ' '))}" for n in clips)
 
 
 # ---------------------------------------------------------------------------- sessions
@@ -99,7 +164,7 @@ class DesignSession:
         self.messages: list[dict[str, Any]] = []         # provider-neutral {"role","content"} history
         self.transcript: list[dict[str, Any]] = [{"role": "assistant", "text": GREETING}]
         self.blueprint: dict[str, Any] | None = None
-        self.suggestions: list[str] = list(GREETING_SUGGESTIONS)
+        self.suggestions: list[str] = list(GREETING_SUGGESTIONS) + (["Try it on sample hotel footage"] if sample_clips() else [])
         self.ready = False
         self.desk_id: int | None = None
         self.turn = 0
@@ -295,6 +360,25 @@ def normalise(bp: dict[str, Any] | None, prev: dict[str, Any] | None = None) -> 
                      "purpose": str(c.get("purpose") or "")[:160], "required": bool(c.get("required", True))})
     out["connectors"] = cons[:8]
 
+    cams_in = bp.get("cameras") if isinstance(bp.get("cameras"), list) else prev.get("cameras") or []
+    cams: list[dict[str, Any]] = []
+    seen_c: set[str] = set()
+    for i, c in enumerate(cams_in):
+        if isinstance(c, str):
+            c = {"name": c}
+        if not isinstance(c, dict):
+            continue
+        name = re.sub(r"[^a-z0-9-]+", "-", str(c.get("name") or f"camera-{i + 1}").lower()).strip("-")[:32] or f"camera-{i + 1}"
+        if name in seen_c:
+            continue
+        seen_c.add(name)
+        cams.append({"name": name, "source": str(c.get("source") or "").strip()[:400],
+                     "notes": str(c.get("notes") or "")[:200], "focus": str(c.get("focus") or "")[:300],
+                     "journal": c.get("journal", True) not in (False, "0", "false", "off"),
+                     "alerts": c.get("alerts", False) in (True, "1", "true", "on"),
+                     "watch_for": str(c.get("watch_for") or "person")[:60]})
+    out["cameras"] = cams[:12]
+
     pol_in = bp.get("policy") if isinstance(bp.get("policy"), dict) else prev.get("policy") or {}
     banned = pol_in.get("banned_phrases")
     if isinstance(banned, str):
@@ -384,7 +468,7 @@ def _live_turn(session: DesignSession, providers_cfg: dict[str, Any] | None, mod
         held = gate.pop("held", "")
         on_token(held + text)
 
-    system = DESIGNER_SYSTEM
+    system = DESIGNER_SYSTEM + camera_guide()
     if session.profile:
         prof = {k: session.profile.get(k) for k in ("name", "summary", "sector", "services", "locations", "customers", "team_hint",
                                                    "channels", "tech", "tone", "opportunities") if session.profile.get(k)}
@@ -405,6 +489,10 @@ def _live_turn(session: DesignSession, providers_cfg: dict[str, Any] | None, mod
             err = f"{type(exc).__name__}: {str(exc)[:160]}"
             time.sleep(2.0)
     if not raw and err:
+        if "free-models-per-day" in err or ("429" in err and ":free" in (model or "")):
+            return ("Today's free model allowance on this account is used up (it resets at midnight UTC). You can switch "
+                    "this conversation to the paid model, about 3p a message, or come back after the reset. The sketch so far is kept."
+                    + chr(10) + '<atlas-design>{"suggestions": ["' + SWITCH_TO_PAID + '", "I will come back later"], "ready": false, "blueprint": null}</atlas-design>')
         return (f"The model did not answer ({err}). Say that again in a moment — the sketch so far is kept."
                 + chr(10) + '<atlas-design>{"suggestions": ["Continue"], "ready": false, "blueprint": null}</atlas-design>')
     if not raw.strip():
@@ -538,13 +626,44 @@ def _demo_turn(session: DesignSession, text: str, on_token: Callable[[str], None
                                      "(locally: AtlasDesk launcher; hosted: set OPENROUTER_API_KEY).",
                                      ["Approve & build the sample desk", "How do I go live?"]))
     bp = _demo_blueprint(kind, name, turn)
+    cams = getattr(session, "_demo_cams", None)
+    if cams is None and re.search(r"camera|cctv|footage|lobby|hotel|till|restaurant|kitchen", low):
+        cams = _demo_cameras(low)
+        session._demo_cams = cams  # type: ignore[attr-defined]
+    if cams:
+        bp["cameras"] = cams
+        bp["agents"].append({"id": "watch_reporter", "name": "Camera reporter", "role": "Reads the camera journal",
+                             "goal": "Answer questions and write the daily report from the camera journal, citing times.",
+                             "tools": ["camera_ask", "camera_events", "save_deliverable"]})
+        prose_note = f" I have added {len(cams)} camera{'s' if len(cams) != 1 else ''} with a detailed journal, and a reporter who reads it."
+    else:
+        prose_note = ""
     if turn >= 3 and "never" in low:
         bp["policy"]["banned_phrases"] = list(dict.fromkeys(bp["policy"]["banned_phrases"] + ["guarantee", "promise"]))
+    prose += prose_note
     if on_token:
         for w in prose.split(" "):
             on_token(w + " ")
             time.sleep(0.018)
     return prose + "\n<atlas-design>" + json.dumps({"suggestions": sugg, "ready": turn >= 3, "blueprint": bp}) + "</atlas-design>"
+
+
+def _demo_cameras(low: str) -> list[dict[str, Any]]:
+    clips = sample_clips()
+    if "hotel" in low or "lobby" in low:
+        want = [n for n in clips if n.startswith("hotel-lobby")]
+    elif "restaurant" in low or "kitchen" in low or "sushi" in low:
+        want = [n for n in clips if n.startswith("restaurant")]
+    else:
+        want = [n for n in clips if n.startswith(("corner-store", "retail-store", "liquor"))]
+    want = want or list(clips)[:2]
+    out = []
+    for n in want[:4]:
+        out.append({"name": SAMPLE_CAMERA_NAMES.get(n, n[:32]),
+                    "source": f"sample:{n}", "notes": SAMPLE_LABELS.get(n, n), "focus": "", "journal": True, "alerts": False,
+                    "watch_for": "person"})
+    return out if clips else [{"name": "front-door", "source": "", "notes": "", "focus": "", "journal": True,
+                               "alerts": False, "watch_for": "person"}]
 
 
 # ---------------------------------------------------------------------------- blueprint -> desk config
