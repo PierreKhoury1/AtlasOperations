@@ -87,7 +87,36 @@ def source_kind(source: str) -> str:
         return "rtsp"
     if s.lower().startswith(("http://", "https://")):
         return "http"
+    if Path(s).suffix.lower() in VIDEO_EXT:
+        return "video"
     return "file"
+
+
+VIDEO_EXT = {".mp4", ".mov", ".avi", ".mkv", ".webm", ".m4v", ".mpg", ".mpeg", ".ts"}
+_VIDEO_T0: dict[str, float] = {}      # path -> wall-clock start: a recording plays as a live camera, looping
+_VIDEO_DUR: dict[str, float] = {}
+
+
+def _grab_video(path: str) -> bytes:
+    """The frame a recording would be showing right now if it had started playing at the first grab (loops)."""
+    if not Path(path).is_file():
+        raise RuntimeError(f"camera source not found: {path[:120]}")
+    ff = shutil.which("ffmpeg")
+    if not ff:
+        raise RuntimeError("ffmpeg is required to play a video file as a camera")
+    if path not in _VIDEO_DUR:
+        _VIDEO_DUR[path] = _ffprobe_duration(path)
+    dur = _VIDEO_DUR[path]
+    t0 = _VIDEO_T0.setdefault(path, time.time())
+    t = ((time.time() - t0) % dur) if dur > 0.5 else 0.0
+    cmd = [ff, "-nostdin", "-loglevel", "error", "-ss", f"{t:.2f}", "-i", path, "-frames:v", "1", "-f", "image2", "-q:v", "3", "pipe:1"]
+    try:
+        p = subprocess.run(cmd, capture_output=True, timeout=FRAME_TIMEOUT * 2)
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError("video frame grab timed out") from exc
+    if p.returncode != 0 or p.stdout[:2] != b"\xff\xd8":
+        raise RuntimeError(f"video frame grab failed: {p.stderr.decode(errors='replace')[:200]}")
+    return p.stdout
 
 
 def _grab_webcam(index: int) -> bytes:
@@ -184,6 +213,8 @@ def grab(source: str) -> bytes:
         jpeg = _grab_rtsp(s)
     elif kind == "http":
         jpeg = _grab_http(s)
+    elif kind == "video":
+        jpeg = _grab_video(s)
     else:
         p = Path(s)
         if not p.is_file():
@@ -467,6 +498,7 @@ def rule_config(config: dict[str, Any]) -> dict[str, Any]:
         repeat = "changes"
     return {"labels": labels, "min_count": min_count, "cooldown_min": cooldown, "hours": str(config.get("hours") or ""),
             "motion_min": motion_min, "alert_on_motion": alert_on_motion, "dwell_min": dwell_min, "repeat": repeat,
+            "alerts": str(config.get("alerts", "1")).strip().lower() not in ("0", "false", "off", "no"),
             "question": str(config.get("question") or ""), "task": str(config.get("task") or "")}
 
 

@@ -56,6 +56,10 @@ Design rules
   shell, work through files over many steps, or remember a client between runs. Otherwise "atlas".
 - Tools available: {tools}. Outbound tools (queue_action, calendar_book, http_request, browse) are approval-gated.
   Cameras: {cameras}.
+- Cameras with "journal" on already write a detailed, searchable diary of everything they see (a note per scene
+  change, a summary every 15 minutes). Agents do not narrate feeds themselves: they read that record with
+  camera_ask (questions over the diary) and camera_events (the raw log), use camera_look for a fresh frame, and turn it
+  into reports, answers and follow-ups.
 - Never invent facts about the business. Where the brief is silent, make the agent ask or verify, not assume.
 - Do NOT add Atlas, an "orchestrator", "coordinator" or "project manager" for the whole job: Atlas already briefs,
   reviews, approves and merges. Only sub-team leads coordinate, and only their own members.
@@ -128,6 +132,12 @@ def validate_team(raw: Any, *, allowed_tools: list[str] | None = None, max_agent
         instr = [str(x).strip()[:240] for x in (instr if isinstance(instr, list) else []) if str(x).strip()][:8]
         if len(instr) < 2:
             errors.append(f"{aid}: needs at least 2 standing orders in 'instructions' (has {len(instr)})")
+        # an agent whose job is about the cameras must be able to read them (the model often forgets the tools)
+        about = " ".join([str(a.get("role") or ""), str(a.get("goal") or ""), " ".join(instr)]).lower()
+        if re.search(r"\b(camera|cameras|cctv|footage|journal|diary|feed|feeds)\b", about):
+            for t in ("camera_ask", "camera_events"):
+                if t in allowed and t not in tools:
+                    tools.append(t)
         engine = "hermes_agent" if str(a.get("engine") or "").lower() in ("hermes_agent", "hermes") else "atlas"
         if engine == "hermes_agent" and not hermes_available:
             errors.append(f"{aid}: engine hermes_agent is not connected on this desk - using atlas")

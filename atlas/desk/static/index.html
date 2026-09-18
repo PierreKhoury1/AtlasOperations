@@ -535,7 +535,7 @@ aside.simple [data-lvl="full"]{display:none}
   <div class="grid g2" style="grid-template-columns:1.6fr 1fr">
     <div>
       <div class="camgrid" id="cam-grid" style="margin-bottom:14px"><div class="empty">Loading…</div></div>
-      <div class="panel"><div class="ph"><h2>What the cameras saw</h2><div class="row" style="gap:6px"><select id="ev-cam" style="width:auto;font-size:12px;padding:5px 8px" onchange="loadVisionEvents()"><option value="">all cameras</option></select><select id="ev-hours" style="width:auto;font-size:12px;padding:5px 8px" onchange="loadVisionEvents()"><option value="1">last hour</option><option value="24" selected>last 24h</option><option value="168">last 7 days</option></select><label style="margin:0;display:flex;gap:5px;align-items:center;font-size:12px"><input type="checkbox" id="ev-alerts" style="width:auto" onchange="loadVisionEvents()"> alerts only</label></div></div>
+      <div class="panel"><div class="ph"><h2>What the cameras saw</h2><div class="row" style="gap:6px"><select id="ev-cam" style="width:auto;font-size:12px;padding:5px 8px" onchange="loadVisionEvents()"><option value="">all cameras</option></select><select id="ev-hours" style="width:auto;font-size:12px;padding:5px 8px" onchange="loadVisionEvents()"><option value="1">last hour</option><option value="24" selected>last 24h</option><option value="168">last 7 days</option></select><label style="margin:0;display:flex;gap:5px;align-items:center;font-size:12px"><input type="checkbox" id="ev-alerts" style="width:auto" onchange="loadVisionEvents()"> alerts only</label><a class="link" style="font-size:12px" href="/api/vision/journal?format=text" target="_blank" rel="noopener">today's journal ↗</a></div></div>
         <div class="pb" id="ev-list" style="max-height:520px;overflow:auto"></div></div>
     </div>
     <div>
@@ -562,6 +562,10 @@ aside.simple [data-lvl="full"]{display:none}
         <label>Standing question for the analyst</label><input id="cam-q" placeholder="Is anyone at the door? Is the shutter open or closed?">
         <label>What the desk should do when it fires</label><textarea id="cam-task" rows="2" placeholder="Log it. If it is after hours and a person is present, queue a WhatsApp to the owner with the time and what was seen."></textarea>
         <label>Notes for the agents</label><input id="cam-notes" placeholder="Main entrance, faces the street. Staff use the side door.">
+        <label style="display:flex;gap:8px;align-items:center;margin-top:10px"><input type="checkbox" id="cam-alerts" style="width:auto" checked> Wake the agents when the rule above matches (untick for a document-only camera)</label>
+        <label style="display:flex;gap:8px;align-items:center;margin-top:6px"><input type="checkbox" id="cam-journal" style="width:auto" checked> Document everything: write a detailed journal of what this camera sees (searchable in Ask the cameras)</label>
+        <div class="grid g2"><div><label>Journal note at least every (s)</label><input id="cam-jevery" type="number" value="60" min="10"></div><div><label>Summary every (min)</label><input id="cam-jroll" type="number" value="15" min="1"></div></div>
+        <label>Journal focus (optional)</label><input id="cam-jfocus" placeholder="guests arriving and waiting, tables occupied or cleared, staff at the pass, deliveries">
         <div class="row" style="margin-top:12px"><button class="btn p" onclick="addCamera()">Add camera</button><span class="hint">Then <b>Look now</b> to test, and switch <b>Watch</b> on.</span></div>
       </div></div>
       <div class="panel"><div class="ph"><h2>Sensors &amp; external detectors</h2><span class="hint">ESP32-CAM, PIR, Frigate, NVR alarms</span></div><div class="pb">
@@ -1438,7 +1442,7 @@ async function loadCameras(){
       <div class="body">
         <h3>${esc(c.name)}<small title="${esc(src)}">${esc(c.source_kind)}${ts ? ' · ' + hms(ts) : ''}</small></h3>
         <div class="hint" style="margin:0">${esc(seenTxt)}${s.motion!=null ? ` · motion ${Number(s.motion).toFixed(2)}` : ''}${s.backend && s.backend!=='none' ? ` · ${esc(s.backend)}` : ''}${s.reason ? ` · ${esc(s.reason)}` : ''}</div>
-        <div class="hint" style="margin:0">watch for <b>${esc(c.rule.labels.join(', '))}</b> ≥${c.rule.min_count}${c.rule.dwell_min > 0 ? ' for '+c.rule.dwell_min+' min' : ''}${c.rule.hours ? ' during '+esc(c.rule.hours) : ''} · cooldown ${c.rule.cooldown_min}m · ${c.rule.repeat==='always' ? 'repeats' : c.rule.repeat==='once' ? 'once per stay' : 'repeats on change'}${s.present_s ? ' · present '+Math.round(s.present_s/60)+'m' : ''}${c.rule.question ? ` · asks “${esc(c.rule.question)}”` : ''}</div>
+        <div class="hint" style="margin:0">watch for <b>${esc(c.rule.labels.join(', '))}</b> ≥${c.rule.min_count}${c.rule.dwell_min > 0 ? ' for '+c.rule.dwell_min+' min' : ''}${c.rule.hours ? ' during '+esc(c.rule.hours) : ''} · cooldown ${c.rule.cooldown_min}m · ${c.rule.repeat==='always' ? 'repeats' : c.rule.repeat==='once' ? 'once per stay' : 'repeats on change'}${s.present_s ? ' · present '+Math.round(s.present_s/60)+'m' : ''}${['1','true','on','yes'].includes(String((c.config||{}).journal||'').toLowerCase()) ? ' · <b>journal on</b>' : ''}${c.rule.alerts===false ? ' · alerts off' : ''}${c.rule.question ? ` · asks “${esc(c.rule.question)}”` : ''}</div>
         ${(s.answer || (le && le.answer)) ? `<div class="ans">${esc(s.answer || le.answer)}</div>` : ''}
         <div class="act"><input id="camq-${c.id}" placeholder="ask the analyst about this frame…" onkeydown="if(event.key==='Enter')lookCam(${c.id})"><button class="btn sm p" onclick="lookCam(${c.id})" ${busy?'disabled':''}>${busy?'…':'Look now'}</button></div>
         <div class="act"><button class="btn sm ${watching?'':'p'}" onclick="watchCam(${c.id}, ${watching?'false':'true'})">${watching ? 'Stop watching' : 'Watch'}</button><button class="btn sm" onclick="lookCam(${c.id}, true)" title="Force an alert run now (demo / test)">Trigger alert</button><span class="spacer"></span>${s.run_id ? `<button class="btn sm" onclick="liveWant='${s.run_id}';go('live')">See run ›</button>` : ''}<button class="btn sm d" onclick="delCam(${c.id})">✕</button></div>
@@ -1457,10 +1461,10 @@ async function watchCam(id, on){ const r = await api(`/cameras/${id}/watch`, {me
 async function delCam(id){ if(!confirm('Remove this camera? Its event log stays.')) return; await api(`/connectors/${id}`, {method:'DELETE', body:{}}); loadCameras(); }
 async function addCamera(){
   const name = $('#cam-name').value.trim(), source = $('#cam-src').value.trim(); if (!name || !source) return toast('Name and source needed');
-  const config = {source, watch_for:$('#cam-watch').value.trim()||'person', min_count:$('#cam-min').value||'1', hours:$('#cam-hours').value.trim(), cooldown_min:$('#cam-cool').value||'10', dwell_min:$('#cam-dwell').value||'0', repeat:$('#cam-repeat').value||'changes', question:$('#cam-q').value.trim(), task:$('#cam-task').value.trim(), notes:$('#cam-notes').value.trim()};
+  const config = {source, watch_for:$('#cam-watch').value.trim()||'person', min_count:$('#cam-min').value||'1', hours:$('#cam-hours').value.trim(), cooldown_min:$('#cam-cool').value||'10', dwell_min:$('#cam-dwell').value||'0', repeat:$('#cam-repeat').value||'changes', question:$('#cam-q').value.trim(), task:$('#cam-task').value.trim(), notes:$('#cam-notes').value.trim(), journal:$('#cam-journal').checked?'1':'', alerts:$('#cam-alerts').checked?'1':'0', journal_every_s:$('#cam-jevery').value||'60', journal_rollup_min:$('#cam-jroll').value||'15', journal_focus:$('#cam-jfocus').value.trim()};
   const r = await api('/connectors', {method:'POST', body:{kind:'camera', name, config, auto:false}});
   if (!r || r.error) return toast(r?.error||'failed');
-  ['#cam-name','#cam-src','#cam-hours','#cam-q','#cam-task','#cam-notes'].forEach(x=>$(x).value='');
+  ['#cam-name','#cam-src','#cam-hours','#cam-q','#cam-task','#cam-notes','#cam-jfocus'].forEach(x=>$(x).value='');
   toast('Camera added — looking…'); await loadCameras(); lookCam(r.id);
 }
 async function loadVisionEvents(){

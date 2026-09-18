@@ -131,6 +131,29 @@ in the approval queue.
 | `repeat` | after the cooldown: `changes` (default) only if the count changed or the scene moved, so a parked car never pages the owner twice; `always` every cooldown while present; `once` only when the count first crosses `min_count` |
 | `question` | what the vision model answers on every alert ("Is anyone at the door?") |
 | `task` | what the desk should do when it fires |
+| `alerts` | `0` = document-only camera: the rule is logged but never wakes the agents |
+
+
+**Journal (document everything).** With `journal` on, the camera keeps a detailed written record of what it sees - the
+content "ask the cameras" searches. The vision model writes a note from two frames (the one at the previous note and
+now) plus the previous note, so each note says what changed: who arrived or left, what they wear and do, how long
+someone has been waiting, doors, deliveries, anything out of place.
+
+| Field | Default | Meaning |
+|---|---|---|
+| `journal` | off (on in the portal form) | write notes for this camera |
+| `journal_min_gap_s` | 8 | fastest note rate while the scene keeps changing |
+| `journal_every_s` | 60 | a note at least this often even when nothing changes |
+| `journal_motion` | 0.03 | how much movement counts as a change |
+| `journal_rollup_min` | 15 | condense the notes into one summary (timeline, peak counts, open questions) this often |
+| `journal_focus` | | what to pay special attention to ("tables occupied or cleared, staff at the pass") |
+
+Notes and summaries are vision events (`source` journal / digest), embedded and cited like everything else, and are
+also appended to a readable diary per desk per day (`data/journal/desk<id>/<date>.md`, `GET /api/vision/journal`,
+"today's journal" on the Cameras page). A video file (`.mp4` etc.) as the source plays as a live, looping camera, for
+demos and for testing on recorded footage. Cost: each note is one vision call with two images. On the free OpenRouter
+model that is $0 but the free daily request limit covers roughly an hour of two busy cameras; for all-day use set a
+paid `vlm_model` on the camera or add `GEMINI_API_KEY` / `GROQ_API_KEY` (each adds its own free quota).
 
 Agents get `camera_look` (fresh frame now), `camera_events` (what the rule logged) and `camera_ask` (retrieval over the
 event log, hybrid text + CLIP image search, the vision model re-looks at the best frames). The team architect grants

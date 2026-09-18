@@ -1814,6 +1814,22 @@ def api_vision_live():
     return resp
 
 
+@app.get("/api/vision/journal")
+def api_vision_journal():
+    """The readable camera diary for one day (Markdown), optionally one camera. ?download=1 serves it as a file."""
+    desk = need_desk()
+    from .. import journal as JR
+    day = str(request.args.get("date") or "")
+    camera = str(request.args.get("camera") or "")
+    text = JR.diary_read(desk["id"], day, camera)
+    path = JR.diary_path(desk["id"], day)
+    if request.args.get("download") or request.args.get("format") == "text":
+        body = text or f"No journal entries for {path.stem}" + (f" on {camera}" if camera else "") + ".\n"
+        headers = {"Content-Disposition": f'attachment; filename="journal-{path.stem}.md"'} if request.args.get("download") else {}
+        return Response(body, mimetype="text/plain; charset=utf-8", headers=headers)
+    return jsonify({"date": path.stem, "camera": camera, "markdown": text, "days": JR.diary_days(desk["id"])})
+
+
 @app.get("/api/vision/events")
 def api_vision_events():
     desk = need_desk()

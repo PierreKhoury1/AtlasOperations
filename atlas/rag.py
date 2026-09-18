@@ -603,9 +603,12 @@ def log_lines(rows: list[dict[str, Any]], why: dict[int, list[str]] | None = Non
     out = []
     for r in rows:
         tag = f" | matched: {','.join(why[int(r['id'])])}" if why and why.get(int(r["id"])) else ""
-        out.append(f"[#{r['id']}] {time.strftime('%a %d %b %H:%M', time.localtime(r['ts']))} | {r['camera']} | {V.counts_text(r['counts'])} | motion {float(r.get('motion') or 0):.2f}"
+        src = r.get("source") or ""
+        label = {"journal": "journal note", "digest": "SUMMARY"}.get(src, "analyst")
+        cap = 900 if src in ("journal", "digest") else 220
+        out.append(f"[#{r['id']}] {time.strftime('%a %d %b %H:%M:%S', time.localtime(r['ts']))} | {r['camera']} | {V.counts_text(r['counts'])} | motion {float(r.get('motion') or 0):.2f}"
                    + (" | ALERT " + (r.get("reason") or "") if r.get("triggered") else (" | " + r["reason"] if r.get("reason") else ""))
-                   + (f" | analyst: {str(r['answer'])[:220]}" if r.get("answer") else "") + tag)
+                   + (f" | {label}: {str(r['answer'])[:cap]}" if r.get("answer") else "") + tag)
     return out
 
 
@@ -614,6 +617,9 @@ def _system(business: dict[str, Any] | None, window: str) -> str:
     return ("You answer the owner's questions about what their cameras and sensors saw. You get (1) the retrieved event log, "
             "one line per event, and (2) the actual snapshot frames of the most relevant events, each labelled with its event id. "
             "Look at the frames: they are the ground truth; the analyst notes were written by a smaller model and can be wrong. "
+            "'journal note' lines are the camera's running diary (written on every scene change and at least once a minute, "
+            "comparing with the previous frame); 'SUMMARY' lines condense a window of notes. Use them for times, durations and "
+            "sequences (who arrived when, how long someone waited, what happened in order). "
             "Give times, cameras and counts. Cite event ids in square brackets like [#12]. If the log and frames do not contain "
             "the answer, say so plainly and say what the closest evidence is. Never identify people by name. Plain text, no markdown. "
             f"Time window searched: {window}. Today is {time.strftime('%A %d %B %Y %H:%M')}. "
@@ -662,7 +668,7 @@ def ask(store, desk_id: int, question: str, hours: float = 24, camera: str = "",
         meta["grounding"] = "demo"
     elif frames and V.vlm_ready():
         try:
-            answer = V.chat_images(_system(business, ret["window"]), prompt, frames, model=vlm_model, max_tokens=500, transport=transport)
+            answer = V.chat_images(_system(business, ret["window"]), prompt, frames, model=vlm_model, max_tokens=1000, transport=transport)
             meta["grounding"] = f"vision model re-looked at {len(frames)} frame(s)"
         except Exception as exc:
             if not text_answer:

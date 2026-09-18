@@ -19,9 +19,11 @@ import traceback
 from typing import Any, Callable
 
 from .. import integrations as I
+from .. import journal as JR
 from .. import vision as V
 
 TICK = 20.0
+MIN_CAMERA_S = 5                                         # fastest camera_watch cadence (the portal allows every_s >= 5)
 LIVE = lambda: True                                       # replaced by the app: is this desk on live models?
 _last_frame: dict[tuple[int, str], bytes] = {}          # (desk_id, camera) -> last raw frame (motion baseline)
 _last_seen: dict[tuple[int, str], dict[str, Any]] = {}  # (desk_id, camera) -> last analysis (portal "live" tile)
@@ -55,6 +57,8 @@ def camera_tick(store, desk: dict[str, Any], conn: dict[str, Any], start_run: Ca
     present_since = _present[key][0] if key in _present else None
     triggered, reason = V.evaluate(cfg, res["detections"], (prev_ev or {}).get("counts"), (last_alert or {}).get("ts"),
                                    mot=res["motion"], present_since=present_since)
+    if triggered and not rule["alerts"]:                   # document-only camera: log it, never wake the agents
+        triggered, reason = False, f"{reason} (alerts off)"
     if force:
         triggered, reason = True, "manual trigger"
     changed = (prev_ev or {}).get("counts") != res["counts"] or res["motion"] >= max(rule["motion_min"], 0.08)
@@ -68,11 +72,32 @@ def camera_tick(store, desk: dict[str, Any], conn: dict[str, Any], start_run: Ca
     elif q and not live:
         answer = "demo mode: " + V.counts_text(res["counts"]) + " in frame"
     res["answer"] = answer
+    # journal: a detailed written note when the scene changed or the max gap passed (the RAG log's real content)
+    jc = JR.config(cfg)
+    note, note_why = "", ""
+    if jc["on"] and live and V.vlm_ready():
+        is_due, note_why = JR.due(key, jc, time.time(), res["motion"], res["counts"])
+        if is_due:
+            try:
+                note = JR.write_note(key, conn["name"], jc, res["jpeg"], res["counts"], notes=str(cfg.get("notes") or ""),
+                                     model=str(cfg.get("vlm_model") or ""))
+            except Exception as exc:
+                JR.failed(key)
+                note_why = f"journal failed: {str(exc)[:140]}"
     event = None
-    if triggered or changed or prev_ev is None or question:
+    if triggered or changed or prev_ev is None or question or note:
         snap = V.save_snapshot(desk["id"], conn["name"], res["annotated"])
-        event = ds.add_vision_event(conn["name"], res["counts"], motion=res["motion"], backend=res["backend"], reason=reason,
-                                    question=q, answer=answer, snapshot=snap, triggered=triggered)
+        ev_answer = (answer + "\nJournal: " + note) if (answer and note) else (answer or note)
+        ev_reason = reason if (triggered or question or not note) else f"journal: {note_why}"
+        event = ds.add_vision_event(conn["name"], res["counts"], motion=res["motion"], backend=res["backend"], reason=ev_reason,
+                                    question=q, answer=ev_answer, snapshot=snap, triggered=triggered,
+                                    source="journal" if note else "camera")
+        if note:
+            JR.diary_append(desk["id"], event["ts"], conn["name"], ("ALERT: " + reason) if triggered else "note", note, event["id"])
+            try:
+                JR.maybe_rollup(ds, desk["id"], conn["name"], jc, res["jpeg"], snapshot=snap, model=str(cfg.get("vlm_model") or ""))
+            except Exception as exc:
+                ds.add_vision_event(conn["name"], {}, backend="error", reason=f"journal summary failed: {str(exc)[:160]}")
     rid = ""
     if triggered and event:
         when = time.strftime("%A %d %B %H:%M")
@@ -95,6 +120,7 @@ def camera_tick(store, desk: dict[str, Any], conn: dict[str, Any], start_run: Ca
             rid = ""
     seen = {"ts": time.time(), "counts": res["counts"], "motion": res["motion"], "backend": res["backend"], "reason": reason,
             "present_s": round(time.time() - present_since) if present_since else 0,
+            "journal": note[:400], "journal_status": note_why if jc["on"] else "",
             "triggered": triggered, "answer": answer, "event_id": (event or {}).get("id"), "run_id": rid, "size": res["size"],
             "detections": res["detections"], "detector_error": res["detector_error"]}
     _last_seen[key] = {**seen, "annotated": res["annotated"]}
@@ -204,7 +230,7 @@ def _loop(store, start_run, desk_for):
                     except Exception:
                         every_s = 0
                 if every_s > 0 and status != "skipped":
-                    fields["next_run"] = time.time() + max(every_s, int(TICK))
+                    fields["next_run"] = time.time() + max(every_s, MIN_CAMERA_S)
                 elif every > 0:
                     # a skipped job (nothing to poll) backs off to hourly instead of hammering every tick
                     fields["next_run"] = time.time() + (max(every, 60) if status == "skipped" else every) * 60
@@ -213,7 +239,17 @@ def _loop(store, start_run, desk_for):
                 store.update_job(job["id"], **fields)
         except Exception:
             traceback.print_exc()
-        _stop.wait(TICK)
+        _stop.wait(_next_wait(store))
+
+
+def _next_wait(store) -> float:
+    """Sleep until the next job is due (fast cameras), but never longer than TICK and never under a second."""
+    now = time.time()
+    try:
+        soon = [float(j.get("next_run") or now) for j in store.due_jobs(now + TICK)]
+    except Exception:
+        return TICK
+    return max(1.0, min([TICK] + [t - now for t in soon]))
 
 
 def start(store, start_run: Callable, desk_for: Callable) -> None:
