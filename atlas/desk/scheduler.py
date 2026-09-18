@@ -84,7 +84,7 @@ def camera_tick(store, desk: dict[str, Any], conn: dict[str, Any], start_run: Ca
         if is_due:
             try:
                 note = JR.write_note(key, conn["name"], jc, res["jpeg"], res["counts"], notes=str(cfg.get("notes") or ""),
-                                     model=str(cfg.get("vlm_model") or ""))
+                                     model=str(cfg.get("vlm_model") or ""), why=note_why)
             except Exception as exc:
                 JR.failed(key)
                 note_why = f"journal failed: {str(exc)[:140]}"
@@ -122,6 +122,9 @@ def camera_tick(store, desk: dict[str, Any], conn: dict[str, Any], start_run: Ca
             ds.add_vision_event(conn["name"], res["counts"], motion=res["motion"], backend=res["backend"],
                                 reason=f"desk refused the run: {str(why)[:160]}", snapshot=event["snapshot"])
             rid = ""
+    JR.publish(desk["id"], "tick", conn["name"], counts=res["counts"], motion=res["motion"], backend=res["backend"],
+               triggered=triggered, reason=reason if triggered else "", journal=bool(note), journal_status=note_why if jc["on"] else "",
+               event_id=(event or {}).get("id"), run_id=rid, answer=answer[:600] if answer else "")
     seen = {"ts": time.time(), "counts": res["counts"], "motion": res["motion"], "backend": res["backend"], "reason": reason,
             "present_s": round(time.time() - present_since) if present_since else 0,
             "journal": note[:400], "journal_status": note_why if jc["on"] else "",

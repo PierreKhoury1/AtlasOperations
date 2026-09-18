@@ -134,6 +134,15 @@ in the approval queue.
 | `alerts` | `0` = document-only camera: the rule is logged but never wakes the agents |
 
 
+**Live (watch it happen).** Press **Live** on a camera card: the picture plays as real video (`/api/cameras/<id>/live.mjpg`,
+motion JPEG, one decode loop per source shared by every viewer, webcam / RTSP / a recording that plays at real speed
+and loops) with every frame through the local detector, boxes and track ids drawn, fps and detector time in the
+corner. Next to it the journal is written in real time: `/api/vision/journal/stream` (server-sent events) carries
+every scheduler tick and each note as `note_start`, one `note_delta` per token, `note_done`, plus summaries. While
+anyone is watching, the vision model is streamed; with no viewer the journal runs exactly as before. The journal and
+the rules read the live loop's frame while it runs, so what is written is what was on screen. `LIVE_MAX_W` (1920),
+`LIVE_JPEG_Q` (76), `LIVE_FPS` (15, webcam/RTSP cap) and `LIVE_IDLE_S` (45, stop after the last viewer leaves) tune it.
+
 **Journal (document everything).** With `journal` on, the camera keeps a detailed written record of what it sees - the
 content "ask the cameras" searches. The vision model writes a note from two frames (the one at the previous note and
 now) plus the previous note, so each note says what changed: who arrived or left, what they wear and do, how long

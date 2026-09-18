@@ -18,6 +18,7 @@ DATA_DIR/journal/desk<id>/<YYYY-MM-DD>.md.
 """
 from __future__ import annotations
 
+import queue
 import re
 import threading
 import time
@@ -31,6 +32,45 @@ JOURNAL_DIR = DATA_DIR / "journal"
 
 _state: dict[tuple[int, str], dict[str, Any]] = {}     # (desk_id, camera) -> last note {ts, text, jpeg, counts}, rollup_ts, fail_until
 _lock = threading.Lock()
+
+# ---------------------------------------------------------------------------- live bus
+# Everything the journal does is published as it happens (tick, note_start, note_delta, note_done, digest) so the
+# portal can show the note being written word by word next to the live picture. Subscribers are plain queues.
+_subs: dict[int, list["queue.Queue[dict[str, Any]]"]] = {}
+_subs_lock = threading.Lock()
+_BUS_MAX = 400
+
+
+def publish(desk_id: int, kind: str, camera: str, **data: Any) -> dict[str, Any]:
+    ev = {"kind": kind, "camera": camera, "ts": round(time.time(), 3), **data}
+    with _subs_lock:
+        subs = list(_subs.get(desk_id, ()))
+    for q in subs:
+        try:
+            q.put_nowait(ev)
+        except queue.Full:
+            pass                                          # a stalled viewer loses events, never blocks the camera
+    return ev
+
+
+def subscribe(desk_id: int) -> "queue.Queue[dict[str, Any]]":
+    q: "queue.Queue[dict[str, Any]]" = queue.Queue(maxsize=_BUS_MAX)
+    with _subs_lock:
+        _subs.setdefault(desk_id, []).append(q)
+    return q
+
+
+def unsubscribe(desk_id: int, q: "queue.Queue[dict[str, Any]]") -> None:
+    with _subs_lock:
+        try:
+            _subs.get(desk_id, []).remove(q)
+        except ValueError:
+            pass
+
+
+def subscribers(desk_id: int) -> int:
+    with _subs_lock:
+        return len(_subs.get(desk_id, ()))
 
 NOTE_SYSTEM = """You keep the written journal for one camera at a business. Your notes are the ONLY record the owner
 will search later ("when did the delivery arrive?", "how long did the couple by the window wait?", "was the back door
@@ -100,9 +140,14 @@ def due(key: tuple[int, str], jc: dict[str, Any], now: float, motion: float, cou
 
 
 def write_note(key: tuple[int, str], camera: str, jc: dict[str, Any], jpeg: bytes, counts: dict[str, int],
-               notes: str = "", model: str = "", now: float | None = None, transport=None) -> str:
-    """One journal note from the frame at the previous note + the current frame. Updates the camera's state."""
+               notes: str = "", model: str = "", now: float | None = None, transport=None, why: str = "",
+               stream: bool | None = None) -> str:
+    """One journal note from the frame at the previous note + the current frame. Updates the camera's state.
+    When anyone is listening on the live bus (or stream=True) the model is streamed and every delta is published."""
     now = now or time.time()
+    desk_id = key[0]
+    if stream is None:
+        stream = subscribers(desk_id) > 0
     st = _state.get(key) or {}
     last = st.get("note")
     gap = now - last["ts"] if last else 0
@@ -116,15 +161,37 @@ def write_note(key: tuple[int, str], camera: str, jc: dict[str, Any], jpeg: byte
               + (f"\nPay special attention to: {jc['focus']}." if jc.get("focus") else "")
               + (f"\nPrevious note ({gap:.0f}s ago): {last['text']}" if last else "\nThis is the first note for this camera: describe the full scene.")
               + "\n\nWrite the journal note for NOW.")
-    text = V.chat_images(NOTE_SYSTEM, prompt, frames, model=model, max_tokens=380, transport=transport).strip()
-    text = re.sub(r"\s+\n", "\n", text)
+    publish(desk_id, "note_start", camera, why=why, counts=dict(counts), frames=len(frames), gap_s=round(gap))
+    t_start = time.time()
+    if stream:
+        parts: list[str] = []
+        try:
+            for delta in V.chat_images_stream(NOTE_SYSTEM, prompt, frames, model=model, max_tokens=380, transport=transport):
+                if isinstance(delta, dict):
+                    publish(desk_id, "note_model", camera, **delta)
+                    continue
+                parts.append(delta)
+                publish(desk_id, "note_delta", camera, text=delta)
+        except Exception as exc:
+            publish(desk_id, "note_error", camera, error=str(exc)[:200])
+            raise
+        text = "".join(parts).strip()
+    else:
+        try:
+            text = V.chat_images(NOTE_SYSTEM, prompt, frames, model=model, max_tokens=380, transport=transport).strip()
+        except Exception as exc:
+            publish(desk_id, "note_error", camera, error=str(exc)[:200])
+            raise
+    text = re.sub(r"\s+\n", "\n", text).replace(" — ", ", ").replace("—", ", ")
     if not text:
+        publish(desk_id, "note_error", camera, error="vision model returned an empty note")
         raise RuntimeError("vision model returned an empty note")
     with _lock:
         st = _state.setdefault(key, {})
         st["note"] = {"ts": now, "text": text, "jpeg": jpeg, "counts": dict(counts)}
         st.setdefault("rollup_ts", now)
         st.pop("fail_until", None)
+    publish(desk_id, "note_done", camera, text=text, why=why, counts=dict(counts), took_s=round(time.time() - t_start, 2))
     return text
 
 
@@ -163,6 +230,7 @@ def maybe_rollup(ds, desk_id: int, camera: str, jc: dict[str, Any], jpeg: bytes 
     ev = ds.add_vision_event(camera, peak, backend="vlm", reason=f"summary {span} ({len(rows)} notes)", question="",
                              answer=text, snapshot=snapshot, source="digest")
     diary_append(desk_id, now, camera, f"Summary {span}", text, ev.get("id"))
+    publish(desk_id, "digest", camera, text=text, span=span, notes=len(rows), event_id=ev.get("id"))
     return ev
 
 

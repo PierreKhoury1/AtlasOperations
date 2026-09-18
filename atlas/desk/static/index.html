@@ -245,6 +245,26 @@ aside.simple [data-lvl="full"]{display:none}
 .cam .shot{position:relative;background:#05070a;aspect-ratio:4/3;display:flex;align-items:center;justify-content:center;color:var(--faint);font-size:12px}
 .cam .shot img{width:100%;height:100%;object-fit:contain;display:block}
 .cam .shot .ov{position:absolute;left:8px;top:8px;display:flex;gap:6px;flex-wrap:wrap}
+.livewrap{border:1px solid var(--line);background:var(--panel);border-radius:3px;margin-bottom:14px;overflow:hidden}
+.livewrap .lh{display:flex;align-items:center;gap:10px;padding:8px 12px;border-bottom:1px solid var(--line);background:var(--panel2)}
+.livewrap .lh h3{margin:0;font-size:13px;flex:1;display:flex;gap:8px;align-items:center}
+.livewrap .lbody{display:grid;grid-template-columns:minmax(0,2fr) minmax(300px,1fr)}
+.livewrap .lvid{background:#05070a;position:relative;min-height:240px;display:flex;align-items:center;justify-content:center}
+.livewrap .lvid img{width:100%;height:auto;display:block;max-height:78vh;object-fit:contain}
+.livewrap .lvid .lerr{color:#f2b8b8;font-size:12px;padding:20px;font-family:var(--mono)}
+.livewrap .ljr{border-left:1px solid var(--line);position:relative;min-height:240px}
+.livewrap .ljr .ljr-in{position:absolute;inset:0;display:flex;flex-direction:column;overflow:hidden}
+.livewrap .lnow{padding:10px 12px;border-bottom:1px solid var(--line);font-size:13px;line-height:1.5;min-height:96px;position:relative}
+.livewrap .lnow .lwhy{font-family:var(--mono);font-size:10.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px;display:flex;gap:8px;align-items:center}
+.livewrap .lnow .ltxt{white-space:pre-wrap}
+.livewrap .lnow .ltxt.typing::after{content:'\258B';color:var(--accent);animation:blink 1s steps(1) infinite;margin-left:1px}
+@keyframes blink{50%{opacity:0}}
+.livewrap .lhist{overflow:auto;flex:1;padding:6px 12px 10px;font-size:12px}
+.livewrap .lhist .ln{padding:6px 0;border-bottom:1px dashed var(--line)}
+.livewrap .lhist .ln b{font-family:var(--mono);font-weight:600;color:var(--muted);font-size:10.5px;margin-right:6px}
+.livewrap .lhist .ln.digest{background:var(--accent-soft);padding:6px 8px;border-radius:2px;border:0;margin:4px 0}
+.livewrap .lticks{font-family:var(--mono);font-size:10.5px;color:var(--muted);padding:6px 12px;border-top:1px solid var(--line);display:flex;gap:12px;flex-wrap:wrap}
+@media (max-width:900px){.livewrap .lbody{grid-template-columns:1fr}.livewrap .ljr{border-left:0;border-top:1px solid var(--line);height:360px}}
 .cam .shot .ov .tag{background:rgba(5,7,10,.75);backdrop-filter:blur(2px)}
 .cam .shot .live{position:absolute;right:8px;top:8px;font-family:var(--mono);font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;padding:2px 6px;border:1px solid var(--line);background:rgba(5,7,10,.75)}
 .cam .shot .live.on{border-color:var(--ok);color:var(--ok)}
@@ -532,6 +552,7 @@ aside.simple [data-lvl="full"]{display:none}
 <section id="p-cameras" class="hide">
   <div class="phead"><div><h1>Cameras</h1><p class="lead">The desk's eyes. Every camera is watched on a schedule: objects are counted locally, the vision analyst answers your standing question when something changes, and a rule decides when Atlas is woken. Everything the cameras see is logged — ask about it in plain English.</p></div>
     <div class="ctl"><span class="tag" id="cam-det">detector…</span><span class="tag" id="cam-vlm">analyst…</span><button class="btn sm" onclick="lookAll()">Look through all</button></div></div>
+  <div id="cam-live"></div>
   <div class="grid g2" style="grid-template-columns:1.6fr 1fr">
     <div>
       <div class="camgrid" id="cam-grid" style="margin-bottom:14px"><div class="empty">Loading…</div></div>
@@ -1444,9 +1465,80 @@ async function loadCameras(){
         <div class="hint" style="margin:0">${esc(seenTxt)}${s.motion!=null ? ` · motion ${Number(s.motion).toFixed(2)}` : ''}${s.backend && s.backend!=='none' ? ` · ${esc(s.backend)}` : ''}${s.reason ? ` · ${esc(s.reason)}` : ''}</div>
         <div class="hint" style="margin:0">watch for <b>${esc(c.rule.labels.join(', '))}</b> ≥${c.rule.min_count}${c.rule.dwell_min > 0 ? ' for '+c.rule.dwell_min+' min' : ''}${c.rule.hours ? ' during '+esc(c.rule.hours) : ''} · cooldown ${c.rule.cooldown_min}m · ${c.rule.repeat==='always' ? 'repeats' : c.rule.repeat==='once' ? 'once per stay' : 'repeats on change'}${s.present_s ? ' · present '+Math.round(s.present_s/60)+'m' : ''}${['1','true','on','yes'].includes(String((c.config||{}).journal||'').toLowerCase()) ? ' · <b>journal on</b>' : ''}${c.rule.alerts===false ? ' · alerts off' : ''}${c.rule.question ? ` · asks “${esc(c.rule.question)}”` : ''}</div>
         ${(s.answer || (le && le.answer)) ? `<div class="ans">${esc(s.answer || le.answer)}</div>` : ''}
-        <div class="act"><input id="camq-${c.id}" placeholder="ask the analyst about this frame…" onkeydown="if(event.key==='Enter')lookCam(${c.id})"><button class="btn sm p" onclick="lookCam(${c.id})" ${busy?'disabled':''}>${busy?'…':'Look now'}</button></div>
+        <div class="act"><input id="camq-${c.id}" placeholder="ask the analyst about this frame…" onkeydown="if(event.key==='Enter')lookCam(${c.id})"><button class="btn sm p" onclick="lookCam(${c.id})" ${busy?'disabled':''}>${busy?'…':'Look now'}</button><button class="btn sm ${LIVE.id===c.id?'p':''}" onclick="${LIVE.id===c.id?'closeLive()':`openLive(${c.id})`}" title="Watch this camera as live video with detections, and the journal being written in real time">${LIVE.id===c.id?'Close live':'Live'}</button></div>
         <div class="act"><button class="btn sm ${watching?'':'p'}" onclick="watchCam(${c.id}, ${watching?'false':'true'}, ${['1','true','on','yes'].includes(String((c.config||{}).journal||'').toLowerCase()) ? 8 : 30})">${watching ? 'Stop watching' : 'Watch'}</button><button class="btn sm" onclick="lookCam(${c.id}, true)" title="Force an alert run now (demo / test)">Trigger alert</button><span class="spacer"></span>${s.run_id ? `<button class="btn sm" onclick="liveWant='${s.run_id}';go('live')">See run ›</button>` : ''}<button class="btn sm d" onclick="delCam(${c.id})">✕</button></div>
       </div></div>`; }).join('') + nodeCards;
+}
+// ---- live view: MJPEG picture with detections + the journal streamed token by token
+const LIVE = {id:null, es:null, cam:'', typing:false, buf:'', hist:[], ticks:0, statT:null};
+function liveCamName(id){ const c = CAMS.find(x => x.id === id); return c ? c.name : ''; }
+async function openLive(id){
+  closeLive(true);
+  const c = CAMS.find(x => x.id === id); if (!c) return;
+  LIVE.id = id; LIVE.cam = c.name; LIVE.buf = ''; LIVE.hist = []; LIVE.ticks = 0; LIVE.typing = false;
+  const jr = ['1','true','on','yes'].includes(String((c.config||{}).journal||'').toLowerCase());
+  const watching = !!(c.watch_job && c.watch_job.enabled);
+  $('#cam-live').innerHTML = `<div class="livewrap" id="livewrap">
+    <div class="lh"><h3><span class="dot live"></span>${esc(c.name)} <span class="tag" id="live-fps">starting…</span><span class="tag" id="live-counts"></span></h3>
+      ${!watching ? `<button class="btn sm p" onclick="watchCam(${id}, true, ${jr?8:30}); setTimeout(loadCameras, 400)">Start watching</button>` : `<span class="tag" style="color:var(--ok);border-color:var(--ok)">watching · journal ${jr?'on':'off'}</span>`}
+      <button class="btn sm" onclick="closeLive()">Close</button></div>
+    <div class="lbody">
+      <div class="lvid"><img id="live-img" alt="" src="/api/cameras/${id}/live.mjpg?t=${Date.now()}" onerror="liveErr('stream ended')"></div>
+      <div class="ljr"><div class="ljr-in">
+        <div class="lnow"><div class="lwhy"><span id="live-why">${jr ? (watching ? 'journal: waiting for the next note…' : 'journal: press Start watching') : 'journal is off for this camera'}</span><span class="spacer"></span><span id="live-model"></span></div><div class="ltxt" id="live-txt"></div></div>
+        <div class="lhist" id="live-hist"><div class="hint">Notes appear here as they are written. Each one is stored, searchable in Ask the cameras, and added to today's journal.</div></div>
+        <div class="lticks" id="live-ticks"><span>every frame: local detector</span><span>notes: vision model, streamed</span></div>
+      </div></div></div></div>`;
+  $('#livewrap').scrollIntoView({behavior:'smooth', block:'start'});
+  LIVE.es = new EventSource('/api/vision/journal/stream?camera=' + encodeURIComponent(c.name));
+  LIVE.es.onmessage = e => { try { liveEvent(JSON.parse(e.data)); } catch(_){} };
+  LIVE.es.onerror = () => { const w = $('#live-why'); if (w && LIVE.id) w.textContent = 'journal stream reconnecting…'; };
+  LIVE.statT = setInterval(liveStat, 2000); liveStat();
+  loadCameras();
+}
+function closeLive(silent){
+  if (LIVE.es) { LIVE.es.close(); LIVE.es = null; }
+  if (LIVE.statT) { clearInterval(LIVE.statT); LIVE.statT = null; }
+  const img = $('#live-img'); if (img) img.src = '';
+  const had = LIVE.id; LIVE.id = null; LIVE.cam = '';
+  if ($('#cam-live')) $('#cam-live').innerHTML = '';
+  if (had && !silent) { api(`/cameras/${had}/live`, {method:'POST', body:{on:false}}); loadCameras(); }
+}
+function liveErr(m){ const v = document.querySelector('#livewrap .lvid'); if (v && LIVE.id) v.innerHTML = `<div class="lerr">${esc(m)}</div>`; }
+async function liveStat(){
+  if (!LIVE.id) return;
+  const r = await api(`/cameras/${LIVE.id}/live`); if (!r || !r.ok) return;
+  const l = r.live || {};
+  const f = $('#live-fps'); if (f) f.textContent = l.running ? `${l.fps||0} fps · det ${l.detect_ms||0} ms · ${(l.size||[]).join('×')}${l.kind==='video' ? ' · clip '+(l.pos_s||0)+'s' : ''}` : (l.error || 'stream stopped');
+  const c = $('#live-counts'); if (c) c.textContent = countsText(l.counts||{});
+  if (l.error && !l.running) liveErr(l.error);
+}
+function liveEvent(ev){
+  if (!LIVE.id) return;
+  const why = $('#live-why'), txt = $('#live-txt'), hist = $('#live-hist'), ticks = $('#live-ticks');
+  if (ev.kind === 'tick') {
+    LIVE.ticks++;
+    if (ticks) ticks.innerHTML = `<span>tick ${hms(ev.ts)}</span><span>${esc(countsText(ev.counts||{}))}</span><span>motion ${(ev.motion||0).toFixed(2)}</span><span>${esc(ev.backend||'')}</span>${ev.journal_status ? `<span>journal: ${esc(ev.journal_status)}</span>` : ''}${ev.triggered ? `<span style="color:var(--warn)">ALERT ${esc(ev.reason||'')}</span>` : ''}`;
+    if (why && !LIVE.typing && ev.journal_status) why.textContent = 'journal: ' + ev.journal_status;
+    if (ev.triggered) { toast('Camera alert: ' + (ev.reason||'')); if (ev.run_id) liveWant = ev.run_id; }
+    return;
+  }
+  if (ev.kind === 'note_start') { LIVE.typing = true; LIVE.buf = ''; if (why) why.textContent = 'writing a note · ' + (ev.why||''); if (txt) { txt.textContent = ''; txt.classList.add('typing'); } return; }
+  if (ev.kind === 'note_model') { const m = $('#live-model'); if (m) m.textContent = (ev.model||'').split('/').pop(); return; }
+  if (ev.kind === 'note_delta') { LIVE.buf += ev.text || ''; if (txt) { txt.textContent = LIVE.buf; } return; }
+  if (ev.kind === 'note_done') {
+    LIVE.typing = false; LIVE.buf = ev.text || LIVE.buf;
+    if (txt) { txt.textContent = LIVE.buf; txt.classList.remove('typing'); }
+    if (why) why.textContent = `note written in ${ev.took_s||0}s · ${ev.why||''}`;
+    if (hist) { if (hist.querySelector('.hint')) hist.innerHTML = ''; const d = document.createElement('div'); d.className = 'ln'; d.innerHTML = `<b>${hms(ev.ts)}</b>${esc(ev.text||'')}`; hist.prepend(d); while (hist.children.length > 40) hist.lastChild.remove(); }
+    loadVisionEvents();
+    return;
+  }
+  if (ev.kind === 'note_error') { LIVE.typing = false; if (txt) txt.classList.remove('typing'); if (why) why.textContent = 'note failed: ' + (ev.error||''); return; }
+  if (ev.kind === 'digest') {
+    if (hist) { if (hist.querySelector('.hint')) hist.innerHTML = ''; const d = document.createElement('div'); d.className = 'ln digest'; d.innerHTML = `<b>${hms(ev.ts)} summary ${esc(ev.span||'')}</b>${esc(ev.text||'')}`; hist.prepend(d); }
+    return;
+  }
 }
 function countsText(c){ const e = Object.entries(c||{}); if (!e.length) return 'nothing recognised'; return e.map(([k,n]) => k==='person' ? (n===1?'1 person':n+' people') : n+' '+k+(n!==1&&!k.endsWith('s')?'s':'')).join(', '); }
 async function lookCam(id, trigger){

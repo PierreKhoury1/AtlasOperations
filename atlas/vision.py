@@ -208,6 +208,15 @@ def grab(source: str) -> bytes:
     """One JPEG frame from any supported source. Raises RuntimeError with a human-readable reason."""
     kind = source_kind(source)
     s = source.strip()
+    try:                                                   # a live feed already decoding this source: share its frame
+        from . import live as _live
+        feed = _live.get(s)
+    except Exception:
+        feed = None
+    if feed is not None:
+        jpeg = feed.raw_jpeg(MAX_SIDE)
+        if jpeg:
+            return jpeg
     if kind == "webcam":
         jpeg = _grab_webcam(int(s))
     elif kind == "rtsp":
@@ -685,6 +694,54 @@ def chat_images(system: str, text: str, images: list[tuple[str, bytes]], model: 
     if isinstance(msg, list):
         msg = " ".join(p.get("text", "") for p in msg if isinstance(p, dict))
     return (msg or "").strip()
+
+
+def chat_images_stream(system: str, text: str, images: list[tuple[str, bytes]], model: str = "", max_tokens: int = 500,
+                       transport: httpx.BaseTransport | None = None):
+    """Streaming twin of chat_images(): yields a meta dict {provider, model} first, then text deltas as the vision
+    model produces them. Same free-first provider chain and retry rules."""
+    chain = [e for e in vlm_chain(model) if e["key"]]
+    if not chain:
+        raise RuntimeError("no vision model key (set OPENROUTER_API_KEY / GROQ_API_KEY / GEMINI_API_KEY)")
+    content: list[dict[str, Any]] = [{"type": "text", "text": text}]
+    for label, jpeg in images:
+        content.append({"type": "text", "text": f"Frame {label}:"})
+        content.append({"type": "image_url", "image_url": {"url": "data:image/jpeg;base64," + base64.b64encode(jpeg).decode()}})
+    msgs = [{"role": "system", "content": system}, {"role": "user", "content": content}]
+    with httpx.Client(timeout=120, transport=transport) as c:
+        for i, e in enumerate(chain):
+            headers = {"Authorization": f"Bearer {e['key']}", "Content-Type": "application/json",
+                       "HTTP-Referer": "https://atlas-ops.onrender.com", "X-Title": "Atlas Desk vision"}
+            try:
+                with c.stream("POST", e["base"] + "/chat/completions", headers=headers,
+                              json={"model": e["model"], "max_tokens": max_tokens, "temperature": 0.1, "stream": True,
+                                    "messages": msgs, **_extras(e["model"])}) as r:
+                    if r.status_code >= 400:
+                        r.read()
+                        if _retryable(r.status_code) and i + 1 < len(chain):
+                            continue
+                        raise RuntimeError(f"vision model HTTP {r.status_code}: {r.text[:200]}")
+                    yield {"provider": e["name"], "model": e["model"]}
+                    for line in r.iter_lines():
+                        if not line.startswith("data: "):
+                            continue
+                        data = line[6:].strip()
+                        if data == "[DONE]":
+                            break
+                        try:
+                            j = json.loads(data)
+                            delta = j["choices"][0].get("delta", {}).get("content") or ""
+                        except (KeyError, IndexError, json.JSONDecodeError, TypeError):
+                            continue
+                        if isinstance(delta, list):
+                            delta = "".join(p.get("text", "") for p in delta if isinstance(p, dict))
+                        if delta:
+                            yield delta
+                    return
+            except httpx.HTTPError:
+                if i + 1 < len(chain):
+                    continue
+                raise
 
 
 def describe_video(source: str, question: str = "", model: str = "", frames: int = 8, context: str = "",

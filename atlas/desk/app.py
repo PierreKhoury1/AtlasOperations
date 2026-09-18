@@ -14,6 +14,7 @@ Env:  DESK_MODE=demo|live|auto     demo = scripted provider (no API key needed);
 from __future__ import annotations
 
 import json
+import queue
 import os
 import base64
 import re
@@ -1649,6 +1650,105 @@ def api_camera_frame(cid):
     if last and last.get("snapshot") and Path(last["snapshot"]).is_file():
         return send_file(last["snapshot"], mimetype="image/jpeg", max_age=0)
     abort(404)
+
+
+@app.get("/api/cameras/<int:cid>/live.mjpg")
+def api_camera_live_mjpg(cid):
+    """The camera as live video: one decode loop per source, every frame through YOLO with boxes and track ids
+    drawn, served as motion JPEG. Works for webcams, RTSP and recordings (which play at real speed and loop).
+    ?fps=N caps the delivery rate for slow links; the loop itself runs as fast as the source allows."""
+    desk = need_desk()
+    c = _camera(cid, desk)
+    from .. import live as LIVE
+    try:
+        feed = LIVE.open(str(c["config"].get("source", "")), c["name"])
+    except Exception as exc:
+        return jsonify({"error": f"{type(exc).__name__}: {str(exc)[:200]}"}), 400
+    try:
+        max_fps = float(request.args.get("fps") or 0)
+    except ValueError:
+        max_fps = 0.0
+    resp = Response(stream_with_context(LIVE.mjpeg(feed, max_fps)),
+                    mimetype="multipart/x-mixed-replace; boundary=atlasframe")
+    resp.headers["Cache-Control"] = "no-store, no-cache"
+    resp.headers["X-Accel-Buffering"] = "no"
+    resp.headers["Connection"] = "close"
+    return resp
+
+
+@app.get("/api/cameras/<int:cid>/live")
+def api_camera_live_status(cid):
+    """Live-loop status for a camera (fps, detector ms, viewers, counts). ?start=1 starts the loop without a viewer."""
+    desk = need_desk()
+    c = _camera(cid, desk)
+    from .. import live as LIVE
+    src = str(c["config"].get("source", ""))
+    feed = LIVE.get(src)
+    if feed is None and request.args.get("start") in ("1", "true"):
+        try:
+            feed = LIVE.open(src, c["name"])
+        except Exception as exc:
+            return jsonify({"ok": False, "error": f"{type(exc).__name__}: {str(exc)[:200]}"}), 400
+    out = feed.status() if feed else {"running": False, "viewers": 0, "fps": 0, "counts": {}, "error": ""}
+    from .. import journal as JR
+    return jsonify({"ok": True, "camera": c["name"], "id": cid, "live": out, "listeners": JR.subscribers(desk["id"]),
+                    "url": f"/api/cameras/{cid}/live.mjpg"})
+
+
+@app.post("/api/cameras/<int:cid>/live")
+def api_camera_live_ctl(cid):
+    """{on:false} stops the live loop for this camera now (it also stops by itself when nobody watches)."""
+    desk = need_desk()
+    c = _camera(cid, desk)
+    from .. import live as LIVE
+    d = request.get_json(silent=True) or {}
+    src = str(c["config"].get("source", ""))
+    if d.get("on", True):
+        try:
+            feed = LIVE.open(src, c["name"])
+        except Exception as exc:
+            return jsonify({"ok": False, "error": f"{type(exc).__name__}: {str(exc)[:200]}"}), 400
+        return jsonify({"ok": True, "live": feed.status()})
+    feed = LIVE.get(src)
+    if feed:
+        feed.stop()
+    return jsonify({"ok": True, "live": {"running": False}})
+
+
+@app.get("/api/vision/journal/stream")
+def api_vision_journal_stream():
+    """Server-sent events from the camera journal as it happens: every scheduler tick (counts, motion), then for each
+    note note_start -> note_delta (one per token) -> note_done, plus digest summaries and errors.
+    ?camera=<name> filters to one camera. While at least one listener is connected, notes are streamed from the model."""
+    desk = need_desk()
+    from .. import journal as JR
+    cam = str(request.args.get("camera") or "")
+    q = JR.subscribe(desk["id"])
+    desk_id = desk["id"]
+
+    def gen():
+        try:
+            yield "retry: 2000\n\n"
+            yield "data: " + json.dumps({"kind": "hello", "camera": cam, "ts": time.time(), "listeners": JR.subscribers(desk_id)}) + "\n\n"
+            idle = 0.0
+            while True:
+                try:
+                    ev = q.get(timeout=1.0)
+                except queue.Empty:
+                    idle += 1
+                    if idle >= 15:
+                        idle = 0
+                        yield ": ping\n\n"
+                    continue
+                idle = 0
+                if cam and ev.get("camera") != cam:
+                    continue
+                yield "data: " + json.dumps(ev, ensure_ascii=False) + "\n\n"
+        finally:
+            JR.unsubscribe(desk_id, q)
+
+    return Response(stream_with_context(gen()), mimetype="text/event-stream",
+                    headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no", "Connection": "keep-alive"})
 
 
 @app.post("/api/cameras/<int:cid>/watch")
