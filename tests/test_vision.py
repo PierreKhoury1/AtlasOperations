@@ -52,14 +52,23 @@ def test_rule_evaluate_counts_hours_cooldown():
     # unchanged scene, cooldown not passed → no re-alert
     ok, why = V.evaluate(cfg, [PERSON], {"person": 1}, time.time() - 60)
     assert not ok and "unchanged" in why
-    # unchanged scene, cooldown passed → alert again ("still present")
+    # unchanged scene, cooldown passed, nothing moved → NOT again (default repeat=changes: a parked car never spams)
     ok, why = V.evaluate(cfg, [PERSON], {"person": 1}, time.time() - 11 * 60)
+    assert not ok and "nothing new" in why
+    # ...unless the scene moved, or the rule asks for repeats
+    ok, why = V.evaluate(cfg, [PERSON], {"person": 1}, time.time() - 11 * 60, mot=0.2)
+    assert ok and "scene changed" in why
+    ok, why = V.evaluate({**cfg, "repeat": "always"}, [PERSON], {"person": 1}, time.time() - 11 * 60)
     assert ok and "still present" in why
+    # once: only the rising edge, even after cooldown with movement
+    assert V.evaluate({**cfg, "repeat": "once"}, [PERSON], {"person": 1}, time.time() - 11 * 60, mot=0.5)[0] is False
+    assert V.evaluate({**cfg, "repeat": "once"}, [PERSON], {"person": 0}, time.time() - 11 * 60)[0] is True
     # count changed but inside cooldown → suppressed, reason says cooldown
     ok, why = V.evaluate(cfg, [PERSON, PERSON], {"person": 1}, time.time() - 60)
     assert not ok and "cooldown" in why
     # below min_count
     assert V.evaluate({"watch_for": "person", "min_count": 2}, [PERSON], None, None)[0] is False
+
     # synonyms: 'vehicle' → car
     assert V.evaluate(cfg, [CAR], None, None)[0] is True
     # hours window (overnight) — 03:00 inside, 12:00 outside
@@ -78,6 +87,26 @@ def test_rule_evaluate_counts_hours_cooldown():
     noon = datetime(2026, 9, 1, 12, 0).timestamp()
     ok, why = V.evaluate({"watch_for": "person", "hours": "20:00-07:00"}, [PERSON], None, None, now_ts=noon)
     assert not ok and "outside" in why
+
+
+def test_rule_dwell_fires_once_per_stay():
+    """'3+ guests waiting over 2 minutes': fires when the count has held for dwell_min, once per stay."""
+    cfg = {"watch_for": "person", "min_count": 3, "dwell_min": 2, "cooldown_min": 5}
+    three = [PERSON, PERSON, PERSON]
+    now = time.time()
+    assert V.evaluate(cfg, three, None, None, now_ts=now, present_since=None)[0] is False          # timer not started
+    ok, why = V.evaluate(cfg, three, {"person": 3}, None, now_ts=now, present_since=now - 60)
+    assert not ok and "alert after 2 min" in why                                                    # only 1 min so far
+    ok, why = V.evaluate(cfg, three, {"person": 3}, None, now_ts=now, present_since=now - 150)
+    assert ok and "present for 2.5 min" in why                                                      # fires
+    # already alerted for this stay, cooldown passed, nothing changed → quiet
+    ok, why = V.evaluate(cfg, three, {"person": 3}, now - 6 * 60, now_ts=now, present_since=now - 10 * 60)
+    assert not ok and "nothing new" in why
+    # new stay (people left and a new group waited) → fires again
+    ok, why = V.evaluate(cfg, three, {"person": 0}, now - 30 * 60, now_ts=now, present_since=now - 3 * 60)
+    assert ok
+    # two people never satisfy min_count 3
+    assert V.evaluate(cfg, [PERSON, PERSON], {"person": 2}, None, now_ts=now, present_since=now - 600)[0] is False
 
 
 def test_counts_text_and_motion_and_annotate(tmp_path):
@@ -238,9 +267,9 @@ def test_camera_look_watch_events_ask(cam_client):
     assert snap.status_code == 200 and snap.data[:2] == b"\xff\xd8"
     assert J(c.get("/api/vision/events?alerts=1")) and J(c.get("/api/vision/events?camera=nope")) == []
 
-    # same scene again, cooldown 0 → "still present" alert; a question is answered (demo) and logged
+    # same scene again, cooldown 0 but nothing changed → no second alert (repeat=changes); the question is still answered + logged
     r2 = J(c.post(f"/api/cameras/{conn['id']}/look", json={"question": "How many at the door?"}))
-    assert r2["ok"] and r2["triggered"] and "still present" in r2["reason"] and r2["answer"]
+    assert r2["ok"] and not r2["triggered"] and "nothing new" in r2["reason"] and r2["answer"]
     assert _wait_idle(c)
     assert J(c.get("/api/vision/events?q=door"))[0]["question"] == "How many at the door?"
 

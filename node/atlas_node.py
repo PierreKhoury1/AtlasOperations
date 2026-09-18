@@ -377,6 +377,8 @@ def run_camera(cam: dict[str, Any], weights: str, backend: str, cfg: dict[str, A
                 events = state.update(now, dets)
                 n += 1
                 st["frames"] += 1
+                st.setdefault("t_first", now)
+                st["t_last"] = now
                 st["tracks"] = len(state.tracks)
                 st["counts"] = state.counts()
                 if now - t0 >= 5:
@@ -446,7 +448,9 @@ def check(cfg: dict[str, Any], seconds: int = 10) -> int:
     for name, s in STATS["cameras"].items():
         ok = s["frames"] > 0
         bad += 0 if ok else 1
-        print(f"  {name:20s} {'OK ' if ok else 'FAIL'}  {s['fps']} fps  frames={s['frames']}  {s['counts'] or ''}  {s['last_error']}")
+        span = (s.get("t_last") or 0) - (s.get("t_first") or 0)
+        fps = round(s["frames"] / span, 1) if s["frames"] > 1 and span > 0 else s["fps"]
+        print(f"  {name:20s} {'OK ' if ok else 'FAIL'}  {fps} fps  frames={s['frames']}  {s['counts'] or ''}  {s['last_error']}")
     return bad
 
 

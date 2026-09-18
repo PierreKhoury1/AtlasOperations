@@ -692,7 +692,7 @@ def _team_context(desk: dict[str, Any]) -> tuple[dict[str, Any], list[str], bool
     cams = [c["name"] for c in conns if c["kind"] == "camera"]
     cams += [h["name"] for h in store.hook_cameras(desk["id"], time.time() - 7 * 86400, tuple(cams)) if h.get("name")]
     hermes = configs["mode"] != "demo" and (any(c["kind"] == "hermes_agent" for c in conns) or bool(os.environ.get("HERMES_AGENT_URL", "").strip()))
-    allowed = [t for t in TM.ALLOWED_TOOLS if cams or not t.startswith("camera_")]
+    allowed = list(TM.ALLOWED_TOOLS)          # camera tools stay designable before a camera is added (the owner adds one later)
     return configs, cams, hermes, allowed
 
 
@@ -1664,7 +1664,7 @@ def api_camera_watch(cid):
     if existing:
         store.update_job(existing[0]["id"], enabled=1, next_run=time.time())
         return jsonify({"ok": True, "watching": True, "job": store.job(existing[0]["id"])})
-    every_s = max(20, min(int(d.get("every_s") or 30), 3600))
+    every_s = max(5, min(int(d.get("every_s") or 30), 3600))
     j = store.add_job(desk["id"], "camera_watch", f"Watch {c['name']}", json.dumps({"connector": c["name"], "every_s": every_s}), 1, time.time())
     return jsonify({"ok": True, "watching": True, "job": j})
 

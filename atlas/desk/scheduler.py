@@ -25,6 +25,8 @@ TICK = 20.0
 LIVE = lambda: True                                       # replaced by the app: is this desk on live models?
 _last_frame: dict[tuple[int, str], bytes] = {}          # (desk_id, camera) -> last raw frame (motion baseline)
 _last_seen: dict[tuple[int, str], dict[str, Any]] = {}  # (desk_id, camera) -> last analysis (portal "live" tile)
+_present: dict[tuple[int, str], tuple[float, float]] = {}  # (desk_id, camera) -> (since, last seen) while the rule's count holds
+DWELL_GRACE_S = 45.0                                        # one missed detection does not reset the dwell timer
 
 
 def last_seen(desk_id: int, camera: str) -> dict[str, Any] | None:
@@ -43,8 +45,16 @@ def camera_tick(store, desk: dict[str, Any], conn: dict[str, Any], start_run: Ca
     _last_frame[key] = res["jpeg"]
     prev_ev = ds.last_vision_event(conn["name"])
     last_alert = ds.last_vision_event(conn["name"], triggered_only=True)
+    now = time.time()
+    n_watch = sum(res["counts"].get(l, 0) for l in rule["labels"])
+    if n_watch >= rule["min_count"]:
+        since = _present.get(key, (now, now))[0]
+        _present[key] = (since, now)
+    elif key in _present and now - _present[key][1] > DWELL_GRACE_S:
+        _present.pop(key, None)
+    present_since = _present[key][0] if key in _present else None
     triggered, reason = V.evaluate(cfg, res["detections"], (prev_ev or {}).get("counts"), (last_alert or {}).get("ts"),
-                                   mot=res["motion"])
+                                   mot=res["motion"], present_since=present_since)
     if force:
         triggered, reason = True, "manual trigger"
     changed = (prev_ev or {}).get("counts") != res["counts"] or res["motion"] >= max(rule["motion_min"], 0.08)
@@ -84,6 +94,7 @@ def camera_tick(store, desk: dict[str, Any], conn: dict[str, Any], start_run: Ca
                                 reason=f"desk refused the run: {str(why)[:160]}", snapshot=event["snapshot"])
             rid = ""
     seen = {"ts": time.time(), "counts": res["counts"], "motion": res["motion"], "backend": res["backend"], "reason": reason,
+            "present_s": round(time.time() - present_since) if present_since else 0,
             "triggered": triggered, "answer": answer, "event_id": (event or {}).get("id"), "run_id": rid, "size": res["size"],
             "detections": res["detections"], "detector_error": res["detector_error"]}
     _last_seen[key] = {**seen, "annotated": res["annotated"]}

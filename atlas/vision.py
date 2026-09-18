@@ -458,36 +458,73 @@ def rule_config(config: dict[str, Any]) -> dict[str, Any]:
         alert_on_motion = float(config.get("alert_on_motion") or 0)      # 0 = off; e.g. 0.2 = wake the desk on any scene change
     except Exception:
         alert_on_motion = 0.0
+    try:
+        dwell_min = max(0.0, float(config.get("dwell_min") or 0))      # >0: "N present for at least M minutes"
+    except Exception:
+        dwell_min = 0.0
+    repeat = str(config.get("repeat") or "changes").strip().lower()
+    if repeat not in ("changes", "always", "once"):
+        repeat = "changes"
     return {"labels": labels, "min_count": min_count, "cooldown_min": cooldown, "hours": str(config.get("hours") or ""),
-            "motion_min": motion_min, "alert_on_motion": alert_on_motion,
+            "motion_min": motion_min, "alert_on_motion": alert_on_motion, "dwell_min": dwell_min, "repeat": repeat,
             "question": str(config.get("question") or ""), "task": str(config.get("task") or "")}
 
 
 def evaluate(config: dict[str, Any], dets: list[dict[str, Any]], prev_counts: dict[str, int] | None,
-             last_trigger_ts: float | None, now_ts: float | None = None, mot: float = 0.0) -> tuple[bool, str]:
-    """Should this frame wake the desk? Returns (triggered, reason). Rule:
-    watched count >= min_count, inside the hours window, and either the watched count changed since the previous
-    frame or the cooldown has passed (so a person standing still doesn't page the owner every tick)."""
+             last_trigger_ts: float | None, now_ts: float | None = None, mot: float = 0.0,
+             present_since: float | None = None) -> tuple[bool, str]:
+    """Should this frame wake the desk? Returns (triggered, reason).
+
+    Fires when the watched count reaches min_count inside the hours window. Repeats are governed by `repeat`:
+      changes (default)  after the cooldown, only if the count changed or the scene moved (motion >= motion_min);
+                         a parked car or a person standing still never pages the owner twice
+      always             after the cooldown even if nothing changed (the old behaviour)
+      once               only when the count crosses min_count from below
+    `dwell_min` > 0 turns the rule into "N present for at least M minutes" (a queue that has been waiting):
+    the caller tracks `present_since` (when the count first reached min_count) and the rule fires once per stay."""
     r = rule_config(config)
     now_ts = now_ts or time.time()
     c = counts(dets)
+    lab = "/".join(r["labels"])
     n = sum(c.get(l, 0) for l in r["labels"])
     prev_n = sum((prev_counts or {}).get(l, 0) for l in r["labels"])
-    cooled_now = last_trigger_ts is None or (now_ts - last_trigger_ts) >= r["cooldown_min"] * 60
-    if r["alert_on_motion"] and mot >= r["alert_on_motion"] and prev_counts is not None             and in_hours(r["hours"], datetime.fromtimestamp(now_ts)) and cooled_now:
+    cooled = last_trigger_ts is None or (now_ts - last_trigger_ts) >= r["cooldown_min"] * 60
+    moved = mot >= r["motion_min"]
+    if r["alert_on_motion"] and mot >= r["alert_on_motion"] and prev_counts is not None \
+            and in_hours(r["hours"], datetime.fromtimestamp(now_ts)) and cooled:
         return True, f"scene changed (motion {mot:.2f} ≥ {r['alert_on_motion']:g})"
     if n < r["min_count"]:
-        return False, f"{n} {'/'.join(r['labels'])} (< {r['min_count']})"
+        return False, f"{n} {lab} (< {r['min_count']})"
     if not in_hours(r["hours"], datetime.fromtimestamp(now_ts)):
-        return False, f"{n} {'/'.join(r['labels'])} but outside {r['hours']}"
-    cooled = last_trigger_ts is None or (now_ts - last_trigger_ts) >= r["cooldown_min"] * 60
-    if n != prev_n and cooled:
-        return True, f"{'/'.join(r['labels'])} count {prev_n} → {n}"
-    if n == prev_n and cooled and last_trigger_ts is not None:
-        return True, f"{n} {'/'.join(r['labels'])} still present after cooldown"
-    if n != prev_n and not cooled:
-        return False, f"{'/'.join(r['labels'])} {prev_n} → {n} (cooldown)"
-    return False, f"{n} {'/'.join(r['labels'])} unchanged"
+        return False, f"{n} {lab} but outside {r['hours']}"
+    if r["dwell_min"] > 0:
+        if present_since is None:
+            return False, f"{n} {lab} present, dwell timer not started"
+        held = now_ts - present_since
+        if held < r["dwell_min"] * 60:
+            return False, f"{n} {lab} present {held:.0f}s (alert after {r['dwell_min']:g} min)"
+        if last_trigger_ts is None or last_trigger_ts < present_since:
+            return True, f"{n} {lab} present for {held / 60:.1f} min"
+        if not cooled:
+            return False, f"{n} {lab} still waiting ({held / 60:.0f} min), already alerted"
+        if r["repeat"] == "always" or (r["repeat"] == "changes" and (n != prev_n or moved)):
+            return True, f"{n} {lab} still waiting after {held / 60:.0f} min"
+        return False, f"{n} {lab} still waiting ({held / 60:.0f} min), nothing new"
+    if not cooled:
+        return False, (f"{lab} {prev_n} → {n} (cooldown)" if n != prev_n else f"{n} {lab} unchanged")
+    if prev_n < r["min_count"]:
+        return True, f"{lab} count {prev_n} → {n}"
+    if r["repeat"] == "once":
+        return False, f"{n} {lab} still present (alert once per stay)"
+    if n != prev_n:
+        return True, f"{lab} count {prev_n} → {n}"
+    if last_trigger_ts is None:
+        return True, f"{n} {lab} present, not yet alerted"
+    if r["repeat"] == "always":
+        return True, f"{n} {lab} still present after cooldown"
+    if moved:
+        return True, f"{n} {lab} still present, scene changed (motion {mot:.2f})"
+    return False, f"{n} {lab} still present, nothing new"
 
 
 # ---------------------------------------------------------------------------- snapshots

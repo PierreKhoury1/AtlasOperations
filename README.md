@@ -114,6 +114,31 @@ brings its own tools (terminal, browser, web search, memory, skills, MCP servers
 Optional: expose the desk's own tools (CRM, approvals, connectors) to Hermes Agent as an MCP server in its
 `~/.hermes/config.yaml` under `mcp_servers:` so it can queue actions through the same approval gate.
 
+## Cameras (agents that see the room)
+
+Add a camera on the **Cameras** page (webcam index, `rtsp://...`, or an `http://.../capture` snapshot URL). Each camera
+carries one rule; **Watch** polls it (5 s minimum), runs YOLO locally, and wakes the desk when the rule fires. The run
+gets the counts, the analyst's answer to the standing question and the snapshot; whatever it decides to send waits
+in the approval queue.
+
+| Field | Meaning |
+|---|---|
+| `watch_for` | labels to count (`person`, `car`, `person, dog`) |
+| `min_count` | fire when at least this many are in frame |
+| `hours` | only inside this window, e.g. `23:00-06:00` (blank = always) |
+| `dwell_min` | **0** = fire as soon as the count is reached; **2** = only once they have been there 2 minutes ("3+ guests waiting over 2 min"). One missed detection does not reset the timer. |
+| `cooldown_min` | minimum gap between alerts |
+| `repeat` | after the cooldown: `changes` (default) only if the count changed or the scene moved, so a parked car never pages the owner twice; `always` every cooldown while present; `once` only when the count first crosses `min_count` |
+| `question` | what the vision model answers on every alert ("Is anyone at the door?") |
+| `task` | what the desk should do when it fires |
+
+Agents get `camera_look` (fresh frame now), `camera_events` (what the rule logged) and `camera_ask` (retrieval over the
+event log, hybrid text + CLIP image search, the vision model re-looks at the best frames). The team architect grants
+them to any agent whose job is to watch feeds, even before the first camera is added.
+
+For every-frame tracking (queues, dwell times, entered/left per object) run the **Vision Node** (`node/`) next to the
+cameras and point it at the desk's sensor hook URL; the desk then reacts to tracked events instead of polling.
+
 ## Browser hand (a browser agent for sites with no API)
 
 Any agent with the `browse` tool can operate a real Chromium: read JavaScript-heavy or logged-in pages, fill

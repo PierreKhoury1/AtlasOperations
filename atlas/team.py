@@ -318,7 +318,9 @@ def design_team(business: dict[str, Any], task: str, provider, model: str = "", 
     """Ask the model for a team, validate, feed the errors back once. Returns {team, errors, warnings, turns}."""
     allowed = [t for t in (allowed_tools or ALLOWED_TOOLS) if t in TL.SCHEMAS or t == "mcp"]
     system = ARCHITECT_SYSTEM.format(max_agents=max_agents, tools=", ".join(allowed),
-                                     cameras=", ".join(cameras) if cameras else "none connected")
+                                     cameras=", ".join(cameras) if cameras else
+                                     "none connected yet (the owner adds them on the Cameras page; any agent whose job is "
+                                     "to watch feeds still needs camera_look, camera_events and camera_ask)")
     system += ("\n\nHermes Agent runtime: " + ("AVAILABLE (engine hermes_agent allowed)." if hermes_available
                                               else "NOT connected - every agent must use engine \"atlas\"."))
     msgs = [provider.user_message(_user_brief(business, task, existing))]
