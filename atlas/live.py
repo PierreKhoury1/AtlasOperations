@@ -266,8 +266,9 @@ class Feed:
         scale = min(1.0, self.max_w / w)
         out = cv2.resize(frame, (int(w * scale), int(h * scale)), interpolation=cv2.INTER_AREA) if scale < 1 else frame.copy()
         now = time.time()
-        th = max(1, int(round(2 * scale + 0.5)))
-        fs = max(0.45, 0.55 * scale + 0.2)
+        ow0 = out.shape[1]
+        th = 1 if ow0 < 700 else 2
+        fs = max(0.38, min(0.7, ow0 / 2000))                   # label type follows the frame width
         live_ids = set()
         for d in dets:
             x1, y1, x2, y2 = [int(v * scale) for v in d["box"]]
@@ -295,13 +296,23 @@ class Feed:
         hud = f"{self.name}  {time.strftime('%H:%M:%S')}  {V.counts_text(counts) or 'no detections'}"
         rate = f"{self.fps:.0f} fps  det {self.det_ms:.0f} ms" + (f"  clip {self.pos_s:5.1f}s" if self.kind == "video" else "  live")
         oh, ow = out.shape[:2]
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        fh, fr = (0.52, 0.48) if ow >= 900 else (0.44, 0.4)             # smaller type on small frames
+        (hw, _), _ = cv2.getTextSize(hud, font, fh, 1)
+        (rw, _), _ = cv2.getTextSize(rate, font, fr, 1)
+        two_rows = hw + rw + 44 > ow                                     # not enough room side by side: rate goes on a row above
+        while two_rows and hw + 20 > ow and len(hud) > 12:              # still too long alone: trim the counts text
+            hud = hud[:-4] + "..."
+            (hw, _), _ = cv2.getTextSize(hud, font, fh, 1)
+        row = 26 if ow >= 900 else 22
+        bar = row * (2 if two_rows else 1) + 4
         overlay = out.copy()
-        cv2.rectangle(overlay, (0, oh - 30), (ow, oh), (12, 12, 12), -1)
+        cv2.rectangle(overlay, (0, oh - bar), (ow, oh), (12, 12, 12), -1)
         cv2.addWeighted(overlay, 0.62, out, 0.38, 0, out)
-        cv2.putText(out, hud, (10, oh - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.52, (235, 235, 235), 1, cv2.LINE_AA)
-        (rw, _), _ = cv2.getTextSize(rate, cv2.FONT_HERSHEY_SIMPLEX, 0.48, 1)
-        cv2.putText(out, rate, (ow - rw - 10, oh - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.48, (150, 220, 170), 1, cv2.LINE_AA)
-        cv2.circle(out, (ow - rw - 24, oh - 15), 4, (60, 60, 240), -1)
+        cv2.putText(out, hud, (10, oh - 9), font, fh, (235, 235, 235), 1, cv2.LINE_AA)
+        ry = oh - 9 - (row if two_rows else 0)
+        cv2.putText(out, rate, (ow - rw - 10, ry), font, fr, (150, 220, 170), 1, cv2.LINE_AA)
+        cv2.circle(out, (ow - rw - 22, ry - 5), 4, (60, 60, 240), -1)
         return out
 
 
