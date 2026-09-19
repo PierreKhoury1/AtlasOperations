@@ -284,6 +284,14 @@ class Detector:
             self._model = YOLO(self.weights)          # downloads the standard weights on first use
         return self._model
 
+    def new_model(self):
+        """A private model for one long-running consumer (a live feed). The shared instance serialises every caller
+        behind one lock and carries ONE tracker state, so five cameras on it ran at a fifth of the speed each and
+        had their track ids mixed together."""
+        from ultralytics import YOLO
+        self._load()                                   # makes sure the weights are on disk
+        return YOLO(self.weights)
+
     def detect(self, jpeg: bytes, conf: float = 0.35) -> list[dict[str, Any]]:
         if not self.available:
             return []

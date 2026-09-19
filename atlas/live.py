@@ -163,16 +163,71 @@ class Feed:
         model = None
         if det.available and hasattr(det, "_load"):
             try:
-                model = det._load()
+                model = det.new_model() if hasattr(det, "new_model") else det._load()   # own model = own tracker, no queueing behind other cameras
             except Exception as exc:
                 self.error = f"detector: {str(exc)[:120]}"
         use_track = model is not None
-        det_lock = getattr(det, "_lock", threading.Lock())
+        det_lock = threading.Lock() if hasattr(det, "new_model") else getattr(det, "_lock", threading.Lock())
+        # Detection runs beside the picture, not in front of it: the video plays at its own speed and every frame is
+        # drawn with the newest boxes. (In line, a 1080p detection pass capped five feeds at ~6 fps each.)
+        slot = threading.Condition()
+        box: dict[str, Any] = {"frame": None, "n": 0, "dets": [], "done": 0, "reset": False}
+        over = threading.Event()                           # this run ended (stop, idle, or error): its detector thread goes too
+        runner = threading.current_thread()
+
+        def detect_loop() -> None:
+            nonlocal use_track
+            seen = 0
+            while not over.is_set() and runner.is_alive():
+                with slot:
+                    if box["n"] == seen:
+                        slot.wait(0.25)
+                    if box["n"] == seen or box["frame"] is None:
+                        continue
+                    frame, seen = box["frame"], box["n"]
+                    reset, box["reset"] = box["reset"], False
+                dets: list[dict[str, Any]] = []
+                det_t = time.time()
+                if model is not None:
+                    try:
+                        with det_lock:
+                            if reset and use_track:
+                                try:
+                                    model.predictor.trackers[0].reset()   # fresh ids each loop of a recording
+                                except Exception:
+                                    pass
+                            if use_track:
+                                res = model.track(frame, conf=DETECT_CONF, persist=True, verbose=False, tracker="bytetrack.yaml")[0]
+                            else:
+                                res = model.predict(frame, conf=DETECT_CONF, verbose=False)[0]
+                        ids = res.boxes.id.int().tolist() if (use_track and res.boxes.id is not None) else [None] * len(res.boxes)
+                        for b, tid in zip(res.boxes, ids):
+                            x1, y1, x2, y2 = [int(v) for v in b.xyxy[0].tolist()]
+                            dets.append({"label": model.names[int(b.cls)], "conf": round(float(b.conf), 2), "box": [x1, y1, x2, y2], "id": tid})
+                    except Exception as exc:
+                        if use_track:                          # tracker unavailable (no lap): fall back to plain detection
+                            use_track = False
+                        else:
+                            self.error = f"detector: {str(exc)[:120]}"
+                elif det.available:                            # a detector without a YOLO model (tests, other backends)
+                    ok_j, jb = cv2.imencode(".jpg", frame, [int(cv2.IMWRITE_JPEG_QUALITY), 80])
+                    if ok_j:
+                        dets = [dict(d, id=None) for d in det.detect(jb.tobytes())]
+                self.det_ms = (time.time() - det_t) * 1000
+                dets.sort(key=lambda d: -d["conf"])
+                with slot:
+                    box["dets"] = dets
+                    box["done"] += 1
+                    slot.notify_all()
+
+        has_det = model is not None or det.available
+        if has_det:
+            threading.Thread(target=detect_loop, name=f"live-det-{self.name}", daemon=True).start()
         t0 = time.time()
         idx = 0                      # frames consumed from the source (recordings: playback position)
-        shown = 0
         rate_t, rate_n = time.time(), 0
         while not self._stop.is_set():
+            loop_t = time.time()
             # a recording plays at its own speed: skip frames when we fall behind, wait when we are ahead
             if self.kind == "video":
                 due_idx = int((time.time() - t0) * src_fps)
@@ -187,11 +242,8 @@ class Feed:
                 if self.kind == "video":                  # loop
                     cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
                     t0, idx = time.time(), 0
-                    if use_track:
-                        try:
-                            model.predictor.trackers[0].reset()   # fresh ids each loop
-                        except Exception:
-                            pass
+                    with slot:
+                        box["reset"] = True
                     continue
                 self.error = "frame read failed, reconnecting"
                 time.sleep(1.0)
@@ -207,36 +259,17 @@ class Feed:
                 self.pos_s = (idx / src_fps) % clip_dur
             h, w = frame.shape[:2]
             self.size = (w, h)
-            dets: list[dict[str, Any]] = []
-            det_t = time.time()
-            if model is not None:
-                try:
-                    with det_lock:
-                        if use_track:
-                            res = model.track(frame, conf=DETECT_CONF, persist=True, verbose=False, tracker="bytetrack.yaml")[0]
-                        else:
-                            res = model.predict(frame, conf=DETECT_CONF, verbose=False)[0]
-                    ids = res.boxes.id.int().tolist() if (use_track and res.boxes.id is not None) else [None] * len(res.boxes)
-                    for b, tid in zip(res.boxes, ids):
-                        x1, y1, x2, y2 = [int(v) for v in b.xyxy[0].tolist()]
-                        dets.append({"label": model.names[int(b.cls)], "conf": round(float(b.conf), 2), "box": [x1, y1, x2, y2], "id": tid})
-                except Exception as exc:
-                    if use_track:                          # tracker unavailable (no lap): fall back to plain detection
-                        use_track = False
-                    else:
-                        self.error = f"detector: {str(exc)[:120]}"
-            elif det.available:                            # a detector without a YOLO model (tests, other backends)
-                ok_j, jb = cv2.imencode(".jpg", frame, [int(cv2.IMWRITE_JPEG_QUALITY), 80])
-                if ok_j:
-                    dets = [dict(d, id=None) for d in det.detect(jb.tobytes())]
-            self.det_ms = (time.time() - det_t) * 1000
-            dets.sort(key=lambda d: -d["conf"])
+            with slot:
+                box["frame"], box["n"] = frame, box["n"] + 1
+                slot.notify_all()
+                if has_det and not box["done"]:            # the first picture already carries its boxes
+                    slot.wait_for(lambda: box["done"] or self._stop.is_set(), timeout=20.0)   # first model load can be slow
+                dets = list(box["dets"])
             counts = V.counts(dets)
             annotated = self._draw(frame, dets, counts)
             ok2, buf = cv2.imencode(".jpg", annotated, [int(cv2.IMWRITE_JPEG_QUALITY), JPEG_Q])
             if not ok2:
                 continue
-            shown += 1
             rate_n += 1
             if time.time() - rate_t >= 1.0:
                 self.fps = rate_n / (time.time() - rate_t)
@@ -252,8 +285,11 @@ class Feed:
             # nobody watching for a while: stop (the scheduler's grab() falls back to a one-off decode)
             if self._viewers == 0 and time.time() - self._last_viewer > IDLE_S:
                 break
-            if self.kind != "video" and self.fps_cap > 0:
-                time.sleep(max(0.0, 1.0 / self.fps_cap - (time.time() - det_t)))
+            if self.fps_cap > 0:                           # recordings too: no point encoding 30 pictures a second per camera
+                time.sleep(max(0.0, 1.0 / self.fps_cap - (time.time() - loop_t)))
+        over.set()
+        with slot:
+            slot.notify_all()
         cap.release()
         with _feeds_lock:
             if _feeds.get(self.source) is self:
