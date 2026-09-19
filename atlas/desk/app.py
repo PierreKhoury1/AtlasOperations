@@ -1839,6 +1839,11 @@ def desk_workspace():
     """The cinematic front door: talk to Atlas, watch it assemble the team, build, deploy, see every agent work live."""
     if not current_user() and not OPEN:
         return redirect("/login?next=/desk/workspace")
+    did = request.args.get("desk", type=int)
+    if did:                                                # a link to a desk opens THAT desk (same rule as /select), not the cookie's
+        u, d = current_user(), store.desk(did)
+        if d and (OPEN or (u and d["owner_id"] == u["id"])):
+            session["desk"] = did
     return send_from_directory(STATIC_DIR, "workspace.html")
 
 
