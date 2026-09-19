@@ -136,3 +136,26 @@ def test_blueprint_keeps_role_instructions_and_engine():
     conf = D.blueprint_to_desk(bp, "free")
     inv = next(x for x in conf["agents"] if x["id"] == "invoice_check")
     assert inv["engine"] == "hermes_agent" and "Standing orders" in inv["system_prompt"] and "delivery note" in inv["system_prompt"]
+
+
+def test_camera_team_is_wired_and_ids_stay_stable():
+    """"Five watchers and a summarizer": every watcher gets its own camera, the summarizer can read them,
+    and a model that re-slugs the agents next turn does not make the canvas remove and re-add them."""
+    watcher = lambda i: {"id": f"cam_{i}", "name": f"Camera Agent {i}", "role": "Camera watcher", "tools": ["camera_ask", "camera_events"]}
+    bp = D.normalise({"agents": [{"id": "summarizer", "name": "Summarizer", "role": "Cross-camera summarizer", "tools": ["read_file", "save_deliverable"]}]
+                                + [watcher(i) for i in range(1, 6)], "cameras": []})
+    assert [a["id"] for a in bp["agents"]] == ["cam_1", "cam_2", "cam_3", "cam_4", "cam_5", "summarizer"]
+    assert [c["name"] for c in bp["cameras"]] == [f"camera-{i}" for i in range(1, 6)] and not any(c["source"] for c in bp["cameras"])
+    assert [a["camera"] for a in bp["agents"]] == [f"camera-{i}" for i in range(1, 6)] + [""]
+    assert "camera-3" in bp["agents"][2]["instructions"][0]
+    assert {"camera_events", "camera_ask"} <= set(bp["agents"][-1]["tools"])
+
+    nxt = json.loads(json.dumps(bp))
+    for a in nxt["agents"][:5]:
+        a["id"] = "camera_agent_" + a["id"][-1]
+    nxt["cameras"] = [{"name": n, "source": f"sample:campus-{n}"} for n in ("lobby", "entrance", "carpark", "drive", "gym")]
+    out = D.normalise(nxt, bp)
+    assert [a["id"] for a in out["agents"]] == [a["id"] for a in bp["agents"]]
+    assert [a["camera"] for a in out["agents"]] == ["lobby", "entrance", "carpark", "drive", "gym", ""]
+    assert sum(x.startswith("Your camera is ") for x in out["agents"][0]["instructions"]) == 1
+    assert D.normalise(json.loads(json.dumps(out)), out) == out                       # idempotent

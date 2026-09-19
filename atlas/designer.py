@@ -104,7 +104,9 @@ Cameras (the desk's eyes)
 - "alerts": true only if the owner wants the agents woken when something specific happens; then say what in "focus".
 - Give any agent that reads or reports on the cameras the tools camera_ask and camera_events (camera_look for a fresh
   frame). Agents never narrate feeds themselves - the journal does that.
-- If the owner wants to try it without their own cameras, offer the sample footage and use "sample:" sources."""
+- If the owner wants to try it without their own cameras, offer the sample footage and use "sample:" sources. When they
+  want several cameras on one place, use clips that share a site (the campus-* set is five angles of one campus).
+- One watcher per camera: give that agent "camera": "<camera name>" so it only reads its own feed."""
 
 
 SWITCH_TO_PAID = "Switch to the paid model"
@@ -124,13 +126,20 @@ SAMPLE_LABELS = {
     "hotel-lobby_Meet_Crowd": "hotel lobby entrance, a group meets and splits",
     "hotel-lobby_Browse_WhileWaiting2": "hotel lobby waiting area, a guest waits",
     "restaurant-sushi-counter": "sushi restaurant, chef at the counter",
+    # five synchronised cameras on ONE site (MEVA dataset, CC BY 4.0): use them together for a multi-camera desk
+    "campus-lobby": "campus building, lobby and coffee point by the doors, people meeting (same site as the other campus-* clips, same 5 minutes)",
+    "campus-entrance": "campus building, main entrance and forecourt from above, people arriving (same site, same 5 minutes)",
+    "campus-carpark": "campus car park, cars and people walking through (same site, same 5 minutes)",
+    "campus-drive": "campus approach road and paths, vehicles and pedestrians at distance (same site, same 5 minutes)",
+    "campus-gym": "campus sports hall, court and bleachers, mostly empty (same site, same 5 minutes)",
 }
 
 
 SAMPLE_CAMERA_NAMES = {"corner-store_ezymart": "till", "retail-store": "shop-floor", "liquor-store-delivery": "liquor-counter",
                        "hotel-lobby_Browse4": "reception", "hotel-lobby_LeftBag": "lobby-seating",
                        "hotel-lobby_Meet_Crowd": "lobby-entrance", "hotel-lobby_Browse_WhileWaiting2": "lobby-waiting",
-                       "restaurant-sushi-counter": "sushi-counter"}
+                       "restaurant-sushi-counter": "sushi-counter", "campus-lobby": "lobby", "campus-entrance": "entrance",
+                       "campus-carpark": "car-park", "campus-drive": "drive", "campus-gym": "gym"}
 
 
 def sample_clips() -> dict[str, str]:
@@ -287,10 +296,16 @@ def normalise(bp: dict[str, Any] | None, prev: dict[str, Any] | None = None) -> 
     agents_in = bp.get("agents") if isinstance(bp.get("agents"), list) else prev.get("agents") or []
     agents: list[dict[str, Any]] = []
     seen: set[str] = set()
+    prev_ids = {a["id"] for a in prev.get("agents") or []}
+    prev_by_name = {str(a.get("name") or "").strip().lower(): a["id"] for a in prev.get("agents") or []}
+    renamed: dict[str, str] = {}                       # id the model used this turn -> id the agent already has
     for i, a in enumerate(agents_in):
         if not isinstance(a, dict):
             continue
         aid = _slug(a.get("id") or a.get("name") or f"agent_{i}")
+        keep = prev_by_name.get(str(a.get("name") or "").strip().lower())
+        if keep and aid not in prev_ids and keep not in seen:      # same agent, new slug: keep the id the canvas knows
+            renamed[aid] = aid = keep
         if aid in seen:
             continue
         seen.add(aid)
@@ -307,6 +322,7 @@ def normalise(bp: dict[str, Any] | None, prev: dict[str, Any] | None = None) -> 
             "goal": str(a.get("goal") or a.get("description") or "")[:600],
             "tools": tools if aid != "atlas" else list(ATLAS_TOOLS),
             "reports_to": (_slug(a.get("reports_to") or "atlas") or "atlas") if aid != "atlas" else "",
+            "camera": str(a.get("camera") or "")[:32],
             "strong": bool(a.get("strong")),
             "engine": "hermes_agent" if str(a.get("engine") or "").lower() in ("hermes_agent", "hermes") else "atlas",
             "instructions": instr,
@@ -314,6 +330,7 @@ def normalise(bp: dict[str, Any] | None, prev: dict[str, Any] | None = None) -> 
     agents = [a for a in agents if a["id"] != "atlas"][:8]
     for i, a in enumerate(agents):
         a["color"] = PALETTE[i % len(PALETTE)]
+        a["reports_to"] = renamed.get(a["reports_to"], a["reports_to"])
     # hierarchy contract shared with atlas/team.py: unknown leads, cycles and chains deeper than 2 collapse to atlas
     from . import team as TM
     shape, _errs = TM.validate_team({"agents": [{**a, "instructions": a.get("instructions") or ["as briefed", "as briefed"]} for a in agents]},
@@ -338,6 +355,7 @@ def normalise(bp: dict[str, Any] | None, prev: dict[str, Any] | None = None) -> 
             kind = "manual"
         steps = w.get("steps") if isinstance(w.get("steps"), list) else []
         steps = [_slug(s if isinstance(s, str) else (s or {}).get("agent")) for s in steps]
+        steps = [renamed.get(s, s) for s in steps]
         steps = [s for s in steps if s in ids]
         wfs.append({"id": _slug(w.get("id") or w.get("name") or f"workflow_{i}"),
                     "name": str(w.get("name") or f"Workflow {i + 1}")[:60],
@@ -377,7 +395,9 @@ def normalise(bp: dict[str, Any] | None, prev: dict[str, Any] | None = None) -> 
                      "journal": c.get("journal", True) not in (False, "0", "false", "off"),
                      "alerts": c.get("alerts", False) in (True, "1", "true", "on"),
                      "watch_for": str(c.get("watch_for") or "person")[:60]})
-    out["cameras"] = cams[:12]
+    cams = cams[:12]
+    _wire_cameras(agents, cams)
+    out["cameras"] = cams
 
     pol_in = bp.get("policy") if isinstance(bp.get("policy"), dict) else prev.get("policy") or {}
     banned = pol_in.get("banned_phrases")
@@ -387,6 +407,46 @@ def normalise(bp: dict[str, Any] | None, prev: dict[str, Any] | None = None) -> 
                      "max_words": int(pol_in.get("max_words") or 220),
                      "banned_phrases": [str(x).strip() for x in (banned or []) if str(x).strip()][:20]}
     return out
+
+
+_CAM_TOOLS = ("camera_ask", "camera_events", "camera_look")
+_CAM_READER = re.compile(r"summar|digest|report|document|log|record|overview|incident|safety|security|cross.?camera", re.I)
+
+
+def _wire_cameras(agents: list[dict[str, Any]], cams: list[dict[str, Any]]) -> None:
+    """Make a camera team hang together (in place). Models routinely sketch "five watchers and a summarizer" with no
+    cameras for them to watch and a summarizer that cannot read a single event:
+    - every watcher gets a camera: missing ones are added as placeholders the owner fills in (source "");
+    - watchers are bound one camera each, in order, and told which one is theirs;
+    - an agent that summarises / documents / reports, in a team that has cameras, gets the read tools."""
+    watchers = [a for a in agents if any(t in a["tools"] for t in _CAM_TOOLS)]
+    if not watchers and not cams:
+        return
+    solo = [a for a in watchers if not _CAM_READER.search(f"{a['name']} {a['role']}") or re.search(r"watch|camera \d|cam \d", f"{a['name']} {a['role']}", re.I)]
+    if len(solo) > 1:                                  # several watchers = one camera each
+        names = {c["name"] for c in cams}
+        n = 0
+        while len(cams) < min(len(solo), 12):
+            n += 1
+            if f"camera-{n}" not in names:
+                names.add(f"camera-{n}")
+                cams.append({"name": f"camera-{n}", "source": "", "notes": "", "focus": "", "journal": True, "alerts": False, "watch_for": "person"})
+        taken = {a["camera"] for a in solo if a.get("camera") in names}
+        free = [c["name"] for c in cams if c["name"] not in taken]
+        for a in solo:
+            if a.get("camera") not in names:
+                a["camera"] = free.pop(0) if free else ""
+    if len(solo) > 1:
+        agents.sort(key=lambda a: a not in solo)       # stable: watchers first, whoever reads across them after
+    for a in agents:
+        cam = a.get("camera") or ""
+        a["instructions"] = [x for x in a["instructions"] if not x.startswith("Your camera is ")]
+        if cam and a in solo and len(solo) > 1:
+            a["instructions"] = ([f"Your camera is '{cam}': pass camera=\"{cam}\" to camera_ask, camera_events and camera_look."] + a["instructions"])[:8]
+        elif a not in solo or len(solo) <= 1:
+            a["camera"] = ""
+        if a not in watchers and _CAM_READER.search(f"{a['name']} {a['role']} {a['goal']}"):
+            a["tools"] = ["camera_events", "camera_ask"] + [t for t in a["tools"] if t not in _CAM_TOOLS]
 
 
 T_KIND_LABEL = {"smtp": "Email sending", "imap": "Inbox", "http": "API", "mcp": "Tool server", "webhook": "Web form", "hermes_agent": "Hermes Agent", "higgsfield": "Higgsfield video"}

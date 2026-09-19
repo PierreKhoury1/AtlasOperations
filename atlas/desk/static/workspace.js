@@ -156,8 +156,7 @@ async function applyBlueprint(bp){
   // narrate what Atlas is doing to the team
   if (first && added.length) addMsg('s', 'Atlas is assembling your team…', 'assign');
   // update state
-  removed.forEach(a => { W.agents.delete(a.id); });
-  incoming.forEach((a, id) => W.agents.set(id, a));
+  W.agents = incoming;                                               // blueprint order, not first-seen order
   W.order = orderIds();
   // animate
   removed.forEach(a => { const el = nodeEl(a.id); if (el) { el.classList.add('gone'); setTimeout(() => el.remove(), 500); } removeEdge(a.id); addMsg('s', `− ${a.name} removed`, 'assign'); });
@@ -182,14 +181,21 @@ async function spawnAll(){
 }
 
 /* ---- layout: Atlas col 0, top-level col 1, members col 2; vertical stack centred */
-const NW = 236, NW_ATLAS = 214, COL = 300, ROW = 118, GAP = 26;
+const NW = 236, NW_ATLAS = 214, COL = 300, ROW_MAX = 118, GAP_MAX = 26;
 function layoutAll(animate, freshIds){
-  const c = $('#canvas'); const H = c.clientHeight || 600, Wd = c.clientWidth || 900;
+  const c = $('#canvas'); const H0 = c.clientHeight || 600, W0 = c.clientWidth || 900;
   const tops = W.order.filter(id => { const a = W.agents.get(id); return a && (a.reports_to === 'atlas' || !W.agents.has(a.reports_to)); });
   const blocks = tops.map(id => ({id, members: (W.agents.get(id).members || []).filter(m => W.agents.has(m))}));
+  const rowsN = blocks.reduce((n, b) => n + Math.max(1, b.members.length), 0);
+  const tight = rowsN * ROW_MAX + Math.max(0, blocks.length - 1) * GAP_MAX > H0 - 40;      // a tall team: close the gaps before shrinking
+  const ROW = tight ? 100 : ROW_MAX, GAP = tight ? 6 : GAP_MAX;
   const heights = blocks.map(b => Math.max(1, b.members.length) * ROW);
   const total = heights.reduce((s, h) => s + h, 0) + Math.max(0, blocks.length - 1) * GAP;
   const hasMembers = blocks.some(b => b.members.length);
+  const needW = NW_ATLAS + COL + (hasMembers ? COL : 0) + (NW - 30) + 48;
+  const k = W.k = Math.max(.5, Math.min(1, (H0 - 40) / Math.max(1, total), W0 / needW));
+  const H = H0 / k, Wd = W0 / k;
+  ['#nodes', '#edges'].forEach(q => { const st = $(q).style; st.inset = 'auto'; st.left = st.top = '0'; st.width = Wd + 'px'; st.height = H + 'px'; st.transformOrigin = '0 0'; st.transform = k < 1 ? `scale(${k})` : ''; });
   const x0 = Math.max(24, Math.round((Wd - (NW_ATLAS + COL + (hasMembers ? COL : 0) + (NW - 30))) / 2));
   let y = Math.max(20, Math.round((H - total) / 2));
   const atlasY = Math.max(20, Math.round(H / 2 - 48));
@@ -251,7 +257,7 @@ function drawEdge(id, animate){
 }
 function removeEdge(id){ const p = $('#edges').querySelector(`[data-e="${id}"]`); if (p) p.remove(); }
 function redrawEdges(){
-  const svg = $('#edges'); const c = $('#canvas'); svg.setAttribute('viewBox', `0 0 ${c.clientWidth} ${c.clientHeight}`);
+  const svg = $('#edges'); const c = $('#canvas'); const k = W.k || 1; svg.setAttribute('viewBox', `0 0 ${c.clientWidth / k} ${c.clientHeight / k}`);
   W.agents.forEach((a, id) => { if (nodeEl(id)) { const p = svg.querySelector(`[data-e="${id}"]`); if (p) p.setAttribute('d', edgeD(parentOf(id), id)); else drawEdge(id, false); } });
   if (W.run) W.run.inst.forEach((s, inst) => { if (s.ghost) { const p = svg.querySelector(`[data-e="${inst}"]`); if (p) p.setAttribute('d', edgeD(s.parent, inst)); } });
 }
