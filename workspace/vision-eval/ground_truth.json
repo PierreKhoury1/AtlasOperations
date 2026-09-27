@@ -1,0 +1,488 @@
+{
+ "_about": "Human-reviewed ground truth for the multi-camera restaurant VLM eval (27 Sep 2026). Frames in ./frames. people = [min,max] acceptable count of visible persons incl. partial (hands/arms/legs). hazards = keyword groups a good answer must mention (any word in the group counts). Descriptions are what a careful human sees; judge scores answers against them. Counts for line/dining/salamander/plating were widened on 27 Sep after a full-resolution recount (thumbnail labels undercounted the far-end staff cluster and diners beyond the glass).",
+ "sites": {
+  "crownshy": {
+   "label": "Crown Shy (NYC) dinner service, 7 fixed cameras, 1080p, source: Bon Appetit '19 cameras' film",
+   "context": "Fine-dining restaurant with an open kitchen during evening service.",
+   "cameras": {
+    "crownshy-line": {
+     "area": "hot line / main kitchen, wide high-angle view down the cooking line, dining room visible through glass at the far end",
+     "frames": [
+      {
+       "people": [
+        8,
+        13
+       ],
+       "desc": "Wide view down the hot line at night. One cook in a dark shirt and grey apron stands at the left counter mid-line; three to four more staff (one in a white chef jacket) work at the far end; diners are visible beyond the glass wall. Trays of raw chicken pieces sit uncovered on the near-left counter, pots on the stove, a flat-top griddle in the middle. No customers inside the kitchen.",
+       "hazards": [
+        [
+         "raw",
+         "uncovered",
+         "chicken",
+         "poultry"
+        ]
+       ]
+      },
+      {
+       "people": [
+        9,
+        15
+       ],
+       "desc": "Same wide hot-line view. A cook in dark shirt and apron walks along the left side of the line; three or four staff at the far end near the pass; diners behind the glass. Raw chicken pieces on trays on the near counter, pots on the range, griddle.",
+       "hazards": [
+        [
+         "raw",
+         "uncovered",
+         "chicken",
+         "poultry"
+        ]
+       ]
+      },
+      {
+       "people": [
+        7,
+        13
+       ],
+       "desc": "Same view. A cook stands at the left counter over a pot; several staff at the far end; diners beyond the glass. Raw chicken trays near the camera, pans on the stove.",
+       "hazards": [
+        [
+         "raw",
+         "uncovered",
+         "chicken",
+         "poultry"
+        ]
+       ]
+      }
+     ]
+    },
+    "crownshy-dining": {
+     "area": "dining room / chef's counter looking into the open kitchen under heat lamps",
+     "frames": [
+      {
+       "people": [
+        8,
+        12
+       ],
+       "desc": "Guests seated at the counter facing the open kitchen: a man in a checked shirt, a woman with long hair laughing, more guests at the edges. Behind the counter a tall bearded chef in a white jacket and dark apron stands at the pass; two more cooks work at the back. Black heat lamps hang over the pass. Service in progress, relaxed mood.",
+       "hazards": []
+      },
+      {
+       "people": [
+        9,
+        13
+       ],
+       "desc": "Counter seating with four guests (checked-shirt man, two women, one more at the edge) facing the open kitchen; bearded chef in white at the pass, two cooks at the back, a man in a white chef jacket at the right. Heat lamps over the pass, a framed poster on the right wall.",
+       "hazards": []
+      },
+      {
+       "people": [
+        10,
+        14
+       ],
+       "desc": "Same: four to five guests at the counter, bearded chef standing at the pass, cook in a cap at the back, another cook in white, a fourth staff member at the right. Framed portrait poster on the right wall. Service in progress.",
+       "hazards": []
+      }
+     ]
+    },
+    "crownshy-prep": {
+     "area": "prep kitchen (back of house), eye-level view of a steel prep table with a combi oven behind",
+     "frames": [
+      {
+       "people": [
+        3,
+        3
+       ],
+       "desc": "Three cooks in black tees, caps and white aprons at a steel prep table processing carrots: the left one peels a carrot with a red peeler, the middle one (blond) makes julienne/shredded carrot on a board, the right one (glasses, tattooed forearm) peels with gloves. Whole carrots in a tray, a knife on the board, a blue glove box, a combi oven behind. Bare hands on the left cook.",
+       "hazards": [
+        [
+         "bare hand",
+         "bare-hand",
+         "without glove",
+         "no glove",
+         "ungloved",
+         "not wearing glove"
+        ],
+        [
+         "knife"
+        ]
+       ]
+      },
+      {
+       "people": [
+        3,
+        3
+       ],
+       "desc": "Same three cooks at the prep table: left peeling a carrot, middle shredding carrots into a pile, right peeling. Tray of carrots, knife on the cutting board, gloves on some hands but not all.",
+       "hazards": [
+        [
+         "bare hand",
+         "bare-hand",
+         "without glove",
+         "no glove",
+         "ungloved",
+         "not wearing glove"
+        ],
+        [
+         "knife"
+        ]
+       ]
+      },
+      {
+       "people": [
+        3,
+        3
+       ],
+       "desc": "Same three cooks prepping carrots at the steel table; middle cook talking while working; knife on the board; tray of carrots; combi oven behind.",
+       "hazards": [
+        [
+         "bare hand",
+         "bare-hand",
+         "without glove",
+         "no glove",
+         "ungloved",
+         "not wearing glove"
+        ],
+        [
+         "knife"
+        ]
+       ]
+      }
+     ]
+    },
+    "crownshy-grill": {
+     "area": "charcoal grill station",
+     "frames": [
+      {
+       "people": [
+        2,
+        3
+       ],
+       "desc": "Overhead view of a charcoal grill with meat cooking over an open flame; a chef in a white jacket stands at the grill holding tongs, a second person in a dark apron walks past at the right edge, a blurred third person at the bottom left. A foil-lined tray beside the grill.",
+       "hazards": [
+        [
+         "flame",
+         "fire",
+         "flare"
+        ]
+       ]
+      },
+      {
+       "people": [
+        1,
+        2
+       ],
+       "desc": "Side view: a bearded chef in a white jacket and apron works a pan on the range with a flame flaring from the pan; pots and pans around, another person partly visible behind him.",
+       "hazards": [
+        [
+         "flame",
+         "fire",
+         "flare"
+        ]
+       ]
+      },
+      {
+       "people": [
+        1,
+        2
+       ],
+       "desc": "Overhead view of the charcoal grill with a large flame flare-up; the chef in white stands at the right holding tongs over the fire. Foil tray beside the grill.",
+       "hazards": [
+        [
+         "flame",
+         "fire",
+         "flare"
+        ]
+       ]
+      }
+     ]
+    },
+    "crownshy-plancha": {
+     "area": "plancha / flat-top griddle station, overhead camera",
+     "frames": [
+      {
+       "people": [
+        1,
+        3
+       ],
+       "desc": "Overhead of a flat-top griddle with octopus tentacles, cubes of pink pork or ham and yellow squash cubes cooking; a blurred hand at the left; other cooks tiny in the background at the far station.",
+       "hazards": []
+      },
+      {
+       "people": [
+        1,
+        3
+       ],
+       "desc": "Same griddle; a gloved hand places a piece of meat on the plancha next to the octopus, pork cubes and squash; a cook is visible far away at the top.",
+       "hazards": []
+      },
+      {
+       "people": [
+        1,
+        3
+       ],
+       "desc": "Same griddle; a gloved hand sets down a piece of short rib; octopus, pork cubes and squash cubes cooking; a cook at the far station in the background.",
+       "hazards": []
+      }
+     ]
+    },
+    "crownshy-salamander": {
+     "area": "salamander / finishing station, overhead camera looking down on a cook's head",
+     "frames": [
+      {
+       "people": [
+        1,
+        3
+       ],
+       "desc": "Overhead: a cook in a black shirt (dark hair, seen from above) works at a steel station under two salamander broilers; trays of sauces, plates, bowls and a squeeze bottle in front of him; a hand or cloth at the right edge.",
+       "hazards": []
+      },
+      {
+       "people": [
+        2,
+        3
+       ],
+       "desc": "Same overhead view; the cook in black at the station, another person's arm in a dark apron reaches in at the right; sauces and bowls laid out.",
+       "hazards": []
+      },
+      {
+       "people": [
+        1,
+        3
+       ],
+       "desc": "Same station from above; the main cook has stepped out of the centre; a cook at the right in a black shirt holds a cloth; trays, bowls and sauces on the counter.",
+       "hazards": []
+      }
+     ]
+    },
+    "crownshy-plating": {
+     "area": "the pass, overhead camera over a dark marble counter with heat lamps",
+     "frames": [
+      {
+       "people": [
+        2,
+        4
+       ],
+       "desc": "Overhead of the pass: plated dishes (tostada-like with lettuce and orange sauce), boards with cut meat, tickets/papers, a timer, black heat lamps; hands of about three people (one plating at the top, one at the bottom, one at the right).",
+       "hazards": []
+      },
+      {
+       "people": [
+        2,
+        3
+       ],
+       "desc": "Same pass: two people at the top, one in gloves handling a board of cut meat, one bare-handed with bracelets garnishing a plate; plated dishes lined up; tickets at the bottom.",
+       "hazards": [
+        [
+         "bare hand",
+         "bare-hand",
+         "without glove",
+         "no glove",
+         "ungloved",
+         "not wearing glove"
+        ]
+       ]
+      },
+      {
+       "people": [
+        2,
+        4
+       ],
+       "desc": "Same pass: a gloved person at the top wrapping or handling meat on a board, hands at the right garnishing, plated dishes with lettuce and orange sauce, heat lamps, papers.",
+       "hazards": []
+      }
+     ]
+    }
+   },
+   "multicam": {
+    "desc": "All seven cameras show one fine-dining restaurant during an evening service: hot line busy with 4-8 staff, guests seated at the chef's counter (service in progress), a prep kitchen with three cooks processing carrots, a charcoal grill with open flames, a plancha with octopus and pork, a salamander finishing station, and the pass with plates being finished. The busiest areas are the hot line and the pass. Issues: open-flame flare-ups at the grill, raw chicken uncovered on the line, some bare-hand food contact in prep and plating.",
+    "busiest": [
+     "hot line",
+     "line",
+     "pass",
+     "plating"
+    ],
+    "service_in_progress": true
+   }
+  },
+  "kitchen": {
+   "label": "EPFL Smart Kitchen, 5 synchronised cameras, 720p source, one cook, frames at t=60s, 150s, 240s",
+   "context": "A small institutional kitchen with a single cook preparing a meal; faces are blurred in the source footage.",
+   "cameras": {
+    "kitchen-overview": {
+     "area": "whole room from a high corner by the door",
+     "frames": [
+      {
+       "people": [
+        1,
+        1
+       ],
+       "desc": "Small grey kitchen seen from a high corner. One person (grey t-shirt, dark skirt, dark hair) stands at the far counter by the window, back to the camera. Empty prep counter and sink in the foreground with a cucumber and an orange near the sink.",
+       "hazards": []
+      },
+      {
+       "people": [
+        1,
+        1
+       ],
+       "desc": "Same room; the same person stands at the far counter by the window working on something; foreground counter empty.",
+       "hazards": []
+      },
+      {
+       "people": [
+        1,
+        1
+       ],
+       "desc": "Same room; the person is now at the near counter/sink in the bottom centre, bending over and holding a pan or bowl.",
+       "hazards": []
+      }
+     ]
+    },
+    "kitchen-wide": {
+     "area": "long view down the counters from the far end toward the door",
+     "frames": [
+      {
+       "people": [
+        1,
+        1
+       ],
+       "desc": "Long view down the kitchen toward the glass door. One person in a grey t-shirt and dark skirt stands at the left counter holding a box or packet; boxes, bottles and a plastic bag on the counter; bin by the wall.",
+       "hazards": []
+      },
+      {
+       "people": [
+        1,
+        1
+       ],
+       "desc": "Same long view; the person is now right below the camera in the foreground (head and shoulders, back turned) at the near counter; nobody elsewhere.",
+       "hazards": []
+      },
+      {
+       "people": [
+        1,
+        1
+       ],
+       "desc": "Same long view; the person stands at the sink in the centre of the room, working over it.",
+       "hazards": []
+      }
+     ]
+    },
+    "kitchen-stove": {
+     "area": "induction hob and the corner counter, high angle",
+     "frames": [
+      {
+       "people": [
+        1,
+        1
+       ],
+       "desc": "High view over a small induction hob with an empty pan on it; the person in a grey t-shirt stands at the counter to the right holding a white box; oil bottles and a knife block on the counter.",
+       "hazards": []
+      },
+      {
+       "people": [
+        1,
+        1
+       ],
+       "desc": "Same view; only the person's torso is visible at the top edge; the pan sits empty on the hob; bottles and a blue packet on the counter.",
+       "hazards": []
+      },
+      {
+       "people": [
+        1,
+        1
+       ],
+       "desc": "Same view; the person is at the top left over the sink; pan still on the hob; counter items unchanged.",
+       "hazards": []
+      }
+     ]
+    },
+    "kitchen-prep": {
+     "area": "chopping board and sink from directly above",
+     "frames": [
+      {
+       "people": [
+        0,
+        1
+       ],
+       "desc": "Top-down view of a chopping board and sink: a knife, a cucumber, an aubergine/eggplant and an orange on the board; a green container; a pair of legs visible in the doorway at the top. No cutting happening.",
+       "hazards": [
+        [
+         "knife"
+        ]
+       ]
+      },
+      {
+       "people": [
+        0,
+        1
+       ],
+       "desc": "Same top-down view; knife, cucumber, aubergine and orange on the board, a white cloth or paper added; legs in the doorway at the top.",
+       "hazards": [
+        [
+         "knife"
+        ]
+       ]
+      },
+      {
+       "people": [
+        1,
+        1
+       ],
+       "desc": "Same top-down view; the cook's arm and torso reach over the sink from the top holding a pan; a cut yellow pepper on the board, the knife and cucumber moved; work in progress.",
+       "hazards": [
+        [
+         "knife"
+        ]
+       ]
+      }
+     ]
+    },
+    "kitchen-sink": {
+     "area": "sink and back counter from the side",
+     "frames": [
+      {
+       "people": [
+        1,
+        1
+       ],
+       "desc": "Side view of the sink area; the person in a grey t-shirt stands at the counter on the right holding a white box; dish rack with plates, bottles, a bowl in the foreground.",
+       "hazards": []
+      },
+      {
+       "people": [
+        1,
+        1
+       ],
+       "desc": "Same view; the person at the right side of the counter, arm outstretched toward the sink; dish rack, bottles.",
+       "hazards": []
+      },
+      {
+       "people": [
+        1,
+        1
+       ],
+       "desc": "Same view; the person stands at the sink in the centre; dish rack, bottles, a bowl in front.",
+       "hazards": []
+      }
+     ]
+    }
+   },
+   "multicam": {
+    "desc": "Five cameras cover one small kitchen with a single cook (grey t-shirt, dark skirt). At the reference moment she is at the sink/near counter; the hob has an empty pan; a knife, cucumber, aubergine and orange are on the chopping board. No service, no customers, one person total.",
+    "busiest": [
+     "sink",
+     "counter",
+     "prep"
+    ],
+    "service_in_progress": false,
+    "distinct_people": 1
+   },
+   "temporal": {
+    "kitchen-overview": "The cook moves from the far counter by the window (frames 1-2) to the near sink area (frame 3).",
+    "kitchen-wide": "The cook goes from the left counter holding a box, to right under the camera in the foreground, to the sink in the centre.",
+    "kitchen-stove": "The cook is at the right counter with a box, then only her torso shows at the top, then she is at the top-left sink; the pan stays empty on the hob throughout.",
+    "kitchen-prep": "Board with whole cucumber, aubergine, orange and a knife; a cloth appears; then a cut yellow pepper and the cook's arm with a pan over the sink.",
+    "kitchen-sink": "The cook stays around the sink counter: holding a box at the right, reaching to the sink, then standing at the sink."
+   }
+  }
+ }
+}

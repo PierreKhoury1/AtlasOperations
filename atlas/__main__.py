@@ -24,7 +24,15 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("scenario", help="run a live multi-camera scenario (see atlas/scenario.py --help)", add_help=False)
     sub.add_parser("rag", help="vision RAG: index the camera log / ask it (see atlas/rag.py --help)", add_help=False)
     sub.add_parser("team", help="design a team for a job (see atlas/team.py --help)", add_help=False)
+    sub.add_parser("audit", help="score detection + the object catalogue against human ground truth (see atlas/audit.py --help)", add_help=False)
+    sub.add_parser("vision-eval", help="compare vision models on multi-camera restaurant feeds (see atlas/vision_eval.py --help)", add_help=False)
     args, rest = p.parse_known_args(argv)
+    if args.cmd == "vision-eval":
+        from .vision_eval import main as ve_main
+        return ve_main(rest)
+    if args.cmd == "audit":
+        from .audit import main as audit_main
+        return audit_main(rest)
     if args.cmd == "rag":
         from .rag import main as rag_main
         return rag_main(rest)
