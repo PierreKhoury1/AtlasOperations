@@ -21,6 +21,7 @@ IDLE_S = float(os.environ.get("LIVE_IDLE_S", "45"))          # stop a feed this 
 MAX_W = int(os.environ.get("LIVE_MAX_W", "1920"))           # streamed frame width cap (source aspect kept)
 JPEG_Q = int(os.environ.get("LIVE_JPEG_Q", "76"))
 TARGET_FPS = float(os.environ.get("LIVE_FPS", "15"))
+HELD_FPS = float(os.environ.get("LIVE_HELD_FPS", "4"))        # decode rate while only the object catalogue is reading
 DETECT_CONF = 0.35
 TRAIL_S = 2.5                                                # how long a track's trail stays on screen
 
@@ -50,6 +51,7 @@ class Feed:
         self._stop = threading.Event()
         self._viewers = 0
         self._last_viewer = time.time()
+        self._holds: dict[str, float] = {}   # who keeps this feed decoding without watching it (object catalogue) -> until
         self.seq = 0
         self.jpeg = b""              # latest annotated frame (stream size)
         self._raw = None             # latest BGR frame (full decode size)
@@ -96,6 +98,22 @@ class Feed:
     @property
     def viewers(self) -> int:
         return self._viewers
+
+    def hold(self, who: str, seconds: float = 30.0) -> None:
+        """Keep decoding for `seconds` without being a viewer. With no viewers the feed only decodes: no live
+        detection, no drawing, no JPEG, at HELD_FPS, so a held feed is cheap."""
+        with self._lock:
+            self._holds[who] = time.time() + seconds
+
+    @property
+    def held(self) -> bool:
+        now = time.time()
+        return any(t > now for t in self._holds.values())
+
+    def raw(self) -> tuple[int, Any, float]:
+        """(seq, latest full-size BGR frame or None, position in the recording)."""
+        with self._lock:
+            return self.seq, self._raw, self.pos_s
 
     def status(self) -> dict[str, Any]:
         return {"name": self.name, "kind": self.kind, "running": self.running, "viewers": self._viewers, "fps": round(self.fps, 1),
@@ -179,6 +197,9 @@ class Feed:
             nonlocal use_track
             seen = 0
             while not over.is_set() and runner.is_alive():
+                if self._viewers == 0 and time.time() - self._last_viewer > 3:    # nobody looking: leave the CPU to the record
+                    time.sleep(0.25)
+                    continue
                 with slot:
                     if box["n"] == seen:
                         slot.wait(0.25)
@@ -262,31 +283,35 @@ class Feed:
             with slot:
                 box["frame"], box["n"] = frame, box["n"] + 1
                 slot.notify_all()
-                if has_det and not box["done"]:            # the first picture already carries its boxes
+                if has_det and not box["done"] and self._viewers:            # the first picture already carries its boxes
                     slot.wait_for(lambda: box["done"] or self._stop.is_set(), timeout=20.0)   # first model load can be slow
                 dets = list(box["dets"])
             counts = V.counts(dets)
-            annotated = self._draw(frame, dets, counts)
-            ok2, buf = cv2.imencode(".jpg", annotated, [int(cv2.IMWRITE_JPEG_QUALITY), JPEG_Q])
-            if not ok2:
-                continue
+            watched = self._viewers > 0 or time.time() - self._last_viewer < 3
+            if watched:
+                annotated = self._draw(frame, dets, counts)
+                ok2, buf = cv2.imencode(".jpg", annotated, [int(cv2.IMWRITE_JPEG_QUALITY), JPEG_Q])
+                if not ok2:
+                    continue
             rate_n += 1
             if time.time() - rate_t >= 1.0:
                 self.fps = rate_n / (time.time() - rate_t)
                 rate_t, rate_n = time.time(), 0
             with self._cond:
                 self._raw = frame
-                self.jpeg = buf.tobytes()
+                if watched:
+                    self.jpeg = buf.tobytes()
                 self.dets = dets
                 self.counts = counts
                 self.ts = time.time()
                 self.seq += 1
                 self._cond.notify_all()
             # nobody watching for a while: stop (the scheduler's grab() falls back to a one-off decode)
-            if self._viewers == 0 and time.time() - self._last_viewer > IDLE_S:
+            if self._viewers == 0 and time.time() - self._last_viewer > IDLE_S and not self.held:
                 break
-            if self.fps_cap > 0:                           # recordings too: no point encoding 30 pictures a second per camera
-                time.sleep(max(0.0, 1.0 / self.fps_cap - (time.time() - loop_t)))
+            cap_fps = self.fps_cap if watched else HELD_FPS
+            if cap_fps > 0:                                # recordings too: no point encoding 30 pictures a second per camera
+                time.sleep(max(0.0, 1.0 / cap_fps - (time.time() - loop_t)))
         over.set()
         with slot:
             slot.notify_all()

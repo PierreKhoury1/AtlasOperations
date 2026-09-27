@@ -71,6 +71,20 @@ CREATE TABLE IF NOT EXISTS vision_vectors (
   text_vec BLOB, image_vec BLOB
 );
 CREATE INDEX IF NOT EXISTS ix_vvec_desk ON vision_vectors(desk_id, model, ts);
+CREATE TABLE IF NOT EXISTS vision_objects (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, desk_id INTEGER, camera TEXT, track_id INTEGER DEFAULT 0, label TEXT,
+  label_conf REAL DEFAULT 0, votes TEXT DEFAULT '{}', first_ts REAL, last_ts REAL, hits INTEGER DEFAULT 0,
+  best_conf REAL DEFAULT 0, box TEXT DEFAULT '[]', frame_w INTEGER DEFAULT 0, frame_h INTEGER DEFAULT 0,
+  crop TEXT DEFAULT '', path TEXT DEFAULT '[]', status TEXT DEFAULT 'active', verdict TEXT DEFAULT '',
+  verdict_by TEXT DEFAULT '', second_label TEXT DEFAULT '', second_score REAL DEFAULT 0, description TEXT DEFAULT '',
+  attrs TEXT DEFAULT '{}', watch INTEGER DEFAULT 0, emb BLOB, clip_pos REAL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS ix_vobj_desk ON vision_objects(desk_id, camera, last_ts);
+CREATE TABLE IF NOT EXISTS vision_object_notes (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, object_id INTEGER, desk_id INTEGER, ts REAL, kind TEXT DEFAULT 'note',
+  question TEXT DEFAULT '', text TEXT DEFAULT '', crop TEXT DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS ix_vobjn ON vision_object_notes(object_id, ts);
 """
 
 # columns added after the first release — applied idempotently on open
@@ -278,6 +292,68 @@ class Store:
         except Exception:
             pass
         return ev  # type: ignore[return-value]
+
+    # ------------------------------------------------------------------ vision objects (the catalogue of things seen)
+    _OBJ_JSON = ("votes", "box", "path", "attrs")
+
+    def _orow(self, r: dict[str, Any], emb: bool = False) -> dict[str, Any]:
+        for k in self._OBJ_JSON:
+            try:
+                r[k] = json.loads(r.get(k) or ("{}" if k in ("votes", "attrs") else "[]"))
+            except (TypeError, json.JSONDecodeError):
+                r[k] = {} if k in ("votes", "attrs") else []
+        if not emb:
+            r.pop("emb", None)
+        elif r.get("emb") is not None:
+            r["emb"] = bytes(r["emb"])
+        return r
+
+    def add_vision_object(self, desk_id: int, camera: str, **f: Any) -> int:
+        f = {**f, **{k: json.dumps(f[k]) for k in self._OBJ_JSON if k in f}}
+        cols = ["desk_id", "camera"] + list(f)
+        with self._lock:
+            cur = self._conn.execute(f"INSERT INTO vision_objects({','.join(cols)}) VALUES({','.join('?' * len(cols))})",
+                                     [desk_id, camera] + list(f.values()))
+            self._conn.commit()
+            return int(cur.lastrowid)
+
+    def update_vision_object(self, oid: int, **f: Any) -> None:
+        if not f:
+            return
+        f = {**f, **{k: json.dumps(f[k]) for k in self._OBJ_JSON if k in f}}
+        with self._lock:
+            self._conn.execute(f"UPDATE vision_objects SET {','.join(k + '=?' for k in f)} WHERE id=?", list(f.values()) + [oid])
+            self._conn.commit()
+
+    def vision_object(self, oid: int, emb: bool = False) -> dict[str, Any] | None:
+        rows = _rows(self._conn.execute("SELECT * FROM vision_objects WHERE id=?", (oid,)))
+        return self._orow(rows[0], emb) if rows else None
+
+    def vision_objects(self, desk_id: int, camera: str = "", label: str = "", since: float = 0, status: str = "",
+                       watch: bool = False, limit: int = 300, emb: bool = False) -> list[dict[str, Any]]:
+        sql, args = "SELECT * FROM vision_objects WHERE desk_id=? AND last_ts>=?", [desk_id, since]
+        for col, val in (("camera", camera), ("label", label), ("status", status)):
+            if val:
+                sql += f" AND {col}=?"; args.append(val)
+        if watch:
+            sql += " AND watch=1"
+        sql += " ORDER BY last_ts DESC LIMIT ?"; args.append(int(limit))
+        return [self._orow(r, emb) for r in _rows(self._conn.execute(sql, args))]
+
+    def close_vision_objects(self, desk_id: int, camera: str) -> None:
+        with self._lock:
+            self._conn.execute("UPDATE vision_objects SET status='gone' WHERE desk_id=? AND camera=? AND status='active'", (desk_id, camera))
+            self._conn.commit()
+
+    def add_object_note(self, object_id: int, desk_id: int, kind: str, text: str, question: str = "", crop: str = "") -> int:
+        with self._lock:
+            cur = self._conn.execute("INSERT INTO vision_object_notes(object_id,desk_id,ts,kind,question,text,crop) VALUES(?,?,?,?,?,?,?)",
+                                     (object_id, desk_id, time.time(), kind, question, text, crop))
+            self._conn.commit()
+            return int(cur.lastrowid)
+
+    def object_notes(self, object_id: int, limit: int = 100) -> list[dict[str, Any]]:
+        return _rows(self._conn.execute("SELECT * FROM vision_object_notes WHERE object_id=? ORDER BY ts DESC LIMIT ?", (object_id, int(limit))))
 
     # ------------------------------------------------------------------ vision vectors (RAG index)
     def put_vision_vector(self, event_id: int, desk_id: int, ts: float, model: str, dim: int,
@@ -704,4 +780,13 @@ class DeskStore:
     def last_vision_event(self, camera, triggered_only=False): return self.s.last_vision_event(self.desk_id, camera, triggered_only)
     def hook_cameras(self, since, exclude=()): return self.s.hook_cameras(self.desk_id, since, exclude)
     def set_vision_run(self, vid, run_id): return self.s.set_vision_run(vid, run_id)
+    def add_vision_object(self, camera, **f): return self.s.add_vision_object(self.desk_id, camera, **f)
+    def update_vision_object(self, oid, **f): return self.s.update_vision_object(oid, **f)
+    def vision_object(self, oid, emb=False):
+        o = self.s.vision_object(oid, emb)
+        return o if o and o["desk_id"] == self.desk_id else None
+    def vision_objects(self, **k): return self.s.vision_objects(self.desk_id, **k)
+    def close_vision_objects(self, camera): return self.s.close_vision_objects(self.desk_id, camera)
+    def add_object_note(self, object_id, kind, text, question="", crop=""): return self.s.add_object_note(object_id, self.desk_id, kind, text, question, crop)
+    def object_notes(self, object_id, limit=100): return self.s.object_notes(object_id, limit)
     def vision_stats(self, since): return self.s.vision_stats(self.desk_id, since)
