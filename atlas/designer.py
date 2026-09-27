@@ -118,7 +118,13 @@ PAID_VLM = os.environ.get("ATLAS_PAID_VLM", "google/gemini-2.5-flash-lite")   # 
 
 
 def sample_dir() -> Path:
-    return Path(os.environ.get("ATLAS_SAMPLE_VIDEOS") or (Path.home() / "AtlasDemo" / "videos"))
+    """ATLAS_SAMPLE_VIDEOS, else ~/AtlasDemo/videos (full local set), else the copy committed in samples/videos."""
+    if os.environ.get("ATLAS_SAMPLE_VIDEOS"):
+        return Path(os.environ["ATLAS_SAMPLE_VIDEOS"])
+    home = Path.home() / "AtlasDemo" / "videos"
+    if home.is_dir():
+        return home
+    return Path(__file__).resolve().parent.parent / "samples" / "videos"
 
 
 SAMPLE_LABELS = {

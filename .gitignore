@@ -3,7 +3,8 @@ __pycache__/
 config/providers.json
 config/ui.json
 config/*.tmp
-data/
+data/*
+!data/theatre_clips/
 workspace/runs/
 workspace/inputs/*
 !workspace/inputs/.gitkeep
