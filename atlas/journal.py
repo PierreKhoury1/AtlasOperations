@@ -87,8 +87,13 @@ the seconds between them. Write the note for the CURRENT frame:
 - What CHANGED since the previous note: arrivals, departures, hand-offs, waiting that continues (carry the duration
   forward from the previous note), anything unusual.
 - If nothing changed, say so in one line and restate the current state briefly.
-Only what is visible. If the frame is dark, blurred or blocked, say so. No guesses about intent. Plain text, no
-markdown, no preamble, 50-150 words, most important fact first."""
+Only what is visible. If the frame is dark, blurred or blocked, say so. No guesses about intent.
+Small or hand-held items are the easiest thing to get wrong: name one (phone, wallet, knife, card, bottle) only when
+its shape is unmistakable at this resolution, otherwise write "a small item" or "something in her hand". Never name a
+brand, a screen's content or a device type from a few pixels. A wrong detail is worse than a vague one: the owner
+searches these notes. When a CLOSE-UP frame is given, use it for what people hold and do with their hands; the full
+frame is still the source for positions and counts. Plain text, no markdown, no preamble, 50-150 words, most
+important fact first."""
 
 ROLLUP_SYSTEM = """You condense a window of one camera's journal into a summary the owner can skim and search.
 Write: one headline sentence; then the key moments in time order, each starting with its time (HH:MM); then peak
@@ -111,7 +116,38 @@ def config(c: dict[str, Any]) -> dict[str, Any]:
             "min_gap_s": _num(c, "journal_min_gap_s", 8, 2, 600),
             "motion": _num(c, "journal_motion", 0.03, 0.0, 1.0),
             "rollup_min": _num(c, "journal_rollup_min", 15, 1, 1440),
-            "focus": str(c.get("journal_focus") or "").strip()[:400]}
+            "focus": str(c.get("journal_focus") or "").strip()[:400],
+            # a third image: the largest person cropped out of the current frame, so hands and what they hold are
+            # not read from a few pixels ("smartphone" that was a receipt). Off with journal_closeup=0.
+            "closeup": str(c.get("journal_closeup", "1")).strip().lower() not in ("0", "false", "no", "off")}
+
+
+def closeup(jpeg: bytes, dets: list[dict[str, Any]], label: str = "person", pad: float = 0.25, min_side: int = 48) -> bytes:
+    """The largest detected `label` box cut out of `jpeg` with some margin, as JPEG; b'' when there is none or it is
+    already most of the frame (then the close-up would add nothing)."""
+    boxes = [d.get("box") for d in dets or () if d.get("label") == label and d.get("box")]
+    if not boxes:
+        return b""
+    try:
+        from PIL import Image
+        import io
+        im = Image.open(io.BytesIO(jpeg)).convert("RGB")
+    except Exception:
+        return b""
+    W, H = im.size
+    x1, y1, x2, y2 = max(boxes, key=lambda b: (b[2] - b[0]) * (b[3] - b[1]))
+    bw, bh = x2 - x1, y2 - y1
+    if bw < min_side or bh < min_side or bw * bh > 0.6 * W * H:
+        return b""
+    x1, y1 = max(0, int(x1 - pad * bw)), max(0, int(y1 - pad * bh))
+    x2, y2 = min(W, int(x2 + pad * bw)), min(H, int(y2 + pad * bh))
+    crop = im.crop((x1, y1, x2, y2))
+    if max(crop.size) < 512:                                 # upsample a little so the model does not get a thumbnail
+        s = 512 / max(crop.size)
+        crop = crop.resize((int(crop.size[0] * s), int(crop.size[1] * s)), Image.LANCZOS)
+    out = io.BytesIO()
+    crop.save(out, "JPEG", quality=90)
+    return out.getvalue()
 
 
 def reset() -> None:
@@ -141,7 +177,7 @@ def due(key: tuple[int, str], jc: dict[str, Any], now: float, motion: float, cou
 
 def write_note(key: tuple[int, str], camera: str, jc: dict[str, Any], jpeg: bytes, counts: dict[str, int],
                notes: str = "", model: str = "", now: float | None = None, transport=None, why: str = "",
-               stream: bool | None = None) -> str:
+               stream: bool | None = None, dets: list[dict[str, Any]] | None = None) -> str:
     """One journal note from the frame at the previous note + the current frame. Updates the camera's state.
     When anyone is listening on the live bus (or stream=True) the model is streamed and every delta is published."""
     now = now or time.time()
@@ -155,6 +191,9 @@ def write_note(key: tuple[int, str], camera: str, jc: dict[str, Any], jpeg: byte
     if last and last.get("jpeg"):
         frames.append((f"EARLIER ({time.strftime('%H:%M:%S', time.localtime(last['ts']))}, {gap:.0f}s ago)", last["jpeg"]))
     frames.append((f"NOW ({time.strftime('%H:%M:%S', time.localtime(now))})", jpeg))
+    crop = closeup(jpeg, dets or []) if jc.get("closeup", True) else b""
+    if crop:
+        frames.append(("CLOSE-UP (NOW): the largest person in the current frame, cut out and enlarged", crop))
     prompt = (f"Camera: {camera}." + (f" About this camera: {notes}." if notes else "")
               + f"\nTime now: {time.strftime('%A %d %B %H:%M:%S', time.localtime(now))}."
               + f"\nObject detector counts for the current frame (small model, may miss or miscount): {V.counts_text(counts) or 'nothing detected'}."

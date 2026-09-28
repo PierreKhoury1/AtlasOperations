@@ -1449,7 +1449,10 @@ def api_add_connector():
     name = (d.get("name") or kind).strip()
     if store.connector_by_name(desk["id"], name):
         return jsonify({"error": "a connector with that name exists"}), 400
-    c = store.add_connector(desk["id"], kind, name, d.get("config") or {}, bool(d.get("auto")))
+    config = d.get("config") or {}
+    if kind == "camera":                                   # "sample:<clip>" is resolved once, here, like the designer does
+        config["source"] = DS.resolve_camera_source(str(config.get("source") or "")) or str(config.get("source") or "")
+    c = store.add_connector(desk["id"], kind, name, config, bool(d.get("auto")))
     return jsonify(_conn_public(c))
 
 
@@ -1462,6 +1465,9 @@ def api_update_connector(cid):
     d = request.get_json(force=True) or {}
     fields: dict[str, Any] = {}
     if "config" in d:
+        if c["kind"] == "camera" and "source" in (d["config"] or {}):
+            src = str(d["config"].get("source") or "")
+            d["config"]["source"] = DS.resolve_camera_source(src) or src
         fields["config"] = I.merge_secrets(c["config"], d["config"] or {})
     if "auto" in d:
         fields["auto"] = 1 if d["auto"] else 0

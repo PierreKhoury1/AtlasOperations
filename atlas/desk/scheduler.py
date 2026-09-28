@@ -107,7 +107,7 @@ def camera_tick(store, desk: dict[str, Any], conn: dict[str, Any], start_run: Ca
         if is_due:
             try:
                 note = JR.write_note(key, conn["name"], jc, res["jpeg"], res["counts"], notes=str(cfg.get("notes") or ""),
-                                     model=str(cfg.get("vlm_model") or ""), why=note_why)
+                                     model=str(cfg.get("vlm_model") or ""), why=note_why, dets=res.get("detections"))
             except Exception as exc:
                 JR.failed(key)
                 note_why = f"journal failed: {str(exc)[:140]}"

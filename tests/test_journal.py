@@ -32,7 +32,8 @@ class FakeVLM:
 
 def test_config_defaults_and_bounds():
     jc = JR.config({})
-    assert jc == {"on": False, "every_s": 60, "min_gap_s": 8, "motion": 0.03, "rollup_min": 15, "focus": ""}
+    assert jc == {"on": False, "every_s": 60, "min_gap_s": 8, "motion": 0.03, "rollup_min": 15, "focus": "", "closeup": True}
+    assert JR.config({"journal_closeup": "0"})["closeup"] is False
     jc = JR.config({"journal": "1", "journal_every_s": "5", "journal_rollup_min": "x", "journal_focus": "tables"})
     assert jc["on"] and jc["every_s"] == 10 and jc["rollup_min"] == 15 and jc["focus"] == "tables"
 
