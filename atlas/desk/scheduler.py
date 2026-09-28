@@ -92,9 +92,13 @@ def camera_tick(store, desk: dict[str, Any], conn: dict[str, Any], start_run: Ca
     res["answer"] = answer
     try:                                                   # the object catalogue rides on the same schedule as the watch job
         from .. import objects as OBJ
-        OBJ.ensure_worker(store, desk["id"], conn, live=live)
-    except Exception:
-        traceback.print_exc()
+    except ImportError:
+        OBJ = None                                         # optional module: no catalogue, no noise on every tick
+    if OBJ is not None:
+        try:
+            OBJ.ensure_worker(store, desk["id"], conn, live=live)
+        except Exception:
+            traceback.print_exc()
     # journal: a detailed written note when the scene changed or the max gap passed (the RAG log's real content)
     jc = JR.config(cfg)
     note, note_why = "", ""

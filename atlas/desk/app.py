@@ -13,6 +13,7 @@ Env:  DESK_MODE=demo|live|auto     demo = scripted provider (no API key needed);
 """
 from __future__ import annotations
 
+import importlib
 import json
 import queue
 import os
@@ -1755,6 +1756,18 @@ def api_vision_journal_stream():
 
 
 # ---------------------------------------------------------------------------- object catalogue
+def _objects_mod():
+    """atlas.objects (the catalogue worker) and atlas.audit are optional installs; without them the routes say so
+    instead of dying with a 500."""
+    try:
+        OBJ = importlib.import_module("atlas.objects")
+        AUD = importlib.import_module("atlas.audit")
+    except ImportError:
+        abort(Response(json.dumps({"error": "object catalogue not installed (atlas/objects.py, atlas/audit.py)"}), 501,
+                       mimetype="application/json"))
+    return OBJ, AUD
+
+
 def _obj_public(o: dict[str, Any]) -> dict[str, Any]:
     o = dict(o)
     o.pop("emb", None)
@@ -1788,8 +1801,7 @@ def desk_objects_page():
 @app.get("/api/objects")
 def api_objects():
     """The catalogue: every distinct thing the cameras saw. Filters: camera, label, status, verdict, minutes, watch."""
-    from .. import objects as OBJ
-    from .. import audit as AUD
+    OBJ, AUD = _objects_mod()
     desk = need_desk()
     ds = store.for_desk(desk["id"])
     a = request.args
@@ -1813,7 +1825,7 @@ def api_objects():
 
 @app.get("/api/objects/<int:oid>")
 def api_object(oid):
-    from .. import objects as OBJ
+    OBJ, _ = _objects_mod()
     desk, o = _object(oid)
     ds = store.for_desk(desk["id"])
     try:
@@ -1825,7 +1837,7 @@ def api_object(oid):
 
 @app.get("/api/objects/<int:oid>/<which>.jpg")
 def api_object_image(oid, which):
-    from .. import objects as OBJ
+    OBJ, _ = _objects_mod()
     desk, o = _object(oid)
     if which not in ("crop", "scene"):
         abort(404)
@@ -1837,7 +1849,7 @@ def api_object_image(oid, which):
 
 def _object_live(desk: dict[str, Any], o: dict[str, Any]):
     """(frame, box, vision model) for an object: the live frame while it is still in view, else its stored pictures."""
-    from .. import objects as OBJ
+    OBJ, _ = _objects_mod()
     w = OBJ.worker(desk["id"], o["camera"])
     frame, box = w.latest(o["id"]) if w else (None, None)
     conn = next((c for c in store.connectors(desk["id"]) if c["kind"] == "camera" and c["name"] == o["camera"]), None)
@@ -1847,7 +1859,7 @@ def _object_live(desk: dict[str, Any], o: dict[str, Any]):
 @app.post("/api/objects/<int:oid>/call")
 def api_object_call(oid):
     """Call an object: the vision model examines it now, and (watch on) keeps following it while it stays in view."""
-    from .. import objects as OBJ
+    OBJ, _ = _objects_mod()
     desk, o = _object(oid)
     d = request.get_json(silent=True) or {}
     on = bool(d.get("on", True))
@@ -1867,7 +1879,7 @@ def api_object_call(oid):
 
 @app.post("/api/objects/<int:oid>/ask")
 def api_object_ask(oid):
-    from .. import objects as OBJ
+    OBJ, _ = _objects_mod()
     desk, o = _object(oid)
     q = str((request.get_json(force=True) or {}).get("question") or "").strip()[:500]
     if not q:
