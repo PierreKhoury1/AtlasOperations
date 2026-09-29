@@ -498,9 +498,10 @@ def desk_static(path):
 # ---------------------------------------------------------------------------- api: desks (onboarding + switching)
 def _desk_public(d: dict[str, Any]) -> dict[str, Any]:
     b = (d.get("config") or {}).get("business") or {}
+    from .. import alerts as AL
     return {"id": d["id"], "name": d["name"], "template": d["template"], "tier": d.get("tier", "free"),
             "business_name": b.get("name", d["name"]), "created": d.get("created"),
-            "ui_level": (d.get("config") or {}).get("ui_level") or "simple"}
+            "ui_level": (d.get("config") or {}).get("ui_level") or "simple", "notify": AL.config(d)}
 
 
 # tools a specialist may be given from the Team page. Everything else in ORCHESTRATOR_ONLY stays with Atlas;
@@ -645,6 +646,14 @@ def api_update_desk(did):
         conf = fields.get("config") or d.get("config") or {}
         conf["ui_level"] = body["ui_level"]
         fields["config"] = conf
+    if isinstance(body.get("notify"), dict):
+        from .. import alerts as AL
+        n = AL.clean(body["notify"])
+        if isinstance(n, str):
+            return jsonify({"error": n}), 400
+        conf = fields.get("config") or d.get("config") or {}
+        conf["notify"] = n
+        fields["config"] = conf
     if body.get("reset_agents"):
         conf = fields.get("config") or d.get("config") or {}
         conf.pop("agents", None)
@@ -671,6 +680,9 @@ def api_update_desk(did):
         conf["models"] = cur
         fields["config"] = conf
     store.update_desk(did, **fields)
+    if isinstance(body.get("notify"), dict):
+        from .. import alerts as AL
+        AL.ensure_report_job(store, store.desk(did))
     return jsonify(_desk_public(store.desk(did)))
 
 
@@ -2891,6 +2903,8 @@ if _n_enc:
 if OPEN and os.environ.get("RENDER"):
     print("WARNING: DESK_OPEN=1 on a public deployment - the portal and every desk are reachable without login")
 scheduler.LIVE = lambda: _mode() != "demo" and not _live_reason()
+scheduler.DISPATCH = _dispatch
+scheduler.BASE_URL = lambda: os.environ.get("PUBLIC_URL", "").strip()
 scheduler.start(store, _start_run, store.desk)
 threading.Thread(target=_watchdog_loop, daemon=True, name="atlas-watchdog").start()
 

@@ -185,6 +185,14 @@ demos and for testing on recorded footage. Cost: each note is one vision call wi
 model that is $0 but the free daily request limit covers roughly an hour of two busy cameras; for all-day use set a
 paid `vlm_model` on the camera or add `GEMINI_API_KEY` / `GROQ_API_KEY` (each adds its own free quota).
 
+**Alerts go to a person.** On the Cameras page, *Alerts go to* names a channel (WhatsApp / SMS / email / Slack) and a
+recipient (`PATCH /api/desks/<id> {notify: {...}}`). Every rule firing then becomes one message in the approval queue
+with the reason, the counts, who is known in view, the analyst's answer, the journal note and a snapshot link; **send
+at once** skips the approval. Per camera, `per_hour` (6) firings an hour are sent one by one and the rest of that hour
+becomes one digest; inside `quiet` hours (`23:00-07:00`) firings are logged, not sent. `run: true` also wakes the agents
+for every alert (the behaviour when no channel is set). With a channel set, a `daily_report` job queues the report by
+name every morning at `report_time` (`GET /api/report/day?format=md` is the same report on demand).
+
 **Honesty (what makes a note trustworthy).** A wrong detail in the journal is worse than a missing one, because the
 owner searches it later. Three things guard against it, all on by default:
 

@@ -575,6 +575,22 @@ aside.simple [data-lvl="full"]{display:none}
         <div class="row" style="margin-top:10px"><button class="btn p" id="vid-btn" onclick="analyseVideo()">Analyse</button><span class="hint" id="vid-status"></span></div>
         <div class="askout" id="vid-out" style="margin-top:10px;display:none"></div>
       </div></div>
+      <div class="panel" style="margin-bottom:14px"><div class="ph"><h2>Alerts go to</h2><span class="hint" id="nt-state"></span></div><div class="pb">
+        <p class="hint" style="margin-bottom:8px">Every rule firing becomes one message here, with the snapshot and the note. It waits in Approvals unless you tick <b>send at once</b>. Beyond the hourly budget the rest of the hour is one digest; in quiet hours alerts are logged, not sent. The daily report by name goes out every morning.</p>
+        <div class="grid2">
+          <div><label>Channel</label><select id="nt-channel"><option value="">off (agents handle alerts)</option><option value="whatsapp">WhatsApp</option><option value="sms">SMS</option><option value="email">Email</option><option value="slack">Slack</option></select></div>
+          <div><label>To</label><input id="nt-to" placeholder="+44 7700 900123 · boss@… · (Slack: the connector's channel)"></div>
+          <div><label>Alerts per camera per hour</label><input id="nt-per" type="number" min="1" max="120" value="6"></div>
+          <div><label>Quiet hours</label><input id="nt-quiet" placeholder="23:00-07:00 (blank = never)"></div>
+          <div><label>Daily report at</label><input id="nt-rt" placeholder="07:00" value="07:00"></div>
+          <div style="display:flex;flex-direction:column;gap:6px;justify-content:end">
+            <label style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="nt-auto" style="width:auto"> send at once (no approval)</label>
+            <label style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="nt-report" style="width:auto" checked> daily report</label>
+            <label style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="nt-run" style="width:auto"> also wake the agents for every alert</label>
+          </div>
+        </div>
+        <div class="act" style="margin-top:8px"><button class="btn p sm" onclick="saveNotify()">Save</button><a class="btn sm" href="/api/report/day?format=md" target="_blank">Today's report ↗</a></div>
+      </div></div>
       <div class="panel" style="margin-bottom:14px"><div class="ph"><h2>Add a camera</h2></div><div class="pb">
         <label>Name (agents refer to it by this)</label><input id="cam-name" placeholder="front-door">
         <label>Source</label><input id="cam-src" placeholder="0 (laptop webcam) · rtsp://user:pass@192.168.1.20:554/Streaming/Channels/101 · http://192.168.1.31/capture">
@@ -645,7 +661,7 @@ async function loadCfg(){
   loadDesks();
   const me = await api('/me'); if (me && me.id) { $('#who').textContent = me.name; $('#whoco').textContent = me.company || me.email; $('#whoav').textContent = (me.name||'?').trim()[0].toUpperCase(); } else { $('#who').textContent = 'Guest'; $('#whoco').textContent = 'open test mode'; document.querySelectorAll('a[href="/logout"]').forEach(a => a.remove()); }
   colors = Object.fromEntries(CFG.agents.map(a=>[a.id, a.color || '#7c3aed']));
-  applyLevel();
+  applyLevel(); fillNotify();
   $('#bizname').textContent = CFG.business.name; $('#wshint').textContent = (CFG.template || '').replace('_', ' ') + ' · ' + CFG.mode;
   $('#mode').textContent = CFG.mode.toUpperCase();
   $('#modehint').textContent = CFG.mode==='demo' ? 'scripted agents' : (CFG.live_reason ? '⚠ ' + CFG.live_reason : 'live models');
@@ -1562,6 +1578,16 @@ async function lookCam(id, trigger){
 async function lookAll(){ for (const c of CAMS) await lookCam(c.id); }
 async function watchCam(id, on, every){ every = every || 30; const r = await api(`/cameras/${id}/watch`, {method:'POST', body:{on, every_s:every}}); toast(r && r.ok ? (on ? `Watching every ${every}s` : 'Stopped') : 'failed'); loadCameras(); }
 async function delCam(id){ if(!confirm('Remove this camera? Its event log stays.')) return; await api(`/connectors/${id}`, {method:'DELETE', body:{}}); loadCameras(); }
+
+function fillNotify(){ const n = (CFG.desk || {}).notify || {}; if (!$('#nt-channel')) return;
+  $('#nt-channel').value = n.channel || ''; $('#nt-to').value = n.to || ''; $('#nt-per').value = n.per_hour || 6; $('#nt-quiet').value = n.quiet || '';
+  $('#nt-rt').value = n.report_time || '07:00'; $('#nt-auto').checked = !!n.auto; $('#nt-report').checked = n.report !== false; $('#nt-run').checked = !!n.run;
+  $('#nt-state').textContent = n.channel ? `${n.channel} → ${n.to || 'connector'}${n.auto ? ' · sends at once' : ' · via Approvals'}` : 'off: alerts wake the agents'; }
+async function saveNotify(){ const did = (CFG.desk || {}).id; if (!did) return;
+  const body = {notify: {channel: $('#nt-channel').value, to: $('#nt-to').value.trim(), per_hour: +$('#nt-per').value || 6, quiet: $('#nt-quiet').value.trim(),
+    report_time: $('#nt-rt').value.trim() || '07:00', auto: $('#nt-auto').checked, report: $('#nt-report').checked, run: $('#nt-run').checked}};
+  const r = await api(`/desks/${did}`, {method:'PATCH', body});
+  if (r && r.notify) { CFG.desk.notify = r.notify; fillNotify(); toast('alert settings saved'); } else toast((r && r.error) || 'could not save'); }
 async function addCamera(){
   const name = $('#cam-name').value.trim(), source = $('#cam-src').value.trim(); if (!name || !source) return toast('Name and source needed');
   const config = {source, watch_for:$('#cam-watch').value.trim()||'person', min_count:$('#cam-min').value||'1', hours:$('#cam-hours').value.trim(), cooldown_min:$('#cam-cool').value||'10', dwell_min:$('#cam-dwell').value||'0', repeat:$('#cam-repeat').value||'changes', question:$('#cam-q').value.trim(), task:$('#cam-task').value.trim(), notes:$('#cam-notes').value.trim(), journal:$('#cam-journal').checked?'1':'', alerts:$('#cam-alerts').checked?'1':'0', journal_every_s:$('#cam-jevery').value||'60', journal_rollup_min:$('#cam-jroll').value||'15', journal_focus:$('#cam-jfocus').value.trim()};

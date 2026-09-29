@@ -20,6 +20,7 @@ import traceback
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Callable
 
+from .. import alerts as AL
 from .. import integrations as I
 from .. import journal as JR
 from .. import vision as V
@@ -43,6 +44,8 @@ def _camera_pool() -> "ThreadPoolExecutor":
         return _pool
 MIN_CAMERA_S = 5                                         # fastest camera_watch cadence (the portal allows every_s >= 5)
 LIVE = lambda: True                                       # replaced by the app: is this desk on live models?
+BASE_URL = lambda: ""                                     # replaced by the app: public URL for snapshot links
+DISPATCH = None                                           # replaced by the app: send an approved action for real
 _last_frame: dict[tuple[int, str], bytes] = {}          # (desk_id, camera) -> last raw frame (motion baseline)
 _last_seen: dict[tuple[int, str], dict[str, Any]] = {}  # (desk_id, camera) -> last analysis (portal "live" tile)
 _present: dict[tuple[int, str], tuple[float, float]] = {}  # (desk_id, camera) -> (since, last seen) while the rule's count holds
@@ -102,6 +105,7 @@ def camera_tick(store, desk: dict[str, Any], conn: dict[str, Any], start_run: Ca
     # journal: a detailed written note when the scene changed or the max gap passed (the RAG log's real content)
     jc = JR.config(cfg)
     note, note_why = "", ""
+    known: list[dict[str, Any]] = []
     if jc["on"] and live and V.vlm_ready():
         is_due, note_why = JR.due(key, jc, time.time(), res["motion"], res["counts"])
         if is_due:
@@ -132,7 +136,26 @@ def camera_tick(store, desk: dict[str, Any], conn: dict[str, Any], start_run: Ca
             except Exception as exc:
                 ds.add_vision_event(conn["name"], {}, backend="error", reason=f"journal summary failed: {str(exc)[:160]}")
     rid = ""
+    notified = ""
     if triggered and event:
+        nc = AL.config(desk)
+        for d_id, cam, muted in AL.expired_mutes():               # a muted hour that ended: one digest, before this firing is judged
+            if d_id == desk["id"] and nc["channel"]:
+                subj, body = AL.digest_message(cam, muted, nc["per_hour"])
+                AL.queue(store, desk, nc["channel"], nc["to"], subj, body, f"{muted['count']} muted alerts on {cam}", nc["auto"], DISPATCH)
+        verdict = AL.decide(desk["id"], conn["name"], nc["per_hour"], nc["quiet"]) if nc["channel"] else "send"
+        if verdict != "send":
+            AL.note_muted(desk["id"], conn["name"], f"{reason}; {V.counts_text(res['counts'])}")
+            ds.update_vision_event_reason(event["id"], reason + (" (quiet hours: not sent)" if verdict == "quiet" else f" (muted: over {nc['per_hour']}/h)"))
+            notified = verdict
+        elif nc["channel"]:
+            subj, body = AL.alert_message(conn["name"], reason, res["counts"], answer, note, event, known=known if jc["on"] else [],
+                                          base_url=BASE_URL())
+            row = AL.queue(store, desk, nc["channel"], nc["to"], subj, body, f"camera alert on {conn['name']}: {reason}",
+                           nc["auto"], DISPATCH)
+            notified = row["status"]
+            ds.set_vision_run(event["id"], f"action:{row['id']}")
+    if triggered and event and (AL.config(desk)["run"]) and notified in ("", "pending", "sent", "failed"):
         when = time.strftime("%A %d %B %H:%M")
         task = (rule["task"] or "Assess this camera alert, log it, and tell the right person only if it matters.") + "\n\n"
         task += (f"CAMERA ALERT — {conn['name']} at {when}\n"
@@ -153,7 +176,7 @@ def camera_tick(store, desk: dict[str, Any], conn: dict[str, Any], start_run: Ca
             rid = ""
     JR.publish(desk["id"], "tick", conn["name"], counts=res["counts"], motion=res["motion"], backend=res["backend"],
                triggered=triggered, reason=reason if triggered else "", journal=bool(note), journal_status=note_why if jc["on"] else "",
-               event_id=(event or {}).get("id"), run_id=rid, answer=answer[:600] if answer else "")
+               event_id=(event or {}).get("id"), run_id=rid, answer=answer[:600] if answer else "", notified=notified)
     seen = {"ts": time.time(), "counts": res["counts"], "motion": res["motion"], "backend": res["backend"], "reason": reason,
             "present_s": round(time.time() - present_since) if present_since else 0,
             "journal": note[:400], "journal_status": note_why if jc["on"] else "",
@@ -228,6 +251,17 @@ def _run_job(store, job: dict[str, Any], start_run: Callable, desk_for: Callable
                 out.append(f"{c['name']}: ERROR {str(exc)[:120]}")
                 ds.add_vision_event(c["name"], {}, reason=f"grab failed: {str(exc)[:160]}", backend="error")
         return "; ".join(out)
+    if kind == "daily_report":
+        from .. import report as REP
+        nc = AL.config(desk)
+        if not nc["channel"]:
+            return "no notify channel configured"
+        date = time.strftime("%Y-%m-%d", time.localtime(time.time() - 86400 if time.localtime().tm_hour < 12 else time.time()))
+        data = REP.daily(store, desk["id"], date)
+        biz = ((desk.get("config") or {}).get("business") or {}).get("name") or desk.get("name") or ""
+        subj, body = AL.report_message(desk, date, REP.markdown(data, biz), nc["channel"])
+        row = AL.queue(store, desk, nc["channel"], nc["to"], subj, body, f"daily camera report {date}", nc["auto"], DISPATCH)
+        return f"report {date} -> {nc['channel']} {row['status']} (action {row['id']})"
     if kind == "http_poll":
         try:
             spec = json.loads(job["task"] or "{}")

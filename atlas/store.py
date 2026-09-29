@@ -399,6 +399,11 @@ class Store:
             "WHERE e.desk_id=? AND v.event_id IS NULL ORDER BY e.ts DESC LIMIT ?", (model, desk_id, limit)))
         return [self._vrow(r) for r in rows]
 
+    def update_vision_event_reason(self, vid: int, reason: str) -> None:
+        with self._lock:
+            self._conn.execute("UPDATE vision_events SET reason=? WHERE id=?", (reason[:300], vid))
+            self._conn.commit()
+
     def vision_events_by_ids(self, ids: list[int]) -> list[dict[str, Any]]:
         if not ids:
             return []
@@ -838,6 +843,7 @@ class DeskStore:
     def vision_vector_count(self, model=""): return self.s.vision_vector_count(self.desk_id, model)
     def unindexed_vision_events(self, model, limit=32): return self.s.unindexed_vision_events(self.desk_id, model, limit)
     def vision_events_by_ids(self, ids): return self.s.vision_events_by_ids(ids)
+    def update_vision_event_reason(self, vid, reason): return self.s.update_vision_event_reason(vid, reason)
     def last_vision_event(self, camera, triggered_only=False): return self.s.last_vision_event(self.desk_id, camera, triggered_only)
     def hook_cameras(self, since, exclude=()): return self.s.hook_cameras(self.desk_id, since, exclude)
     def set_vision_run(self, vid, run_id): return self.s.set_vision_run(vid, run_id)
