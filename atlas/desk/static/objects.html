@@ -1,0 +1,191 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Atlas Desk · Objects</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#f5f7fa;--panel:#fff;--panel2:#f0f3f7;--line:#d9dfe8;--text:#10161d;--text2:#2f3a47;--muted:#5f6b7a;--faint:#8b97a6;
+  --accent:#2f5bea;--accent-soft:#e6ecfd;--ok:#1f8a4c;--warn:#b7791f;--danger:#c0392b;--mono:"IBM Plex Mono",ui-monospace,monospace;--r:4px}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--bg:#0f1318;--panel:#171c23;--panel2:#1e252e;--line:#2a323d;--text:#e8edf3;--text2:#c7d0db;--muted:#8d99a8;--faint:#66727f;--accent:#7c9cff;--accent-soft:#1d2740}}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:Inter,system-ui,sans-serif;background:var(--bg);color:var(--text);font-size:14px;line-height:1.5}
+a{color:inherit;text-decoration:none}
+header{display:flex;align-items:center;gap:14px;padding:12px 20px;border-bottom:1px solid var(--line);background:var(--panel);position:sticky;top:0;z-index:5}
+header .brand{font-weight:600;display:flex;align-items:center;gap:8px}
+header .brand i{width:16px;height:16px;border-radius:2px;background:var(--accent);display:inline-block}
+header h1{font-size:16px;font-weight:600}
+header .lead{color:var(--muted);font-size:13px}
+header .spacer{flex:1}
+.tag{font-family:var(--mono);font-size:11px;border:1px solid var(--line);border-radius:3px;padding:2px 7px;color:var(--muted);white-space:nowrap}
+.tag.ok{color:var(--ok);border-color:var(--ok)} .tag.warn{color:var(--warn);border-color:var(--warn)} .tag.bad{color:var(--danger);border-color:var(--danger)}
+main{display:grid;grid-template-columns:230px 1fr;gap:18px;padding:18px 20px;max-width:1500px}
+.filters{display:flex;flex-direction:column;gap:12px}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:var(--r)}
+.panel .ph{padding:10px 12px;border-bottom:1px solid var(--line);font-weight:600;font-size:13px;display:flex;align-items:center;gap:8px}
+.panel .pb{padding:10px 12px}
+.facet button{display:flex;justify-content:space-between;width:100%;background:none;border:0;font:inherit;color:var(--text2);padding:4px 6px;border-radius:3px;cursor:pointer;text-align:left}
+.facet button:hover{background:var(--panel2)} .facet button.on{background:var(--accent-soft);color:var(--accent)}
+.facet button small{color:var(--faint);font-family:var(--mono);font-size:11px}
+select,input[type=text]{width:100%;font:inherit;padding:6px 8px;border:1px solid var(--line);border-radius:3px;background:var(--panel);color:var(--text)}
+label.chk{display:flex;gap:8px;align-items:center;font-size:13px;color:var(--text2)}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:12px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);overflow:hidden;cursor:pointer;display:flex;flex-direction:column}
+.card:hover{border-color:var(--accent)} .card.on{outline:2px solid var(--accent)}
+.card .img{aspect-ratio:1/1;background:var(--panel2);display:grid;place-items:center;overflow:hidden}
+.card .img img{width:100%;height:100%;object-fit:cover}
+.card .meta{padding:8px 10px;display:flex;flex-direction:column;gap:3px}
+.card .meta b{font-size:13px;display:flex;justify-content:space-between;align-items:center}
+.card .meta small{color:var(--muted);font-size:12px}
+.vouch{display:flex;gap:4px;flex-wrap:wrap}
+.vouch span{font-family:var(--mono);font-size:10px;border:1px solid var(--line);border-radius:3px;padding:1px 5px;color:var(--muted)}
+.vouch span.v-owner{color:var(--ok);border-color:var(--ok)} .vouch span.v-model{color:var(--accent);border-color:var(--accent)}
+.vouch span.v-disputed,.vouch span.v-rejected{color:var(--danger);border-color:var(--danger)}
+.empty{color:var(--muted);padding:40px;text-align:center}
+#detail{position:fixed;top:0;right:0;width:min(520px,100%);height:100vh;background:var(--panel);border-left:1px solid var(--line);box-shadow:-8px 0 30px rgba(0,0,0,.12);transform:translateX(100%);transition:transform .18s;overflow:auto;z-index:10}
+#detail.open{transform:none}
+#detail .dh{display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--panel)}
+#detail .dh h2{font-size:15px;font-weight:600;flex:1}
+#detail .db{padding:14px 16px;display:flex;flex-direction:column;gap:14px}
+.pics{display:grid;grid-template-columns:1fr 1.4fr;gap:8px}
+.pics img{width:100%;border:1px solid var(--line);border-radius:3px;background:var(--panel2)}
+.facts{font-family:var(--mono);font-size:11.5px;color:var(--muted);line-height:1.7}
+.facts b{color:var(--text)}
+.btn{font:inherit;font-weight:500;padding:6px 12px;border:1px solid var(--line);background:var(--panel);color:var(--text);border-radius:3px;cursor:pointer}
+.btn.p{background:var(--accent);border-color:var(--accent);color:#fff} .btn.sm{padding:4px 9px;font-size:12px} .btn:disabled{opacity:.5;cursor:default}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.notes{display:flex;flex-direction:column;gap:8px}
+.note{border-left:3px solid var(--line);padding:4px 10px;font-size:13px}
+.note.error{border-color:var(--danger)} .note.verify{border-color:var(--ok)} .note.call{border-color:var(--accent)} .note.follow{border-color:var(--accent)}
+.note small{display:block;font-family:var(--mono);font-size:10.5px;color:var(--faint)}
+.similar{display:flex;gap:6px;flex-wrap:wrap}
+.similar img{width:64px;height:64px;object-fit:cover;border:1px solid var(--line);border-radius:3px;cursor:pointer}
+.similar div{font-size:10px;color:var(--muted);text-align:center;font-family:var(--mono)}
+.hint{color:var(--muted);font-size:12px}
+.toast{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);background:var(--text);color:var(--bg);padding:8px 14px;border-radius:4px;font-size:13px;opacity:0;transition:opacity .2s;pointer-events:none;z-index:20}
+.toast.show{opacity:1}
+@media (max-width:820px){main{grid-template-columns:1fr}.filters{flex-direction:row;flex-wrap:wrap}.filters .panel{flex:1 1 200px}}
+</style>
+</head>
+<body>
+<header>
+  <a class="brand" href="/desk#cameras" title="Back to the desk"><i></i>Atlas Desk</a>
+  <div><h1>Objects</h1><div class="lead">Every distinct thing the cameras saw, tracked while it stayed in view. Nothing here comes from a single frame; every row says who vouched for it.</div></div>
+  <div class="spacer"></div>
+  <span class="tag" id="t-workers">workers: –</span>
+  <span class="tag" id="t-audit" title="Latest run of `py -m atlas audit` against human ground truth">audit: –</span>
+  <span class="tag" id="t-live">–</span>
+</header>
+<main>
+  <aside class="filters">
+    <div class="panel"><div class="ph">Camera</div><div class="pb facet" id="f-camera"></div></div>
+    <div class="panel"><div class="ph">Label</div><div class="pb facet" id="f-label"></div></div>
+    <div class="panel"><div class="ph">Verdict</div><div class="pb facet" id="f-verdict"></div></div>
+    <div class="panel"><div class="ph">Window</div><div class="pb">
+      <select id="f-minutes"><option value="0">all time</option><option value="15">last 15 min</option><option value="60" selected>last hour</option><option value="360">last 6 h</option><option value="1440">last 24 h</option></select>
+      <label class="chk" style="margin-top:8px"><input type="checkbox" id="f-watch"> only objects I called</label>
+      <label class="chk" style="margin-top:4px"><input type="checkbox" id="f-rejected"> show rejected</label>
+    </div></div>
+  </aside>
+  <section>
+    <div class="row" style="margin-bottom:10px"><span class="hint" id="count">loading…</span><span class="spacer" style="flex:1"></span><button class="btn sm" onclick="load()">Refresh</button></div>
+    <div class="grid" id="grid"></div>
+    <div class="empty" id="empty" style="display:none">No objects yet. Turn the journal (or <code>objects</code>) on for a camera and press Watch: the catalogue fills as things are tracked for a few frames.</div>
+  </section>
+</main>
+<div id="detail"><div class="dh"><h2 id="d-title">–</h2><span class="tag" id="d-status"></span><button class="btn sm" onclick="closeDetail()">Close</button></div><div class="db" id="d-body"></div></div>
+<div class="toast" id="toast"></div>
+<script>
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const hms = ts => ts ? new Date(ts * 1000).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit', second:'2-digit'}) : '–';
+const F = {camera:'', label:'', verdict:''};
+let OBJS = [], CUR = null, timer = null;
+async function api(path, opts={}){ const r = await fetch('/api' + path, {headers:{'Content-Type':'application/json'}, ...opts, body: opts.body ? JSON.stringify(opts.body) : undefined}); let j = null; try { j = await r.json(); } catch(_){} if (r.status === 501) { $('#empty').style.display = ''; $('#empty').textContent = (j && j.error) || 'object catalogue not installed'; } return j; }
+function toast(m){ const t = $('#toast'); t.textContent = m; t.classList.add('show'); setTimeout(() => t.classList.remove('show'), 2200); }
+function vouch(o){
+  const v = [];
+  if (o.verdict === 'rejected') v.push(['v-rejected', 'rejected by ' + (o.verdict_by || 'owner')]);
+  else if (o.verdict === 'confirmed') v.push([o.verdict_by === 'owner' ? 'v-owner' : 'v-model', 'confirmed · ' + (o.verdict_by || '')]);
+  else if (o.status === 'disputed' || (o.second_label && o.second_label !== o.label && (o.second_score || 0) >= 0.6)) v.push(['v-disputed', 'disputed: clip says ' + (o.second_label || '?')]);
+  else if (o.second_label && o.second_label === o.label) v.push(['', 'clip agrees']);
+  else v.push(['', 'detector only']);
+  return '<div class="vouch">' + v.map(([c, t]) => `<span class="${c}">${esc(t)}</span>`).join('') + `<span>${esc(o.hits || 0)} sightings</span></div>`;
+}
+function card(o){
+  return `<div class="card ${CUR && CUR.id === o.id ? 'on' : ''}" onclick="openDetail(${o.id})">
+    <div class="img"><img src="${o.crop_url}" alt="" loading="lazy" onerror="this.style.display='none'"></div>
+    <div class="meta"><b>${esc(o.label)} <small>#${o.id}</small></b>
+      <small>${esc(o.camera)} · ${hms(o.first_ts)} → ${hms(o.last_ts)} · ${esc(o.seconds)}s${o.status === 'active' ? ' · <span style="color:var(--ok)">in view</span>' : ''}</small>
+      ${vouch(o)}</div></div>`;
+}
+function facet(id, key, counts){
+  const el = $(id); const total = Object.values(counts).reduce((a, b) => a + b, 0);
+  el.innerHTML = `<button class="${F[key] ? '' : 'on'}" onclick="setF('${key}','')">all <small>${total}</small></button>` +
+    Object.entries(counts).sort((a, b) => b[1] - a[1]).map(([k, n]) => `<button class="${F[key] === k ? 'on' : ''}" onclick="setF('${key}',${JSON.stringify(k)})">${esc(k)} <small>${n}</small></button>`).join('');
+}
+function setF(k, v){ F[k] = v; load(); }
+async function load(){
+  const q = new URLSearchParams({camera: F.camera, label: F.label, verdict: F.verdict, minutes: $('#f-minutes').value,
+    watch: $('#f-watch').checked ? '1' : '', rejected: $('#f-rejected').checked ? '1' : ''});
+  const r = await api('/objects?' + q); if (!r || !r.objects) { $('#count').textContent = 'catalogue unavailable'; return; }
+  OBJS = r.objects;
+  $('#grid').innerHTML = OBJS.map(card).join('');
+  $('#empty').style.display = OBJS.length ? 'none' : '';
+  $('#count').textContent = `${OBJS.length} object${OBJS.length === 1 ? '' : 's'}`;
+  facet('#f-camera', 'camera', r.facets.camera || {}); facet('#f-label', 'label', r.facets.label || {}); facet('#f-verdict', 'verdict', r.facets.verdict || {});
+  const w = Object.entries(r.workers || {});
+  $('#t-workers').textContent = w.length ? 'workers: ' + w.map(([c, s]) => `${c} ${s.running ? (s.detect_ms || 0) + 'ms' : 'stopped'}${s.error ? ' !' : ''}`).join(' · ') : 'workers: none running';
+  $('#t-workers').className = 'tag ' + (w.some(([, s]) => s.error) ? 'warn' : '');
+  const a = r.audit; $('#t-audit').textContent = a ? `audit: ${a.summary || (a.precision != null ? 'precision ' + Math.round(a.precision * 100) + '% · recall ' + Math.round((a.recall || 0) * 100) + '%' : 'see report')}` : 'audit: not run';
+  $('#t-live').textContent = r.live ? 'vision model ready' : 'vision model off (demo / no key)'; $('#t-live').className = 'tag ' + (r.live ? 'ok' : 'warn');
+}
+async function openDetail(id){
+  const r = await api('/objects/' + id); if (!r || !r.object) return;
+  CUR = r.object; document.querySelectorAll('.card').forEach(c => c.classList.toggle('on', c.innerText.includes('#' + id + '\n')));
+  renderDetail(r); $('#detail').classList.add('open');
+}
+function closeDetail(){ $('#detail').classList.remove('open'); CUR = null; }
+function renderDetail(r){
+  const o = r.object; const attrs = o.attrs || {};
+  $('#d-title').textContent = `${o.label} #${o.id} · ${o.camera}`;
+  $('#d-status').textContent = o.status + (o.watch ? ' · following' : '');
+  $('#d-body').innerHTML = `
+    <div class="pics"><img src="${o.crop_url}" alt="best crop" title="best crop"><img src="${o.scene_url}" alt="scene" title="the scene with the object outlined"></div>
+    ${vouch(o)}
+    <div class="facts">first seen <b>${hms(o.first_ts)}</b> · last seen <b>${hms(o.last_ts)}</b> · <b>${esc(o.seconds)}s</b> in view · <b>${esc(o.hits)}</b> sightings<br>
+      detector <b>${esc(o.label)}</b> ${Math.round((o.best_conf || 0) * 100)}% best · label held ${Math.round((o.label_conf || 0) * 100)}% of votes${attrs.detector_label ? ` (detector said ${esc(attrs.detector_label)})` : ''}<br>
+      second opinion (CLIP) <b>${esc(o.second_label || 'none')}</b> ${o.second_score ? Math.round(o.second_score * 100) + '%' : ''}<br>
+      ${o.description ? `vision model: <b>${esc(o.description)}</b>` : 'vision model: not asked yet'}</div>
+    <div class="row">
+      <button class="btn p sm" onclick="callObj(${o.id}, ${o.watch ? 'false' : 'true'})">${o.watch ? 'Stop following' : 'Call it (vision model looks now)'}</button>
+      <button class="btn sm" onclick="verdict(${o.id}, 'confirmed')">✓ Confirm ${esc(o.label)}</button>
+      <button class="btn sm" onclick="verdict(${o.id}, 'rejected')">✗ Not a ${esc(o.label)}</button>
+      <input type="text" id="relabel" placeholder="correct label…" style="width:140px" onkeydown="if(event.key==='Enter')verdict(${o.id}, 'confirmed', this.value)">
+    </div>
+    <div class="row"><input type="text" id="q" placeholder="ask about this object… (what is it carrying? is it the same van as this morning?)" style="flex:1" onkeydown="if(event.key==='Enter')ask(${o.id})"><button class="btn sm" onclick="ask(${o.id})">Ask</button></div>
+    <div><div class="hint" style="margin-bottom:6px">Notes (${r.notes.length})</div><div class="notes" id="d-notes">${notesHtml(r.notes)}</div></div>
+    ${r.similar && r.similar.length ? `<div><div class="hint" style="margin-bottom:6px">Looks like (similarity suggestions, never merged)</div><div class="similar">${r.similar.map(s => `<div><img src="${s.crop_url}" onclick="openDetail(${s.id})" title="#${s.id} ${esc(s.label)} on ${esc(s.camera)}"><div>#${s.id} ${esc(s.camera)}${s.score != null ? ' ' + Math.round(s.score * 100) + '%' : ''}</div></div>`).join('')}</div></div>` : ''}`;
+}
+function notesHtml(notes){ return notes.length ? notes.map(n => `<div class="note ${esc(n.kind)}"><small>${hms(n.ts)} · ${esc(n.kind)}${n.question ? ' · ' + esc(n.question) : ''}</small>${esc(n.text)}</div>`).join('') : '<div class="hint">nothing yet — call it or ask a question</div>'; }
+async function callObj(id, on){
+  toast(on ? 'asking the vision model…' : 'stopped following');
+  const r = await api(`/objects/${id}/call`, {method:'POST', body:{on}});
+  if (!r) return; if (r.error) toast(r.error); if (r.object) { CUR = r.object; renderDetail({object: r.object, notes: r.notes || [], similar: []}); } load();
+}
+async function verdict(id, v, label){
+  const r = await api(`/objects/${id}/verdict`, {method:'POST', body:{verdict: v, label: label || ''}});
+  if (r && r.object) { toast(label ? 'label corrected' : v); openDetail(id); load(); } else toast((r && r.error) || 'failed');
+}
+async function ask(id){
+  const q = $('#q').value.trim(); if (!q) return; $('#q').value = ''; toast('looking…');
+  const r = await api(`/objects/${id}/ask`, {method:'POST', body:{question: q}});
+  if (r && r.ok) { $('#d-notes').innerHTML = notesHtml(r.notes || []); toast('answered'); } else toast((r && r.error) || 'failed');
+}
+['#f-minutes', '#f-watch', '#f-rejected'].forEach(s => $(s).onchange = load);
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeDetail(); });
+load(); timer = setInterval(() => { if (!document.hidden && !$('#detail').classList.contains('open')) load(); }, 4000);
+</script>
+</body>
+</html>

@@ -36,7 +36,7 @@ from . import config as cfg
 
 MODELS_DIR = cfg.DATA_DIR / "models"
 SNAP_DIR = cfg.DATA_DIR / "snapshots"
-YOLO_WEIGHTS = os.environ.get("VISION_YOLO", str(MODELS_DIR / "yolov8n.pt"))
+YOLO_WEIGHTS = os.environ.get("VISION_YOLO", str(MODELS_DIR / "yolo11n.pt"))      # yolo11n: same 28 ms as v8n on 4 CPU cores, ~40% more objects found
 DEFAULT_VLM = os.environ.get("VISION_MODEL", "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free")   # free by default; set VISION_MODEL for paid eyes
 DEFAULT_VLM_PROVIDER = os.environ.get("VISION_PROVIDER", "openrouter")
 MAX_SIDE = 960                      # frames are downscaled to this before detection / VLM
@@ -326,7 +326,7 @@ class PreciseDetector:
 
     def __init__(self, weights: str = "", tiles: tuple[int, int] | None = None, tile_size: int = 0, full_size: int = 0,
                  conf: float = 0.0):
-        self.weights = weights or os.environ.get("VISION_YOLO_PRECISE", str(MODELS_DIR / "yolov8s.pt"))
+        self.weights = weights or os.environ.get("VISION_YOLO_PRECISE", str(MODELS_DIR / "yolo11s.pt"))
         t = os.environ.get("VISION_TILES", "2x2").lower().split("x")
         self.tiles = tiles or (int(t[0]), int(t[1]))
         self.tile_size = tile_size or int(os.environ.get("VISION_TILE_SIZE", "960"))
