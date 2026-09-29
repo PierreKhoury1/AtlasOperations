@@ -153,7 +153,11 @@ class FakeStream:
 def test_write_note_streams_when_someone_listens(tmp_path, monkeypatch):
     fs = FakeStream()
     monkeypatch.setattr(V, "chat_images_stream", fs)
-    monkeypatch.setattr(V, "chat_images", lambda *a, **k: pytest.fail("non-streaming path used while a listener exists"))
+    def audit_only(system, text, images, **k):           # the verify pass is one plain call; the note itself must stream
+        if system != JR.VERIFY_SYSTEM:
+            pytest.fail("non-streaming path used while a listener exists")
+        return '{"note": ' + json.dumps(text.split("NOTE TO AUDIT:\n", 1)[1].rsplit("\n\nReturn the JSON.", 1)[0]) + ', "removed": [], "softened": []}'
+    monkeypatch.setattr(V, "chat_images", audit_only)
     q = JR.subscribe(1)
     jpeg = _jpeg(tmp_path / "a.jpg")
     text = JR.write_note((1, "till"), "till", JR.config({"journal": "1"}), jpeg, {"person": 2}, why="first note")

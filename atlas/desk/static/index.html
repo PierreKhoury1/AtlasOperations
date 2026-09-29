@@ -307,6 +307,7 @@ aside.simple [data-lvl="full"]{display:none}
     <button data-p="automations" data-lvl="full"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>Automations <span class="pill" id="n-jobs">0</span></button>
     <div class="grp" data-lvl="full">Records</div>
     <button data-p="runs" data-lvl="full"><svg viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13"/><path d="M3 6h.01M3 12h.01M3 18h.01"/></svg>Runs</button>
+    <a class="navlink" href="/desk/objects" data-lvl="full" title="Every distinct thing the cameras saw, tracked and cross-checked; call one, correct its label, ask about it" style="display:flex;align-items:center;gap:9px;padding:8px 10px;border-radius:var(--r);color:var(--text2);font-weight:500;text-decoration:none"><svg viewBox="0 0 24 24" style="width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.8"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>Objects</a>
     <button data-p="audit" data-lvl="full"><svg viewBox="0 0 24 24"><path d="M6 2h9l5 5v15H6z"/><path d="M14 2v6h6"/><path d="M9 13h7M9 17h7"/></svg>Audit log</button>
     <button data-p="report" data-lvl="full"><svg viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>Monthly report</button>
     <div class="grp" data-lvl="full">Account</div>
@@ -1535,6 +1536,16 @@ function liveEvent(ev){
     return;
   }
   if (ev.kind === 'note_error') { LIVE.typing = false; if (txt) txt.classList.remove('typing'); if (why) why.textContent = 'note failed: ' + (ev.error||''); return; }
+  if (ev.kind === 'note_verify_start') { if (why) why.textContent = 'auditing the note against the frame…'; return; }
+  if (ev.kind === 'note_verify') {                       // the verify pass: what the frame did not support
+    const parts = [];
+    if (ev.removed && ev.removed.length) parts.push('removed: ' + ev.removed.join('; '));
+    if (ev.softened && ev.softened.length) parts.push('softened: ' + ev.softened.join('; '));
+    if (ev.error) parts.push('audit skipped: ' + ev.error);
+    if (why) why.textContent = 'audit · ' + (parts.length ? parts.join(' · ') : 'nothing to change');
+    if (hist && parts.length && !ev.error) { const d = document.createElement('div'); d.className = 'ln'; d.style.color = 'var(--muted)'; d.innerHTML = `<b>${hms(ev.ts)} audit</b>${esc(parts.join(' · '))}`; hist.prepend(d); }
+    return;
+  }
   if (ev.kind === 'digest') {
     if (hist) { if (hist.querySelector('.hint')) hist.innerHTML = ''; const d = document.createElement('div'); d.className = 'ln digest'; d.innerHTML = `<b>${hms(ev.ts)} summary ${esc(ev.span||'')}</b>${esc(ev.text||'')}`; hist.prepend(d); }
     return;

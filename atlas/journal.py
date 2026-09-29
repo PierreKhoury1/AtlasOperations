@@ -18,6 +18,7 @@ DATA_DIR/journal/desk<id>/<YYYY-MM-DD>.md.
 """
 from __future__ import annotations
 
+import json
 import queue
 import re
 import threading
@@ -92,14 +93,30 @@ Small or hand-held items are the easiest thing to get wrong: name one (phone, wa
 its shape is unmistakable at this resolution, otherwise write "a small item" or "something in her hand". Never name a
 brand, a screen's content or a device type from a few pixels. A wrong detail is worse than a vague one: the owner
 searches these notes. When a CLOSE-UP frame is given, use it for what people hold and do with their hands; the full
-frame is still the source for positions and counts. Plain text, no markdown, no preamble, 50-150 words, most
-important fact first."""
+frame is still the source for positions and counts.
+Say how sure you are inside each claim: state plainly what is clearly visible; write "appears to" for something you
+can see but not confirm, and "unclear" when you cannot tell. Never add a sentence about your own certainty, the
+lighting or the image quality unless it limits what can be seen. Plain text, no markdown, no preamble, 50-150 words,
+most important fact first."""
 
 ROLLUP_SYSTEM = """You condense a window of one camera's journal into a summary the owner can skim and search.
 Write: one headline sentence; then the key moments in time order, each starting with its time (HH:MM); then peak
 numbers (most people at once, arrivals, departures, vehicles); then anything unusual or still unresolved at the end of
-the window. Use only what the notes say; the frame shows the state at the end of the window. Plain text, no markdown,
-80-220 words."""
+the window. Use only what the notes say; the frame shows the state at the end of the window. Only certain facts go in
+the headline and the peak numbers: anything the notes word as "appears to", "possibly", "unclear" or "may" stays
+uncertain, and is either left out or listed at the end under "Unconfirmed:". Plain text, no markdown, 80-220 words."""
+
+VERIFY_SYSTEM = """You audit one journal note against the frame(s) it was written from. The note will be searched by the
+owner later, so a wrong detail is worse than a missing one. Go claim by claim:
+- keep a claim only if the frame clearly shows it; a claim about change or movement ("moved from the sink to the
+  door", "arrived", "left") is checked against the EARLIER frame and the NOW frame together, and stays when the two
+  frames show it;
+- if it is plausible but not clearly visible, soften it ("appears to", "unclear what she holds");
+- delete anything the frame does not support: named small items (phone, wallet, card), brands, text on screens or
+  labels, a person's role, an activity you cannot actually see, counts that disagree with the frame;
+- never add anything new; keep the note's order, tense and length otherwise.
+Reply with JSON only: {"note": "<the corrected note, plain text>", "removed": ["<claim you deleted>", ...],
+"softened": ["<claim you softened>", ...]}."""
 
 
 def _num(c: dict[str, Any], key: str, default: float, lo: float, hi: float) -> float:
@@ -119,7 +136,28 @@ def config(c: dict[str, Any]) -> dict[str, Any]:
             "focus": str(c.get("journal_focus") or "").strip()[:400],
             # a third image: the largest person cropped out of the current frame, so hands and what they hold are
             # not read from a few pixels ("smartphone" that was a receipt). Off with journal_closeup=0.
-            "closeup": str(c.get("journal_closeup", "1")).strip().lower() not in ("0", "false", "no", "off")}
+            "closeup": str(c.get("journal_closeup", "1")).strip().lower() not in ("0", "false", "no", "off"),
+            # a second call audits the note against the same frames and deletes what they do not show. Doubles the
+            # vision cost per note; journal_verify=0 turns it off.
+            "verify": str(c.get("journal_verify", "1")).strip().lower() not in ("0", "false", "no", "off")}
+
+
+def verify_note(text: str, frames: list[tuple[str, bytes]], model: str = "", transport=None) -> dict[str, Any]:
+    """The verify pass: {"note", "removed", "softened", "changed"}. If the auditor's reply cannot be parsed the
+    original note is kept, never a half-parsed one."""
+    prompt = "NOTE TO AUDIT:\n" + text.strip() + "\n\nReturn the JSON."
+    raw = V.chat_images(VERIFY_SYSTEM, prompt, frames, model=model, max_tokens=520, transport=transport).strip()
+    raw = re.sub(r"^```(?:json)?\s*|\s*```$", "", raw, flags=re.S)
+    try:
+        j = json.loads(raw[raw.find("{"):raw.rfind("}") + 1])
+        note = str(j.get("note") or "").strip()
+    except (ValueError, AttributeError):
+        j, note = {}, ""
+    if not note:
+        return {"note": text, "removed": [], "softened": [], "changed": False, "error": "auditor reply not parseable"}
+    removed = [str(x) for x in (j.get("removed") or []) if str(x).strip()][:8]
+    softened = [str(x) for x in (j.get("softened") or []) if str(x).strip()][:8]
+    return {"note": note, "removed": removed, "softened": softened, "changed": note != text.strip()}
 
 
 def closeup(jpeg: bytes, dets: list[dict[str, Any]], label: str = "person", pad: float = 0.25, min_side: int = 48) -> bytes:
@@ -225,6 +263,15 @@ def write_note(key: tuple[int, str], camera: str, jc: dict[str, Any], jpeg: byte
     if not text:
         publish(desk_id, "note_error", camera, error="vision model returned an empty note")
         raise RuntimeError("vision model returned an empty note")
+    if jc.get("verify", True):
+        publish(desk_id, "note_verify_start", camera)
+        try:
+            v = verify_note(text, frames, model=model, transport=transport)
+        except Exception as exc:                          # the draft still stands; the audit is best effort
+            v = {"note": text, "removed": [], "softened": [], "changed": False, "error": str(exc)[:160]}
+        publish(desk_id, "note_verify", camera, changed=v["changed"], removed=v["removed"], softened=v["softened"],
+                error=v.get("error", ""))
+        text = v["note"]
     with _lock:
         st = _state.setdefault(key, {})
         st["note"] = {"ts": now, "text": text, "jpeg": jpeg, "counts": dict(counts)}

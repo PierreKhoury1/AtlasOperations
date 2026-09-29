@@ -92,6 +92,29 @@ JUDGE_SYSTEM = ("You grade a vision model's answer about a camera frame against 
                 "short items (under 12 words each). Reply with JSON only, starting with '{'.")
 
 
+VERIFY_SUFFIX = "+verify"
+SYSTEM_VERIFY = ("You audit a vision model's JSON report about ONE camera frame, claim by claim, against that same frame. "
+                 "Keep a claim only if the frame clearly shows it; soften what is plausible but not clearly visible "
+                 "(\"appears to\", \"unclear\"); delete what the frame does not support: named small items, brands, text on "
+                 "screens or labels, a person's role, an activity you cannot actually see. Fix the people count only if the "
+                 "frame clearly contradicts it (partial people count). Never add anything. Reply with JSON only, no markdown.")
+PROMPT_VERIFY = ('Return the corrected report with exactly the same keys ("people", "area", "activity", "issues") plus '
+                 '"removed": ["<each claim you deleted>", ...] and "softened": ["<each claim you softened>", ...].\n\n'
+                 'REPORT TO AUDIT:\n')
+
+
+def verify_single(caller: Caller, model: str, parsed: dict[str, Any], frame: Path, context: str) -> dict[str, Any]:
+    """Second call: the report + the frame -> the corrected report. Unparseable audit = report kept as it was."""
+    content = [{"type": "text", "text": PROMPT_VERIFY + json.dumps(parsed)[:2500] + "\n\nContext: " + context}, _img(frame)]
+    res = caller.chat(model, SYSTEM_VERIFY, content, max_tokens=1500)
+    j = _extract_json(res.get("text", "")) if "text" in res else None
+    out = {"verify_latency": res.get("latency"), "verify_cost": res.get("cost"), "verify_tokens": res.get("prompt_tokens")}
+    if not j or not isinstance(j.get("activity"), str):
+        return {**out, "verify_error": res.get("error") or "audit not parseable", "removed": [], "softened": []}
+    fixed = {k: j.get(k, parsed.get(k)) for k in ("people", "area", "activity", "issues")}
+    return {**out, "parsed": fixed, "removed": j.get("removed") or [], "softened": j.get("softened") or []}
+
+
 def _b64(p: Path) -> str:
     return "data:image/jpeg;base64," + base64.b64encode(p.read_bytes()).decode()
 
@@ -225,26 +248,34 @@ def build_jobs(gt: dict[str, Any], sites: list[str], frames_per_cam: int) -> lis
 
 def run_job(caller: Caller, model: str, job: dict[str, Any]) -> dict[str, Any]:
     ctx = f"Context: {job['context']}"
+    verify = model.endswith(VERIFY_SUFFIX)
+    model_id = model[:-len(VERIFY_SUFFIX)] if verify else model
     if job["task"] == "single":
         content = [{"type": "text", "text": PROMPT_SINGLE + "\n\n" + ctx}, _img(Path(job["path"]))]
-        res = caller.chat(model, SYSTEM_SINGLE, content)
+        res = caller.chat(model_id, SYSTEM_SINGLE, content)
     elif job["task"] == "multicam":
         content: list[dict[str, Any]] = [{"type": "text", "text": PROMPT_MULTI + "\n\n" + ctx +
                                           f"\nCameras: {', '.join(job['paths'])}."}]
         for cam, p in job["paths"].items():
             content.append({"type": "text", "text": f"[camera: {cam}]"})
             content.append(_img(Path(p)))
-        res = caller.chat(model, SYSTEM_MULTI, content, max_tokens=6000)
+        res = caller.chat(model_id, SYSTEM_MULTI, content, max_tokens=6000)
     else:
         content = [{"type": "text", "text": PROMPT_TEMPORAL + "\n\n" + ctx}]
         for i, p in enumerate(job["paths"], start=1):
             content.append({"type": "text", "text": f"[frame {i} of 3]"})
             content.append(_img(Path(p)))
-        res = caller.chat(model, SYSTEM_TEMPORAL, content)
+        res = caller.chat(model_id, SYSTEM_TEMPORAL, content)
     out = {k: v for k, v in job.items() if k not in ("gt", "context")}
     out["model"] = model
     out.update(res)
     out["parsed"] = _extract_json(res.get("text", "")) if "text" in res else None
+    if verify and job["task"] == "single" and isinstance(out["parsed"], dict):
+        v = verify_single(caller, model_id, out["parsed"], Path(job["path"]), job["context"])
+        out["draft"] = out["parsed"]
+        out.update(v)
+        out["cost"] = (out.get("cost") or 0) + (v.get("verify_cost") or 0)
+        out["latency"] = (out.get("latency") or 0) + (v.get("verify_latency") or 0)
     return out
 
 
@@ -438,6 +469,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--frames", type=int, default=3, help="frames per camera (1-3)")
     ap.add_argument("--concurrency", type=int, default=6)
     ap.add_argument("--smoke", action="store_true", help="1 frame per camera, first two models, no temporal")
+    ap.add_argument("--verify", action="store_true", help="run each model as '<model>+verify': the single-frame report is audited "
+                    "by a second call against the same frame before judging (compare with a plain run via --merge)")
     ap.add_argument("--out", default="")
     ap.add_argument("--resume", default="", help="results.json of an earlier run: keep its successful rows, rerun only the failed ones")
     ap.add_argument("--merge", default="", help="comma-separated results.json files: no model calls, merge (later files win per row) and write the report to --out")
@@ -446,6 +479,8 @@ def main(argv: list[str] | None = None) -> int:
     models = [m.strip() for m in args.models.split(",") if m.strip()]
     if args.smoke:
         args.frames, models = 1, models[:2]
+    if args.verify:
+        models = [m if m.endswith(VERIFY_SUFFIX) else m + VERIFY_SUFFIX for m in models]
 
     if args.merge:
         merged: dict[tuple, dict[str, Any]] = {}

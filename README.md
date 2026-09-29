@@ -13,6 +13,27 @@ consultancy setup; switch business model with one click (agency / saas / ecommer
 First run creates `config/*.json`. Set the Anthropic key in **Settings → Providers** (or export
 `ANTHROPIC_API_KEY`). Local models: point the OpenAI-compatible provider at Ollama / LM Studio.
 
+## Run it in 5 minutes (portal + cameras, from a clean clone)
+
+    pip install -r requirements.txt -r requirements-vision.txt   # torch is ~2 GB; CPU is fine for 5 cameras
+    # Debian/Ubuntu: the system `cryptography` and `blinker` packages break pip / Flask threads - take the PyPI ones
+    pip install --ignore-installed blinker "cryptography>=43"
+    # ffmpeg must be on PATH: video-file cameras and one test need it (apt install ffmpeg / winget install ffmpeg)
+    OPENROUTER_API_KEY=sk-or-...  DESK_OPEN=1  DESK_PROVIDER=openrouter  py -m atlas.desk
+    # -> http://localhost:8094/desk  ->  Cameras  ->  add a camera with source  sample:kitchen-overview  (or any .mp4 / rtsp://)
+    #    journal on, Watch, then Live: detections on the picture, the vision model writing beside it
+
+YOLO weights (`yolo11n.pt`, `yolo11s.pt`) download to `data/models/` on first use. Sample footage is in `samples/videos/`
+(`sample:<name>` sources; `python scripts/get_demo_videos.py` fetches the larger originals). `DESK_OPEN=1` skips
+accounts - local only. Eyes: the free default `nvidia/nemotron-3-nano-omni:free` works with no card; set
+`VISION_MODEL=google/gemini-3.1-flash-lite` (≈ $0.001 per note through OpenRouter) for the best honesty per dollar we
+have measured, see [Cameras](#cameras-agents-that-see-the-room).
+
+Environment knobs you will meet: `LIVE_FPS` (live loop cap per camera, 15), `VISION_YOLO` (detector weights),
+`ATLAS_SAMPLE_VIDEOS` (folder of sample clips), `PORT`. Tests: `python -m pytest -q tests/test_vision.py
+tests/test_journal.py tests/test_live.py` (one process per file: the auth rate limiter is process-wide and trips when
+several API suites share one run).
+
 ## Modes
 
 - **auto** — Atlas decides: delegates (in parallel when independent), reviews, re-delegates, saves, finishes.
@@ -163,6 +184,30 @@ also appended to a readable diary per desk per day (`data/journal/desk<id>/<date
 demos and for testing on recorded footage. Cost: each note is one vision call with two images. On the free OpenRouter
 model that is $0 but the free daily request limit covers roughly an hour of two busy cameras; for all-day use set a
 paid `vlm_model` on the camera or add `GEMINI_API_KEY` / `GROQ_API_KEY` (each adds its own free quota).
+
+**Honesty (what makes a note trustworthy).** A wrong detail in the journal is worse than a missing one, because the
+owner searches it later. Three things guard against it, all on by default:
+
+| Guard | What it does | Off switch |
+|---|---|---|
+| close-up | the largest detected person is cut out of the frame and sent as a third image, so hands and what they hold are not read from a few pixels ("smartphone" that was a receipt) | `journal_closeup=0` |
+| confidence language | the note says "appears to" / "unclear" for what it cannot confirm; the rollup keeps those out of the headline and peak numbers ("Unconfirmed:" at the end) | prompt |
+| verify pass | a second call gets the draft + the current frame(s) and must delete every claim the frame does not show and soften the plausible ones; the stream shows `note_verify` with what was removed. If its reply cannot be parsed the draft stands | `journal_verify=0` |
+
+Measured with `py -m atlas vision-eval --sites kitchen [--verify]` (5 kitchen cameras × 3 frames, human ground truth,
+judge `claude-sonnet-5`; `workspace/vision-eval/kitchen-verify-ab/report.md`):
+
+| eyes | hallucinations / answer | judge accuracy 0-5 | hazard recall | cost / note |
+|---|---|---|---|---|
+| `gemini-3.1-flash-lite` | 1.53 | 3.2 | 100% | $0.0011 |
+| `gemini-3.1-flash-lite` **+ verify** | **0.87** | **3.6** | 100% | $0.0019 |
+| `nemotron-3-nano-omni:free` | 1.13 | 3.13 | 67% | $0 |
+| `nemotron-3-nano-omni:free` **+ verify** | **0.87** | 3.33 | **100%** | $0 |
+
+The verify pass removes 23-43% of invented details and raises accuracy on both, for 1.7× the vision calls. What it
+strips is telling: "likely preparing food", "wearing a headset", "potential cross-contamination risk" - the guesses a
+model adds to sound complete. Model choice matters less than the audit: every model in the wider 11-model eval
+(`workspace/vision-eval/final-20260927`) invents 1-3 details per answer unaudited, the expensive ones included.
 
 Agents get `camera_look` (fresh frame now), `camera_events` (what the rule logged) and `camera_ask` (retrieval over the
 event log, hybrid text + CLIP image search, the vision model re-looks at the best frames). The team architect grants
