@@ -215,7 +215,8 @@ def due(key: tuple[int, str], jc: dict[str, Any], now: float, motion: float, cou
 
 def write_note(key: tuple[int, str], camera: str, jc: dict[str, Any], jpeg: bytes, counts: dict[str, int],
                notes: str = "", model: str = "", now: float | None = None, transport=None, why: str = "",
-               stream: bool | None = None, dets: list[dict[str, Any]] | None = None) -> str:
+               stream: bool | None = None, dets: list[dict[str, Any]] | None = None,
+               known: list[dict[str, Any]] | None = None) -> str:
     """One journal note from the frame at the previous note + the current frame. Updates the camera's state.
     When anyone is listening on the live bus (or stream=True) the model is streamed and every delta is published."""
     now = now or time.time()
@@ -236,6 +237,10 @@ def write_note(key: tuple[int, str], camera: str, jc: dict[str, Any], jpeg: byte
               + f"\nTime now: {time.strftime('%A %d %B %H:%M:%S', time.localtime(now))}."
               + f"\nObject detector counts for the current frame (small model, may miss or miscount): {V.counts_text(counts) or 'nothing detected'}."
               + (f"\nPay special attention to: {jc['focus']}." if jc.get("focus") else "")
+              + (("\nKnown in view right now (named by the owner, matched by appearance, not by face): "
+                  + "; ".join(f"{k['name']} ({k['kind']}{', ' + k['notes'] if k.get('notes') else ''}) "
+                              + ("certain" if k.get("sure") else f"likely, {k['score']:.0%}") for k in known)
+                  + ". Use the name for that person or thing; write 'appears to be <name>' when only likely.") if known else "")
               + (f"\nPrevious note ({gap:.0f}s ago): {last['text']}" if last else "\nThis is the first note for this camera: describe the full scene.")
               + "\n\nWrite the journal note for NOW.")
     publish(desk_id, "note_start", camera, why=why, counts=dict(counts), frames=len(frames), gap_s=round(gap))

@@ -34,6 +34,8 @@ MIN_CONF = float(os.environ.get("OBJ_MIN_CONF", "0.45"))
 MAX_AGE_S = float(os.environ.get("OBJ_MAX_AGE_S", "6"))
 FOLLOW_S = float(os.environ.get("OBJ_FOLLOW_S", "25"))
 KEEP = int(os.environ.get("OBJ_KEEP", "3000"))              # catalogue rows kept per desk (watched ones are never pruned)
+NAME_MATCH = float(os.environ.get("OBJ_NAME_MATCH", "0.86"))   # cosine to a named thing's exemplars before a sighting gets its name
+NAME_SURE = float(os.environ.get("OBJ_NAME_SURE", "0.92"))     # above this the journal says the name plainly, below "appears to be"
 
 # labels that are the same kind of thing for tracking (a van flips between car and truck frame to frame)
 GROUPS = {"car": "vehicle", "truck": "vehicle", "bus": "vehicle", "motorcycle": "two-wheeler", "bicycle": "two-wheeler",
@@ -377,6 +379,14 @@ class ObjectWorker:
             cur = self.ds.vision_object(oid) or {}
             if cur.get("verdict_by") not in ("vlm", "owner"):          # a stronger judge already spoke: keep it
                 out.update({"verdict": verdict, "verdict_by": by})
+            if cur.get("name_by") != "owner":                          # the owner's word on a name is final; matches may improve
+                m = match_named(self.store, self.desk_id, so["emb"], t.label)
+                if m:
+                    out.update({"name_id": m["id"], "name_score": m["score"], "name_by": "match"})
+                    if not cur.get("name_id"):
+                        self.store.update_named(m["id"], sightings=int(m.get("sightings") or 0) + 1)
+                elif cur.get("name_id"):
+                    out.update({"name_id": 0, "name_score": 0.0, "name_by": ""})
         return out
 
     def _create(self, t: Track, frame, pos: float, score: float) -> None:
@@ -540,7 +550,11 @@ def _images(store, o: dict[str, Any], frame=None, box=None) -> list[tuple[str, b
 
 def _facts(o: dict[str, Any]) -> str:
     dur = max(0.0, (o.get("last_ts") or 0) - (o.get("first_ts") or 0))
-    return (f"Camera: {o['camera']}. Detector label: {o['label']} (best confidence {o.get('best_conf', 0):.0%}, "
+    named = ""
+    if o.get("name"):
+        how = "named by the owner" if o.get("name_by") == "owner" else f"matched by appearance, {o.get('name_score', 0):.0%}"
+        named = f" Known as: {o['name']} ({o.get('name_kind') or 'object'}; {how})."
+    return (named + f"Camera: {o['camera']}. Detector label: {o['label']} (best confidence {o.get('best_conf', 0):.0%}, "
             f"{o.get('hits', 0)} sightings over {dur:.0f}s, label held {o.get('label_conf', 0):.0%} of the votes). "
             f"Local second opinion: {o.get('second_label') or 'none'} ({o.get('second_score', 0):.0%}). "
             f"First seen {time.strftime('%H:%M:%S', time.localtime(o.get('first_ts') or 0))}, "
@@ -614,3 +628,115 @@ def similar(store, o: dict[str, Any], limit: int = 6, min_score: float = 0.8) ->
             out.append({**c, "similarity": round(s, 3)})
     out.sort(key=lambda c: -c["similarity"])
     return out[:limit]
+
+
+# ---------------------------------------------------------------------------- named things: the owner's registry
+def _vec(b: bytes | None):
+    import numpy as np
+    if not b:
+        return None
+    v = np.frombuffer(b, dtype="float32")
+    n = float(np.linalg.norm(v))
+    return v / n if n else None
+
+
+def match_named(store, desk_id: int, emb: bytes | None, label: str = "", min_score: float = NAME_MATCH) -> dict[str, Any] | None:
+    """The named thing whose exemplars this sighting looks most like: {id, name, kind, score, sightings} or None.
+    Appearance only (CLIP on the crop): clothing, build, colour, make, never a face. Same label group only, so a
+    person is never matched to a van."""
+    import numpy as np
+    v = _vec(emb)
+    if v is None:
+        return None
+    best, best_s = None, 0.0
+    for n in store.named_things(desk_id, emb=True):
+        if n.get("label") and label and group(n["label"]) != group(label):
+            continue
+        nv = _vec(n.get("emb"))
+        if nv is None:
+            continue
+        s = float(np.dot(v, nv))
+        if s > best_s:
+            best, best_s = n, s
+    if best is None or best_s < min_score:
+        return None
+    return {"id": best["id"], "name": best["name"], "kind": best["kind"], "score": round(best_s, 3), "sightings": best.get("sightings", 0)}
+
+
+def _mean_emb(embs: list[bytes]) -> tuple[bytes | None, int]:
+    import numpy as np
+    vs = [_vec(e) for e in embs]
+    vs = [v for v in vs if v is not None]
+    if not vs:
+        return None, 0
+    m = np.mean(np.stack(vs), axis=0)
+    n = float(np.linalg.norm(m))
+    m = (m / n) if n else m
+    return m.astype("float32").tobytes(), int(m.shape[0])
+
+
+def name_object(store, o: dict[str, Any], name: str, kind: str = "", notes: str = "") -> dict[str, Any]:
+    """The owner names this sighting: a new named thing, or one more exemplar for an existing name. The sighting's
+    crop and embedding become an exemplar; the registry's embedding is the mean of its exemplars. Returns the thing."""
+    ds = store.for_desk(o["desk_id"])
+    full = store.vision_object(o["id"], emb=True) or o
+    kind = kind or ("person" if o["label"] == "person" else "vehicle" if group(o["label"]) == "vehicle" else "object")
+    thing = ds.named_by_name(name)
+    ex = {"object_id": o["id"], "camera": o["camera"], "ts": o.get("last_ts"), "crop": o.get("crop") or "", "label": o["label"]}
+    if thing is None:
+        thing = ds.add_named(name, kind=kind, label=o["label"], notes=notes, exemplars=[ex], emb=full.get("emb"),
+                             dim=len(full["emb"]) // 4 if full.get("emb") else 0)
+    else:
+        exemplars = [e for e in thing["exemplars"] if e.get("object_id") != o["id"]] + [ex]
+        embs = [full["emb"]] if full.get("emb") else []
+        for e in exemplars[:-1]:
+            prev = store.vision_object(e["object_id"], emb=True)
+            if prev and prev.get("emb"):
+                embs.append(prev["emb"])
+        emb, dim = _mean_emb(embs)
+        f = {"exemplars": exemplars[-12:], "emb": emb, "dim": dim}
+        if notes:
+            f["notes"] = notes
+        ds.update_named(thing["id"], **f)
+        thing = ds.named(thing["id"])
+    ds.update_vision_object(o["id"], name_id=thing["id"], name_score=1.0, name_by="owner")
+    ds.add_object_note(o["id"], "verify", f"Owner named this {o['label']}: {thing['name']} ({thing['kind']}).")
+    return thing
+
+
+def unname_object(store, o: dict[str, Any]) -> None:
+    """Not that one: the sighting loses its name and stops being an exemplar for it."""
+    ds = store.for_desk(o["desk_id"])
+    if o.get("name_id"):
+        thing = ds.named(o["name_id"])
+        if thing:
+            exemplars = [e for e in thing["exemplars"] if e.get("object_id") != o["id"]]
+            if len(exemplars) != len(thing["exemplars"]):
+                embs = []
+                for e in exemplars:
+                    prev = store.vision_object(e["object_id"], emb=True)
+                    if prev and prev.get("emb"):
+                        embs.append(prev["emb"])
+                emb, dim = _mean_emb(embs)
+                ds.update_named(thing["id"], exemplars=exemplars, emb=emb, dim=dim)
+            ds.add_object_note(o["id"], "verify", f"Owner says this is not {thing['name']}.")
+    ds.update_vision_object(o["id"], name_id=0, name_score=0.0, name_by="owner-no")
+
+
+def known_in_view(store, desk_id: int, camera: str, since_s: float = 20.0, now: float | None = None) -> list[dict[str, Any]]:
+    """Named things seen on this camera in the last `since_s` seconds, for the journal: [{name, kind, score, sure, by}]."""
+    now = now or time.time()
+    ds = store.for_desk(desk_id)
+    out: dict[int, dict[str, Any]] = {}
+    for o in ds.vision_objects(camera=camera, since=now - since_s, named=True, limit=50):
+        if o.get("name_by") == "owner-no":
+            continue
+        n = ds.named(o["name_id"])
+        if not n:
+            continue
+        score = 1.0 if o.get("name_by") == "owner" else float(o.get("name_score") or 0)
+        cur = out.get(n["id"])
+        if cur is None or score > cur["score"]:
+            out[n["id"]] = {"name": n["name"], "kind": n["kind"], "score": round(score, 2), "sure": score >= NAME_SURE,
+                            "by": o.get("name_by") or "match", "notes": n.get("notes") or ""}
+    return sorted(out.values(), key=lambda x: -x["score"])

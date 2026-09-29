@@ -76,11 +76,13 @@ label.chk{display:flex;gap:8px;align-items:center;font-size:13px;color:var(--tex
   <span class="tag" id="t-workers">workers: –</span>
   <span class="tag" id="t-audit" title="Latest run of `py -m atlas audit` against human ground truth">audit: –</span>
   <span class="tag" id="t-live">–</span>
+  <a class="btn sm" href="/api/report/day?format=md" target="_blank" title="Today's report by name: who was where and for how long, alerts, summaries, what is disputed">Today's report ↗</a>
 </header>
 <main>
   <aside class="filters">
     <div class="panel"><div class="ph">Camera</div><div class="pb facet" id="f-camera"></div></div>
     <div class="panel"><div class="ph">Label</div><div class="pb facet" id="f-label"></div></div>
+    <div class="panel"><div class="ph">Name</div><div class="pb facet" id="f-name"></div></div>
     <div class="panel"><div class="ph">Verdict</div><div class="pb facet" id="f-verdict"></div></div>
     <div class="panel"><div class="ph">Window</div><div class="pb">
       <select id="f-minutes"><option value="0">all time</option><option value="15">last 15 min</option><option value="60" selected>last hour</option><option value="360">last 6 h</option><option value="1440">last 24 h</option></select>
@@ -100,7 +102,8 @@ label.chk{display:flex;gap:8px;align-items:center;font-size:13px;color:var(--tex
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const hms = ts => ts ? new Date(ts * 1000).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit', second:'2-digit'}) : '–';
-const F = {camera:'', label:'', verdict:''};
+const F = {camera:'', label:'', verdict:'', name:''};
+let NAMES = [];
 let OBJS = [], CUR = null, timer = null;
 async function api(path, opts={}){ const r = await fetch('/api' + path, {headers:{'Content-Type':'application/json'}, ...opts, body: opts.body ? JSON.stringify(opts.body) : undefined}); let j = null; try { j = await r.json(); } catch(_){} if (r.status === 501) { $('#empty').style.display = ''; $('#empty').textContent = (j && j.error) || 'object catalogue not installed'; } return j; }
 function toast(m){ const t = $('#toast'); t.textContent = m; t.classList.add('show'); setTimeout(() => t.classList.remove('show'), 2200); }
@@ -111,12 +114,13 @@ function vouch(o){
   else if (o.status === 'disputed' || (o.second_label && o.second_label !== o.label && (o.second_score || 0) >= 0.6)) v.push(['v-disputed', 'disputed: clip says ' + (o.second_label || '?')]);
   else if (o.second_label && o.second_label === o.label) v.push(['', 'clip agrees']);
   else v.push(['', 'detector only']);
+  if (o.name) v.unshift([o.name_by === 'owner' ? 'v-owner' : 'v-model', (o.name_by === 'owner' ? 'named: ' : 'appears to be ') + o.name + (o.name_by === 'owner' ? '' : ' ' + Math.round((o.name_score || 0) * 100) + '%')]);
   return '<div class="vouch">' + v.map(([c, t]) => `<span class="${c}">${esc(t)}</span>`).join('') + `<span>${esc(o.hits || 0)} sightings</span></div>`;
 }
 function card(o){
   return `<div class="card ${CUR && CUR.id === o.id ? 'on' : ''}" onclick="openDetail(${o.id})">
     <div class="img"><img src="${o.crop_url}" alt="" loading="lazy" onerror="this.style.display='none'"></div>
-    <div class="meta"><b>${esc(o.label)} <small>#${o.id}</small></b>
+    <div class="meta"><b>${o.name ? `<span style="color:var(--accent)">${esc(o.name)}</span> <small>${esc(o.label)}</small>` : esc(o.label)} <small>#${o.id}</small></b>
       <small>${esc(o.camera)} · ${hms(o.first_ts)} → ${hms(o.last_ts)} · ${esc(o.seconds)}s${o.status === 'active' ? ' · <span style="color:var(--ok)">in view</span>' : ''}</small>
       ${vouch(o)}</div></div>`;
 }
@@ -127,7 +131,7 @@ function facet(id, key, counts){
 }
 function setF(k, v){ F[k] = v; load(); }
 async function load(){
-  const q = new URLSearchParams({camera: F.camera, label: F.label, verdict: F.verdict, minutes: $('#f-minutes').value,
+  const q = new URLSearchParams({camera: F.camera, label: F.label, verdict: F.verdict, name: F.name, minutes: $('#f-minutes').value,
     watch: $('#f-watch').checked ? '1' : '', rejected: $('#f-rejected').checked ? '1' : ''});
   const r = await api('/objects?' + q); if (!r || !r.objects) { $('#count').textContent = 'catalogue unavailable'; return; }
   OBJS = r.objects;
@@ -135,6 +139,9 @@ async function load(){
   $('#empty').style.display = OBJS.length ? 'none' : '';
   $('#count').textContent = `${OBJS.length} object${OBJS.length === 1 ? '' : 's'}`;
   facet('#f-camera', 'camera', r.facets.camera || {}); facet('#f-label', 'label', r.facets.label || {}); facet('#f-verdict', 'verdict', r.facets.verdict || {});
+  NAMES = r.names || [];
+  const nf = $('#f-name'); const nc = {}; NAMES.forEach(n => nc[n.id] = (r.facets.name || {})[n.name] || 0);
+  nf.innerHTML = `<button class="${F.name ? '' : 'on'}" onclick="setF('name','')">all</button>` + NAMES.map(n => `<button class="${String(F.name) === String(n.id) ? 'on' : ''}" onclick="setF('name','${n.id}')">${esc(n.name)} <small>${nc[n.id]}</small></button>`).join('') + (NAMES.length ? '' : '<div class="hint">name a person or thing from its card</div>');
   const w = Object.entries(r.workers || {});
   $('#t-workers').textContent = w.length ? 'workers: ' + w.map(([c, s]) => `${c} ${s.running ? (s.detect_ms || 0) + 'ms' : 'stopped'}${s.error ? ' !' : ''}`).join(' · ') : 'workers: none running';
   $('#t-workers').className = 'tag ' + (w.some(([, s]) => s.error) ? 'warn' : '');
@@ -164,6 +171,14 @@ function renderDetail(r){
       <button class="btn sm" onclick="verdict(${o.id}, 'rejected')">✗ Not a ${esc(o.label)}</button>
       <input type="text" id="relabel" placeholder="correct label…" style="width:140px" onkeydown="if(event.key==='Enter')verdict(${o.id}, 'confirmed', this.value)">
     </div>
+    <div class="row" style="border:1px solid var(--line);border-radius:3px;padding:8px">
+      <span class="hint" style="flex-basis:100%">${o.name ? `Known as <b>${esc(o.name)}</b>${o.name_by === 'owner' ? ' (you named it)' : ` (matched by appearance, ${Math.round((o.name_score || 0) * 100)}%)`}` : 'Name this person or thing so the journal and the daily report use the name. Matched by clothing, build and colour - never a face.'}</span>
+      <input type="text" id="nm" list="nm-list" placeholder="name… e.g. Marco, the Bidfood van" style="flex:1" value="${esc(o.name || '')}" onkeydown="if(event.key==='Enter')nameIt(${o.id})">
+      <datalist id="nm-list">${NAMES.map(n => `<option value="${esc(n.name)}">`).join('')}</datalist>
+      <select id="nm-kind" style="width:110px"><option value="">auto</option><option value="person" ${o.name_kind === 'person' ? 'selected' : ''}>person</option><option value="vehicle" ${o.name_kind === 'vehicle' ? 'selected' : ''}>vehicle</option><option value="object" ${o.name_kind === 'object' ? 'selected' : ''}>object</option></select>
+      <button class="btn p sm" onclick="nameIt(${o.id})">${o.name && o.name_by === 'owner' ? 'Rename' : 'Name it'}</button>
+      ${o.name ? `<button class="btn sm" onclick="unname(${o.id})">Not ${esc(o.name)}</button>` : ''}
+    </div>
     <div class="row"><input type="text" id="q" placeholder="ask about this object… (what is it carrying? is it the same van as this morning?)" style="flex:1" onkeydown="if(event.key==='Enter')ask(${o.id})"><button class="btn sm" onclick="ask(${o.id})">Ask</button></div>
     <div><div class="hint" style="margin-bottom:6px">Notes (${r.notes.length})</div><div class="notes" id="d-notes">${notesHtml(r.notes)}</div></div>
     ${r.similar && r.similar.length ? `<div><div class="hint" style="margin-bottom:6px">Looks like (similarity suggestions, never merged)</div><div class="similar">${r.similar.map(s => `<div><img src="${s.crop_url}" onclick="openDetail(${s.id})" title="#${s.id} ${esc(s.label)} on ${esc(s.camera)}"><div>#${s.id} ${esc(s.camera)}${s.score != null ? ' ' + Math.round(s.score * 100) + '%' : ''}</div></div>`).join('')}</div></div>` : ''}`;
@@ -173,6 +188,15 @@ async function callObj(id, on){
   toast(on ? 'asking the vision model…' : 'stopped following');
   const r = await api(`/objects/${id}/call`, {method:'POST', body:{on}});
   if (!r) return; if (r.error) toast(r.error); if (r.object) { CUR = r.object; renderDetail({object: r.object, notes: r.notes || [], similar: []}); } load();
+}
+async function nameIt(id){
+  const name = $('#nm').value.trim(); if (!name) return;
+  const r = await api(`/objects/${id}/name`, {method:'POST', body:{name, kind: $('#nm-kind').value}});
+  if (r && r.ok) { toast(`named ${r.thing.name}`); openDetail(id); load(); } else toast((r && r.error) || 'failed');
+}
+async function unname(id){
+  const r = await api(`/objects/${id}/name`, {method:'DELETE'});
+  if (r && r.ok) { toast('name removed from this sighting'); openDetail(id); load(); } else toast((r && r.error) || 'failed');
 }
 async function verdict(id, v, label){
   const r = await api(`/objects/${id}/verdict`, {method:'POST', body:{verdict: v, label: label || ''}});

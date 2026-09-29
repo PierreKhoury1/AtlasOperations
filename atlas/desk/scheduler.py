@@ -106,8 +106,14 @@ def camera_tick(store, desk: dict[str, Any], conn: dict[str, Any], start_run: Ca
         is_due, note_why = JR.due(key, jc, time.time(), res["motion"], res["counts"])
         if is_due:
             try:
+                known = []
+                if OBJ is not None:
+                    try:
+                        known = OBJ.known_in_view(store, desk["id"], conn["name"])
+                    except Exception:
+                        known = []
                 note = JR.write_note(key, conn["name"], jc, res["jpeg"], res["counts"], notes=str(cfg.get("notes") or ""),
-                                     model=str(cfg.get("vlm_model") or ""), why=note_why, dets=res.get("detections"))
+                                     model=str(cfg.get("vlm_model") or ""), why=note_why, dets=res.get("detections"), known=known)
             except Exception as exc:
                 JR.failed(key)
                 note_why = f"journal failed: {str(exc)[:140]}"

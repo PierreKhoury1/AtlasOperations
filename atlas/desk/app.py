@@ -1774,9 +1774,14 @@ def _objects_mod():
     return OBJ, AUD
 
 
-def _obj_public(o: dict[str, Any]) -> dict[str, Any]:
+def _obj_public(o: dict[str, Any], names: dict[int, dict[str, Any]] | None = None) -> dict[str, Any]:
     o = dict(o)
     o.pop("emb", None)
+    n = None
+    if o.get("name_id") and o.get("name_by") != "owner-no":
+        n = (names or {}).get(o["name_id"]) if names is not None else store.named(o["name_id"])
+    o["name"] = n["name"] if n else ""
+    o["name_kind"] = n["kind"] if n else ""
     o["crop_url"] = f"/api/objects/{o['id']}/crop.jpg?v={int(o.get('last_ts') or 0)}"
     o["scene_url"] = f"/api/objects/{o['id']}/scene.jpg?v={int(o.get('last_ts') or 0)}"
     o["seconds"] = round(max(0.0, (o.get("last_ts") or 0) - (o.get("first_ts") or 0)), 1)
@@ -1820,12 +1825,20 @@ def api_objects():
         rows = [o for o in rows if (o.get("verdict") or "unverified") == verdict]
     elif a.get("rejected") != "1":
         rows = [o for o in rows if o.get("verdict") != "rejected"]
+    names = {n["id"]: n for n in ds.named_things()}
+    if a.get("name", type=int):
+        rows = [o for o in rows if o.get("name_id") == a.get("name", type=int) and o.get("name_by") != "owner-no"]
     everything = ds.vision_objects(limit=5000)
-    facets = {"camera": {}, "label": {}, "verdict": {}}
+    facets = {"camera": {}, "label": {}, "verdict": {}, "name": {}}
     for o in everything:
         for k, v in (("camera", o["camera"]), ("label", o["label"]), ("verdict", o.get("verdict") or "unverified")):
             facets[k][v] = facets[k].get(v, 0) + 1
-    return jsonify({"objects": [_obj_public(o) for o in rows], "facets": facets, "workers": OBJ.statuses(desk["id"]),
+        if o.get("name_id") in names and o.get("name_by") != "owner-no":
+            nm = names[o["name_id"]]["name"]
+            facets["name"][nm] = facets["name"].get(nm, 0) + 1
+    return jsonify({"objects": [_obj_public(o, names) for o in rows], "facets": facets, "workers": OBJ.statuses(desk["id"]),
+                    "names": [{"id": n["id"], "name": n["name"], "kind": n["kind"], "notes": n.get("notes") or "",
+                               "exemplars": len(n["exemplars"]), "sightings": n.get("sightings") or 0} for n in names.values()],
                     "audit": AUD.latest(), "live": _mode() == "live" and V.vlm_ready()})
 
 
@@ -1897,6 +1910,93 @@ def api_object_ask(oid):
     except Exception as exc:
         return jsonify({"ok": False, "error": str(exc)[:300]}), 502
     return jsonify({"ok": True, "answer": text, "notes": store.for_desk(desk["id"]).object_notes(oid, 60)})
+
+
+@app.post("/api/objects/<int:oid>/name")
+def api_object_name(oid):
+    """The owner names this sighting ("Marco", "the Bidfood van"): a new named thing or one more exemplar of one.
+    Appearance only - the crop's CLIP embedding - never a face."""
+    OBJ, _ = _objects_mod()
+    desk, o = _object(oid)
+    d = request.get_json(force=True) or {}
+    name = re.sub(r"\s+", " ", str(d.get("name") or "")).strip()[:60]
+    if not name:
+        return jsonify({"error": "name required"}), 400
+    kind = str(d.get("kind") or "").strip().lower()
+    if kind not in ("", "person", "vehicle", "object"):
+        return jsonify({"error": "kind must be person, vehicle or object"}), 400
+    thing = OBJ.name_object(store, o, name, kind=kind, notes=str(d.get("notes") or "").strip()[:300])
+    ds = store.for_desk(desk["id"])
+    return jsonify({"ok": True, "thing": {k: thing[k] for k in ("id", "name", "kind", "notes")}, "object": _obj_public(ds.vision_object(oid)),
+                    "notes": ds.object_notes(oid, 60)})
+
+
+@app.delete("/api/objects/<int:oid>/name")
+def api_object_unname(oid):
+    OBJ, _ = _objects_mod()
+    desk, o = _object(oid)
+    OBJ.unname_object(store, o)
+    ds = store.for_desk(desk["id"])
+    return jsonify({"ok": True, "object": _obj_public(ds.vision_object(oid)), "notes": ds.object_notes(oid, 60)})
+
+
+@app.get("/api/names")
+def api_names():
+    desk = need_desk()
+    ds = store.for_desk(desk["id"])
+    out = []
+    for n in ds.named_things():
+        seen = [o for o in ds.vision_objects(name_id=n["id"], limit=2000) if o.get("name_by") != "owner-no"]
+        out.append({"id": n["id"], "name": n["name"], "kind": n["kind"], "notes": n.get("notes") or "", "label": n.get("label") or "",
+                    "exemplars": n["exemplars"], "sightings": len(seen),
+                    "last_seen": max((o.get("last_ts") or 0 for o in seen), default=None),
+                    "cameras": sorted({o["camera"] for o in seen})})
+    return jsonify({"names": out})
+
+
+@app.patch("/api/names/<int:nid>")
+def api_name_update(nid):
+    desk = need_desk()
+    ds = store.for_desk(desk["id"])
+    if not ds.named(nid):
+        abort(404)
+    d = request.get_json(force=True) or {}
+    f: dict[str, Any] = {}
+    if d.get("name"):
+        f["name"] = re.sub(r"\s+", " ", str(d["name"])).strip()[:60]
+    if d.get("kind") in ("person", "vehicle", "object"):
+        f["kind"] = d["kind"]
+    if "notes" in d:
+        f["notes"] = str(d.get("notes") or "").strip()[:300]
+    ds.update_named(nid, **f)
+    n = ds.named(nid)
+    return jsonify({"ok": True, "thing": {k: n[k] for k in ("id", "name", "kind", "notes")}})
+
+
+@app.delete("/api/names/<int:nid>")
+def api_name_delete(nid):
+    desk = need_desk()
+    ds = store.for_desk(desk["id"])
+    if not ds.named(nid):
+        abort(404)
+    ds.delete_named(nid)
+    return jsonify({"ok": True})
+
+
+@app.get("/api/report/day")
+def api_report_day():
+    """The daily camera report, by name: ?date=YYYY-MM-DD (today), ?format=md for the readable version."""
+    from .. import report as REP
+    desk = need_desk()
+    date = request.args.get("date") or time.strftime("%Y-%m-%d")
+    try:
+        data = REP.daily(store, desk["id"], date)
+    except ValueError:
+        return jsonify({"error": "date must be YYYY-MM-DD"}), 400
+    if request.args.get("format") == "md":
+        biz = ((desk.get("config") or {}).get("business") or {}).get("name") or desk.get("name") or ""
+        return Response(REP.markdown(data, biz), mimetype="text/markdown; charset=utf-8")
+    return jsonify(data)
 
 
 @app.post("/api/objects/<int:oid>/verdict")
