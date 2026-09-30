@@ -224,6 +224,63 @@ them to any agent whose job is to watch feeds, even before the first camera is a
 For every-frame tracking (queues, dwell times, entered/left per object) run the **Vision Node** (`node/`) next to the
 cameras and point it at the desk's sensor hook URL; the desk then reacts to tracked events instead of polling.
 
+## Multi-camera accuracy (many people, cameras in sync)
+
+One camera and one person proves little. `py -m atlas mcam-eval` scores the whole vision stack against human labels on
+**WILDTRACK** (EPFL, CVPR 2018): 7 synchronised, calibrated cameras over one square, 13-40 people in the scene at
+once (mean 23.8), 313 identities, every person boxed in every camera at 400 instants (2 a second, 200 s).
+
+    pip install remotezip httpx pillow motmetrics
+    python scripts/get_wildtrack.py        # ~310 MB kept (540p frames + labels + calibration), streamed out of the 6.8 GB archive
+    py -m atlas mcam-eval [--vlm google/gemini-3.1-flash-lite]   # -> workspace/vision-eval/wildtrack/report.md, ~25 min on 4 CPU cores
+
+WILDTRACK is licensed for non-commercial research: the frames and the per-box files derived from them stay out of git.
+Results (`workspace/vision-eval/wildtrack/report.md`, CPU, 960x540):
+
+| what | measured | what it means |
+|---|---|---|
+| person detection, `yolo11n` | precision 0.696, recall 0.55 (IoU 0.3: 0.759 / 0.6) | about half the labelled people in a crowd are found on each camera |
+| person detection, `yolo11s` | precision 0.714, recall 0.531 | 2x the compute buys nothing on this footage |
+| tracking, live view (ByteTrack) | IDF1 0.357, MOTA 0.212, 2633 identity switches | at 2 frames a second, IDs in a crowd do not survive |
+| tracking, catalogue tracker | IDF1 0.428, MOTA 0.278, 1256 switches | half the switches of ByteTrack at this frame rate |
+| same person across cameras, by appearance (CLIP) | rank-1 11% (chance 1%), AUC 0.503 | appearance cannot tell people apart across viewpoints |
+| same person across cameras, by where the feet land | **rank-1 ≥ 99.9%** (160,054 queries) | with calibrated cameras, geometry solves it |
+| foot point vs the labelled ground position | median 8.9 cm, p90 19.8 cm | the calibration is sound |
+
+How many people are there? (mean absolute error against the labelled count per instant)
+
+| estimate | error (people) | bias | within 20% |
+|---|---|---|---|
+| add up every camera's detections | 58.2 | +58.2 | 0% |
+| the busiest single camera | 7.3 | -7.1 | 30% |
+| detections' feet merged on the ground within 50 cm | 22.7 | +22.7 | 0% |
+| detections' feet merged on the ground within 75 cm | 16.8 | +16.8 | 0% |
+| detections' feet merged on the ground within 100 cm | 14.4 | +14.4 | 1% |
+| detections' feet merged on the ground within 150 cm | 11.4 | +11.3 | 7% |
+| `gemini-3.1-flash-lite`, all 7 frames at once | 75.9 | +75.9 | 0% (8 instants) |
+| `nemotron-3-nano-omni-30b-a3b-reasoning:free`, all 7 frames at once | 82.3 | +82.3 | 0% (6 instants) |
+
+What that says, plainly: finding people and matching them across calibrated cameras work; keeping identities through a
+crowd at 2 frames a second, and counting a crowd, do not yet. Adding the cameras up double-counts. Merging sightings
+whose feet land in the same spot is far better but still over-counts: a half-hidden person's box stops above the feet,
+so the foot point lands somewhere else and becomes an extra person, and every false detection adds one. The busiest
+single camera comes closest, low by whoever it cannot see. A vision model shown all seven frames answers with round
+guesses (85, 115, 120) that do not follow the crowd; it also sees people outside the labelled area, a harder test, but
+not one that explains the gap. Naming people by appearance (the Objects page) works for a few regulars in one room; in a
+crowd CLIP would put the wrong name on someone, so there a name needs position or a second cue. The next gains are a
+detector trained on crowds, more frames a second for tracking, and full-body boxes (or head points) for the ground
+plane.
+
+**Review workspace (`/desk/review`).** The run above, played back: all seven cameras on one playhead (space, arrows,
+drag the timeline), human labels solid, our tracks dashed, a labelled person we missed shaded red. Click anyone to light
+them up on every camera that sees them, with their crops and how long the tracker held them; the timeline plots the true
+head count against every estimate. `ATLAS_REVIEW_DATA` / `ATLAS_REVIEW_OUT` point it at another dataset or run.
+
+**Recordings on one clock.** A video-file camera plays at the position `(now - VIDEO_SYNC_EPOCH) mod duration`, so any
+number of recordings of the same moment stay in step: across viewers, restarts and the live loop (checked in
+`tests/test_live.py`: two feeds opened 0.6 s apart stay within 0.35 s). Recordings of different lengths each loop on
+their own length.
+
 ## Browser hand (a browser agent for sites with no API)
 
 Any agent with the `browse` tool can operate a real Chromium: read JavaScript-heavy or logged-in pages, fill

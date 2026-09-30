@@ -143,7 +143,7 @@ button{font:inherit;color:inherit}
       <span class="fr" id="tc" style="min-width:64px">0.0 s</span>
       <select id="spd" title="Playback speed"><option value="1">1×</option><option value="2" selected>2×</option><option value="4">4×</option><option value="8">8×</option></select>
       <span class="sp"></span>
-      <span class="lg"><span><i style="background:#e0e0e0"></i>people in the scene (labels)</span><span><i style="background:var(--blue)"></i>sum of camera detections</span><span><i style="background:var(--warn)"></i>busiest camera</span><span id="lg-geo" style="display:none"><i style="background:var(--ok)"></i>feet clustered on the ground</span><span><i style="background:var(--sel);height:8px;width:3px"></i>selected person visible</span></span>
+      <span class="lg"><span><i style="background:#e0e0e0"></i>people in the scene (labels)</span><span><i style="background:var(--blue)"></i>sum of camera detections</span><span><i style="background:var(--warn)"></i>busiest camera</span><span id="lg-geo" style="display:none"><i style="background:var(--ok)"></i>feet merged on the ground (75 cm)</span><span><i style="background:var(--sel);height:8px;width:3px"></i>selected person visible</span></span>
     </div>
     <div class="track"><canvas id="tlc"></canvas></div>
   </div>
@@ -249,7 +249,7 @@ function props(){
     $('#p-title').textContent = 'Scene';
     const g = I.cams.reduce((a, C) => a + C.gt.length, 0), p = I.cams.reduce((a, C) => a + C.pred.length, 0), tp = I.cams.reduce((a, C) => a + C.pred.filter(x => x[5] >= 0).length, 0);
     const big = Math.max(...I.cams.map(C => C.det));
-    pc.innerHTML = sect('Instant', kv([['frame', I.frame], ['time', I.t.toFixed(1) + ' s'], ['people in the scene', I.scene], ['busiest camera sees', big], ['sum of cameras (double counts)', I.cams.reduce((a, C) => a + C.det, 0)]].concat(I.geo != null ? [['feet clustered on the ground', I.geo]] : [])))
+    pc.innerHTML = sect('Instant', kv([['frame', I.frame], ['time', I.t.toFixed(1) + ' s'], ['people in the scene', I.scene], ['busiest camera sees', big], ['sum of cameras (double counts)', I.cams.reduce((a, C) => a + C.det, 0)]].concat(I.geo != null ? [['feet merged on the ground (75 cm)', I.geo]] : [])))
       + sect('This instant, all cameras', kv([['labelled sightings', g], ['tracked sightings', p], ['matched', tp, g ? tp / g : 0], ['missed', g - tp, g ? (g - tp) / g : 0, true], ['unmatched tracks', p - tp, p ? (p - tp) / p : 0, true]]))
       + sect('Per camera', kv(RV.cameras.map((c, ci) => { const C = I.cams[ci], t = C.pred.filter(x => x[5] >= 0).length; return [c, `${t}/${C.gt.length}`, C.gt.length ? t / C.gt.length : 0]; })));
   } else if (TAB === 'person') {
