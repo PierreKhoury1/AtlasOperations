@@ -151,12 +151,19 @@ button{font:inherit;color:inherit}
 <script>
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-let RV = null, RS = null, N = 0, F = 0, playing = false, timer = null, SEL = null, SOLO = null, TAB = 'scene';
+let RV = null, RS = null, N = 0, F = 0, playing = false, timer = null, SEL = null, SOLO = null, TAB = 'scene', SCRUB = false;
 const HIDE = new Set();                                  // cameras hidden in the outliner
 const IMG = {};                                           // `${cam}/${frame}` -> Image (preloaded ahead of the playhead)
 const col = id => `hsl(${(id * 137.508) % 360} 72% 62%)`;
-function img(cam, fi){ const f = RV.instants[fi].frame, k = cam + '/' + f; if (!IMG[k]) { const i = new Image(); i.src = `/api/review/frame/${cam}/${f}.jpg`; i.onload = () => { if (fi === F) drawViews(); }; IMG[k] = i; } return IMG[k]; }
-function preload(fi){ for (let k = 0; k < 8; k++) { const j = fi + k; if (j >= N) break; RV.cameras.forEach(c => img(c, j)); } const keys = Object.keys(IMG); if (keys.length > 700) keys.slice(0, keys.length - 500).forEach(k => delete IMG[k]); }
+function img(cam, fi, hi){ const f = RV.instants[fi].frame, k = cam + '/' + f; let i = IMG[k];
+  if (!i) { i = new Image(); i._fi = fi; i.fetchPriority = hi ? 'high' : 'low'; i.onload = () => { if (fi === F) drawViews(); }; i.src = `/api/review/frame/${cam}/${f}.jpg`; IMG[k] = i; }
+  return i; }
+function preload(fi, ahead = 8){
+  // a fast scrub would queue hundreds of frames nobody will look at: drop the pending ones away from the playhead
+  for (const [k, i] of Object.entries(IMG)) if (!i.complete && (i._fi < fi || i._fi > fi + ahead)) { i.onload = null; i.src = ''; delete IMG[k]; }
+  RV.cameras.forEach(c => img(c, fi, true));
+  for (let k = 1; k <= ahead; k++) { const j = fi + k; if (j >= N) break; RV.cameras.forEach(c => img(c, j)); }
+  const keys = Object.keys(IMG); if (keys.length > 700) keys.slice(0, keys.length - 500).forEach(k => delete IMG[k]); }
 
 async function init(){
   const r = await fetch('/api/review/data'); const j = await r.json();
@@ -193,7 +200,8 @@ function drawViews(){
   RV.cameras.forEach((c, ci) => {
     const cv = $('#cv-' + c); if (!cv) return; const d = fit(cv), x = cv.getContext('2d'), g = geom(cv), C = I.cams[ci];
     x.fillStyle = '#101010'; x.fillRect(0, 0, cv.width, cv.height);
-    const im = img(c, F); if (im.complete && im.naturalWidth) x.drawImage(im, g.ox, g.oy, RV.size[0] * g.s, RV.size[1] * g.s);
+    const im = img(c, F, true); if (im.complete && im.naturalWidth) x.drawImage(im, g.ox, g.oy, RV.size[0] * g.s, RV.size[1] * g.s);
+    else { x.fillStyle = '#5a5a5a'; x.font = `${11 * d}px IBM Plex Mono`; x.fillText('loading frame…', g.ox + 8 * d, g.oy + 16 * d); }
     const B = b => [g.ox + b[0] * g.s, g.oy + b[1] * g.s, (b[2] - b[0]) * g.s, (b[3] - b[1]) * g.s];
     const matched = new Set(C.pred.filter(p => p[5] >= 0).map(p => p[5]));
     const dim = SEL != null;
@@ -265,7 +273,7 @@ function props(){
           ['sightings found by the tracker', `${hit}/${tot}`, tot ? hit / tot : 0], ['track ids it was split into', tids.size, null], ['cameras now', where.map(w => w.c).join(' ') || '–']]))
       + (() => { const camsEver = new Set(); RV.instants.forEach(x => x.cams.forEach((C, ci) => { if (C.gt.some(g => g[0] === SEL)) camsEver.add(ci); }));
           const extra = tids.size - camsEver.size;
-          return sect('What this means', `<div class="note">Ideal: one track per camera that saw them, ${camsEver.size} here. The tracker used <b style="color:#fff">${tids.size}</b>${extra > 0 ? `, so it lost this person and started again <b style="color:#fff">${extra}</b> time${extra === 1 ? '' : 's'}: each restart is an identity switch, which is what IDF1 counts` : ', one per camera: it never lost them'}. ${hit < tot ? `It found them in ${hit} of the ${tot} sightings the labels have; the rest were missed, mostly far away or behind someone.` : ''} Across cameras the ids are joined only by the human labels here; the pipeline itself joins them by appearance (Scores: re-id).</div>`); })();
+          return sect('What this means', `<div class="note">Ideal: one track per camera that saw them, ${camsEver.size} here. The tracker used <b style="color:#fff">${tids.size}</b>${extra > 0 ? `, so it lost this person and started again <b style="color:#fff">${extra}</b> time${extra === 1 ? '' : 's'}: each restart is an identity switch, which is what IDF1 counts` : ', one per camera: it never lost them'}. ${hit < tot ? `It found them in ${hit} of the ${tot} sightings the labels have; the rest were missed, mostly far away or behind someone.` : ''} Across cameras the ids are joined by the human labels here; the pipeline can join them by where the feet land (Scores: geometry, calibrated cameras) or, without calibration, by appearance (Scores: re-id).</div>`); })();
     where.forEach(w => { const cv = pc.querySelector(`canvas[data-c="${w.c}"]`), im = img(w.c, F), [, x1, y1, x2, y2] = w.g; const draw = () => { cv.width = 80; cv.height = 160; const x = cv.getContext('2d'); const bw = x2 - x1, bh = y2 - y1, s = Math.min(80 / bw, 160 / bh); x.fillStyle = '#111'; x.fillRect(0, 0, 80, 160); x.drawImage(im, x1, y1, bw, bh, (80 - bw * s) / 2, (160 - bh * s) / 2, bw * s, bh * s); }; im.complete ? draw() : im.addEventListener('load', draw, {once: true}); });
   } else {
     $('#p-title').textContent = 'Scores vs the labels';
@@ -273,7 +281,7 @@ function props(){
     const det = Object.entries(RS.detection || {}).map(([k, d]) => sect('Detection · ' + k, kv([['precision', d.precision, d.precision], ['recall', d.recall, d.recall], ['F1', d.f1, d.f1], ['count error / camera / frame', d.count_mae]]), !k.includes('0.3'))).join('');
     const trk = Object.entries(RS.tracking || {}).map(([k, t]) => sect('Tracking · ' + k, kv([['IDF1', t.overall.idf1, t.overall.idf1], ['MOTA', t.overall.mota, Math.max(0, t.overall.mota)], ['identity switches', t.overall.id_switches], ['recall', t.overall.recall, t.overall.recall], ['mostly tracked', `${t.overall.mostly_tracked} of ${t.overall.gt_identities}`]]))).join('');
     const r = RS.reid || {}, c = RS.counts || {}, g = RS.geometry || {};
-    const geo = g.assoc_rank1 != null ? sect('Geometry · calibrated cameras', kv([['match across cameras by where the feet land', Math.round(g.assoc_rank1 * 100) + '%', g.assoc_rank1], ['same, by appearance (CLIP)', r.rank1 != null ? Math.round(r.rank1 * 100) + '%' : '–', r.rank1 || 0, true], ['foot point vs true position, median', (RS.projection_error_cm || {}).median + ' cm'], ['same person across cameras, median gap', g.same_person_ground_gap_cm.median + ' cm']]) + Object.entries(g.counts || {}).map(([k, v]) => `<div class="note">head count, feet clustered within ${k}: error ${v.mae} (${v.bias > 0 ? '+' : ''}${v.bias}), within 20% ${Math.round(v.within_20pct * 100)}% of instants</div>`).join('')) : '';
+    const geo = g.assoc_rank1 != null ? sect('Geometry · calibrated cameras', kv([['match across cameras by where the feet land', (g.assoc_rank1 >= 0.9995 ? '≥ 99.9' : (g.assoc_rank1 * 100).toFixed(1)) + '%', g.assoc_rank1], ['same, by appearance (CLIP)', r.rank1 != null ? Math.round(r.rank1 * 100) + '%' : '–', r.rank1 || 0, true], ['foot point vs true position, median', (RS.projection_error_cm || {}).median + ' cm'], ['same person across cameras, median gap', g.same_person_ground_gap_cm.median + ' cm']]) + Object.entries(g.counts || {}).map(([k, v]) => `<div class="note">head count, feet merged within ${k}: error ${v.mae} (${v.bias > 0 ? '+' : ''}${v.bias}), within 20% ${Math.round(v.within_20pct * 100)}% of instants</div>`).join('')) : '';
     const reid = r.rank1 != null ? sect('Re-id across cameras · ' + (r.model || 'CLIP'), kv([['rank-1 (pick one, find them on another camera)', Math.round(r.rank1 * 100) + '%', r.rank1, true], ['chance', Math.round(r.chance_rank1 * 100) + '%'], ['control: same camera, later', Math.round((r.control_rank1_same_camera || 0) * 100) + '%', r.control_rank1_same_camera || 0], ['AUC per query', r.auc_per_query ?? '–'], ['same vs other person similarity', `${r.same_mean} / ${r.diff_mean}`]]) + (r.at || []).map(a => `<div class="note">at ${a.threshold}: precision ${a.precision}, recall ${a.recall}, ${a.false_matches_per_true} wrong matches per right one</div>`).join('')) : '';
     const cnt = c.sum_of_cameras ? sect('How many people are there?', kv([['truth (mean, range)', `${c.truth_mean} (${c.truth_min}–${c.truth_max})`], ['sum of cameras, error', `${c.sum_of_cameras.mae} (${c.sum_of_cameras.bias > 0 ? '+' : ''}${c.sum_of_cameras.bias})`], ['busiest camera, error', `${c.largest_camera.mae} (${c.largest_camera.bias > 0 ? '+' : ''}${c.largest_camera.bias})`]].concat((RS.vlm || []).filter(v => v.mae != null).map(v => [v.model.split('/').pop() + ', error', `${v.mae} (${v.bias > 0 ? '+' : ''}${v.bias})`])))) : '';
     pc.innerHTML = det + trk + geo + reid + cnt;
@@ -299,9 +307,10 @@ function drawTimeline(){
   const lx = Math.min(W - R - tw, X(F) + 8 * d); x.fillStyle = 'rgba(20,20,20,.9)'; x.fillRect(lx, 10 * d, tw, 16 * d); x.fillStyle = '#fff'; x.fillText(label, lx + 5 * d, 22 * d);
 }
 (() => { const cv = $('#tlc'); let drag = false; const at = e => { const r = cv.getBoundingClientRect(), d = devicePixelRatio || 1, L = 34, R = 10; seek(Math.round((e.clientX - r.left - L) / (r.width - L - R) * (N - 1))); };
-  cv.onmousedown = e => { drag = true; if (playing) toggle(); at(e); }; window.addEventListener('mousemove', e => drag && at(e)); window.addEventListener('mouseup', () => drag = false); })();
+  cv.onmousedown = e => { drag = SCRUB = true; if (playing) toggle(); at(e); }; window.addEventListener('mousemove', e => drag && at(e));
+  window.addEventListener('mouseup', () => { if (drag) { drag = SCRUB = false; preload(F); } }); })();
 // ---------------------------------------------------------------- transport
-function seek(i){ if (!RV) return; F = Math.max(0, Math.min(N - 1, i)); const I = RV.instants[F]; $('#fr').textContent = `${F} / ${N - 1}`; $('#tc').textContent = I.t.toFixed(1) + ' s'; preload(F); drawViews(); tree(); props(); drawTimeline(); }
+function seek(i){ if (!RV) return; F = Math.max(0, Math.min(N - 1, i)); const I = RV.instants[F]; $('#fr').textContent = `${F} / ${N - 1}`; $('#tc').textContent = I.t.toFixed(1) + ' s'; preload(F, SCRUB ? 0 : 8); drawViews(); tree(); props(); drawTimeline(); }
 function step(k){ if (playing) toggle(); seek(F + k); }
 function toggle(){ playing = !playing; $('#play').textContent = playing ? '❚❚' : '▶'; clearInterval(timer); if (playing) timer = setInterval(() => { const next = (F + 1) % N; const ready = RV.cameras.every(c => HIDE.has(c) || img(c, next).complete); if (ready) seek(next); }, 500 / +$('#spd').value); }
 $('#spd').onchange = () => { if (playing) { toggle(); toggle(); } };

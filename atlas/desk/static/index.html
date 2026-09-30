@@ -20,6 +20,7 @@ a{color:inherit;text-decoration:none}
 aside{background:var(--side);border-right:1px solid var(--line);padding:16px 12px;position:sticky;top:0;height:100vh;display:flex;flex-direction:column;gap:6px}
 .brand{display:flex;align-items:center;gap:9px;font-weight:600;font-size:17px;padding:4px 8px 12px}
 .brand i{width:20px;height:20px;border-radius:2px;background:var(--grad);display:inline-block;position:relative;flex:0 0 auto}
+.themebtn{margin-left:auto;background:none;border:1px solid var(--line);color:var(--muted);border-radius:var(--r);width:26px;height:24px;cursor:pointer;font-size:13px;line-height:1}.themebtn:hover{color:var(--text);border-color:var(--line2)}
 .brand i::after{content:"";position:absolute;inset:6px;border-radius:1px;background:var(--bg)}
 .ws{display:flex;align-items:center;justify-content:space-between;gap:8px;border:1px solid var(--line);border-radius:var(--r);padding:9px 11px;background:var(--panel);margin-bottom:8px;cursor:default}
 .ws b{display:block;font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -309,7 +310,7 @@ aside.simple [data-lvl="full"]{display:none}
 .wall .wtile .wcount.flash{background:var(--accent)}
 .wall .wtile .wnote{position:absolute;left:0;right:0;bottom:0;padding:26px 8px 32px;background:linear-gradient(transparent,rgba(5,7,10,.85));color:#e7edf5;font-size:11.5px;line-height:1.4;opacity:0;transition:opacity .3s;pointer-events:none;max-height:60%;overflow:hidden}
 .wall .wtile:hover .wnote,.wall .wtile.writing .wnote{opacity:1}
-.hcams .wall{border:0;margin:0;border-radius:0;animation:none}.hcams .wgrid{grid-template-columns:repeat(auto-fill,minmax(230px,1fr))}
+.hcams .wall{border:0;margin:0;border-radius:0;animation:none}.hcams .wgrid{grid-template-columns:repeat(auto-fill,minmax(230px,1fr));background:var(--panel);gap:4px;padding:4px}
 .wall .wticker{border-left:1px solid var(--line);position:relative;min-height:300px}
 .wall .wticker .wt-in{position:absolute;inset:0;overflow:auto;padding:8px 12px;font-size:12.5px}
 .wall .wt-item{padding:8px 0;border-bottom:1px dashed var(--line);animation:rise .3s ease-out}
@@ -336,7 +337,7 @@ aside.simple [data-lvl="full"]{display:none}
 <body>
 <div class="layout">
 <aside>
-  <div class="brand"><i></i>Atlas Desk</div>
+  <div class="brand"><i></i>Atlas Desk<button id="themebtn" class="themebtn" onclick="toggleTheme()" title="Switch theme">◐</button></div>
   <div class="ws" title="Switch desk" onclick="toggleWs(event)"><div><b id="bizname">…</b><small id="wshint">sales desk</small></div><div class="wsmenu hide" id="wsmenu"></div><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m7 15 5 5 5-5M7 9l5-5 5 5"/></svg></div>
   <nav id="nav">
     <button data-p="design" data-lvl="full"><svg viewBox="0 0 24 24"><path d="M3 21v-4L16 4l4 4L7 21H3z"/><path d="m13 7 4 4"/><path d="M14 3h7v7"/></svg>Design studio</button>
@@ -363,7 +364,7 @@ aside.simple [data-lvl="full"]{display:none}
   <button class="lvl" id="lvl-btn" onclick="toggleLevel()" title="Switch between the simple view and the full framework">Show everything ›</button>
   <div class="mode">
     <div class="u"><div class="av" id="whoav">?</div><div><b id="who">…</b><small id="whoco"></small></div></div>
-    Mode <b id="mode">…</b> · <span id="modehint"></span><br><a href="/" style="color:var(--muted)">← site</a> · <a href="/logout" style="color:var(--accent2)">Log out</a> · <a href="#" id="themebtn" onclick="toggleTheme();return false" style="color:var(--muted)" title="Switch between the dark studio theme and the light one">Light</a>
+    Mode <b id="mode">…</b> · <span id="modehint"></span><br><a href="/" style="color:var(--muted)">← site</a> · <a href="/logout" style="color:var(--accent2)">Log out</a>
   </div>
 </aside>
 <main>
@@ -757,7 +758,7 @@ async function homeCams(){
   if (Date.now() - HOME.t < 5000) return; HOME.t = Date.now();
   const R = await api('/cameras'); if (!R || page !== 'dash') return; const cams = R.cameras || [], box = $('#home-cams');
   if (!cams.length) { box.style.display = 'none'; return; }
-  CAMS = cams; box.style.display = '';
+  CAMS = cams; box.style.display = ''; $('#n-cams').textContent = cams.length + (R.nodes || []).length;
   const show = cams.slice(0, 8), ids = show.map(c => c.id).join(',');
   if (ids !== HOME.ids) {
     HOME.ids = ids;
@@ -1043,7 +1044,7 @@ function toggleTheme(){
   document.documentElement.dataset.theme = t; try { localStorage.setItem("atlas-theme", t); } catch (e) {}
   themeLabel();
 }
-function themeLabel(){ const b = document.getElementById("themebtn"); if (b) b.textContent = document.documentElement.dataset.theme === "dark" ? "Light" : "Dark"; }
+function themeLabel(){ const b = document.getElementById("themebtn"); if (b) b.title = document.documentElement.dataset.theme === "dark" ? "Switch to the light theme" : "Switch to the dark studio theme"; }
 themeLabel();
 async function toggleLevel(){
   const did = (CFG.desk || {}).id; if (!did) return;
