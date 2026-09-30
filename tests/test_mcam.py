@@ -88,3 +88,14 @@ def test_review_endpoints(app_client, tmp_path, monkeypatch):
     assert c.get("/api/review/frame/C3/00000005.jpg").data == b"\xff\xd8jpeg"
     for bad in ("/api/review/frame/C8/00000005.jpg", "/api/review/frame/C3/5.jpg", "/api/review/frame/C3/..%2F..%2Fx.jpg"):
         assert c.get(bad).status_code == 404
+
+
+def test_cluster_count_on_the_ground():
+    # two people: A seen by cameras 0, 1, 2 (feet within 30 cm), B by cameras 0 and 1, 3 m away
+    pts = np.array([[0, 0], [20, 10], [-10, 25], [300, 0], [310, 15]], float)
+    cams = [0, 1, 2, 0, 1]
+    assert M.cluster_count(pts, cams, 50) == 2
+    assert M.cluster_count(pts, cams, 10) == 5                  # too tight: every sighting alone
+    # one camera never sees a person twice: two people standing close on camera 0 stay two
+    assert M.cluster_count(np.array([[0, 0], [20, 0]], float), [0, 0], 100) == 2
+    assert M.cluster_count(np.zeros((0, 2)), [], 50) == 0

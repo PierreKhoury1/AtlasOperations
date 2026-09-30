@@ -226,7 +226,7 @@ def test_portal_real_send_crm_mirror_slack(app_client, fake):
     _login(c)
     R = J(c.get("/api/connectors"))
     assert set(R["kinds"]) >= {"resend", "whatsapp", "twilio", "hubspot", "pipedrive", "gcal", "slack"}
-    assert R["channels"] == {"email": False, "whatsapp": False, "sms": False, "booking": False}
+    assert R["channels"] == {"email": False, "whatsapp": False, "sms": False, "booking": False, "slack": False}
     assert R["whatsapp_hook_url"].endswith("/whatsapp") and R["sms_hook_url"].endswith("/sms")
     for kind, name, cfg in [("resend", "resend", {"api_key": "re_k", "from_email": "desk@atlasdesks.com", "from_name": "Maya"}),
                             ("hubspot", "hubspot", {"access_token": "pat"}),

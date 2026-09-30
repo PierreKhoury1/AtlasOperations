@@ -4,9 +4,13 @@
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Atlas Desk</title>
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<script>try{document.documentElement.dataset.theme=localStorage.getItem("atlas-theme")||"dark"}catch(e){document.documentElement.dataset.theme="dark"}</script>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
 :root{--bg:#f5f7fa;--side:#eef1f6;--panel:#ffffff;--panel2:#f0f3f7;--line:#d9dfe8;--line2:#c1cad6;--text:#10161d;--text2:#2f3a47;--muted:#5f6b7a;--faint:#8b97a6;--accent:#2d72d2;--accent2:#215db0;--accent-soft:#e4eefc;--deep:#215db0;--ink:#2d72d2;--blue:#2d72d2;--ok:#1c8f5f;--ok-soft:#e2f4ea;--danger:#c23030;--warn:#a66a00;--r:3px;--grad:#2d72d2;--mono:"IBM Plex Mono",Consolas,monospace}
+/* studio theme (the default): neutral greys like a video or 3D tool, colour only where it carries meaning */
+:root[data-theme="dark"]{color-scheme:dark;--bg:#1d1d1d;--side:#232323;--panel:#282828;--panel2:#303030;--line:#383838;--line2:#474747;--text:#e4e4e4;--text2:#bdbdbd;--muted:#959595;--faint:#6f6f6f;--accent:#4a8fe7;--accent2:#78aef2;--accent-soft:rgba(74,143,231,.16);--deep:#78aef2;--ink:#3f7fd8;--blue:#4a8fe7;--ok:#5fb97c;--ok-soft:rgba(95,185,124,.14);--danger:#e0605a;--warn:#d8a13c;--grad:linear-gradient(135deg,#e8820d,#c25a00)}
+:root[data-theme="dark"] ::-webkit-scrollbar{width:10px;height:10px}:root[data-theme="dark"] ::-webkit-scrollbar-thumb{background:#444;border-radius:5px;border:2px solid var(--bg)}:root[data-theme="dark"] ::-webkit-scrollbar-track{background:transparent}
 *{box-sizing:border-box;margin:0;padding:0}
 html{-webkit-font-smoothing:antialiased}
 body{font-family:Inter,system-ui,-apple-system,"Segoe UI",sans-serif;background:var(--bg);color:var(--text);font-size:14px;line-height:1.5;font-weight:400}
@@ -73,7 +77,7 @@ h2{font-size:15px;font-weight:600;margin-bottom:10px}
 .btn:disabled{opacity:.5;cursor:default}
 input,select,textarea{width:100%;background:var(--panel);border:1px solid var(--line2);color:var(--text);padding:8px 11px;border-radius:3px;font:inherit;font-size:13.5px}
 input::placeholder,textarea::placeholder{color:var(--faint)}
-input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 2px rgba(45,114,210,.22)}
+input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 2px color-mix(in srgb,var(--accent) 24%,transparent)}
 textarea{min-height:90px;resize:vertical}
 label{display:block;font-size:12px;color:var(--muted);margin:8px 0 4px;font-weight:600}
 table{width:100%;border-collapse:collapse;font-size:13px}th,td{text-align:left;padding:9px 8px;border-bottom:1px solid var(--line);vertical-align:top}th{color:var(--faint);font-family:var(--mono);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;font-weight:500}
@@ -186,7 +190,7 @@ aside.simple [data-lvl="full"]{display:none}
 .tmn.atlas{width:250px;padding-top:14px}
 .tmn.atlas .nm b{font-size:14.5px}
 .tmn.drag{cursor:grabbing;box-shadow:0 14px 34px rgba(16,22,29,.18);z-index:5}
-.tmn.sel{border-color:var(--accent);box-shadow:0 0 0 2px rgba(45,114,210,.22)}
+.tmn.sel{border-color:var(--accent);box-shadow:0 0 0 2px color-mix(in srgb,var(--accent) 24%,transparent)}
 .tmn.off{opacity:.55}
 .tmn.busy{border-color:var(--c);box-shadow:0 0 0 1px var(--c),0 0 20px color-mix(in srgb,var(--c) 28%,transparent)}
 .tmn.fin{border-color:color-mix(in srgb,var(--c) 45%,var(--line))}
@@ -236,7 +240,7 @@ aside.simple [data-lvl="full"]{display:none}
 .wsmenu button:hover{background:var(--panel2)}
 .wsmenu button.on{color:var(--accent2)}
 .wsmenu .new{border-top:1px solid var(--line);margin-top:4px;padding-top:8px;color:var(--accent2);font-weight:600}
-.flag{background:#fdecec;border:1px solid #f0b6b6;color:#a82a2a;padding:8px 10px;border-radius:3px;font-size:12px;margin:8px 0}
+.flag{background:color-mix(in srgb,var(--danger) 9%,var(--panel));border:1px solid color-mix(in srgb,var(--danger) 35%,var(--panel));color:var(--danger);padding:8px 10px;border-radius:3px;font-size:12px;margin:8px 0}
 .model{font-family:var(--mono);font-size:11px;color:var(--faint)}
 </style>
 <style>
@@ -305,6 +309,7 @@ aside.simple [data-lvl="full"]{display:none}
 .wall .wtile .wcount.flash{background:var(--accent)}
 .wall .wtile .wnote{position:absolute;left:0;right:0;bottom:0;padding:26px 8px 32px;background:linear-gradient(transparent,rgba(5,7,10,.85));color:#e7edf5;font-size:11.5px;line-height:1.4;opacity:0;transition:opacity .3s;pointer-events:none;max-height:60%;overflow:hidden}
 .wall .wtile:hover .wnote,.wall .wtile.writing .wnote{opacity:1}
+.hcams .wall{border:0;margin:0;border-radius:0;animation:none}.hcams .wgrid{grid-template-columns:repeat(auto-fill,minmax(230px,1fr))}
 .wall .wticker{border-left:1px solid var(--line);position:relative;min-height:300px}
 .wall .wticker .wt-in{position:absolute;inset:0;overflow:auto;padding:8px 12px;font-size:12.5px}
 .wall .wt-item{padding:8px 0;border-bottom:1px dashed var(--line);animation:rise .3s ease-out}
@@ -358,7 +363,7 @@ aside.simple [data-lvl="full"]{display:none}
   <button class="lvl" id="lvl-btn" onclick="toggleLevel()" title="Switch between the simple view and the full framework">Show everything ›</button>
   <div class="mode">
     <div class="u"><div class="av" id="whoav">?</div><div><b id="who">…</b><small id="whoco"></small></div></div>
-    Mode <b id="mode">…</b> · <span id="modehint"></span><br><a href="/" style="color:var(--muted)">← site</a> · <a href="/logout" style="color:var(--accent2)">Log out</a>
+    Mode <b id="mode">…</b> · <span id="modehint"></span><br><a href="/" style="color:var(--muted)">← site</a> · <a href="/logout" style="color:var(--accent2)">Log out</a> · <a href="#" id="themebtn" onclick="toggleTheme();return false" style="color:var(--muted)" title="Switch between the dark studio theme and the light one">Light</a>
   </div>
 </aside>
 <main>
@@ -453,6 +458,8 @@ aside.simple [data-lvl="full"]{display:none}
     <div class="card kpi"><span>Qualified contacts</span><b id="k-qual">0</b><small>in CRM</small></div>
     <div class="card kpi"><span>Tokens used</span><b id="k-tok">0</b><small id="k-cost">model cost £0.00</small></div>
   </div>
+  <div class="panel hcams" id="home-cams" style="margin-bottom:14px;display:none"><div class="ph"><h2 style="display:flex;align-items:center;gap:8px"><span class="dot live"></span>Cameras now</h2><span class="hint" id="hc-hint" style="margin:0 auto 0 12px"></span><button class="link" onclick="go('cameras')">All cameras ›</button></div>
+    <div class="wall"><div class="wgrid" id="hc-grid"></div></div></div>
   <div class="panel" style="margin-bottom:14px"><div class="ph"><h2>Give the team a job</h2><span class="hint">any task — the agents plan, research, draft; anything outbound waits for your approval</span></div>
     <div class="pb"><div class="row"><input id="d-task" placeholder="e.g. Research our 5 nearest competitors and draft a one-page comparison · Chase every quote that went quiet this month · Prepare Monday's client update" style="flex:1" onkeydown="if(event.key==='Enter')dashTask()"><button class="btn p" onclick="dashTask()">Deploy the team →</button></div></div></div>
   <div class="grid g2" style="grid-template-columns:1.5fr 1fr">
@@ -718,12 +725,13 @@ async function loadCfg(){
 }
 
 async function refresh(){
-  if (page !== 'team') teamLeave();                                             // close the team canvas stream/timers when the owner moves on
+  if (page !== 'team') teamLeave();
+  if (page !== 'dash') homeCamsStop();                                         // Home's live tiles stop streaming when it is not on screen                                             // close the team canvas stream/timers when the owner moves on
   const s = await api('/stats'); if(!s || s.needs_desk) return;
   $('#n-leads').textContent = s.leads; $('#n-pending').textContent = s.pending;
   $('#k-leads').textContent = s.leads; $('#k-pending').textContent = s.pending; $('#k-sent').textContent = s.approved; $('#k-qual').textContent = s.qualified; $('#k-active').textContent = s.active_runs; $('#d-dot').classList.toggle('live', s.active_runs > 0); $('#k-tok').textContent = ((s.tokens_in||0)+(s.tokens_out||0)).toLocaleString(); $('#k-cost').textContent = 'model cost £' + (((s.tokens_in||0)*5+(s.tokens_out||0)*25)/1e6*0.78).toFixed(2);
   $('#n-live').classList.toggle('live', s.active_runs > 0);
-  if (page==='dash') { loadDashLog(); loadHealth(); }
+  if (page==='dash') { loadDashLog(); loadHealth(); homeCams(); }
   if (page==='live') liveRefreshList();
   if (page==='leads') loadLeads();
   if (page==='approvals') loadApprovals();
@@ -743,6 +751,24 @@ function evLine(e){
   const icon = {tool:'⚙ ', approval:'⏸ ', error:'✖ ', deliverable:'📄 ', done:'✔ ', sent:'📤 ', rejected:'✖ ', agent_start:'→ ', agent_end:'← '}[e.kind] || '';
   return `<div><span class="t">${hms(e.ts)}</span><span class="ag" style="color:${col}">[${esc(e.agent)}]</span> ${icon}${esc(e.text)}</div>`;
 }
+// ---- Home: every camera live and small, with what it counts and its last note; click one to open it with its journal
+const HOME = {ids: '', t: 0};
+async function homeCams(){
+  if (Date.now() - HOME.t < 5000) return; HOME.t = Date.now();
+  const R = await api('/cameras'); if (!R || page !== 'dash') return; const cams = R.cameras || [], box = $('#home-cams');
+  if (!cams.length) { box.style.display = 'none'; return; }
+  CAMS = cams; box.style.display = '';
+  const show = cams.slice(0, 8), ids = show.map(c => c.id).join(',');
+  if (ids !== HOME.ids) {
+    HOME.ids = ids;
+    $('#hc-grid').innerHTML = show.map(c => `<div class="wtile" onclick="go('cameras');openLive(${c.id})" title="open ${esc(c.name)} live with its journal"><img alt="" src="/api/cameras/${c.id}/live.mjpg?fps=3&t=${Date.now()}" onload="this.classList.add('on')"><span class="wcount" id="hc-c-${c.id}">…</span><div class="wnote" id="hc-n-${c.id}"></div><span class="wname"><span class="dot live"></span>${esc(c.name)}</span></div>`).join('');
+  }
+  show.forEach(c => { const s = c.seen || {}, le = c.last_event;
+    const k = $(`#hc-c-${c.id}`); if (k && s.counts) k.textContent = countsText(s.counts);
+    const n = $(`#hc-n-${c.id}`); if (n && le) n.innerHTML = fmtNote(String(le.answer || le.reason || '').slice(0, 200)); });
+  $('#hc-hint').textContent = `${cams.length} camera${cams.length === 1 ? '' : 's'}${cams.length > 8 ? ', first 8 shown' : ''} · live, every frame through the local detector · hover for the latest note`;
+}
+function homeCamsStop(){ if (!HOME.ids) return; document.querySelectorAll('#hc-grid img').forEach(i => i.src = ''); $('#hc-grid').innerHTML = ''; HOME.ids = ''; HOME.t = 0; }
 async function loadDashLog(){ const ev = await api('/audit'); $('#dash-log').innerHTML = ev.length ? ev.slice(0,40).reverse().map(evLine).join('') : '(nothing yet — seed demo leads)'; $('#dash-log').scrollTop = 1e9; }
 
 async function seed(){ toast('Seeding 3 leads…'); const r = await api('/demo/seed', {method:'POST', body:{}}); if (r && r[0]) liveWant = r[0].run_id; go('live'); }
@@ -1012,6 +1038,13 @@ function applyLevel(){
   document.querySelector('aside').classList.toggle('simple', !full);
   const b = $('#lvl-btn'); if (b) b.textContent = full ? '‹ Simple view' : 'Show everything ›';
 }
+function toggleTheme(){
+  const t = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
+  document.documentElement.dataset.theme = t; try { localStorage.setItem("atlas-theme", t); } catch (e) {}
+  themeLabel();
+}
+function themeLabel(){ const b = document.getElementById("themebtn"); if (b) b.textContent = document.documentElement.dataset.theme === "dark" ? "Light" : "Dark"; }
+themeLabel();
 async function toggleLevel(){
   const did = (CFG.desk || {}).id; if (!did) return;
   const lvl = CFG.ui_level === 'full' ? 'simple' : 'full';
@@ -1754,7 +1787,7 @@ async function loadHealth(){
   const navBtn = document.querySelector('#nav button[data-p="dash"]'); if (navBtn) navBtn.classList.toggle('alert', !h.ok);
   const r = h.runs, fmt = v => v == null ? '–' : v + 's';
   const stat = (k, v, sub) => `<div class="kpi"><span>${k}</span><b style="font-size:20px">${v}</b><small>${sub||''}</small></div>`;
-  const alerts = h.alerts.length ? h.alerts.map(a => `<div class="flag" style="${a.level==='critical'?'':'background:var(--panel)8e6;border-color:#e4cf96;color:#8a5c00'}">${esc(a.text)}</div>`).join('') : '<div class="hint" style="margin:0 0 10px">No alerts. Watchdog limit ' + Math.round(h.watchdog_s/60) + ' min per run; runs past it are killed and marked failed.</div>';
+  const alerts = h.alerts.length ? h.alerts.map(a => `<div class="flag" style="${a.level==='critical'?'':'background:color-mix(in srgb,var(--warn) 9%,var(--panel));border-color:color-mix(in srgb,var(--warn) 40%,var(--panel));color:var(--warn)'}">${esc(a.text)}</div>`).join('') : '<div class="hint" style="margin:0 0 10px">No alerts. Watchdog limit ' + Math.round(h.watchdog_s/60) + ' min per run; runs past it are killed and marked failed.</div>';
   const jobs = h.jobs.length ? `<table style="margin-top:10px"><tr><th>Automation</th><th>Last</th><th>Result</th></tr>` + h.jobs.map(j => `<tr><td><b>${esc(j.name)}</b> <span class="model">${esc(j.kind)}${j.enabled?'':' · off'}</span></td><td><span class="tag ${j.last_status==='error'?'error':(j.last_status==='ok'?'done':'')}">${esc(j.last_status||'never')}</span> <span class="hint" style="margin:0">${j.last_run?hms(j.last_run):''}</span></td><td class="model">${esc(j.last_result)}</td></tr>`).join('') + '</table>' : '';
   const cons = h.connectors.length ? `<div class="row" style="margin-top:10px">${h.connectors.map(c => `<span class="tag ${String(c.status).startsWith('ok')?'done':(String(c.status).startsWith('error')?'error':'')}">${esc(c.name)} · ${esc(String(c.status).split(':')[0])}</span>`).join('')}</div>` : '';
   const err = h.last_error ? `<div class="hint" style="margin-top:10px">Last error ${hms(h.last_error.ts)} · run ${esc(h.last_error.run_id||'')}: <span class="model">${esc(h.last_error.text)}</span></div>` : '';

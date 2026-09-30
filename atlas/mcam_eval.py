@@ -70,7 +70,10 @@ def load(data: Path, limit: int = 0) -> dict[str, Any]:
 
 def camera(data: Path, name: str) -> dict[str, Any]:
     import cv2
-    fs = cv2.FileStorage(str(data / "calibrations" / "intrinsic_original" / f"intr_{name}.xml"), cv2.FILE_STORAGE_READ)
+    # the frames in Image_subsets are already undistorted: intrinsic_zero (no distortion) is the matching calibration.
+    # Undistorting them again with intrinsic_original bends the edges: foot points then land 30 cm off at the median and
+    # 2.3 m at the 90th percentile, against 8.9 cm / 19.8 cm here (checked against each label's own ground position).
+    fs = cv2.FileStorage(str(data / "calibrations" / "intrinsic_zero" / f"intr_{name}.xml"), cv2.FILE_STORAGE_READ)
     K, dist = fs.getNode("camera_matrix").mat(), fs.getNode("distortion_coefficients").mat()
     txt = (data / "calibrations" / "extrinsic" / f"extr_{name}.xml").read_text()
     rvec = np.array([float(x) for x in re.search(r"<rvec>(.*?)</rvec>", txt, re.S).group(1).split()])
@@ -81,7 +84,7 @@ def camera(data: Path, name: str) -> dict[str, Any]:
 
 
 def feet_on_ground(cal: dict[str, Any], boxes: list[list[float]]) -> np.ndarray:
-    """World (x, y) in cm of each box's bottom-centre, through the camera's distortion and its ground-plane homography."""
+    """World (x, y) in cm of each box's bottom-centre, through the camera's ground-plane homography."""
     import cv2
     if not boxes:
         return np.zeros((0, 2))
@@ -89,6 +92,22 @@ def feet_on_ground(cal: dict[str, Any], boxes: list[list[float]]) -> np.ndarray:
     und = cv2.undistortPoints(pts, cal["K"], cal["dist"], P=cal["K"]).reshape(-1, 2)
     w = (cal["Hinv"] @ np.column_stack([und, np.ones(len(und))]).T).T
     return w[:, :2] / w[:, 2:3]
+
+
+def projection_error(data: Path, D: dict[str, Any], every: int = 10) -> dict[str, float]:
+    """How far a labelled box's foot point lands from that person's labelled ground position (positionID), in cm."""
+    errs = []
+    for p in sorted((data / "annotations_positions").glob("*.json"))[:len(D["frames"])][::every]:
+        for person in json.loads(p.read_text()):
+            pos = int(person["positionID"])
+            truth = np.array([ROI[0] + 2.5 * (pos % 480), ROI[2] + 2.5 * (pos // 480)])
+            for v in person["views"]:
+                if v["xmin"] < 0:
+                    continue
+                w = feet_on_ground(D["calib"][v["viewNum"]], [[v["xmin"] * SCALE, v["ymin"] * SCALE, v["xmax"] * SCALE, v["ymax"] * SCALE]])[0]
+                errs.append(float(np.linalg.norm(w - truth)))
+    e = np.array(errs)
+    return {"median": round(float(np.median(e)), 1), "p90": round(float(np.percentile(e, 90)), 1), "n": len(e)}
 
 
 def in_roi(xy: np.ndarray, margin: float = 0.0) -> np.ndarray:
@@ -117,8 +136,12 @@ def match(gtb: list[list[float]], pb: list[list[float]], thr: float = 0.5) -> li
 
 
 # ---------------------------------------------------------------------------- detection + tracking
-def run_detector(D: dict[str, Any], weights: str, track: bool, conf: float = 0.35, log=print) -> list[list[list[dict]]]:
-    """[instant][cam] -> [{box, conf, id}] for one detector (and ByteTrack ids when track)."""
+def run_detector(D: dict[str, Any], weights: str, track: bool, conf: float = 0.35, log=print, cache: Path | None = None) -> list[list[list[dict]]]:
+    """[instant][cam] -> [{box, conf, id}] for one detector (and ByteTrack ids when track). Cached under `cache`."""
+    cf = cache / f"preds-{Path(weights).stem}{'-track' if track else ''}-{len(D['frames'])}.json" if cache else None
+    if cf and cf.is_file():
+        log(f"  {cf.name}: cached")
+        return json.loads(cf.read_text())
     from ultralytics import YOLO
     out: list[list[list[dict]]] = [[[] for _ in CAMS] for _ in D["frames"]]
     for ci in range(len(CAMS)):
@@ -132,6 +155,8 @@ def run_detector(D: dict[str, Any], weights: str, track: bool, conf: float = 0.3
             out[fi][ci] = [{"box": [round(v, 1) for v in b.xyxy[0].tolist()], "conf": round(float(b.conf), 3), "id": tid}
                            for b, tid in zip(r.boxes, ids)]
         log(f"  {Path(weights).stem}{' +track' if track else ''} {CAMS[ci]}: {len(D['frames'])} frames in {time.time() - t0:.0f}s")
+    if cf:
+        cf.write_text(json.dumps(out, separators=(",", ":")))
     return out
 
 
@@ -273,6 +298,70 @@ def score_reid(D: dict[str, Any], n_instants: int = 40, min_h: float = 60.0, thr
             "same_pairs": len(same), "diff_pairs": len(diff), "at": at}
 
 
+# ---------------------------------------------------------------------------- geometry: the cameras are calibrated
+def score_geometry(D: dict[str, Any], preds: list[list[list[dict]]], radii=(50.0, 75.0, 100.0, 150.0)) -> dict[str, Any]:
+    """Two sightings whose feet land on the same spot of the ground at the same instant are the same person, whatever
+    they wear. (a) cross-camera association on the LABELLED boxes (isolates the geometry from the detector): for a person
+    on one camera, is the nearest foot point on another camera the same person; (b) the whole-scene head count from the
+    DETECTIONS: feet from every camera clustered on the ground (a cluster never holds two sightings from one camera)."""
+    hits = trials = 0
+    dists_same = []
+    for fi in range(len(D["frames"])):
+        W = [feet_on_ground(D["calib"][ci], [b for _, b in D["gt"][fi][ci]]) for ci in range(len(CAMS))]
+        P = [[pid for pid, _ in D["gt"][fi][ci]] for ci in range(len(CAMS))]
+        for a in range(len(CAMS)):
+            for qi, pid in enumerate(P[a]):
+                for b in range(len(CAMS)):
+                    if b == a or not P[b] or pid not in P[b]:
+                        continue
+                    d = np.linalg.norm(W[b] - W[a][qi], axis=1)
+                    trials += 1
+                    hits += int(P[b][int(np.argmin(d))] == pid)
+                    dists_same.append(float(d[P[b].index(pid)]))
+    truth = np.array(D["scene"], float)
+    counts = {}
+    for R in radii:
+        est = []
+        for fi in range(len(D["frames"])):
+            pts, cam = [], []
+            for ci in range(len(CAMS)):
+                w = feet_on_ground(D["calib"][ci], [d["box"] for d in preds[fi][ci]])
+                pts += w.tolist(); cam += [ci] * len(w)
+            est.append(cluster_count(np.array(pts), cam, R))
+        e = np.array(est, float)
+        counts[f"{int(R)} cm"] = {"mae": round(float(np.mean(np.abs(e - truth))), 1), "bias": round(float(np.mean(e - truth)), 1),
+                                  "within_20pct": round(float(np.mean(np.abs(e - truth) <= 0.2 * truth)), 3), "series": [int(v) for v in e]}
+    ds = np.array(dists_same)
+    return {"assoc_rank1": round(hits / max(1, trials), 3), "assoc_queries": trials,
+            "same_person_ground_gap_cm": {"median": round(float(np.median(ds)), 1), "p90": round(float(np.percentile(ds, 90)), 1)},
+            "counts": counts}
+
+
+def cluster_count(pts: np.ndarray, cam: list[int], R: float) -> int:
+    """Greedy agglomeration by ground distance: merge the closest pair of clusters while their centres are within R cm and
+    they share no camera (one camera sees a person once)."""
+    if not len(pts):
+        return 0
+    cl = [{"c": p.copy(), "n": 1, "cams": {k}} for p, k in zip(pts, cam)]
+    while True:
+        best, bi, bj = R, -1, -1
+        C = np.array([c["c"] for c in cl])
+        d = np.linalg.norm(C[:, None, :] - C[None, :, :], axis=2)
+        np.fill_diagonal(d, np.inf)
+        order = np.dstack(np.unravel_index(np.argsort(d, axis=None), d.shape))[0]
+        for i, j in order:
+            if d[i, j] >= best:
+                break
+            if i < j and not (cl[i]["cams"] & cl[j]["cams"]):
+                bi, bj = int(i), int(j)
+                break
+        if bi < 0:
+            return len(cl)
+        a, b = cl[bi], cl[bj]
+        a["c"] = (a["c"] * a["n"] + b["c"] * b["n"]) / (a["n"] + b["n"]); a["n"] += b["n"]; a["cams"] |= b["cams"]
+        cl.pop(bj)
+
+
 # ---------------------------------------------------------------------------- the whole scene: how many people are there?
 def score_counts(D: dict[str, Any], preds: list[list[list[dict]]]) -> dict[str, Any]:
     truth = np.array(D["scene"], float)
@@ -320,7 +409,7 @@ def score_vlm(D: dict[str, Any], model: str, n: int = 8, log=print) -> dict[str,
 
 
 # ---------------------------------------------------------------------------- output
-def review_json(D: dict[str, Any], preds: list[list[list[dict]]], tracks: list[list[list[dict]]]) -> dict[str, Any]:
+def review_json(D: dict[str, Any], preds: list[list[list[dict]]], tracks: list[list[list[dict]]], geo: list[int] | None = None) -> dict[str, Any]:
     """Per instant, per camera: labelled boxes (with person id) and predicted tracks (with track id and the person id they
     matched, or -1): what the review page plays back, frame by frame, all cameras on one timeline."""
     inst = []
@@ -333,7 +422,7 @@ def review_json(D: dict[str, Any], preds: list[list[list[dict]]], tracks: list[l
             cams.append({"gt": [[pid, *[round(v) for v in b]] for pid, b in g],
                          "pred": [[d["id"] if d["id"] is not None else -1, *[round(v) for v in d["box"]], m.get(j, -1)] for j, d in enumerate(p)],
                          "det": len(preds[fi][ci])})
-        inst.append({"frame": f, "t": fi * 0.5, "scene": D["scene"][fi], "cams": cams})
+        inst.append({"frame": f, "t": fi * 0.5, "scene": D["scene"][fi], "cams": cams, **({"geo": geo[fi]} if geo else {})})
     return {"cameras": CAMS, "fps": 2, "size": [960, 540], "instants": inst}
 
 
@@ -341,7 +430,8 @@ def write_report(R: dict[str, Any], out: Path) -> None:
     L = ["# Multi-camera accuracy: WILDTRACK", "",
          f"7 synchronised cameras, {R['instants']} instants at 2 per second ({R['instants'] / 2:.0f} s), {R['counts']['truth_min']}-{R['counts']['truth_max']} "
          f"people in the scene at once (mean {R['counts']['truth_mean']}), {R['identities']} labelled identities. Every number compares with the human labels.", "",
-         f"Calibration check: {R['calib_check'] * 100:.1f}% of labelled feet project inside the labelled area.", "", "## Detection (people, IoU >= 0.5, inside the labelled area)", "",
+         f"Calibration check: {R['calib_check'] * 100:.1f}% of labelled feet project inside the labelled area; a labelled box's foot point lands "
+         f"{R['projection_error_cm']['median']} cm from that person's labelled ground position at the median ({R['projection_error_cm']['p90']} cm at the 90th percentile).", "", "## Detection (people, IoU >= 0.5, inside the labelled area)", "",
          "| detector | precision | recall | F1 | per-camera count error (people/frame) |", "|---|---|---|---|---|"]
     for k, d in R["detection"].items():
         L.append(f"| {k} | {d['precision']} | {d['recall']} | {d['f1']} | {d['count_mae']} |")
@@ -361,13 +451,26 @@ def write_report(R: dict[str, Any], out: Path) -> None:
               f"the same camera a few seconds later, rank-1 {r.get('control_rank1_same_camera', 0) * 100:.0f}% ({r.get('control_queries')} queries).", "", "| threshold | precision | recall | false matches per true one |", "|---|---|---|---|"]
         for a in r["at"]:
             L.append(f"| {a['threshold']} | {a['precision']} | {a['recall']} | {a['false_matches_per_true']} |")
+    g = R.get("geometry") or {}
+    if g:
+        L += ["", "## Geometry: the cameras are calibrated", "",
+              f"Matching a person across cameras by where their feet land on the ground (same instant, labelled boxes): the nearest foot "
+              f"point on the other camera is the same person **{g['assoc_rank1'] * 100:.0f}%** of the time ({g['assoc_queries']} queries), against "
+              f"{(r.get('rank1') or 0) * 100:.0f}% for CLIP appearance. The same person's two foot points are {g['same_person_ground_gap_cm']['median']} cm "
+              f"apart at the median ({g['same_person_ground_gap_cm']['p90']} cm at the 90th percentile)."]
     c = R["counts"]
     L += ["", "## How many people are in the scene?", "", "| estimate | mean absolute error (people) | bias | within 20% of the truth |", "|---|---|---|---|",
           f"| sum of per-camera detections | {c['sum_of_cameras']['mae']} | {c['sum_of_cameras']['bias']:+} | {c['sum_of_cameras']['within_20pct'] * 100:.0f}% |",
           f"| largest single camera | {c['largest_camera']['mae']} | {c['largest_camera']['bias']:+} | {c['largest_camera']['within_20pct'] * 100:.0f}% |"]
+    for k, v in (g.get("counts") or {}).items():
+        L.append(f"| detections' feet clustered on the ground, {k} | {v['mae']} | {v['bias']:+} | {v['within_20pct'] * 100:.0f}% |")
     for v in R.get("vlm", []):
         if v.get("mae") is not None:
             L.append(f"| {v['model']} from all 7 frames | {v['mae']} | {v['bias']:+} | {v['within_20pct'] * 100:.0f}% ({v['answered']} instants) |")
+    if R.get("vlm"):
+        L += ["", "The vision models are not held to the same standard: they see everyone in the seven frames, including people outside the "
+              "labelled area (the stairs, the far side), which the truth does not count. Their round answers (85, 115, 120) still say they "
+              "cannot count a crowd across seven overlapping views."]
     L += ["", f"_Generated {time.strftime('%Y-%m-%d %H:%M')}. Data: WILDTRACK (Chavdarova et al., CVPR 2018), non-commercial research use._"]
     (out / "report.md").write_text("\n".join(L), encoding="utf-8")
 
@@ -379,6 +482,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--vlm", default="", help="comma-separated vision models to ask for the site-wide head count")
     ap.add_argument("--limit", type=int, default=0, help="first N instants only (smoke test)")
     ap.add_argument("--out", default=str(OUT_DIR))
+    ap.add_argument("--skip-reid", action="store_true", help="keep the re-id numbers of the previous run in --out")
+    ap.add_argument("--keep-vlm", action="store_true", help="keep the vision-model rows of the previous run in --out")
     a = ap.parse_args(argv)
     from . import config as cfg
     out = Path(a.out); out.mkdir(parents=True, exist_ok=True)
@@ -386,32 +491,40 @@ def main(argv: list[str] | None = None) -> int:
     print(f"{len(D['frames'])} instants x {len(CAMS)} cameras, {sum(D['scene'])} person-instants", flush=True)
     feet = [in_roi(feet_on_ground(D["calib"][ci], [b for _, b in D["gt"][fi][ci]]), 50.0) for fi in range(0, len(D["frames"]), 20) for ci in range(len(CAMS))]
     calib_check = float(np.mean(np.concatenate([f for f in feet if len(f)])))
-    print(f"calibration check: {calib_check * 100:.1f}% of labelled feet inside the area", flush=True)
+    perr = projection_error(Path(a.data).expanduser(), D)
+    print(f"calibration check: {calib_check * 100:.1f}% of labelled feet inside the area; foot point vs the label's ground position: "
+          f"median {perr['median']} cm, p90 {perr['p90']} cm", flush=True)
     R: dict[str, Any] = {"instants": len(D["frames"]), "identities": len({pid for f in D["gt"] for c in f for pid, _ in c}),
-                         "calib_check": round(calib_check, 3), "counts": {}, "detection": {}, "tracking": {}, "vlm": []}
+                         "calib_check": round(calib_check, 3), "projection_error_cm": perr, "counts": {}, "detection": {}, "tracking": {}, "vlm": []}
     models = [m.strip() for m in a.models.split(",") if m.strip()]
     base = None
     for m in models:
         w = str(cfg.DATA_DIR / "models" / f"{m}.pt")
-        preds = roi_filter(D, run_detector(D, w, track=False))
+        preds = roi_filter(D, run_detector(D, w, track=False, cache=out))
         R["detection"][m] = score_detection(D, preds)
         R["detection"][m + " @ IoU 0.3"] = score_detection(D, preds, 0.3)
         print(f"{m}: P {R['detection'][m]['precision']} R {R['detection'][m]['recall']} F1 {R['detection'][m]['f1']}", flush=True)
         if base is None:
             base = preds
     R["counts"] = score_counts(D, base)
-    bt = roi_filter(D, run_detector(D, str(cfg.DATA_DIR / "models" / f"{models[0]}.pt"), track=True))
+    bt = roi_filter(D, run_detector(D, str(cfg.DATA_DIR / "models" / f"{models[0]}.pt"), track=True, cache=out))
     R["tracking"][f"ByteTrack ({models[0]}, live view)"] = score_tracking(D, bt)
     cat = catalogue_tracks(D, base)
     R["tracking"][f"catalogue tracker ({models[0]})"] = score_tracking(D, cat)
     for k, t in R["tracking"].items():
         print(f"{k}: IDF1 {t['overall']['idf1']} MOTA {t['overall']['mota']} switches {t['overall']['id_switches']}", flush=True)
-    R["reid"] = score_reid(D)
+    R["geometry"] = score_geometry(D, base)
+    g = R["geometry"]
+    print(f"geometry: cross-camera rank-1 {g['assoc_rank1']} | counts " + ", ".join(f"{k}: MAE {v['mae']}" for k, v in g["counts"].items()), flush=True)
+    R["reid"] = score_reid(D) if not a.skip_reid else (json.loads((out / "results.json").read_text()).get("reid") if (out / "results.json").is_file() else {})
     print("re-id:", {k: R["reid"].get(k) for k in ("rank1", "chance_rank1", "auc")}, flush=True)
+    if a.keep_vlm and (out / "results.json").is_file():
+        R["vlm"] = json.loads((out / "results.json").read_text()).get("vlm") or []
     for vm in [v.strip() for v in a.vlm.split(",") if v.strip()]:
         R["vlm"].append(score_vlm(D, vm))
     (out / "results.json").write_text(json.dumps(R, indent=1), encoding="utf-8")
-    (out / "review.json").write_text(json.dumps(review_json(D, base, cat), separators=(",", ":")), encoding="utf-8")
+    geo_series = (R.get("geometry") or {}).get("counts", {}).get("75 cm", {}).get("series")
+    (out / "review.json").write_text(json.dumps(review_json(D, base, cat, geo_series), separators=(",", ":")), encoding="utf-8")
     write_report(R, out)
     print(f"-> {out / 'report.md'}", flush=True)
     return 0
