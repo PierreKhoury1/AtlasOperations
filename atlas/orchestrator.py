@@ -54,6 +54,10 @@ class Cancelled(Exception):
     pass
 
 
+PARALLEL_SAFE = {"delegate", "camera_look", "camera_events", "camera_ask", "web_fetch", "read_file", "list_files", "crm_lookup",
+                 "recall", "http_request", "calendar_free_slots", "list_agents", "browse"}
+
+
 class Orchestrator:
     def __init__(self, configs: dict[str, Any], store: Store | None, emit: Callable[[Event], None]):
         self.configs = configs
@@ -463,8 +467,9 @@ class Orchestrator:
                 self.emit("error", agent["id"], f"{call.name}: {exc}")
                 return (call.id, call.name, f"{type(exc).__name__}: {exc}", True)
 
-        delegations = [c for c in calls if c.name == "delegate"]
-        if len(delegations) > 1:
+        # Independent calls run side by side: several delegations, or a fan-out of reads (five camera_look calls used
+        # to take five round trips). Anything that writes, spends or finishes stays in order.
+        if len(calls) > 1 and all(c.name in PARALLEL_SAFE for c in calls):
             with ThreadPoolExecutor(max_workers=min(6, len(calls))) as ex:
                 return list(ex.map(one, calls))
         return [one(c) for c in calls]
@@ -548,7 +553,10 @@ class Orchestrator:
                                         int(args.get("frames") or 8))
         if name in ("finish", "queue_action") and aid == "atlas" and not getattr(self, "_delegated", True) and getattr(self, "_team_nudges", 0) < 2:
             team = [a for a in self.agents.values() if a["id"] != "atlas" and a.get("enabled", True)]
-            if team and self.orch.get("require_delegation", True):
+            # a camera alert is a look-and-decide task: Atlas may answer it alone (it wasted two turns and drafted
+            # sales emails when forced to brief a sales team about a person at the fridge)
+            alert = "CAMERA ALERT" in (getattr(self, "_task", "") or "")
+            if team and self.orch.get("require_delegation", True) and not alert:
                 self._team_nudges = getattr(self, "_team_nudges", 0) + 1
                 self.emit("policy", aid, "Atlas tried to " + name + " without briefing the team - sent back to delegate")
                 return ("NOT ALLOWED YET: this desk has a team and you have not delegated anything. Your job is to brief them, "

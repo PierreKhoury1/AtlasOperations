@@ -284,6 +284,47 @@ aside.simple [data-lvl="full"]{display:none}
 .askout .cite{font-family:var(--mono);font-size:11px;color:var(--blue,#4c90f0)}
 .lightbox{position:fixed;inset:0;background:rgba(3,5,8,.86);display:flex;align-items:center;justify-content:center;z-index:50;cursor:zoom-out}
 .lightbox img{max-width:92vw;max-height:88vh;border:1px solid var(--line)}
+/* ---------- cameras v2: wall, notes, citations, motion */
+.card,.panel,.cam{transition:box-shadow .18s,border-color .18s,transform .18s}
+.cam:hover,.card:hover{box-shadow:0 10px 30px rgba(16,22,29,.08);border-color:var(--line2)}
+.kpi b{transition:color .3s}
+.camstats{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.camstats .kv b{font-variant-numeric:tabular-nums}
+.wall{border:1px solid var(--line);background:var(--panel);border-radius:3px;margin-bottom:14px;overflow:hidden;animation:rise .25s ease-out}
+@keyframes rise{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+.wall .wh{display:flex;align-items:center;gap:10px;padding:8px 12px;border-bottom:1px solid var(--line);background:var(--panel2)}
+.wall .wh h3{margin:0;font-size:13px;flex:1;display:flex;gap:8px;align-items:center}
+.wall .wbody{display:grid;grid-template-columns:minmax(0,2.2fr) minmax(300px,1fr)}
+.wall .wgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:2px;background:var(--line);padding:2px}
+.wall .wtile{position:relative;background:#05070a;aspect-ratio:16/9;overflow:hidden;cursor:pointer}
+.wall .wtile img{width:100%;height:100%;object-fit:cover;display:block;opacity:0;transition:opacity .4s}
+.wall .wtile img.on{opacity:1}
+.wall .wtile .wname{position:absolute;left:8px;bottom:8px;z-index:2;font-family:var(--mono);font-size:11px;color:#fff;background:rgba(5,7,10,.7);padding:2px 7px;border-radius:2px;display:flex;gap:8px;align-items:center}
+.wall .wtile .wname .dot{width:6px;height:6px}
+.wall .wtile .wcount{position:absolute;right:8px;top:8px;font-family:var(--mono);font-size:10.5px;color:#fff;background:rgba(5,7,10,.7);padding:2px 7px;border-radius:2px;transition:background .3s}
+.wall .wtile .wcount.flash{background:var(--accent)}
+.wall .wtile .wnote{position:absolute;left:0;right:0;bottom:0;padding:26px 8px 32px;background:linear-gradient(transparent,rgba(5,7,10,.85));color:#e7edf5;font-size:11.5px;line-height:1.4;opacity:0;transition:opacity .3s;pointer-events:none;max-height:60%;overflow:hidden}
+.wall .wtile:hover .wnote,.wall .wtile.writing .wnote{opacity:1}
+.wall .wticker{border-left:1px solid var(--line);position:relative;min-height:300px}
+.wall .wticker .wt-in{position:absolute;inset:0;overflow:auto;padding:8px 12px;font-size:12.5px}
+.wall .wt-item{padding:8px 0;border-bottom:1px dashed var(--line);animation:rise .3s ease-out}
+.wall .wt-item .wt-h{font-family:var(--mono);font-size:10.5px;color:var(--muted);display:flex;gap:8px;align-items:center;margin-bottom:3px}
+.wall .wt-item .wt-h b{color:var(--text);font-weight:600}
+.wall .wt-item.alert .wt-h b{color:var(--warn)}
+.wall .wt-item.audit{color:var(--muted);font-size:12px}
+.wall .wt-item.audit .wt-h{color:var(--ok)}
+.wall .wt-item .typing::after{content:'\258B';color:var(--accent);animation:blink 1s steps(1) infinite;margin-left:1px}
+.note .nm{color:var(--accent);font-weight:600}
+.note .unsure{color:var(--muted);font-style:italic}
+.note .num{font-variant-numeric:tabular-nums;font-weight:600}
+.cite{cursor:pointer;border-bottom:1px dotted var(--blue,#4c90f0)}
+.cite:hover{color:var(--accent2)}
+.citepop{position:fixed;z-index:60;width:min(420px,92vw);background:var(--panel);border:1px solid var(--line2);border-radius:4px;box-shadow:0 18px 48px rgba(16,22,29,.22);padding:10px 12px;font-size:12.5px;animation:rise .18s ease-out}
+.citepop img{width:100%;border:1px solid var(--line);border-radius:2px;margin:6px 0;cursor:zoom-in;background:#05070a}
+.citepop .ch{font-family:var(--mono);font-size:10.5px;color:var(--muted);display:flex;gap:8px;align-items:center}
+.citepop .ch b{color:var(--text)}
+.citepop .cx{margin-left:auto;cursor:pointer;color:var(--faint)}
+@media (max-width:900px){.wall .wbody{grid-template-columns:1fr}.wall .wticker{border-left:0;border-top:1px solid var(--line);height:320px}}
 </style>
 <link rel="stylesheet" href="/desk/static/studio.css">
 </head>
@@ -552,7 +593,7 @@ aside.simple [data-lvl="full"]{display:none}
 <!-- CAMERAS -->
 <section id="p-cameras" class="hide">
   <div class="phead"><div><h1>Cameras</h1><p class="lead">The desk's eyes. Every camera is watched on a schedule: objects are counted locally, the vision analyst answers your standing question when something changes, and a rule decides when Atlas is woken. Everything the cameras see is logged — ask about it in plain English.</p></div>
-    <div class="ctl"><span class="tag" id="cam-det">detector…</span><span class="tag" id="cam-vlm">analyst…</span><button class="btn sm" onclick="lookAll()">Look through all</button></div></div>
+    <div class="ctl camstats"><span class="kv"><span class="dot" id="cs-dot"></span><b id="cs-live">0</b> live</span><span class="kv"><b id="cs-notes">0</b> notes today</span><span class="kv"><b id="cs-alerts">0</b> alerts</span><span class="kv"><b id="cs-names">0</b> named</span><span class="tag" id="cam-det">detector…</span><span class="tag" id="cam-vlm">analyst…</span><button class="btn p sm" id="wall-btn" onclick="toggleWall()">▦ Wall</button><button class="btn sm" onclick="lookAll()">Look through all</button></div></div>
   <div id="cam-live"></div>
   <div class="grid g2" style="grid-template-columns:1.6fr 1fr">
     <div>
@@ -1448,9 +1489,75 @@ async function analyseVideo(){
   } catch(e){ toast('Upload failed'); }
   btn.disabled = false; $('#vid-status').textContent = '';
 }
+
+// ---- notes read better when the names, the numbers and the doubts stand out
+let NAMES_KNOWN = [];
+function fmtNote(t){
+  let h = esc(t || '');
+  h = h.replace(/\b(\d+)\s+(people|person|persons|adults?|customers?|staff|vehicles?|cars?|vans?|bottles?|cups?|plates?)\b/gi, '<span class="num">$1</span> $2');
+  h = h.replace(/\b(appears? to( be)?|possibly|unclear[^.,;]*|likely|cannot (be )?(determine|tell|confirm)[^.,;]*|not (clearly )?visible[^.,;]*)/gi, '<span class="unsure">$1</span>');
+  NAMES_KNOWN.forEach(n => { if (n) h = h.replace(new RegExp('\\b' + n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b', 'g'), `<span class="nm">${esc(n)}</span>`); });
+  h = h.replace(/\[#?(\d+)\]/g, (m, id) => `<span class="cite" onclick="cite(event,${id})">[#${id}]</span>`);
+  return `<span class="note">${h}</span>`;
+}
+// ---- a citation opens the event it points at: snapshot, note, reason
+let _pop = null;
+async function cite(ev, id){
+  ev.stopPropagation(); if (_pop) { _pop.remove(); _pop = null; }
+  const e = await api('/vision/events/' + id); if (!e) return toast('event #' + id + ' not found');
+  const d = document.createElement('div'); d.className = 'citepop';
+  d.innerHTML = `<div class="ch"><b>#${e.id}</b> ${esc(e.camera)} · ${hms(e.ts)}${e.triggered ? ' · <span style="color:var(--warn)">alert</span>' : ''}<span class="cx" onclick="this.closest('.citepop').remove()">✕</span></div>
+    ${e.snapshot_url ? `<img src="${e.snapshot_url}" onclick="zoom('${e.snapshot_url}')">` : ''}
+    <div>${fmtNote(e.answer || e.reason || '')}</div>${e.answer && e.reason ? `<div class="hint" style="margin-top:4px">${esc(e.reason)} · ${esc(e.seen || '')}</div>` : ''}`;
+  const x = Math.min(ev.clientX, window.innerWidth - 440), y = Math.min(ev.clientY + 12, window.innerHeight - 320);
+  d.style.left = x + 'px'; d.style.top = y + 'px'; document.body.appendChild(d); _pop = d;
+  setTimeout(() => document.addEventListener('click', function h(x){ if (_pop && !_pop.contains(x.target)) { _pop.remove(); _pop = null; } document.removeEventListener('click', h); }), 0);
+}
+// ---- the wall: every camera live at once, one journal ticker for all of them
+const WALL = {on:false, es:null, statT:null, buf:{}, ids:[]};
+function toggleWall(){ WALL.on ? closeWall() : openWall(); }
+async function openWall(){
+  closeLive(true); if (!CAMS.length) return toast('add a camera first');
+  WALL.on = true; WALL.ids = CAMS.map(c => c.id); WALL.buf = {};
+  $('#wall-btn').textContent = '▦ Close wall';
+  $('#cam-live').innerHTML = `<div class="wall" id="wall"><div class="wh"><h3><span class="dot live"></span>All cameras <span class="tag" id="wall-fps"></span></h3><span class="hint" style="margin:0" id="wall-why">journal: listening…</span><button class="btn sm" onclick="closeWall()">Close</button></div>
+    <div class="wbody"><div class="wgrid">${CAMS.map(c => `<div class="wtile" id="wt-${c.id}" onclick="closeWall();openLive(${c.id})" title="open ${esc(c.name)} with its journal"><img id="wimg-${c.id}" alt="" src="/api/cameras/${c.id}/live.mjpg?fps=4&t=${Date.now()}" onload="this.classList.add('on')"><span class="wcount" id="wc-${c.id}">…</span><div class="wnote" id="wn-${c.id}"></div><span class="wname"><span class="dot live"></span>${esc(c.name)}</span></div>`).join('')}</div>
+    <div class="wticker"><div class="wt-in" id="wall-ticker"><div class="hint">Notes from every camera appear here as they are written, with what the audit removed.</div></div></div></div></div>`;
+  WALL.es = new EventSource('/api/vision/journal/stream');
+  WALL.es.onmessage = e => { try { wallEvent(JSON.parse(e.data)); } catch(_){} };
+  WALL.statT = setInterval(wallStat, 3000); wallStat();
+}
+function closeWall(){
+  if (!WALL.on) return; WALL.on = false;
+  if (WALL.es) { WALL.es.close(); WALL.es = null; }
+  if (WALL.statT) { clearInterval(WALL.statT); WALL.statT = null; }
+  document.querySelectorAll('.wall img').forEach(i => i.src = '');
+  $('#cam-live').innerHTML = ''; $('#wall-btn').textContent = '▦ Wall';
+}
+async function wallStat(){
+  if (!WALL.on) return; let fps = [];
+  for (const id of WALL.ids) { const r = await api(`/cameras/${id}/live`); if (!r || !r.ok) continue; const l = r.live || {}; fps.push(l.fps || 0);
+    const c = $(`#wc-${id}`); if (c) { const t = countsText(l.counts || {}); if (c.textContent !== t) { c.textContent = t; c.classList.add('flash'); setTimeout(() => c.classList.remove('flash'), 600); } } }
+  const f = $('#wall-fps'); if (f && fps.length) f.textContent = `${Math.min(...fps)}–${Math.max(...fps)} fps · ${WALL.ids.length} feeds`;
+}
+function wallEvent(ev){
+  if (!WALL.on) return; const cam = CAMS.find(c => c.name === ev.camera); const tk = $('#wall-ticker'); if (!tk) return;
+  const push = (cls, head, body) => { if (tk.querySelector('.hint')) tk.innerHTML = ''; const d = document.createElement('div'); d.className = 'wt-item ' + cls; d.innerHTML = `<div class="wt-h"><b>${esc(ev.camera || '')}</b> ${head}</div>${body}`; tk.prepend(d); while (tk.children.length > 60) tk.lastChild.remove(); };
+  if (ev.kind === 'tick') { if (ev.triggered) push('alert', hms(ev.ts) + ' · alert', esc(ev.reason || '') + (ev.notified ? ` · <span class="tag">${esc(ev.notified)}</span>` : '')); return; }
+  if (ev.kind === 'note_start') { WALL.buf[ev.camera] = ''; const w = $('#wall-why'); if (w) w.textContent = `${ev.camera}: writing a note · ${ev.why || ''}`; if (cam) { const t = $(`#wt-${cam.id}`); if (t) t.classList.add('writing'); } return; }
+  if (ev.kind === 'note_delta') { WALL.buf[ev.camera] = (WALL.buf[ev.camera] || '') + (ev.text || ''); if (cam) { const n = $(`#wn-${cam.id}`); if (n) n.innerHTML = `<span class="typing">${esc(WALL.buf[ev.camera].slice(-220))}</span>`; } return; }
+  if (ev.kind === 'note_verify_start') { const w = $('#wall-why'); if (w) w.textContent = `${ev.camera}: auditing the note against the frame…`; return; }
+  if (ev.kind === 'note_verify') { const parts = []; if (ev.removed && ev.removed.length) parts.push('removed: ' + ev.removed.join('; ')); if (ev.softened && ev.softened.length) parts.push('softened: ' + ev.softened.join('; ')); if (parts.length) push('audit', hms(ev.ts) + ' · audit', esc(parts.join(' · '))); return; }
+  if (ev.kind === 'note_done') { push('', hms(ev.ts) + ' · note', fmtNote(ev.text || '')); if (cam) { const n = $(`#wn-${cam.id}`); if (n) n.innerHTML = fmtNote((ev.text || '').slice(0, 220)); const t = $(`#wt-${cam.id}`); if (t) t.classList.remove('writing'); } const w = $('#wall-why'); if (w) w.textContent = `${ev.camera}: note written in ${ev.took_s || 0}s`; loadVisionEvents(); return; }
+  if (ev.kind === 'digest') { push('audit', hms(ev.ts) + ' · summary ' + esc(ev.span || ''), esc((ev.text || '').slice(0, 400))); return; }
+}
 async function loadCameras(){
   const R = await api('/cameras'); if (!R) return; CAMS = R.cameras; const NODES = R.nodes || [];
   $('#n-cams').textContent = CAMS.length + NODES.length;
+  try { const st = R.stats || {}; const live = CAMS.filter(c => c.watch_job && c.watch_job.enabled).length;
+    $('#cs-live').textContent = live; $('#cs-dot').className = 'dot' + (live ? ' live' : '');
+    $('#cs-notes').textContent = st.notes ?? st.events ?? 0; $('#cs-alerts').textContent = st.triggered ?? 0;
+    api('/names').then(n => { if (n && n.names) { NAMES_KNOWN = n.names.map(x => x.name); $('#cs-names').textContent = n.names.length; } }); } catch(_){}
   $('#vision-hook-url').value = R.hook_url || '';
   const det = $('#cam-det'); det.textContent = R.detector.available ? 'local detector: ' + R.detector.weights : 'no local detector'; det.style.color = R.detector.available ? 'var(--ok)' : 'var(--muted)'; det.title = R.detector.error || 'ultralytics YOLO, runs on this machine';
   const v = $('#cam-vlm'); v.textContent = R.vlm.ready ? 'analyst: ' + R.vlm.model.split('/').pop() : (R.mode==='demo' ? 'analyst: demo' : 'analyst: no key'); v.style.color = R.vlm.ready ? 'var(--ok)' : 'var(--muted)';
@@ -1547,7 +1654,7 @@ function liveEvent(ev){
     LIVE.typing = false; LIVE.buf = ev.text || LIVE.buf;
     if (txt) { txt.textContent = LIVE.buf; txt.classList.remove('typing'); }
     if (why) why.textContent = `note written in ${ev.took_s||0}s · ${ev.why||''}`;
-    if (hist) { if (hist.querySelector('.hint')) hist.innerHTML = ''; const d = document.createElement('div'); d.className = 'ln'; d.innerHTML = `<b>${hms(ev.ts)}</b>${esc(ev.text||'')}`; hist.prepend(d); while (hist.children.length > 40) hist.lastChild.remove(); }
+    if (hist) { if (hist.querySelector('.hint')) hist.innerHTML = ''; const d = document.createElement('div'); d.className = 'ln'; d.innerHTML = `<b>${hms(ev.ts)}</b>${fmtNote(ev.text||'')}`; hist.prepend(d); while (hist.children.length > 40) hist.lastChild.remove(); }
     loadVisionEvents();
     return;
   }
@@ -1606,7 +1713,7 @@ async function askCams(){
   const q = $('#ask-q').value.trim(); if (!q) return; const btn = $('#ask-btn'); btn.disabled = true; $('#ask-out').textContent = 'Reading the log…'; $('#ask-ev').innerHTML = '';
   const r = await api('/vision/ask', {method:'POST', body:{question:q, hours:+$('#ask-hours').value, camera:$('#ev-cam').value}}); btn.disabled = false;
   if (!r || r.error) { $('#ask-out').textContent = r?.error || 'failed'; return; }
-  $('#ask-out').innerHTML = esc(r.answer).replace(/\[#?(\d+)\]/g, (m,id)=>`<span class="cite" title="event ${id}">[#${id}]</span>`);
+  $('#ask-out').innerHTML = fmtNote(r.answer);
   const m = r.retrieval || {};
   const how = m.embedder ? `<div class="hint" style="margin:0 0 4px">retrieval: ${esc(m.embedder)} · window ${esc(m.window || '')} · ${m.considered ?? 0} events, ${m.indexed ?? 0} indexed · ${esc(m.grounding || '')}${(m.looked_at || []).length ? ' · re-looked at ' + m.looked_at.map(id => `<span class="cite">#${id}</span>`).join(' ') : ''}</div>` : '';
   $('#ask-ev').innerHTML = how + ((r.evidence||[]).length ? `${r.events_considered||r.evidence.length} event(s) considered · ` + r.evidence.slice(-6).map(e=>`<span class="cite">#${e.id}</span> ${esc(e.camera)} ${hms(e.ts).slice(0,5)}${e.snapshot_url?` <a href="#" onclick="zoom('${e.snapshot_url}');return false">↗</a>`:''}`).join(' · ') : '');

@@ -84,7 +84,7 @@ def test_known_in_view_feeds_the_journal_prompt(store, monkeypatch):
 
 def test_daily_report_by_name(store):
     ds = store.for_desk(1)
-    day = "2026-09-29"
+    day = time.strftime("%Y-%m-%d")                                        # today: the alert/digest events below are stamped now
     t0 = time.mktime(time.strptime(day, "%Y-%m-%d")) + 9 * 3600          # 09:00
     a = _sighting(ds, "overview", t0=t0, dur=60, emb=_emb(1.0))
     thing = OBJ.name_object(store, ds.vision_object(a), "Marco", notes="chef")
@@ -108,7 +108,7 @@ def test_daily_report_by_name(store):
     assert d["unnamed_people"]["overview"]["tracks"] == 1 and len(d["alerts"]) == 1 and len(d["digests"]) == 1
     assert d["failures"][0]["camera"] == "sink" and d["journal_notes"] == 0
     md = REP.markdown(d, "Brasserie Lumière")
-    assert md.startswith("# Camera report - Brasserie Lumière, Tuesday 29 September 2026")
+    assert md.startswith("# Camera report - Brasserie Lumière, " + time.strftime("%A %d %B %Y", time.strptime(day, "%Y-%m-%d")))
     assert "### Marco · person · chef" in md and "First seen 09:00, last seen 10:02, 4 min in view across 2 cameras" in md
     assert "- **overview**: 2 min · 09:00-09:02" in md and "- **stove**: 2 min · 10:00-10:02 (~95%)" in md
     assert "Not seen today: Aisha." in md and "1 unnamed person track" in md

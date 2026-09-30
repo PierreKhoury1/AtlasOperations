@@ -2263,6 +2263,17 @@ def api_vision_events():
     return jsonify([_vev_public(r) for r in rows])
 
 
+@app.get("/api/vision/events/<int:vid>")
+def api_vision_event(vid):
+    """One event by id, for citation pop-overs: the note, counts, reason and snapshot url."""
+    desk = need_desk()
+    ev = store.vision_events_by_ids([vid])
+    ev = ev[0] if ev and ev[0].get("desk_id") == desk["id"] else None
+    if not ev:
+        abort(404)
+    return jsonify(_vev_public(ev))
+
+
 @app.get("/api/vision/snapshot/<int:vid>")
 def api_vision_snapshot(vid):
     desk = need_desk()
