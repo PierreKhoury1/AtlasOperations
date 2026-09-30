@@ -93,8 +93,19 @@ def source_kind(source: str) -> str:
 
 
 VIDEO_EXT = {".mp4", ".mov", ".avi", ".mkv", ".webm", ".m4v", ".mpg", ".mpeg", ".ts"}
-_VIDEO_T0: dict[str, float] = {}      # path -> wall-clock start: a recording plays as a live camera, looping
+_VIDEO_T0: dict[str, float] = {}      # (kept for callers that set a start by hand; the shared clock below wins)
 _VIDEO_DUR: dict[str, float] = {}
+# Recordings play on ONE clock: position = (now - SYNC_EPOCH) mod the clip's length. Synchronised multi-camera footage
+# (clips of equal length cut from the same moment) then shows the same instant on every camera, whenever each feed was
+# opened and across restarts, and a one-off grab sees what the live loop shows. VIDEO_SYNC_EPOCH moves the zero.
+SYNC_EPOCH = float(os.environ.get("VIDEO_SYNC_EPOCH") or 0.0)
+
+
+def video_position(duration: float, now: float | None = None) -> float:
+    """Seconds into a looping recording of this length at `now`, on the shared clock."""
+    if duration <= 0.5:
+        return 0.0
+    return ((now if now is not None else time.time()) - SYNC_EPOCH) % duration
 
 
 def _grab_video(path: str) -> bytes:
@@ -107,8 +118,7 @@ def _grab_video(path: str) -> bytes:
     if path not in _VIDEO_DUR:
         _VIDEO_DUR[path] = _ffprobe_duration(path)
     dur = _VIDEO_DUR[path]
-    t0 = _VIDEO_T0.setdefault(path, time.time())
-    t = ((time.time() - t0) % dur) if dur > 0.5 else 0.0
+    t = video_position(dur)
     cmd = [ff, "-nostdin", "-loglevel", "error", "-ss", f"{t:.2f}", "-i", path, "-frames:v", "1", "-pix_fmt", "yuvj420p",
            "-f", "image2", "-q:v", "3", "pipe:1"]                  # yuvj420p: limited-range sources (MPEG-2, H.264) otherwise fail in mjpeg
     try:

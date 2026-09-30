@@ -245,3 +245,24 @@ def test_journal_sse_endpoint(app_client):
     assert ev["kind"] == "note_delta" and ev["text"] == "hello "
     r.close()
     assert _wait(lambda: JR.subscribers(desk_id) == 0)
+
+
+def test_recordings_play_on_one_shared_clock(clip, tmp_path, monkeypatch):
+    """Two cameras cut from the same moment show the same instant, however far apart they were opened: the position is
+    (now - SYNC_EPOCH) mod the clip's length, for the live loop and for a one-off grab alike."""
+    import shutil
+    other = str(tmp_path / "clip-b.mp4")
+    shutil.copy(clip, other)                             # a second camera: same length, same moment
+    monkeypatch.setattr(V, "SYNC_EPOCH", time.time() - 0.7)   # the shared clock started 0.7 s ago
+    assert abs(V.video_position(2.0) - 0.7) < 0.05 and V.video_position(0.2) == 0.0
+    a = LIVE.open(clip, "cam-a")
+    assert _wait(lambda: a.seq >= 3), a.error
+    time.sleep(0.6)                                      # the second camera is opened later
+    b = LIVE.open(other, "cam-b")
+    assert _wait(lambda: b.seq >= 3), b.error
+    for _ in range(5):
+        want = V.video_position(2.0)
+        gap = min(abs(a.pos_s - b.pos_s), 2.0 - abs(a.pos_s - b.pos_s))          # positions wrap at the clip's end
+        assert gap < 0.35, (a.pos_s, b.pos_s)
+        assert min(abs(a.pos_s - want), 2.0 - abs(a.pos_s - want)) < 0.4, (a.pos_s, want)
+        time.sleep(0.25)

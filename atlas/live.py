@@ -249,9 +249,16 @@ class Feed:
         rate_t, rate_n = time.time(), 0
         while not self._stop.is_set():
             loop_t = time.time()
-            # a recording plays at its own speed: skip frames when we fall behind, wait when we are ahead
+            # a recording plays on the shared clock (vision.video_position): every camera cut from the same moment shows
+            # the same instant. Skip frames when behind, wait when ahead, seek when far off (just opened, or wrapped).
             if self.kind == "video":
-                due_idx = int((time.time() - t0) * src_fps)
+                due_idx = int(V.video_position(clip_dur) * src_fps) if clip_dur else int((time.time() - t0) * src_fps)
+                if clip_dur and (due_idx + 2 < idx or due_idx - idx > src_fps * 2):
+                    cap.set(cv2.CAP_PROP_POS_FRAMES, due_idx)
+                    if due_idx < idx:                     # wrapped: a new loop, fresh track ids
+                        with slot:
+                            box["reset"] = True
+                    idx = due_idx
                 while idx < due_idx - 1:                  # behind: drop frames without decoding
                     if not cap.grab():
                         break

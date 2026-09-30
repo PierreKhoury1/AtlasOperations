@@ -1809,6 +1809,48 @@ def _object(oid: int) -> tuple[dict[str, Any], dict[str, Any]]:
     return desk, o
 
 
+# ---------------------------------------------------------------------------- review: synced multi-camera playback vs labels
+REVIEW_DATA = Path(os.environ.get("ATLAS_REVIEW_DATA") or (Path.home() / "AtlasDemo" / "wildtrack")).expanduser()
+REVIEW_OUT = Path(os.environ.get("ATLAS_REVIEW_OUT") or "").expanduser() if os.environ.get("ATLAS_REVIEW_OUT") else None
+
+
+def _review_out() -> Path:
+    from .. import mcam_eval as MC
+    return REVIEW_OUT or MC.OUT_DIR
+
+
+@app.get("/desk/review")
+def desk_review_page():
+    if not current_user() and not OPEN:
+        return redirect("/login?next=/desk/review")
+    return send_from_directory(STATIC_DIR, "review.html")
+
+
+@app.get("/api/review/data")
+def api_review_data():
+    """The evaluation's per-instant boxes (review.json) and its scores (results.json): `py -m atlas mcam-eval` writes both."""
+    if not current_user() and not OPEN:
+        abort(401)
+    out = _review_out()
+    rv, rs = out / "review.json", out / "results.json"
+    if not rv.is_file():
+        return jsonify({"error": "no evaluation yet: run  py -m atlas mcam-eval  (WILDTRACK under ~/AtlasDemo/wildtrack)"}), 404
+    return Response('{"review":' + rv.read_text(encoding="utf-8") + ',"results":' + (rs.read_text(encoding="utf-8") if rs.is_file() else "null") + "}",
+                    mimetype="application/json")
+
+
+@app.get("/api/review/frame/<cam>/<frame>.jpg")
+def api_review_frame(cam, frame):
+    if not current_user() and not OPEN:
+        abort(401)
+    if not re.fullmatch(r"C[1-7]", cam) or not re.fullmatch(r"\d{8}", frame):
+        abort(404)
+    p = REVIEW_DATA / "frames" / cam / f"{frame}.jpg"
+    if not p.is_file():
+        abort(404)
+    return send_file(p, mimetype="image/jpeg", max_age=3600)
+
+
 @app.get("/desk/objects")
 def desk_objects_page():
     if not current_user() and not OPEN:
