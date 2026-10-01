@@ -48,6 +48,7 @@ button{font:inherit;color:inherit}
 /* ---- viewports */
 .vp{background:var(--bg);display:grid;gap:2px;grid-template-columns:repeat(3,minmax(0,1fr));grid-auto-rows:minmax(0,1fr);padding:0;min-height:0}
 .vp.solo{grid-template-columns:1fr}
+.vp.quad{grid-template-columns:repeat(2,minmax(0,1fr))}
 .view{position:relative;background:#101010;min-height:0;overflow:hidden;outline:1px solid transparent;transition:outline-color .15s}
 .view.hot{outline-color:var(--sel)}
 .view canvas{width:100%;height:100%;display:block;cursor:crosshair}
@@ -181,10 +182,10 @@ async function init(){
 }
 // ---------------------------------------------------------------- viewports
 function buildViews(){
-  const vp = $('#vp'); vp.className = 'vp' + (SOLO ? ' solo' : '');
-  const cams = RV.cameras.filter(c => !HIDE.has(c) && (!SOLO || SOLO === c));
+  const cams = RV.cameras.filter(c => !HIDE.has(c) && (!SOLO || SOLO === c)), quad = !SOLO && cams.length > 1 && cams.length <= 4;   // up to four views: a 2x2 grid, as large as they go
+  const vp = $('#vp'); vp.className = 'vp' + (SOLO ? ' solo' : quad ? ' quad' : '');
   vp.innerHTML = cams.map(c => `<div class="view" id="v-${c}"><canvas id="cv-${c}"></canvas><div class="vh"><b>${c}</b><span class="m" id="vm-${c}"></span><span class="sp"></span><span class="m" id="vs-${c}"></span></div></div>`).join('')
-    + (SOLO ? '' : `<div class="view info"><h3>Reading the viewports</h3><p>All cameras show the same instant: one playhead drives every view, so what you compare is simultaneous.</p>
+    + (SOLO || quad ? '' : `<div class="view info"><h3>Reading the viewports</h3><p>All cameras show the same instant: one playhead drives every view, so what you compare is simultaneous.</p>
       <div class="legend"><svg><rect x="2" y="2" width="24" height="10" fill="none" stroke="#bbb" stroke-width="1.5"/></svg><span>human label (colour = person id, same on every camera)</span>
       <svg><rect x="2" y="2" width="24" height="10" fill="none" stroke="#bbb" stroke-width="1.5" stroke-dasharray="4 3"/></svg><span>our tracker, matched to that label</span>
       <svg><rect x="2" y="2" width="24" height="10" fill="none" stroke="#d9534f" stroke-width="1.5" stroke-dasharray="4 3"/></svg><span>our tracker, no label there (false or unlabelled)</span>

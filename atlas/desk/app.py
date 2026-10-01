@@ -1845,7 +1845,9 @@ def api_review_frame(cam, frame):
         abort(401)
     if not re.fullmatch(r"C[1-7]", cam) or not re.fullmatch(r"\d{8}", frame):
         abort(404)
-    p = REVIEW_DATA / "frames" / cam / f"{frame}.jpg"
+    p = REVIEW_DATA / "frames-hd" / cam / f"{frame}.jpg"          # full 1080p when fetched with --hd; labels are scaled, so same boxes
+    if not p.is_file():
+        p = REVIEW_DATA / "frames" / cam / f"{frame}.jpg"
     if not p.is_file():
         abort(404)
     return send_file(p, mimetype="image/jpeg", max_age=3600)

@@ -2,6 +2,7 @@
 
     python scripts/get_wildtrack.py [out_dir]          # default ~/AtlasDemo/wildtrack  (~250 MB kept, ~6.8 GB streamed)
     python scripts/get_wildtrack.py ~/wt C1 C4         # only some cameras
+    python scripts/get_wildtrack.py --hd C1 C2 C3 C6   # also keep full 1920x1080 frames under frames-hd/ (Review prefers them)
 
 Streams the official archive (a Hugging Face mirror of EPFL's Wildtrack_dataset_full.zip) with HTTP range requests and
 keeps only what is needed: annotations_positions/*.json, calibrations/, and every frame downscaled to 960x540 JPEG under
@@ -28,6 +29,8 @@ def main(argv: list[str]) -> int:
     import httpx
     from PIL import Image
     from remotezip import RemoteZip
+    hd = "--hd" in argv
+    argv = [a for a in argv if a != "--hd"]
     out = Path(argv[0]).expanduser() if argv and not argv[0].startswith("C") else Path.home() / "AtlasDemo" / "wildtrack"
     only = [a for a in argv if a.startswith("C")]
     c = httpx.Client(follow_redirects=True, timeout=120, limits=httpx.Limits(max_connections=16))
@@ -66,10 +69,16 @@ def main(argv: list[str]) -> int:
     def img_one(i) -> int:
         cam, fn = i.filename.split("/")[-2:]
         p = out / "frames" / cam / (fn[:-4] + ".jpg")
-        if p.exists():
+        q = out / "frames-hd" / cam / (fn[:-4] + ".jpg")
+        if p.exists() and (not hd or q.exists()):
             return 0
         p.parent.mkdir(parents=True, exist_ok=True)
-        Image.open(io.BytesIO(fetch(i))).convert("RGB").resize((960, 540), Image.LANCZOS).save(p, "JPEG", quality=86)
+        im = Image.open(io.BytesIO(fetch(i))).convert("RGB")
+        if hd:
+            q.parent.mkdir(parents=True, exist_ok=True)
+            im.save(q, "JPEG", quality=90)
+        if not p.exists():
+            im.resize((960, 540), Image.LANCZOS).save(p, "JPEG", quality=86)
         return i.compress_size
 
     with ThreadPoolExecutor(16) as ex:
