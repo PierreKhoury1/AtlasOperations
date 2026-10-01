@@ -99,3 +99,33 @@ def test_cluster_count_on_the_ground():
     # one camera never sees a person twice: two people standing close on camera 0 stay two
     assert M.cluster_count(np.array([[0, 0], [20, 0]], float), [0, 0], 100) == 2
     assert M.cluster_count(np.zeros((0, 2)), [], 50) == 0
+
+
+def test_agent_note_checks_are_summarised_per_camera():
+    from atlas import mcam_notes as N
+    rows = [{"camera": "C1", "labelled": 10, "detected": 7, "removed": ["a phone"],
+             "check": {"count": 12, "claims": [{"claim": "a", "own": "supported", "others": "consistent"},
+                                               {"claim": "b", "own": "contradicted", "others": "contradicted"},
+                                               {"claim": "c", "own": "unclear", "others": "n/a"},
+                                               {"claim": "d", "own": "supported", "others": "not_visible"}]}},
+            {"camera": "C2", "labelled": 5, "detected": 5, "check": {"count": None, "claims": [{"claim": "e", "own": "supported", "others": "consistent"}]}}]
+    S = N.summarise(rows, ["C1", "C2"])
+    c1 = S["per_camera"]["C1"]
+    assert (c1["claims"], c1["supported"], c1["contradicted"], c1["unclear"]) == (4, 0.5, 0.25, 0.25)
+    assert c1["cross_checked"] == 2 and c1["cross_consistent"] == 0.5        # n/a and not_visible are not cross-checks
+    assert c1["count_mae"] == 2 and c1["count_bias"] == 2 and c1["detector_mae"] == 3 and c1["removed_by_verify"] == 1
+    a = S["all"]
+    assert a["claims"] == 5 and a["count_notes"] == 1 and a["cross_consistent"] == round(2 / 3, 3)
+
+
+def test_pick_instants_finds_the_busiest_shared_stretch():
+    from atlas import mcam_notes as N
+    gt = []
+    for i in range(30):
+        per = [[] for _ in M.CAMS]
+        k = 5 if 10 <= i < 20 else 1                        # many people on both cameras between 10 and 19
+        per[0] = [(p, [0, 0, 1, 1]) for p in range(k)]
+        per[1] = [(p, [0, 0, 1, 1]) for p in range(k)]
+        gt.append(per)
+    idx = N.pick_instants({"frames": [str(i) for i in range(30)], "gt": gt}, [0, 1], 3, 4)
+    assert idx[0] >= 10 and idx[-1] <= 19 and idx[1] - idx[0] == 4

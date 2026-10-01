@@ -18,3 +18,4 @@ node/node.json
 # WILDTRACK-derived per-box files stay local (dataset licence); report.md and results.json are summaries
 workspace/vision-eval/wildtrack/review.json
 workspace/vision-eval/wildtrack/preds-*.json
+workspace/vision-eval/wildtrack/notes.json

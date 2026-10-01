@@ -1828,14 +1828,16 @@ def desk_review_page():
 
 @app.get("/api/review/data")
 def api_review_data():
-    """The evaluation's per-instant boxes (review.json) and its scores (results.json): `py -m atlas mcam-eval` writes both."""
+    """The evaluation's per-instant boxes (review.json) and its scores (results.json): `py -m atlas mcam-eval` writes both;
+    notes.json, when `py -m atlas mcam-notes` has run, carries each camera agent's notes and how they were checked."""
     if not current_user() and not OPEN:
         abort(401)
     out = _review_out()
-    rv, rs = out / "review.json", out / "results.json"
+    rv, rs, nt = out / "review.json", out / "results.json", out / "notes.json"
     if not rv.is_file():
         return jsonify({"error": "no evaluation yet: run  py -m atlas mcam-eval  (WILDTRACK under ~/AtlasDemo/wildtrack)"}), 404
-    return Response('{"review":' + rv.read_text(encoding="utf-8") + ',"results":' + (rs.read_text(encoding="utf-8") if rs.is_file() else "null") + "}",
+    rd = lambda f: f.read_text(encoding="utf-8") if f.is_file() else "null"
+    return Response('{"review":' + rv.read_text(encoding="utf-8") + ',"results":' + rd(rs) + ',"notes":' + rd(nt) + "}",
                     mimetype="application/json")
 
 

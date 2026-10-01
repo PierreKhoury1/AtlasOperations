@@ -276,6 +276,23 @@ drag the timeline), human labels solid, our tracks dashed, a labelled person we 
 them up on every camera that sees them, with their crops and how long the tracker held them; the timeline plots the true
 head count against every estimate. `ATLAS_REVIEW_DATA` / `ATLAS_REVIEW_OUT` point it at another dataset or run.
 
+**Are the camera agents' notes true?** `py -m atlas mcam-notes` runs the real camera agent (journal note with close-up
+and verify pass, as a live camera writes it) on C1, C2, C3 and C6 at the same 6 moments, 4 s apart, in the busiest
+stretch. A stronger judge model (`claude-sonnet-5`) then checks every claim against the camera's own frame and against the
+other three cameras at that instant, which see the same people from other sides; the count is checked against the labels.
+With `gemini-3.1-flash-lite` as the agent (`workspace/vision-eval/wildtrack/notes-report.md`, about $0.37 a run):
+
+| claims checked | true in own frame | invented or wrong | unclear | wrong per note | other cameras agree | removed by the agent's verify pass |
+|---|---|---|---|---|---|---|
+| 197 (24 notes) | 81% | 5% | 14% | 0.4 | 99% of the 100 they could see | 52 |
+
+The mistakes are wrong specifics (an olive jacket that is dark, a hood that is not there, a "group of five" that is not
+a group), "no vehicles" when a truck stands at the back, and a person reported gone who is still in view. Only 3 of 24
+notes state a total head count, so the notes are not a counter: counts come from the detector and the geometry above.
+The judge is a model too, a second opinion rather than ground truth; rerunning only the checks (`--rejudge`) moved the
+wrong-claim rate between 4% and 5%. The Review page's **Agents** tab shows every note at its instant with each claim
+marked true, wrong or unclear, and the timeline marks where notes were written.
+
 **Recordings on one clock.** A video-file camera plays at the position `(now - VIDEO_SYNC_EPOCH) mod duration`, so any
 number of recordings of the same moment stay in step: across viewers, restarts and the live loop (checked in
 `tests/test_live.py`: two feeds opened 0.6 s apart stay within 0.35 s). Recordings of different lengths each loop on

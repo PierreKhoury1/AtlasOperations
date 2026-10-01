@@ -84,6 +84,12 @@ button{font:inherit;color:inherit}
 .crops canvas{width:100%;height:100%;display:block}
 .crops span{position:absolute;left:3px;bottom:2px;font-family:var(--mono);font-size:10px;color:#fff;text-shadow:0 1px 2px #000}
 .note{color:var(--mute);font-size:11px;padding:2px 0}
+.agent{margin:0 6px 6px;background:var(--panel);border-radius:var(--r);padding:7px 8px;border-left:2px solid var(--edge)}
+.agent h4{display:flex;gap:6px;align-items:baseline;font-size:11.5px;color:var(--text);margin-bottom:4px}.agent h4 span{color:var(--mute);font-weight:400;font-family:var(--mono);font-size:10.5px}
+.agent .txt{color:var(--text2);font-size:11.5px;line-height:1.45;user-select:text;margin-bottom:5px}
+.cl{display:flex;gap:5px;font-size:10.5px;line-height:1.35;padding:2px 0;color:var(--text2)}.cl i{flex:0 0 8px;height:8px;border-radius:2px;margin-top:3px}
+.cl.supported i{background:var(--ok)}.cl.contradicted i{background:var(--bad)}.cl.unclear i{background:#666}.cl.contradicted{color:#f0b3b1}
+.cl small{color:var(--mute)}
 /* ---- timeline */
 .tl{grid-column:1/-1;background:var(--area);display:grid;grid-template-rows:28px 1fr;min-height:0}
 .tbar{display:flex;align-items:center;gap:4px;padding:0 8px;background:var(--head);border-bottom:1px solid var(--line)}
@@ -127,6 +133,7 @@ button{font:inherit;color:inherit}
       <div class="tabs" id="ptabs">
         <button class="on" data-t="scene" title="Scene"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="12" height="10" rx="1.5"/><path d="M2 6h12"/></svg></button>
         <button data-t="person" title="Selected person"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="5" r="2.5"/><path d="M3 14c0-3 2.2-5 5-5s5 2 5 5"/></svg></button>
+        <button data-t="agents" title="Camera agents: their notes, checked"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 3h10v7H8l-3 3v-3H3z"/><path d="M6 6.5h4"/></svg></button>
         <button data-t="scores" title="Scores vs the labels"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 14V9M6 14V5M10 14V7M14 14V2"/></svg></button>
       </div>
       <div class="pc" id="pc"></div>
@@ -152,7 +159,7 @@ button{font:inherit;color:inherit}
 <script>
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-let RV = null, RS = null, N = 0, F = 0, playing = false, timer = null, SEL = null, SOLO = null, TAB = 'scene', SCRUB = false;
+let RV = null, RS = null, NT = null, N = 0, F = 0, playing = false, timer = null, SEL = null, SOLO = null, TAB = 'scene', SCRUB = false;
 const HIDE = new Set();                                  // cameras hidden in the outliner
 const IMG = {};                                           // `${cam}/${frame}` -> Image (preloaded ahead of the playhead)
 const col = id => `hsl(${(id * 137.508) % 360} 72% 62%)`;
@@ -169,7 +176,7 @@ function preload(fi, ahead = 8){
 async function init(){
   const r = await fetch('/api/review/data'); const j = await r.json();
   if (!r.ok) { $('#vp').innerHTML = `<div class="view info" style="grid-column:1/-1"><div class="empty">${esc(j.error || 'no data')}</div></div>`; return; }
-  RV = j.review; RS = j.results; N = RV.instants.length;
+  RV = j.review; RS = j.results; NT = j.notes; N = RV.instants.length;
   if (RS) {
     const d = RS.detection && RS.detection[Object.keys(RS.detection)[0]];
     if (d) $('#c-det').innerHTML = `detection <b>P ${d.precision} · R ${d.recall}</b>`;
@@ -261,6 +268,15 @@ function props(){
     pc.innerHTML = sect('Instant', kv([['frame', I.frame], ['time', I.t.toFixed(1) + ' s'], ['people in the scene', I.scene], ['busiest camera sees', big], ['sum of cameras (double counts)', I.cams.reduce((a, C) => a + C.det, 0)]].concat(I.geo != null ? [['feet merged on the ground (75 cm)', I.geo]] : [])))
       + sect('This instant, all cameras', kv([['labelled sightings', g], ['tracked sightings', p], ['matched', tp, g ? tp / g : 0], ['missed', g - tp, g ? (g - tp) / g : 0, true], ['unmatched tracks', p - tp, p ? (p - tp) / p : 0, true]]))
       + sect('Per camera', kv(RV.cameras.map((c, ci) => { const C = I.cams[ci], t = C.pred.filter(x => x[5] >= 0).length; return [c, `${t}/${C.gt.length}`, C.gt.length ? t / C.gt.length : 0]; })));
+  } else if (TAB === 'agents') {
+    $('#p-title').textContent = 'Camera agents';
+    if (!NT) { pc.innerHTML = '<div class="note" style="padding:10px">No agent notes yet: run  py -m atlas mcam-notes</div>'; return; }
+    const at = NT.instants.filter(f => +f <= +I.frame).pop() || NT.instants[0], A = NT.summary.all;
+    const head = sect('Checked notes, whole run', kv([['claims checked', A.claims], ['true in the camera\'s own frame', Math.round(A.supported * 100) + '%', A.supported], ['invented or wrong', Math.round(A.contradicted * 100) + '%', A.contradicted, true], ['other cameras agree', A.cross_consistent != null ? Math.round(A.cross_consistent * 100) + '%' : '-', A.cross_consistent || 0], ['count error vs labels', A.count_mae != null ? `${A.count_mae} (${A.count_bias > 0 ? '+' : ''}${A.count_bias}), ${A.count_notes} of ${A.notes} notes` : 'no note gives a total']]))
+      + `<div class="note" style="padding:0 8px 6px">Agent ${esc(NT.model)}, judge ${esc(NT.judge)} (a model too: a second opinion). Showing the notes written at frame ${at}${at !== I.frame ? ' (the latest before this instant)' : ''}.</div>`;
+    pc.innerHTML = head + NT.rows.filter(r => r.frame === at).map(r => { const ch = r.check || {}, cl = ch.claims || [], ok = cl.filter(c => c.own === 'supported').length;
+      return `<div class="agent" style="border-left-color:${cl.some(c => c.own === 'contradicted') ? 'var(--bad)' : 'var(--ok)'}"><h4>${esc(r.camera)} <span>${ok}/${cl.length} true · says ${ch.count ?? '?'} people, labels ${r.labelled}${(r.removed || []).length ? ' · verify removed ' + r.removed.length : ''}</span></h4>
+        <div class="txt">${esc(r.note || r.error || '')}</div>${cl.map(c => `<div class="cl ${esc(c.own)}"><i></i><div>${esc(c.claim)}${c.own !== 'supported' || c.others === 'contradicted' ? ` <small>· ${esc(c.why || '')}${c.others === 'contradicted' ? ' · another camera disagrees' : c.others === 'consistent' ? ' · other cameras agree' : ''}</small>` : (c.others === 'consistent' ? ' <small>· other cameras agree</small>' : '')}</div></div>`).join('')}</div>`; }).join('');
   } else if (TAB === 'person') {
     if (SEL == null) { $('#p-title').textContent = 'Person'; pc.innerHTML = '<div class="note" style="padding:10px">Click a person in any viewport, or in the outliner.</div>'; return; }
     $('#p-title').textContent = 'person ' + SEL;
@@ -303,6 +319,7 @@ function drawTimeline(){
   line(bigs, '#d8a13c', 1.2); line(sums, '#4a7fd1', 1.4);
   if (RV.instants[0].geo != null) { line(RV.instants.map(I => I.geo), '#6cb36c', 1.4); $('#lg-geo').style.display = ''; }
   line(RV.instants.map(I => I.scene), '#e0e0e0', 1.8);
+  if (NT) NT.instants.forEach(f => { const i = RV.instants.findIndex(I => I.frame === f); if (i < 0) return; const bad = NT.rows.some(r => r.frame === f && (r.check?.claims || []).some(c => c.own === 'contradicted')); x.fillStyle = bad ? '#d9534f' : '#6cb36c'; x.beginPath(); x.arc(X(i), T + 4 * d, 3.2 * d, 0, 7); x.fill(); });
   x.fillStyle = '#e8820d'; x.fillRect(X(F) - d, 0, 2 * d, H); x.beginPath(); x.moveTo(X(F) - 6 * d, 0); x.lineTo(X(F) + 6 * d, 0); x.lineTo(X(F), 8 * d); x.fill();
   const I = RV.instants[F]; x.font = `${10.5 * d}px IBM Plex Mono`; const label = `${I.scene} people · cams sum ${sums[F]} · busiest ${bigs[F]}${I.geo != null ? ' · ground ' + I.geo : ''}`; const tw = x.measureText(label).width + 10 * d;
   const lx = Math.min(W - R - tw, X(F) + 8 * d); x.fillStyle = 'rgba(20,20,20,.9)'; x.fillRect(lx, 10 * d, tw, 16 * d); x.fillStyle = '#fff'; x.fillText(label, lx + 5 * d, 22 * d);
