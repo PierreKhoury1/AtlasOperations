@@ -48,8 +48,11 @@ def gather(feet: Sequence[np.ndarray], conf: Sequence[Sequence[float]] | None = 
     """Per-camera foot points (and confidences) -> one list of sightings: points (n, 2), camera of each, confidence of each."""
     pts = [np.asarray(f, float).reshape(-1, 2) for f in feet]
     cams = [ci for ci, p in enumerate(pts) for _ in range(len(p))]
+    if conf is not None and [len(np.asarray(c).reshape(-1)) for c in conf] != [len(p) for p in pts]:
+        raise ValueError("one confidence per foot point, camera by camera")
     cf = np.concatenate([np.asarray(c, float).reshape(-1) for c in conf]) if conf is not None and len(cams) else np.ones(len(cams))
-    return (np.concatenate(pts) if pts else np.zeros((0, 2))), cams, cf
+    # weights for the cluster centres: a zero-confidence sighting must not zero a whole cluster's weight
+    return (np.concatenate(pts) if pts else np.zeros((0, 2))), cams, np.clip(cf, 1e-6, None)
 
 
 def boxes_to_feet(calib: Sequence[Any], boxes: Sequence[Sequence[Sequence[float]]], feet_fn: Callable) -> list[np.ndarray]:

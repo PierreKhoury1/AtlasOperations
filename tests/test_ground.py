@@ -2,6 +2,7 @@
 import json
 
 import numpy as np
+import pytest
 
 from atlas import ground as G
 from atlas import mcam_eval as M
@@ -102,3 +103,27 @@ def test_cross_camera_identity_and_linking():
     assert M.score_cross_camera(D, shared)["idf1"] == 1.0
     per_cam = [[[{"box": b, "id": 3}] for _, b in (c[0] for c in f[:2])] + [[] for _ in M.CAMS[2:]] for f in gt]
     assert M.score_cross_camera(D, per_cam, per_camera_ids=True)["idf1"] == 0.5
+
+
+def test_link_by_feet_joins_cameras_but_never_one_camera_with_itself(monkeypatch):
+    # feet: the box's top-left corner stands in for the ground point, so the test does not need a calibration
+    monkeypatch.setattr(M, "feet_on_ground", lambda cal, boxes: np.array([[b[0], b[1]] for b in boxes], float).reshape(-1, 2))
+    n = 4
+    gt = [[[(1, [0, 0, 30, 90])], [(1, [10, 0, 40, 90])], *[[] for _ in M.CAMS[2:]]] for _ in range(n)]
+    D = {"frames": [str(i) for i in range(n)], "gt": gt, "calib": [None] * len(M.CAMS)}
+    tracks = [[[{"box": [0, 0, 30, 90], "id": 3}], [{"box": [10, 0, 40, 90], "id": 9}], *[[] for _ in M.CAMS[2:]]] for _ in range(n)]
+    linked = M.link_by_feet(D, tracks, kmin=2)
+    assert linked[0][0][0]["id"] == linked[0][1][0]["id"]                    # one person, one id on both cameras
+    assert M.score_cross_camera(D, linked)["idf1"] == 1.0
+    # two tracks on camera 0 alive at the same time, both near camera 1's track: they stay two people
+    both = [[[{"box": [0, 0, 30, 90], "id": 4}, {"box": [20, 0, 50, 90], "id": 5}], [{"box": [10, 0, 40, 90], "id": 9}],
+             *[[] for _ in M.CAMS[2:]]] for _ in range(n)]
+    out = M.link_by_feet(D, both, kmin=2)
+    assert out[0][0][0]["id"] != out[0][0][1]["id"]
+
+
+def test_gather_checks_confidences_and_survives_zero_weights():
+    with pytest.raises(ValueError):
+        G.gather([np.zeros((1, 2)), np.zeros((0, 2))], [[0.9, 0.8], []])
+    t = G.GroundTracker()
+    t.update([np.array([[0.0, 0.0]]), np.array([[10.0, 0.0]])], [[0.0], [0.0]], 0.0)   # all-zero confidence: no crash

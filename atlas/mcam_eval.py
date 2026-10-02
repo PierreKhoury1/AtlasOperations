@@ -34,6 +34,7 @@ Output: workspace/vision-eval/wildtrack/{results.json, report.md, review.json (p
 from __future__ import annotations
 
 import argparse
+import inspect
 import json
 import math
 import random
@@ -571,9 +572,11 @@ def write_report(R: dict[str, Any], out: Path) -> None:
         o = t["overall"]
         L.append(f"| {k} | {o['mota']} | {o['idf1']} | {o['id_switches']} | {o['recall']} | {o['mostly_tracked']} of {o['gt_identities']} |")
     if R.get("cross_camera"):
-        L += ["", "The ground tracker merges every camera's sightings by where the feet land (120 cm), follows each person on the ground "
-              "(constant-velocity Kalman, Hungarian assignment within 120 cm, 3 missed instants allowed), starts a person only when two "
-              "cameras see them, and gives every sighting of that person the same id on every camera.", "",
+        gp = R.get("ground_tracker_params") or {}
+        L += ["", f"The ground tracker merges every camera's sightings by where the feet land ({gp.get('R', '?'):.0f} cm), follows each person "
+              f"on the ground (constant-velocity Kalman, Hungarian assignment within {gp.get('gate', '?'):.0f} cm, {gp.get('max_miss', '?')} missed "
+              f"instants allowed), starts a person only when {gp.get('birth_cams', '?')} cameras see them, and gives every sighting of that person "
+              "the same id on every camera.", "",
               "| one id per person on every camera | IDF1 across cameras | ID precision | ID recall |", "|---|---|---|---|"]
         for k, v in R["cross_camera"].items():
             L.append(f"| {k} | {v['idf1']} | {v['idp']} | {v['idr']} |")
@@ -631,9 +634,9 @@ def write_report(R: dict[str, Any], out: Path) -> None:
             L += ["", f"Ground plane, {k}, within {v['radius_cm']:.0f} cm: MODA {v['moda']}, MOTA {v['mota']}, IDF1 {v['idf1']}."]
         hc = h["counts"]
         L += ["", f"Head count (truth mean {hc['truth_mean']}): the vote errs by {hc['vote']['mae']} people ({hc['vote']['bias']:+}), the busiest camera "
-              f"by {hc['largest_camera']['mae']} ({hc['largest_camera']['bias']:+}). The vote's 0.7 confidence bar is sensitive (0.6 or 0.8 cost "
-              "about one person of error), and plain clustering with a very wide radius (800 cm) counted inside the area came within "
-              "0.4 people of it in the experiment that chose these settings."]
+              f"by {hc['largest_camera']['mae']} ({hc['largest_camera']['bias']:+}). In the experiment that chose these settings on "
+              "WILDTRACK (tuned on instants 0-199, re-run on 200-399), the vote's 0.7 confidence bar was sensitive (0.6 or 0.8 cost about one "
+              "person of error), and plain clustering with a very wide radius (800 cm) counted inside the area came within 0.4 people of it."]
     L += ["", f"_Generated {time.strftime('%Y-%m-%d %H:%M')}. Data: WILDTRACK (Chavdarova et al., CVPR 2018), non-commercial research use._"]
     (out / "report.md").write_text("\n".join(L), encoding="utf-8")
 
@@ -677,6 +680,8 @@ def main(argv: list[str] | None = None) -> int:
     mc = multicam(D, base, cat)
     R["tracking"]["ground tracker (all cameras)"] = mc["tracking"]["ground tracker (all cameras)"]
     R["cross_camera"], R["ground_plane"], R["counts"]["vote"] = mc["cross_camera"], mc["ground_plane"], mc["counts"]["vote"]
+    R["ground_tracker_params"] = {k: v.default for k, v in inspect.signature(G.GroundTracker).parameters.items()
+                                  if isinstance(v.default, (int, float)) and not isinstance(v.default, bool)}
     if len(D["frames"]) > HELD_OUT:                      # the parameters were chosen on instants 0-199: the rest is unseen
         D2 = sub(D, HELD_OUT, len(D["frames"]))
         h = multicam(D2, base[HELD_OUT:])

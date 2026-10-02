@@ -31,7 +31,7 @@ Calibration check: 100.0% of labelled feet project inside the labelled area; a l
 | catalogue tracker (yolo11n) | 0.278 | 0.428 | 1256 | 0.498 | 208 of 1611 |
 | ground tracker (all cameras) | 0.308 | 0.538 | 1482 | 0.524 | 293 of 1611 |
 
-The ground tracker merges every camera's sightings by where the feet land (120 cm), follows each person on the ground (constant-velocity Kalman, Hungarian assignment within 120 cm, 3 missed instants allowed), starts a person only when two cameras see them, and gives every sighting of that person the same id on every camera.
+The ground tracker merges every camera's sightings by where the feet land (120 cm), follows each person on the ground (constant-velocity Kalman, Hungarian assignment within 120 cm, 3 missed instants allowed), starts a person only when 2 cameras see them, and gives every sighting of that person the same id on every camera.
 
 | one id per person on every camera | IDF1 across cameras | ID precision | ID recall |
 |---|---|---|---|
@@ -88,6 +88,6 @@ The ground tracker's parameters (merge radius, gate, misses, confirmations, Kalm
 
 Ground plane, ground tracker (all cameras), within 50 cm: MODA 0.589, MOTA 0.568, IDF1 0.712.
 
-Head count (truth mean 23.7): the vote errs by 2.7 people (+0.5), the busiest camera by 7.3 (-6.9). The vote's 0.7 confidence bar is sensitive (0.6 or 0.8 cost about one person of error), and plain clustering with a very wide radius (800 cm) counted inside the area came within 0.4 people of it in the experiment that chose these settings.
+Head count (truth mean 23.7): the vote errs by 2.7 people (+0.5), the busiest camera by 7.3 (-6.9). In the experiment that chose these settings on WILDTRACK (tuned on instants 0-199, re-run on 200-399), the vote's 0.7 confidence bar was sensitive (0.6 or 0.8 cost about one person of error), and plain clustering with a very wide radius (800 cm) counted inside the area came within 0.4 people of it.
 
-_Generated 2026-10-02 20:40. Data: WILDTRACK (Chavdarova et al., CVPR 2018), non-commercial research use._
+_Generated 2026-10-02 21:16. Data: WILDTRACK (Chavdarova et al., CVPR 2018), non-commercial research use._
