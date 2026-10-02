@@ -151,7 +151,7 @@ button{font:inherit;color:inherit}
       <span class="fr" id="tc" style="min-width:64px">0.0 s</span>
       <select id="spd" title="Playback speed"><option value="1">1×</option><option value="2" selected>2×</option><option value="4">4×</option><option value="8">8×</option></select>
       <span class="sp"></span>
-      <span class="lg"><span><i style="background:#e0e0e0"></i>people in the scene (labels)</span><span><i style="background:var(--blue)"></i>sum of camera detections</span><span><i style="background:var(--warn)"></i>busiest camera</span><span id="lg-geo" style="display:none"><i style="background:var(--ok)"></i>feet merged on the ground (75 cm)</span><span><i style="background:var(--sel);height:8px;width:3px"></i>selected person visible</span></span>
+      <span class="lg"><span><i style="background:#e0e0e0"></i>people in the scene (labels)</span><span><i style="background:var(--blue)"></i>sum of camera detections</span><span><i style="background:var(--warn)"></i>busiest camera</span><span id="lg-geo" style="display:none"><i style="background:var(--ok)"></i><span id="lg-geo-t">feet merged on the ground (75 cm)</span></span><span><i style="background:var(--sel);height:8px;width:3px"></i>selected person visible</span></span>
     </div>
     <div class="track"><canvas id="tlc"></canvas></div>
   </div>
@@ -159,7 +159,7 @@ button{font:inherit;color:inherit}
 <script>
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-let RV = null, RS = null, NT = null, N = 0, F = 0, playing = false, timer = null, SEL = null, SOLO = null, TAB = 'scene', SCRUB = false;
+let RV = null, RS = null, GEO = 'feet merged on the ground (75 cm)', SHARED = false, NT = null, N = 0, F = 0, playing = false, timer = null, SEL = null, SOLO = null, TAB = 'scene', SCRUB = false;
 const HIDE = new Set();                                  // cameras hidden in the outliner
 const IMG = {};                                           // `${cam}/${frame}` -> Image (preloaded ahead of the playhead)
 const col = id => `hsl(${(id * 137.508) % 360} 72% 62%)`;
@@ -177,11 +177,13 @@ async function init(){
   const r = await fetch('/api/review/data'); const j = await r.json();
   if (!r.ok) { $('#vp').innerHTML = `<div class="view info" style="grid-column:1/-1"><div class="empty">${esc(j.error || 'no data')}</div></div>`; return; }
   RV = j.review; RS = j.results; NT = j.notes; N = RV.instants.length;
+  GEO = RV.geo_label || GEO; SHARED = !!RV.shared_ids; $('#lg-geo-t').textContent = GEO;   // older runs: the 75 cm clustering, per-camera ids
   if (RS) {
     const d = RS.detection && RS.detection[Object.keys(RS.detection)[0]];
     if (d) $('#c-det').innerHTML = `detection <b>P ${d.precision} · R ${d.recall}</b>`;
-    const t = RS.tracking && Object.values(RS.tracking)[1] || Object.values(RS.tracking || {})[0];
-    if (t) $('#c-trk').innerHTML = `IDF1 <b>${t.overall.idf1}</b> · switches <b>${t.overall.id_switches}</b>`;
+    const t = (RS.tracking || {})['ground tracker (all cameras)'] || RS.tracking && Object.values(RS.tracking)[1] || Object.values(RS.tracking || {})[0];
+    const x = (RS.cross_camera || {})['ground tracker (all cameras)'];
+    if (t) $('#c-trk').innerHTML = `IDF1 <b>${t.overall.idf1}</b> · switches <b>${t.overall.id_switches}</b>` + (x ? ` · across cameras <b>${x.idf1}</b>` : '');
     if (RS.reid && RS.reid.rank1 != null) $('#c-reid').innerHTML = `re-id rank-1 <b>${Math.round(RS.reid.rank1 * 100)}%</b>`;
     $('#c-set').innerHTML = `WILDTRACK · <b>${RV.cameras.length}</b> cameras · <b>${N}</b> instants · <b>${RS.identities}</b> people`;
   }
@@ -194,7 +196,7 @@ function buildViews(){
   vp.innerHTML = cams.map(c => `<div class="view" id="v-${c}"><canvas id="cv-${c}"></canvas><div class="vh"><b>${c}</b><span class="m" id="vm-${c}"></span><span class="sp"></span><span class="m" id="vs-${c}"></span></div></div>`).join('')
     + (SOLO || quad ? '' : `<div class="view info"><h3>Reading the viewports</h3><p>All cameras show the same instant: one playhead drives every view, so what you compare is simultaneous.</p>
       <div class="legend"><svg><rect x="2" y="2" width="24" height="10" fill="none" stroke="#bbb" stroke-width="1.5"/></svg><span>human label (colour = person id, same on every camera)</span>
-      <svg><rect x="2" y="2" width="24" height="10" fill="none" stroke="#bbb" stroke-width="1.5" stroke-dasharray="4 3"/></svg><span>our tracker, matched to that label</span>
+      <svg><rect x="2" y="2" width="24" height="10" fill="none" stroke="#bbb" stroke-width="1.5" stroke-dasharray="4 3"/></svg><span>${SHARED ? 'ground tracker (one id per person on every camera), matched to that label' : 'our tracker, matched to that label'}</span>
       <svg><rect x="2" y="2" width="24" height="10" fill="none" stroke="#d9534f" stroke-width="1.5" stroke-dasharray="4 3"/></svg><span>our tracker, no label there (false or unlabelled)</span>
       <svg><rect x="2" y="2" width="24" height="10" fill="rgba(217,83,79,.25)" stroke="#d9534f" stroke-width="1" stroke-opacity=".5"/></svg><span>labelled person we missed</span></div>
       <p style="margin-top:12px">Click anyone to follow them across all cameras. Double-click a view to maximise it. Space plays, ← → step.</p></div>`);
@@ -223,7 +225,7 @@ function drawViews(){
     C.pred.forEach(([tid, x1, y1, x2, y2, pid]) => { const [bx, by, bw, bh] = B([x1, y1, x2, y2]), on = SEL != null && SEL === pid;
       x.globalAlpha = dim && !on ? .18 : 1; x.setLineDash([4 * d, 3 * d]); x.lineWidth = (on ? 2 : 1.2) * d;
       x.strokeStyle = pid >= 0 ? col(pid) : '#d9534f'; x.strokeRect(bx + 2 * d, by + 2 * d, bw - 4 * d, bh - 4 * d);
-      if (on) { x.setLineDash([]); x.font = `${9.5 * d}px IBM Plex Mono`; x.fillStyle = '#4a7fd1'; x.fillText('track ' + tid, bx + 3 * d, by + bh + 11 * d); } });
+      if (on) { x.setLineDash([]); x.font = `${9.5 * d}px IBM Plex Mono`; x.fillStyle = '#4a7fd1'; x.fillText((SHARED ? 'id ' : 'track ') + tid, bx + 3 * d, by + bh + 11 * d); } });
     x.globalAlpha = 1; x.setLineDash([]);
     const tp = C.pred.filter(p => p[5] >= 0).length, fp = C.pred.length - tp, fn = C.gt.length - matched.size;
     $('#vm-' + c).innerHTML = `${C.gt.length} labelled · ${C.pred.length} tracked`;
@@ -265,7 +267,7 @@ function props(){
     $('#p-title').textContent = 'Scene';
     const g = I.cams.reduce((a, C) => a + C.gt.length, 0), p = I.cams.reduce((a, C) => a + C.pred.length, 0), tp = I.cams.reduce((a, C) => a + C.pred.filter(x => x[5] >= 0).length, 0);
     const big = Math.max(...I.cams.map(C => C.det));
-    pc.innerHTML = sect('Instant', kv([['frame', I.frame], ['time', I.t.toFixed(1) + ' s'], ['people in the scene', I.scene], ['busiest camera sees', big], ['sum of cameras (double counts)', I.cams.reduce((a, C) => a + C.det, 0)]].concat(I.geo != null ? [['feet merged on the ground (75 cm)', I.geo]] : [])))
+    pc.innerHTML = sect('Instant', kv([['frame', I.frame], ['time', I.t.toFixed(1) + ' s'], ['people in the scene', I.scene], ['busiest camera sees', big], ['sum of cameras (double counts)', I.cams.reduce((a, C) => a + C.det, 0)]].concat(I.geo != null ? [[GEO, I.geo]] : [])))
       + sect('This instant, all cameras', kv([['labelled sightings', g], ['tracked sightings', p], ['matched', tp, g ? tp / g : 0], ['missed', g - tp, g ? (g - tp) / g : 0, true], ['unmatched tracks', p - tp, p ? (p - tp) / p : 0, true]]))
       + sect('Per camera', kv(RV.cameras.map((c, ci) => { const C = I.cams[ci], t = C.pred.filter(x => x[5] >= 0).length; return [c, `${t}/${C.gt.length}`, C.gt.length ? t / C.gt.length : 0]; })));
   } else if (TAB === 'agents') {
@@ -284,24 +286,31 @@ function props(){
     const seen = RV.instants.filter(x => x.cams.some(C => C.gt.some(g => g[0] === SEL)));
     const hit = RV.instants.reduce((a, x) => a + x.cams.reduce((b, C) => b + (C.pred.some(p => p[5] === SEL) ? 1 : 0), 0), 0);
     const tot = RV.instants.reduce((a, x) => a + x.cams.reduce((b, C) => b + (C.gt.some(g => g[0] === SEL) ? 1 : 0), 0), 0);
-    const tids = new Set(); RV.instants.forEach(x => x.cams.forEach((C, ci) => C.pred.forEach(p => { if (p[5] === SEL) tids.add(RV.cameras[ci] + ':' + p[0]); })));
+    const tids = new Set(); RV.instants.forEach(x => x.cams.forEach((C, ci) => C.pred.forEach(p => { if (p[5] === SEL) tids.add(SHARED ? p[0] : RV.cameras[ci] + ':' + p[0]); })));
     pc.innerHTML = sect('Now', `<div class="crops">${where.map(w => `<div><canvas data-c="${w.c}"></canvas><span>${w.c}${w.p ? '' : ' ✗'}</span></div>`).join('') || '<div class="note">not in view at this instant</div>'}</div>`)
       + sect('Across the recording', kv([['in view', `${(seen.length / 2).toFixed(1)} s`], ['first / last', seen.length ? `${seen[0].t.toFixed(1)} / ${seen.at(-1).t.toFixed(1)} s` : '–'],
           ['sightings found by the tracker', `${hit}/${tot}`, tot ? hit / tot : 0], ['track ids it was split into', tids.size, null], ['cameras now', where.map(w => w.c).join(' ') || '–']]))
       + (() => { const camsEver = new Set(); RV.instants.forEach(x => x.cams.forEach((C, ci) => { if (C.gt.some(g => g[0] === SEL)) camsEver.add(ci); }));
-          const extra = tids.size - camsEver.size;
-          return sect('What this means', `<div class="note">Ideal: one track per camera that saw them, ${camsEver.size} here. The tracker used <b style="color:#fff">${tids.size}</b>${extra > 0 ? `, so it lost this person and started again <b style="color:#fff">${extra}</b> time${extra === 1 ? '' : 's'}: each restart is an identity switch, which is what IDF1 counts` : ', one per camera: it never lost them'}. ${hit < tot ? `It found them in ${hit} of the ${tot} sightings the labels have; the rest were missed, mostly far away or behind someone.` : ''} Across cameras the ids are joined by the human labels here; the pipeline can join them by where the feet land (Scores: geometry, calibrated cameras) or, without calibration, by appearance (Scores: re-id).</div>`); })();
+          const ideal = SHARED ? 1 : camsEver.size, extra = tids.size - ideal;
+          return sect('What this means', `<div class="note">Ideal: ${SHARED ? `one id for this person on every camera that saw them (${camsEver.size} here)` : `one track per camera that saw them, ${camsEver.size} here`}. The tracker used <b style="color:#fff">${tids.size}</b>${extra > 0 ? `, so it lost this person and started again <b style="color:#fff">${extra}</b> time${extra === 1 ? '' : 's'}: each restart is an identity switch, which is what IDF1 counts` : SHARED ? ': it never lost them' : ', one per camera: it never lost them'}. ${hit < tot ? `It found them in ${hit} of the ${tot} sightings the labels have; the rest were missed, mostly far away or behind someone.` : ''} ${SHARED ? 'Across cameras the ground tracker joins the sightings itself, by where the feet land on the calibrated ground plane, and follows the person there (Scores: across cameras); appearance (Scores: re-id) is not used.' : 'Across cameras the ids are joined by the human labels here; the pipeline can join them by where the feet land (Scores: geometry, calibrated cameras) or, without calibration, by appearance (Scores: re-id).'}</div>`); })();
     where.forEach(w => { const cv = pc.querySelector(`canvas[data-c="${w.c}"]`), im = img(w.c, F), [, x1, y1, x2, y2] = w.g; const draw = () => { cv.width = 80; cv.height = 160; const x = cv.getContext('2d'); const bw = x2 - x1, bh = y2 - y1, s = Math.min(80 / bw, 160 / bh); x.fillStyle = '#111'; x.fillRect(0, 0, 80, 160); x.drawImage(im, x1, y1, bw, bh, (80 - bw * s) / 2, (160 - bh * s) / 2, bw * s, bh * s); }; im.complete ? draw() : im.addEventListener('load', draw, {once: true}); });
   } else {
     $('#p-title').textContent = 'Scores vs the labels';
     if (!RS) { pc.innerHTML = '<div class="note" style="padding:10px">No results.json</div>'; return; }
     const det = Object.entries(RS.detection || {}).map(([k, d]) => sect('Detection · ' + k, kv([['precision', d.precision, d.precision], ['recall', d.recall, d.recall], ['F1', d.f1, d.f1], ['count error / camera / frame', d.count_mae]]), !k.includes('0.3'))).join('');
     const trk = Object.entries(RS.tracking || {}).map(([k, t]) => sect('Tracking · ' + k, kv([['IDF1', t.overall.idf1, t.overall.idf1], ['MOTA', t.overall.mota, Math.max(0, t.overall.mota)], ['identity switches', t.overall.id_switches], ['recall', t.overall.recall, t.overall.recall], ['mostly tracked', `${t.overall.mostly_tracked} of ${t.overall.gt_identities}`]]))).join('');
-    const r = RS.reid || {}, c = RS.counts || {}, g = RS.geometry || {};
+    const r = RS.reid || {}, c = RS.counts || {}, g = RS.geometry || {}, h = RS.held_out;
+    const xc = RS.cross_camera ? sect('Across cameras · one id per person', kv(Object.entries(RS.cross_camera).map(([k, v]) => [k, v.idf1, v.idf1]))
+      + `<div class="note">IDF1 over all cameras at once: a person must keep the same id on every camera and over time. The ground tracker joins cameras by where the feet land.</div>`
+      + Object.entries(RS.ground_plane || {}).map(([k, v]) => `<div class="note">on the ground, ${esc(k)}, within ${v.radius_cm} cm of the labelled position: MODA ${v.moda}, MOTA ${v.mota}, IDF1 ${v.idf1}</div>`).join('')) : '';
+    const ho = h ? sect(`Held out · instants ${h.instants[0]}–${h.instants[1]}`, kv(Object.entries(h.tracking).map(([k, o]) => [k + ', IDF1', o.idf1, o.idf1])
+        .concat(Object.entries(h.cross_camera).map(([k, v]) => [k + ', across cameras', v.idf1, v.idf1]))
+        .concat(h.counts && h.counts.vote ? [['vote count, error', `${h.counts.vote.mae} (${h.counts.vote.bias > 0 ? '+' : ''}${h.counts.vote.bias})`], ['busiest camera, error', `${h.counts.largest_camera.mae}`]] : []))
+      + `<div class="note">The ground tracker and the vote were tuned on instants 0–${h.instants[0] - 1}; these instants were not used to choose anything.</div>`, false) : '';
     const geo = g.assoc_rank1 != null ? sect('Geometry · calibrated cameras', kv([['match across cameras by where the feet land', (g.assoc_rank1 >= 0.9995 ? '≥ 99.9' : (g.assoc_rank1 * 100).toFixed(1)) + '%', g.assoc_rank1], ['same, by appearance (CLIP)', r.rank1 != null ? Math.round(r.rank1 * 100) + '%' : '–', r.rank1 || 0, true], ['foot point vs true position, median', (RS.projection_error_cm || {}).median + ' cm'], ['same person across cameras, median gap', g.same_person_ground_gap_cm.median + ' cm']]) + Object.entries(g.counts || {}).map(([k, v]) => `<div class="note">head count, feet merged within ${k}: error ${v.mae} (${v.bias > 0 ? '+' : ''}${v.bias}), within 20% ${Math.round(v.within_20pct * 100)}% of instants</div>`).join('')) : '';
     const reid = r.rank1 != null ? sect('Re-id across cameras · ' + (r.model || 'CLIP'), kv([['rank-1 (pick one, find them on another camera)', Math.round(r.rank1 * 100) + '%', r.rank1, true], ['chance', Math.round(r.chance_rank1 * 100) + '%'], ['control: same camera, later', Math.round((r.control_rank1_same_camera || 0) * 100) + '%', r.control_rank1_same_camera || 0], ['AUC per query', r.auc_per_query ?? '–'], ['same vs other person similarity', `${r.same_mean} / ${r.diff_mean}`]]) + (r.at || []).map(a => `<div class="note">at ${a.threshold}: precision ${a.precision}, recall ${a.recall}, ${a.false_matches_per_true} wrong matches per right one</div>`).join('')) : '';
-    const cnt = c.sum_of_cameras ? sect('How many people are there?', kv([['truth (mean, range)', `${c.truth_mean} (${c.truth_min}–${c.truth_max})`], ['sum of cameras, error', `${c.sum_of_cameras.mae} (${c.sum_of_cameras.bias > 0 ? '+' : ''}${c.sum_of_cameras.bias})`], ['busiest camera, error', `${c.largest_camera.mae} (${c.largest_camera.bias > 0 ? '+' : ''}${c.largest_camera.bias})`]].concat((RS.vlm || []).filter(v => v.mae != null).map(v => [v.model.split('/').pop() + ', error', `${v.mae} (${v.bias > 0 ? '+' : ''}${v.bias})`])))) : '';
-    pc.innerHTML = det + trk + geo + reid + cnt;
+    const cnt = c.sum_of_cameras ? sect('How many people are there?', kv([['truth (mean, range)', `${c.truth_mean} (${c.truth_min}–${c.truth_max})`], ['sum of cameras, error', `${c.sum_of_cameras.mae} (${c.sum_of_cameras.bias > 0 ? '+' : ''}${c.sum_of_cameras.bias})`], ['busiest camera, error', `${c.largest_camera.mae} (${c.largest_camera.bias > 0 ? '+' : ''}${c.largest_camera.bias})`]].concat(c.vote ? [['multi-camera count (vote), error', `${c.vote.mae} (${c.vote.bias > 0 ? '+' : ''}${c.vote.bias})`]] : []).concat((RS.vlm || []).filter(v => v.mae != null).map(v => [v.model.split('/').pop() + ', error', `${v.mae} (${v.bias > 0 ? '+' : ''}${v.bias})`])))) : '';
+    pc.innerHTML = det + trk + xc + geo + reid + cnt + ho;
   }
 }
 // ---------------------------------------------------------------- timeline
