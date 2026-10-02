@@ -30,7 +30,7 @@ accounts - local only. Eyes: the free default `nvidia/nemotron-3-nano-omni:free`
 have measured, see [Cameras](#cameras-agents-that-see-the-room).
 
 Environment knobs you will meet: `LIVE_FPS` (live loop cap per camera, 15), `VISION_YOLO` (detector weights),
-`ATLAS_SAMPLE_VIDEOS` (folder of sample clips), `PORT`. Tests: `python -m pytest -q tests/test_vision.py
+`VISION_RUNTIME` (live detector: auto / openvino / torch), `ATLAS_SAMPLE_VIDEOS` (folder of sample clips), `PORT`. Tests: `python -m pytest -q tests/test_vision.py
 tests/test_journal.py tests/test_live.py` (one process per file: the auth rate limiter is process-wide and trips when
 several API suites share one run).
 
@@ -163,6 +163,19 @@ every scheduler tick and each note as `note_start`, one `note_delta` per token, 
 anyone is watching, the vision model is streamed; with no viewer the journal runs exactly as before. The journal and
 the rules read the live loop's frame while it runs, so what is written is what was on screen. `LIVE_MAX_W` (1920),
 `LIVE_JPEG_Q` (76), `LIVE_FPS` (15, webcam/RTSP cap) and `LIVE_IDLE_S` (45, stop after the last viewer leaves) tune it.
+
+**Live detector runtime.** `VISION_RUNTIME` = `auto` (default) | `openvino` | `torch`. On `auto` the live detector
+exports its weights once to OpenVINO at a fixed 384x640 input (`data/models/yolo11n_384x640_openvino_model/`, a few
+seconds on first use) and runs every camera on it with one inference thread each (`VISION_OV_THREADS`); ByteTrack ids,
+labels and box coordinates are unchanged. Without `openvino` installed, or if the export fails, it logs once and runs
+on torch. The camera status shows which one runs (`yolo11n (openvino)`). Measured on WILDTRACK on a 4-core Xeon
+(`python scripts/bench_detector.py live-speed` / `live-accuracy`): the live `.track` call went from 83 to 23 CPU-ms per
+frame with 4 cameras and from 89 to 24 with 7 (33 -> 140 and 35 -> 135 frames a second in total), with the same person
+detection on 100 held-out instants x 7 cameras (precision / recall / F1 0.785 / 0.495 / 0.607 on torch, 0.783 / 0.496 /
+0.607 on OpenVINO). The gain relies partly on this CPU's bf16 (AMX); older x86 CPUs gain less. The record detector
+(object catalogue, audits; yolo11s on 2x2 tiles plus the whole frame) now drops every tile box that touches an
+interior tile edge and merges at NMS 0.6, conf 0.25 (`VISION_PRECISE_CONF`, `VISION_TILES=1x1` turns tiles off): F1
+0.635 -> 0.699 on WILDTRACK (C1 C2 C3 C6, full-res, 20 held-out instants; `bench_detector.py precise`).
 
 **Journal (document everything).** With `journal` on, the camera keeps a detailed written record of what it sees - the
 content "ask the cameras" searches. The vision model writes a note from two frames (the one at the previous note and

@@ -17,6 +17,10 @@ unfair baselines. Only verified numbers are below. CPU only (4 cores, no GPU), c
 | cheaper agent model | gemini-3.1-flash-lite, ~$0.0022 per note | gemini-2.5-flash-lite: 5x cheaper ($0.0004), similar wrong claims per note but ~40% fewer details | partially confirmed | - |
 | cheaper judge | claude-sonnet-5, $0.33 per 24 notes | no cheaper model (Haiku, GPT mini, Qwen, Gemini Flash) gave the same verdicts; Sonnet with 2 neighbouring cameras at 512 px is 26% cheaper but flags more notes than Sonnet does; 2 neighbours at 960 px (-12%) is the safe saving | partially confirmed | - |
 
+Shipped since: the live detector runs on OpenVINO by default (`VISION_RUNTIME`, 83-89 -> 23-24 CPU-ms per frame with
+ByteTrack, same P/R/F1), and the tiled detector drops every edge-cut tile box, merges at NMS 0.6, conf 0.25 (F1 0.635 ->
+0.699 on C1 C2 C3 C6, 20 held-out instants). `python scripts/bench_detector.py` reproduces both.
+
 Lessons that matter beyond the numbers:
 
 - Telling a vision model a number does not make it use it: told "21 people", gemini-3.1-flash-lite wrote 45. A count

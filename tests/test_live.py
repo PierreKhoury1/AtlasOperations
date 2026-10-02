@@ -266,3 +266,30 @@ def test_recordings_play_on_one_shared_clock(clip, tmp_path, monkeypatch):
         assert gap < 0.35, (a.pos_s, b.pos_s)
         assert min(abs(a.pos_s - want), 2.0 - abs(a.pos_s - want)) < 0.4, (a.pos_s, want)
         time.sleep(0.25)
+
+
+def test_live_loop_tracks_people_on_the_openvino_runtime(tmp_path, monkeypatch):
+    """The real detector on the OpenVINO runtime (exported on first use) in the live loop on a sample clip: people are
+    found with ByteTrack ids, boxes in the clip's own pixels, and the feed reports which runtime it runs."""
+    pytest.importorskip("ultralytics")
+    pytest.importorskip("openvino")
+    import shutil
+    from pathlib import Path
+    root = Path(__file__).resolve().parents[1]
+    weights, clip = root / "data" / "models" / "yolo11n.pt", root / "samples" / "videos" / "hotel-lobby_Browse4.mp4"
+    if not weights.exists() or not clip.exists():
+        pytest.skip("needs data/models/yolo11n.pt and samples/videos")
+    shutil.copy(weights, tmp_path / "yolo11n.pt")              # the export lands next to the weights: keep it in tmp
+    det = V.Detector(str(tmp_path / "yolo11n.pt"), runtime="openvino")
+    monkeypatch.setattr(V, "DETECTOR", det)
+    f = LIVE.open(str(clip), "lobby")
+    f.attach()
+    try:
+        assert _wait(lambda: any(d["id"] is not None for d in f.dets), timeout=50), f.error
+        assert f.status()["detector"] == "yolo11n (openvino)" and det.runtime == "openvino"
+        assert (tmp_path / "yolo11n_384x640_openvino_model").is_dir()
+        w, h = f.size
+        people = [d for d in f.dets if d["label"] == "person"]
+        assert people and all(0 <= d["box"][0] < d["box"][2] <= w and 0 <= d["box"][1] < d["box"][3] <= h for d in people)
+    finally:
+        f.detach()

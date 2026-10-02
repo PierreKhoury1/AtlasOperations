@@ -1639,7 +1639,7 @@ def api_cameras():
     nodes = [{**n, "last_event": _vev_public(n["last_event"]) if n.get("last_event") else None}
              for n in store.hook_cameras(desk["id"], time.time() - 86400, tuple(c["name"] for c in cams))]
     return jsonify({"cameras": cams, "nodes": nodes, "mode": _mode(),
-                    "detector": {"available": V.DETECTOR.available, "error": V.DETECTOR.error, "weights": os.path.basename(V.YOLO_WEIGHTS)},
+                    "detector": {"available": V.DETECTOR.available, "error": V.DETECTOR.error, "weights": getattr(V.DETECTOR, "label", os.path.basename(V.YOLO_WEIGHTS))},
                     "vlm": {"ready": V.vlm_ready() and _mode() != "demo", "model": V.DEFAULT_VLM},
                     "stats": store.vision_stats(desk["id"], time.time() - 86400), "hook_url": hook})
 

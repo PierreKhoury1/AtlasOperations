@@ -60,6 +60,7 @@ class Feed:
         self.counts: dict[str, int] = {}
         self.fps = 0.0               # measured loop rate
         self.det_ms = 0.0
+        self.detector = ""           # weights and runtime of this feed's model, e.g. 'yolo11n (openvino)'
         self.error = ""
         self.size = (0, 0)
         self.pos_s = 0.0             # for recordings: position in the clip
@@ -117,7 +118,7 @@ class Feed:
 
     def status(self) -> dict[str, Any]:
         return {"name": self.name, "kind": self.kind, "running": self.running, "viewers": self._viewers, "fps": round(self.fps, 1),
-                "detect_ms": round(self.det_ms, 1), "size": list(self.size), "counts": dict(self.counts), "error": self.error,
+                "detect_ms": round(self.det_ms, 1), "detector": self.detector, "size": list(self.size), "counts": dict(self.counts), "error": self.error,
                 "pos_s": round(self.pos_s, 1), "ts": self.ts}
 
     # ------------------------------------------------------------------ frames out
@@ -182,6 +183,7 @@ class Feed:
         if det.available and hasattr(det, "_load"):
             try:
                 model = det.new_model() if hasattr(det, "new_model") else det._load()   # own model = own tracker, no queueing behind other cameras
+                self.detector = getattr(det, "label", "")
             except Exception as exc:
                 self.error = f"detector: {str(exc)[:120]}"
         use_track = model is not None
