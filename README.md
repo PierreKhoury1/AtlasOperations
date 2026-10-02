@@ -243,6 +243,9 @@ Results (`workspace/vision-eval/wildtrack/report.md`, CPU, 960x540):
 | person detection, `yolo11s` | precision 0.714, recall 0.531 | 2x the compute buys nothing on this footage |
 | tracking, live view (ByteTrack) | IDF1 0.357, MOTA 0.212, 2633 identity switches | at 2 frames a second, IDs in a crowd do not survive |
 | tracking, catalogue tracker | IDF1 0.428, MOTA 0.278, 1256 switches | half the switches of ByteTrack at this frame rate |
+| tracking, ground tracker (all cameras) | IDF1 0.538, MOTA 0.308, 1482 switches; held out: **IDF1 0.574** vs 0.470 catalogue, 0.451 ByteTrack | one tracker for every camera, on the ground: identities last longer, at the cost of more switches |
+| one id per person on every camera | IDF1 across cameras 0.523; held out **0.560** vs 0.447 for catalogue tracks linked by foot position afterwards | the ground tracker gives a person the same id on every camera itself |
+| people on the ground plane (ground tracker, 50 cm) | MODA 0.501, IDF1 0.645; held out MODA 0.589, IDF1 0.712 | where people stand and who they are, from the cameras together |
 | same person across cameras, by appearance (CLIP) | rank-1 11% (chance 1%), AUC 0.503 | appearance cannot tell people apart across viewpoints |
 | same person across cameras, by where the feet land | **rank-1 ≥ 99.9%** (160,054 queries) | with calibrated cameras, geometry solves it |
 | foot point vs the labelled ground position | median 8.9 cm, p90 19.8 cm | the calibration is sound |
@@ -257,14 +260,27 @@ How many people are there? (mean absolute error against the labelled count per i
 | detections' feet merged on the ground within 75 cm | 16.8 | +16.8 | 0% |
 | detections' feet merged on the ground within 100 cm | 14.4 | +14.4 | 1% |
 | detections' feet merged on the ground within 150 cm | 11.4 | +11.3 | 7% |
+| **multi-camera vote**: merged within 150 cm, kept when 3 cameras agree or one detection is >= 0.7 sure, inside the area | **2.7** | -0.2 | 83% |
 | `gemini-3.1-flash-lite`, all 7 frames at once | 75.9 | +75.9 | 0% (8 instants) |
 | `nemotron-3-nano-omni-30b-a3b-reasoning:free`, all 7 frames at once | 82.3 | +82.3 | 0% (6 instants) |
 
-What that says, plainly: finding people and matching them across calibrated cameras work; keeping identities through a
-crowd at 2 frames a second, and counting a crowd, do not yet. Adding the cameras up double-counts. Merging sightings
-whose feet land in the same spot is far better but still over-counts: a half-hidden person's box stops above the feet,
-so the foot point lands somewhere else and becomes an extra person, and every false detection adds one. The busiest
-single camera comes closest, low by whoever it cannot see. A vision model shown all seven frames answers with round
+**The ground tracker** (`atlas/ground.py`) treats the calibrated cameras as one sensor: every detection's foot point goes
+to the ground, sightings within 120 cm (never two from one camera) become one person, and people are followed on the
+ground (constant-velocity Kalman, Hungarian assignment within 120 cm, 3 missed instants allowed, a new person only when
+two cameras see them, confirmed after 3 instants and then labelled back to their first). Every sighting of a person
+gets the same id on every camera. **The vote** counts a merged person only when 3 cameras agree or one detection is
+sure, and only inside the area. Both were tuned on instants 0-199; the "held out" numbers are instants 200-399 alone
+(trackers started fresh there), and the full-run numbers include the tuning half. Honest limits: the ground tracker
+makes more identity switches than the catalogue tracker (802 vs 620 held out) while holding people longer; the vote's
+0.7 confidence bar is sensitive (0.6 or 0.8 cost about a person of error), and a plain 800 cm merge counted inside the
+area came within 0.4 people of it.
+
+What that says, plainly: finding people and matching them across calibrated cameras work; identities through a crowd
+at 2 frames a second are better with all cameras tracked together but still far from solved (IDF1 under 0.6). Adding
+the cameras up double-counts. Merging sightings whose feet land in the same spot over-counts: a half-hidden person's box
+stops above the feet, so the foot point lands somewhere else and becomes an extra person, and every false detection
+adds one. Asking that several cameras agree removes most of those, which is why the vote errs by under 3 people where
+the busiest single camera, low by whoever it cannot see, errs by 7. A vision model shown all seven frames answers with round
 guesses (85, 115, 120) that do not follow the crowd; it also sees people outside the labelled area, a harder test, but
 not one that explains the gap. Naming people by appearance (the Objects page) works for a few regulars in one room; in a
 crowd CLIP would put the wrong name on someone, so there a name needs position or a second cue. The next gains are a
@@ -272,9 +288,10 @@ detector trained on crowds, more frames a second for tracking, and full-body box
 plane.
 
 **Review workspace (`/desk/review`).** The run above, played back: all seven cameras on one playhead (space, arrows,
-drag the timeline), human labels solid, our tracks dashed, a labelled person we missed shaded red. Click anyone to light
-them up on every camera that sees them, with their crops and how long the tracker held them; the timeline plots the true
-head count against every estimate. `ATLAS_REVIEW_DATA` / `ATLAS_REVIEW_OUT` point it at another dataset or run.
+drag the timeline), human labels solid, the ground tracker's boxes dashed (one id per person on every camera), a
+labelled person we missed shaded red. Click anyone to light them up on every camera that sees them, with their crops and
+how many ids the tracker split them into (ideal: one); the timeline plots the true head count against every estimate,
+the multi-camera vote in green. The Scores tab adds identity across cameras, the ground plane and the held-out half. `ATLAS_REVIEW_DATA` / `ATLAS_REVIEW_OUT` point it at another dataset or run.
 
 **Are the camera agents' notes true?** `py -m atlas mcam-notes` runs the real camera agent (journal note with close-up
 and verify pass, as a live camera writes it) on C1, C2, C3 and C6 at the same 6 moments, 4 s apart, in the busiest

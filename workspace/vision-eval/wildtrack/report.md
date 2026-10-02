@@ -29,6 +29,17 @@ Calibration check: 100.0% of labelled feet project inside the labelled area; a l
 |---|---|---|---|---|---|
 | ByteTrack (yolo11n, live view) | 0.212 | 0.357 | 2633 | 0.453 | 169 of 1611 |
 | catalogue tracker (yolo11n) | 0.278 | 0.428 | 1256 | 0.498 | 208 of 1611 |
+| ground tracker (all cameras) | 0.308 | 0.538 | 1482 | 0.524 | 293 of 1611 |
+
+The ground tracker merges every camera's sightings by where the feet land (120 cm), follows each person on the ground (constant-velocity Kalman, Hungarian assignment within 120 cm, 3 missed instants allowed), starts a person only when two cameras see them, and gives every sighting of that person the same id on every camera.
+
+| one id per person on every camera | IDF1 across cameras | ID precision | ID recall |
+|---|---|---|---|
+| ground tracker (all cameras) | 0.523 | 0.633 | 0.445 |
+| catalogue tracker, linked across cameras by foot position | 0.402 | 0.494 | 0.339 |
+| catalogue tracker, one id per camera | 0.168 | 0.206 | 0.142 |
+
+On the ground plane (ground tracker (all cameras) vs the labelled positions, a hit within 50 cm): MODA 0.501, MOTA 0.477, IDF1 0.645, 226 identity switches, precision 0.791, recall 0.681, position error 17.2 cm (people seen by two cameras or more).
 
 ## Re-identification across cameras (CLIP appearance, same instant)
 
@@ -53,9 +64,30 @@ Matching a person across cameras by where their feet land on the ground (same in
 | detections' feet clustered on the ground, 75 cm | 16.8 | +16.8 | 0% |
 | detections' feet clustered on the ground, 100 cm | 14.4 | +14.4 | 1% |
 | detections' feet clustered on the ground, 150 cm | 11.4 | +11.3 | 7% |
+| multi-camera vote: feet merged at 150 cm, kept when 3 cameras agree or one detection is >= 0.7 sure, inside the labelled area | 2.7 | -0.2 | 83% |
 | google/gemini-3.1-flash-lite from all 7 frames | 75.9 | +75.9 | 0% (8 instants) |
 | nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free from all 7 frames | 82.3 | +82.3 | 0% (6 instants) |
 
 The vision models are not held to the same standard: they see everyone in the seven frames, including people outside the labelled area (the stairs, the far side), which the truth does not count. Their round answers (85, 115, 120) still say they cannot count a crowd across seven overlapping views.
 
-_Generated 2026-09-30 23:26. Data: WILDTRACK (Chavdarova et al., CVPR 2018), non-commercial research use._
+## Held out: instants 200-399
+
+The ground tracker's parameters (merge radius, gate, misses, confirmations, Kalman noise) and the vote's (radius, cameras, confidence) were chosen on instants 0-199, the cross-camera linking of the catalogue tracks too; the full-run numbers above include those instants. On instants 200-399 alone (the catalogue and ground trackers start fresh at 200; ByteTrack keeps its ids from the full run):
+
+| tracker | MOTA | IDF1 | identity switches | recall |
+|---|---|---|---|---|
+| ByteTrack (live view) | 0.292 | 0.451 | 1079 | 0.498 |
+| catalogue tracker | 0.339 | 0.47 | 620 | 0.528 |
+| ground tracker (all cameras) | 0.362 | 0.574 | 802 | 0.551 |
+
+| one id per person on every camera | IDF1 across cameras |
+|---|---|
+| ground tracker (all cameras) | 0.56 |
+| catalogue tracker, linked across cameras by foot position | 0.447 |
+| catalogue tracker, one id per camera | 0.172 |
+
+Ground plane, ground tracker (all cameras), within 50 cm: MODA 0.589, MOTA 0.568, IDF1 0.712.
+
+Head count (truth mean 23.7): the vote errs by 2.7 people (+0.5), the busiest camera by 7.3 (-6.9). The vote's 0.7 confidence bar is sensitive (0.6 or 0.8 cost about one person of error), and plain clustering with a very wide radius (800 cm) counted inside the area came within 0.4 people of it in the experiment that chose these settings.
+
+_Generated 2026-10-02 20:40. Data: WILDTRACK (Chavdarova et al., CVPR 2018), non-commercial research use._

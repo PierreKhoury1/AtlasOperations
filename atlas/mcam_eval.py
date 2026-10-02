@@ -14,15 +14,21 @@ What is scored
               labelled, so a detection counts only when its feet, projected through the camera's calibration onto the
               ground plane, land inside that area (the labels' own feet are projected the same way as a check).
   tracking    per camera over the 400 instants: MOTA, IDF1, identity switches (motmetrics), for ByteTrack (what the live
-              view draws) and for the catalogue's own tracker (what gets named). 2 frames a second is the catalogue's
-              analysis rate; it is hard on trackers built for 30 fps, and that is the point.
+              view draws), the catalogue's own tracker (what gets named) and the ground tracker (atlas.ground: one
+              tracker for all cameras, sightings merged by where the feet land). 2 frames a second is the catalogue's
+              analysis rate; it is hard on trackers built for 30 fps, and that is the point. Across cameras: does a
+              person keep ONE id on every camera (IDF1 over all cameras at once), and on the ground plane, are the
+              tracked people where the labels put them (MODA, MOTA, IDF1 within 50 cm).
   re-id       CLIP ViT-B/32 on the labelled crops: for a person picked on one camera, is the most similar person on
               another camera at the same instant the same person (rank-1, gallery = everyone visible there), and how do
               same-person and different-person similarities separate (ROC AUC; precision and recall at the naming
               thresholds 0.86 and 0.92).
   counts      people in the whole scene per instant (the labels: distinct ids) vs what the pipeline can say: the sum of
               per-camera counts (double counts overlaps), the largest single camera (misses what one camera cannot see),
-              and, with --vlm, the vision model's answer from all seven frames at once.
+              feet merged on the ground, the multi-camera vote (atlas.ground.scene_count), and, with --vlm, the vision
+              model's answer from all seven frames at once.
+  held out    the ground tracker's and the vote's parameters were chosen on instants 0-199; the same scores on 200-399
+              alone (the catalogue and ground trackers start fresh there) are the numbers to quote.
 Output: workspace/vision-eval/wildtrack/{results.json, report.md, review.json (per-instant boxes for the review page)}.
 """
 from __future__ import annotations
@@ -38,6 +44,7 @@ from typing import Any
 
 import numpy as np
 
+from . import ground as G
 from .config import WORKSPACE_DIR
 
 CAMS = ["C1", "C2", "C3", "C4", "C5", "C6", "C7"]
@@ -54,18 +61,32 @@ def load(data: Path, limit: int = 0) -> dict[str, Any]:
         ann = ann[:limit]
     frames = [p.stem for p in ann]
     gt: list[list[list[tuple[int, list[float]]]]] = []            # [instant][cam] -> [(pid, box at 960x540)]
+    pos: list[dict[int, tuple[float, float]]] = []                # [instant] -> {pid: labelled ground position (x, y) cm}
+    scene = []
     for p in ann:
         per = [[] for _ in CAMS]
-        for person in json.loads(p.read_text()):
+        people = json.loads(p.read_text())
+        for person in people:
             for v in person["views"]:
                 if v["xmin"] < 0:
                     continue
                 b = [v["xmin"] * SCALE, v["ymin"] * SCALE, v["xmax"] * SCALE, v["ymax"] * SCALE]
                 per[v["viewNum"]].append((int(person["personID"]), b))
         gt.append(per)
-    scene = [len({pid for per in f for pid, _ in per} | {int(x["personID"]) for x in json.loads(p.read_text())}) for f, p in zip(gt, ann)]
-    return {"frames": frames, "gt": gt, "scene": scene, "calib": [camera(data, c) for c in CALIB],
+        pos.append({int(x["personID"]): ground_cell(int(x["positionID"])) for x in people})
+        scene.append(len({pid for c in per for pid, _ in c} | set(pos[-1])))
+    return {"frames": frames, "gt": gt, "scene": scene, "pos": pos, "calib": [camera(data, c) for c in CALIB],
             "paths": [[data / "frames" / c / f"{f}.jpg" for c in CAMS] for f in frames]}
+
+
+def ground_cell(position_id: int) -> tuple[float, float]:
+    """A label's positionID -> ground (x, y) in cm (a 480 x 1440 grid of 2.5 cm cells over ROI)."""
+    return ROI[0] + 2.5 * (position_id % 480), ROI[2] + 2.5 * (position_id // 480)
+
+
+def sub(D: dict[str, Any], a: int, b: int) -> dict[str, Any]:
+    """Instants a..b-1 of a loaded dataset."""
+    return dict(D, **{k: D[k][a:b] for k in ("frames", "gt", "scene", "pos", "paths") if k in D})
 
 
 def camera(data: Path, name: str) -> dict[str, Any]:
@@ -99,8 +120,7 @@ def projection_error(data: Path, D: dict[str, Any], every: int = 10) -> dict[str
     errs = []
     for p in sorted((data / "annotations_positions").glob("*.json"))[:len(D["frames"])][::every]:
         for person in json.loads(p.read_text()):
-            pos = int(person["positionID"])
-            truth = np.array([ROI[0] + 2.5 * (pos % 480), ROI[2] + 2.5 * (pos // 480)])
+            truth = np.array(ground_cell(int(person["positionID"])))
             for v in person["views"]:
                 if v["xmin"] < 0:
                     continue
@@ -228,6 +248,102 @@ def score_tracking(D: dict[str, Any], preds: list[list[list[dict]]]) -> dict[str
     return {"per_camera": [r for r in rows if r["camera"] != "OVERALL"], "overall": next(r for r in rows if r["camera"] == "OVERALL")}
 
 
+def all_feet(D: dict[str, Any], preds: list[list[list[dict]]]) -> list[list[np.ndarray]]:
+    """[instant][cam] -> (n, 2) ground points of the detections' feet."""
+    return [G.boxes_to_feet(D["calib"], [[d["box"] for d in c] for c in f], feet_on_ground) for f in preds]
+
+
+def ground_tracks(D: dict[str, Any], preds: list[list[list[dict]]], feet: list[list[np.ndarray]] | None = None,
+                  **params: Any) -> tuple[list[list[list[dict]]], list[list[tuple[int, float, float]]]]:
+    """One ground-plane tracker for all cameras (atlas.ground, with retro-labelling): [instant][cam] -> [{box, conf, id}]
+    for the sightings of confirmed people, the id being the same on every camera; and per instant [(id, x, y)] on the
+    ground for the people seen by two cameras or more."""
+    feet = feet if feet is not None else all_feet(D, preds)
+    ids, ground = G.track(feet, [[[d["conf"] for d in c] for c in f] for f in preds], [fi * 0.5 for fi in range(len(preds))], **params)
+    tracks = [[[{"box": d["box"], "conf": d["conf"], "id": i} for d, i in zip(preds[fi][ci], ids[fi][ci]) if i is not None]
+               for ci in range(len(CAMS))] for fi in range(len(preds))]
+    return tracks, ground
+
+
+def link_by_feet(D: dict[str, Any], tracks: list[list[list[dict]]], R: float = 120.0, kmin: int = 2, frac: float = 0.3) -> list[list[list[dict]]]:
+    """Per-camera tracks joined across cameras afterwards (the baseline for one id on every camera): two tracks on different
+    cameras are the same person when their feet fall in the same ground cluster (R cm) at >= kmin instants and >= frac of
+    the shorter one's life; strongest pairs first, never two tracks of one camera that overlap in time. R, kmin and frac
+    were chosen on WILDTRACK instants 0-199."""
+    co: dict[tuple, int] = {}
+    life: dict[tuple, set] = {}
+    for fi in range(len(tracks)):
+        keys = [(ci, d["id"]) for ci in range(len(CAMS)) for d in tracks[fi][ci] if d.get("id") is not None]
+        for k in keys:
+            life.setdefault(k, set()).add(fi)
+        feet = [feet_on_ground(D["calib"][ci], [d["box"] for d in tracks[fi][ci] if d.get("id") is not None]) for ci in range(len(CAMS))]
+        pts, cams, _ = G.gather(feet)
+        for m in G.cluster(pts, cams, R):
+            ks = sorted(keys[i] for i in m)
+            for i in range(len(ks)):
+                for j in range(i + 1, len(ks)):
+                    co[(ks[i], ks[j])] = co.get((ks[i], ks[j]), 0) + 1
+    group = {k: {k} for k in life}
+    root = {k: k for k in life}
+    for (u, v), n in sorted(co.items(), key=lambda kv: -kv[1]):
+        ru, rv = root[u], root[v]
+        if n < kmin or n < frac * min(len(life[u]), len(life[v])) or ru == rv:
+            continue
+        if any(x[0] == y[0] and life[x] & life[y] for x in group[ru] for y in group[rv]):
+            continue
+        for k in group[rv]:
+            root[k] = ru
+        group[ru] |= group.pop(rv)
+    gid = {r: n + 1 for n, r in enumerate(sorted(group))}
+    return [[[dict(d, id=gid[root[(ci, d["id"])]]) for d in tracks[fi][ci] if d.get("id") is not None] for ci in range(len(CAMS))]
+            for fi in range(len(tracks))]
+
+
+def score_cross_camera(D: dict[str, Any], tracks: list[list[list[dict]]], per_camera_ids: bool = False) -> dict[str, float]:
+    """Identity across cameras: a person must keep ONE id on every camera and over time. Every labelled box matched to a
+    tracked box (same camera, same instant, IoU >= 0.5) counts for the pair (person, id); persons and ids are then paired
+    one to one to maximise the matched boxes (as IDF1 does, over all cameras at once). per_camera_ids: the ids are only
+    unique per camera (camera-prefixed before scoring)."""
+    from scipy.optimize import linear_sum_assignment
+    co: dict[tuple, int] = {}
+    ng = nh = 0
+    for fi in range(len(D["frames"])):
+        for ci in range(len(CAMS)):
+            g = D["gt"][fi][ci]
+            h = [d for d in tracks[fi][ci] if d.get("id") is not None]
+            ng += len(g); nh += len(h)
+            I = iou_matrix([b for _, b in g], [d["box"] for d in h])
+            for i, j in zip(*np.where(I >= 0.5)):
+                k = (g[i][0], (ci, h[j]["id"]) if per_camera_ids else h[j]["id"])
+                co[k] = co.get(k, 0) + 1
+    P, H = sorted({k[0] for k in co}), sorted({k[1] for k in co}, key=str)
+    pi, hi = {p: i for i, p in enumerate(P)}, {h: i for i, h in enumerate(H)}
+    C = np.zeros((len(P), len(H)))
+    for (p, h), n in co.items():
+        C[pi[p], hi[h]] = n
+    r, c = linear_sum_assignment(-C) if C.size else ([], [])
+    tp = float(C[r, c].sum()) if C.size else 0.0
+    return {"idf1": round(2 * tp / max(1, ng + nh), 3), "idp": round(tp / max(1, nh), 3), "idr": round(tp / max(1, ng), 3)}
+
+
+def score_ground(D: dict[str, Any], ground: list[list[tuple[int, float, float]]], thr: float = 50.0) -> dict[str, Any]:
+    """The people's ground positions and ids vs the labelled positions (a hit within thr cm): MODA, MOTA, IDF1 (motmetrics)."""
+    import motmetrics as mm
+    acc = mm.MOTAccumulator(auto_id=True)
+    for g, h in zip(D["pos"], ground):
+        gids = list(g)
+        P = np.array([g[k] for k in gids], float).reshape(-1, 2)
+        Q = np.array([[x, y] for _, x, y in h], float).reshape(-1, 2)
+        d = np.linalg.norm(P[:, None] - Q[None], axis=2)
+        d[d > thr] = np.nan
+        acc.update(gids, [t for t, _, _ in h], d)
+    r = mm.metrics.create().compute(acc, metrics=["mota", "idf1", "num_switches", "precision", "recall", "num_misses",
+                                                  "num_false_positives", "num_objects", "motp"], name="g").iloc[0]
+    return {"radius_cm": thr, "moda": round(float(1 - (r["num_misses"] + r["num_false_positives"]) / max(1, r["num_objects"])), 3),
+            "mota": round(float(r["mota"]), 3), "idf1": round(float(r["idf1"]), 3), "id_switches": int(r["num_switches"]),
+            "precision": round(float(r["precision"]), 3), "recall": round(float(r["recall"]), 3), "position_error_cm": round(float(r["motp"]), 1)}
+
+
 # ---------------------------------------------------------------------------- re-identification across cameras
 def score_reid(D: dict[str, Any], n_instants: int = 40, min_h: float = 60.0, thresholds=(0.86, 0.92), log=print) -> dict[str, Any]:
     from PIL import Image
@@ -338,39 +454,35 @@ def score_geometry(D: dict[str, Any], preds: list[list[list[dict]]], radii=(50.0
 
 
 def cluster_count(pts: np.ndarray, cam: list[int], R: float) -> int:
-    """Greedy agglomeration by ground distance: merge the closest pair of clusters while their centres are within R cm and
-    they share no camera (one camera sees a person once)."""
-    if not len(pts):
-        return 0
-    cl = [{"c": p.copy(), "n": 1, "cams": {k}} for p, k in zip(pts, cam)]
-    while True:
-        best, bi, bj = R, -1, -1
-        C = np.array([c["c"] for c in cl])
-        d = np.linalg.norm(C[:, None, :] - C[None, :, :], axis=2)
-        np.fill_diagonal(d, np.inf)
-        order = np.dstack(np.unravel_index(np.argsort(d, axis=None), d.shape))[0]
-        for i, j in order:
-            if d[i, j] >= best:
-                break
-            if i < j and not (cl[i]["cams"] & cl[j]["cams"]):
-                bi, bj = int(i), int(j)
-                break
-        if bi < 0:
-            return len(cl)
-        a, b = cl[bi], cl[bj]
-        a["c"] = (a["c"] * a["n"] + b["c"] * b["n"]) / (a["n"] + b["n"]); a["n"] += b["n"]; a["cams"] |= b["cams"]
-        cl.pop(bj)
+    """Greedy agglomeration by ground distance (ground.cluster): merge the closest pair of clusters while their centres are
+    within R cm and they share no camera (one camera sees a person once)."""
+    return len(G.cluster(np.asarray(pts, float).reshape(-1, 2), cam, R))
 
 
 # ---------------------------------------------------------------------------- the whole scene: how many people are there?
+def count_stats(est: np.ndarray, truth: np.ndarray) -> dict[str, float]:
+    return {"mae": round(float(np.mean(np.abs(est - truth))), 1), "bias": round(float(np.mean(est - truth)), 1),
+            "within_20pct": round(float(np.mean(np.abs(est - truth) <= 0.2 * truth)), 3)}
+
+
 def score_counts(D: dict[str, Any], preds: list[list[list[dict]]]) -> dict[str, Any]:
     truth = np.array(D["scene"], float)
     s = np.array([sum(len(c) for c in f) for f in preds], float)
     m = np.array([max(len(c) for c in f) for f in preds], float)
-    stat = lambda est: {"mae": round(float(np.mean(np.abs(est - truth))), 1), "bias": round(float(np.mean(est - truth)), 1),
-                        "within_20pct": round(float(np.mean(np.abs(est - truth) <= 0.2 * truth)), 3)}
     return {"truth_mean": round(float(truth.mean()), 1), "truth_min": int(truth.min()), "truth_max": int(truth.max()),
-            "sum_of_cameras": stat(s), "largest_camera": stat(m)}
+            "sum_of_cameras": count_stats(s, truth), "largest_camera": count_stats(m, truth)}
+
+
+HELD_OUT = 200                                                 # WILDTRACK instants 0-199 tuned the ground tracker and the vote
+VOTE = {"R": 150.0, "min_cams": 3, "single_conf": 0.7}         # chosen on WILDTRACK instants 0-199
+
+
+def score_vote(D: dict[str, Any], preds: list[list[list[dict]]], feet: list[list[np.ndarray]] | None = None) -> dict[str, Any]:
+    """The multi-camera head count (ground.scene_count): feet merged at 150 cm, a person kept when 3 cameras saw them or one
+    detection is >= 0.7 sure, counted inside the labelled area. With the per-instant series for the review timeline."""
+    feet = feet if feet is not None else all_feet(D, preds)
+    est = np.array([len(G.scene_count(feet[fi], [[d["conf"] for d in c] for c in preds[fi]], ROI, **VOTE)) for fi in range(len(preds))], float)
+    return {**count_stats(est, np.array(D["scene"], float)), "params": VOTE, "series": [int(v) for v in est]}
 
 
 VLM_SYSTEM = ("You are shown seven frames from seven cameras over ONE public square, taken at the same instant, each "
@@ -409,9 +521,11 @@ def score_vlm(D: dict[str, Any], model: str, n: int = 8, log=print) -> dict[str,
 
 
 # ---------------------------------------------------------------------------- output
-def review_json(D: dict[str, Any], preds: list[list[list[dict]]], tracks: list[list[list[dict]]], geo: list[int] | None = None) -> dict[str, Any]:
+def review_json(D: dict[str, Any], preds: list[list[list[dict]]], tracks: list[list[list[dict]]], geo: list[int] | None = None,
+                geo_label: str = "", shared_ids: bool = False) -> dict[str, Any]:
     """Per instant, per camera: labelled boxes (with person id) and predicted tracks (with track id and the person id they
-    matched, or -1): what the review page plays back, frame by frame, all cameras on one timeline."""
+    matched, or -1): what the review page plays back, frame by frame, all cameras on one timeline. shared_ids: a track id
+    means the same person on every camera (the ground tracker); geo: a whole-scene head count per instant."""
     inst = []
     for fi, f in enumerate(D["frames"]):
         cams = []
@@ -423,7 +537,21 @@ def review_json(D: dict[str, Any], preds: list[list[list[dict]]], tracks: list[l
                          "pred": [[d["id"] if d["id"] is not None else -1, *[round(v) for v in d["box"]], m.get(j, -1)] for j, d in enumerate(p)],
                          "det": len(preds[fi][ci])})
         inst.append({"frame": f, "t": fi * 0.5, "scene": D["scene"][fi], "cams": cams, **({"geo": geo[fi]} if geo else {})})
-    return {"cameras": CAMS, "fps": 2, "size": [960, 540], "instants": inst}
+    return {"cameras": CAMS, "fps": 2, "size": [960, 540], "instants": inst, "shared_ids": shared_ids, **({"geo_label": geo_label} if geo else {})}
+
+
+def multicam(D: dict[str, Any], preds: list[list[list[dict]]], cat: list[list[list[dict]]] | None = None) -> dict[str, Any]:
+    """The cameras together: the ground tracker against the catalogue tracker (per camera, then linked by foot position),
+    on the image (per camera), across cameras and on the ground; and the multi-camera head count."""
+    feet = all_feet(D, preds)
+    gtr, gpos = ground_tracks(D, preds, feet)
+    cat = cat if cat is not None else catalogue_tracks(D, preds)
+    return {"tracks": gtr, "tracking": {"catalogue tracker": score_tracking(D, cat), "ground tracker (all cameras)": score_tracking(D, gtr)},
+            "cross_camera": {"ground tracker (all cameras)": score_cross_camera(D, gtr),
+                             "catalogue tracker, linked across cameras by foot position": score_cross_camera(D, link_by_feet(D, cat)),
+                             "catalogue tracker, one id per camera": score_cross_camera(D, cat, per_camera_ids=True)},
+            "ground_plane": {"ground tracker (all cameras)": score_ground(D, gpos)},
+            "counts": {**score_counts(D, preds), "vote": score_vote(D, preds, feet)}}
 
 
 def write_report(R: dict[str, Any], out: Path) -> None:
@@ -442,6 +570,17 @@ def write_report(R: dict[str, Any], out: Path) -> None:
     for k, t in R["tracking"].items():
         o = t["overall"]
         L.append(f"| {k} | {o['mota']} | {o['idf1']} | {o['id_switches']} | {o['recall']} | {o['mostly_tracked']} of {o['gt_identities']} |")
+    if R.get("cross_camera"):
+        L += ["", "The ground tracker merges every camera's sightings by where the feet land (120 cm), follows each person on the ground "
+              "(constant-velocity Kalman, Hungarian assignment within 120 cm, 3 missed instants allowed), starts a person only when two "
+              "cameras see them, and gives every sighting of that person the same id on every camera.", "",
+              "| one id per person on every camera | IDF1 across cameras | ID precision | ID recall |", "|---|---|---|---|"]
+        for k, v in R["cross_camera"].items():
+            L.append(f"| {k} | {v['idf1']} | {v['idp']} | {v['idr']} |")
+        for k, v in (R.get("ground_plane") or {}).items():
+            L += ["", f"On the ground plane ({k} vs the labelled positions, a hit within {v['radius_cm']:.0f} cm): MODA {v['moda']}, MOTA {v['mota']}, "
+                  f"IDF1 {v['idf1']}, {v['id_switches']} identity switches, precision {v['precision']}, recall {v['recall']}, "
+                  f"position error {v['position_error_cm']} cm (people seen by two cameras or more)."]
     r = R.get("reid") or {}
     if r and "error" not in r:
         L += ["", "## Re-identification across cameras (CLIP appearance, same instant)", "",
@@ -464,6 +603,10 @@ def write_report(R: dict[str, Any], out: Path) -> None:
           f"| largest single camera | {c['largest_camera']['mae']} | {c['largest_camera']['bias']:+} | {c['largest_camera']['within_20pct'] * 100:.0f}% |"]
     for k, v in (g.get("counts") or {}).items():
         L.append(f"| detections' feet clustered on the ground, {k} | {v['mae']} | {v['bias']:+} | {v['within_20pct'] * 100:.0f}% |")
+    if c.get("vote"):
+        v = c["vote"]
+        L.append(f"| multi-camera vote: feet merged at {v['params']['R']:.0f} cm, kept when {v['params']['min_cams']} cameras agree or one detection "
+                 f"is >= {v['params']['single_conf']} sure, inside the labelled area | {v['mae']} | {v['bias']:+} | {v['within_20pct'] * 100:.0f}% |")
     for v in R.get("vlm", []):
         if v.get("mae") is not None:
             L.append(f"| {v['model']} from all 7 frames | {v['mae']} | {v['bias']:+} | {v['within_20pct'] * 100:.0f}% ({v['answered']} instants) |")
@@ -471,6 +614,26 @@ def write_report(R: dict[str, Any], out: Path) -> None:
         L += ["", "The vision models are not held to the same standard: they see everyone in the seven frames, including people outside the "
               "labelled area (the stairs, the far side), which the truth does not count. Their round answers (85, 115, 120) still say they "
               "cannot count a crowd across seven overlapping views."]
+    h = R.get("held_out")
+    if h:
+        a, b = h["instants"]
+        L += ["", f"## Held out: instants {a}-{b}", "",
+              f"The ground tracker's parameters (merge radius, gate, misses, confirmations, Kalman noise) and the vote's (radius, cameras, "
+              f"confidence) were chosen on instants 0-{a - 1}, the cross-camera linking of the catalogue tracks too; the full-run numbers "
+              f"above include those instants. On instants {a}-{b} alone (the catalogue and ground trackers start fresh at {a}; ByteTrack keeps "
+              f"its ids from the full run):", "",
+              "| tracker | MOTA | IDF1 | identity switches | recall |", "|---|---|---|---|---|"]
+        for k, o in h["tracking"].items():
+            L.append(f"| {k} | {o['mota']} | {o['idf1']} | {o['id_switches']} | {o['recall']} |")
+        L += ["", "| one id per person on every camera | IDF1 across cameras |", "|---|---|"]
+        L += [f"| {k} | {v['idf1']} |" for k, v in h["cross_camera"].items()]
+        for k, v in h["ground_plane"].items():
+            L += ["", f"Ground plane, {k}, within {v['radius_cm']:.0f} cm: MODA {v['moda']}, MOTA {v['mota']}, IDF1 {v['idf1']}."]
+        hc = h["counts"]
+        L += ["", f"Head count (truth mean {hc['truth_mean']}): the vote errs by {hc['vote']['mae']} people ({hc['vote']['bias']:+}), the busiest camera "
+              f"by {hc['largest_camera']['mae']} ({hc['largest_camera']['bias']:+}). The vote's 0.7 confidence bar is sensitive (0.6 or 0.8 cost "
+              "about one person of error), and plain clustering with a very wide radius (800 cm) counted inside the area came within "
+              "0.4 people of it in the experiment that chose these settings."]
     L += ["", f"_Generated {time.strftime('%Y-%m-%d %H:%M')}. Data: WILDTRACK (Chavdarova et al., CVPR 2018), non-commercial research use._"]
     (out / "report.md").write_text("\n".join(L), encoding="utf-8")
 
@@ -511,6 +674,18 @@ def main(argv: list[str] | None = None) -> int:
     R["tracking"][f"ByteTrack ({models[0]}, live view)"] = score_tracking(D, bt)
     cat = catalogue_tracks(D, base)
     R["tracking"][f"catalogue tracker ({models[0]})"] = score_tracking(D, cat)
+    mc = multicam(D, base, cat)
+    R["tracking"]["ground tracker (all cameras)"] = mc["tracking"]["ground tracker (all cameras)"]
+    R["cross_camera"], R["ground_plane"], R["counts"]["vote"] = mc["cross_camera"], mc["ground_plane"], mc["counts"]["vote"]
+    if len(D["frames"]) > HELD_OUT:                      # the parameters were chosen on instants 0-199: the rest is unseen
+        D2 = sub(D, HELD_OUT, len(D["frames"]))
+        h = multicam(D2, base[HELD_OUT:])
+        h["tracking"] = {"ByteTrack (live view)": score_tracking(D2, bt[HELD_OUT:]), **h["tracking"]}
+        R["held_out"] = {"instants": [HELD_OUT, len(D["frames"]) - 1], "tracking": {k: v["overall"] for k, v in h["tracking"].items()},
+                         "cross_camera": h["cross_camera"], "ground_plane": h["ground_plane"],
+                         "counts": {k: {x: y for x, y in v.items() if x != "series"} if isinstance(v, dict) else v for k, v in h["counts"].items()}}
+    print("across cameras: " + ", ".join(f"{k} IDF1 {v['idf1']}" for k, v in mc["cross_camera"].items())
+          + f" | vote count MAE {mc['counts']['vote']['mae']}", flush=True)
     for k, t in R["tracking"].items():
         print(f"{k}: IDF1 {t['overall']['idf1']} MOTA {t['overall']['mota']} switches {t['overall']['id_switches']}", flush=True)
     R["geometry"] = score_geometry(D, base)
@@ -523,8 +698,8 @@ def main(argv: list[str] | None = None) -> int:
     for vm in [v.strip() for v in a.vlm.split(",") if v.strip()]:
         R["vlm"].append(score_vlm(D, vm))
     (out / "results.json").write_text(json.dumps(R, indent=1), encoding="utf-8")
-    geo_series = (R.get("geometry") or {}).get("counts", {}).get("75 cm", {}).get("series")
-    (out / "review.json").write_text(json.dumps(review_json(D, base, cat, geo_series), separators=(",", ":")), encoding="utf-8")
+    rv = review_json(D, base, mc["tracks"], R["counts"]["vote"]["series"], "multi-camera count (vote)", shared_ids=True)
+    (out / "review.json").write_text(json.dumps(rv, separators=(",", ":")), encoding="utf-8")
     write_report(R, out)
     print(f"-> {out / 'report.md'}", flush=True)
     return 0
