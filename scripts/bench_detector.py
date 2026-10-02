@@ -151,7 +151,7 @@ def precise(a) -> dict:
     if a.before:
         dets[f"before ({a.before})"] = _precise_class(a.before)()
     out = {}
-    for name, det in dets.items():
+    for name, det in dets.items():                           # one sequential pass each: the timings are indicative only
         preds = [[[] for _ in M.CAMS] for _ in idx]
         t0, cpu0 = time.perf_counter(), time.process_time()
         for k, i in enumerate(idx):
@@ -161,6 +161,8 @@ def precise(a) -> dict:
                 preds[k][c] = [{"box": [v * s for v in d["box"]], "conf": d["conf"]} for d in det.detect_bgr(im) if d["label"] == "person"]
         n = len(idx) * len(sub)
         sc = M.score_detection(Ds, M.roi_filter(Ds, preds), 0.5)
+        scored = [p for p in sc["per_camera"] if p["camera"] in [M.CAMS[c] for c in sub]]
+        sc["count_mae"] = round(sum(p["count_mae"] for p in scored) / len(scored), 2)   # over the scored cameras only
         out[name] = {"conf": det.conf, "tiles": list(det.tiles), **{k: sc[k] for k in ("precision", "recall", "f1", "count_mae")},
                      "s_per_frame": round((time.perf_counter() - t0) / n, 2), "cpu_s_per_frame": round((time.process_time() - cpu0) / n, 2),
                      "frames": n}

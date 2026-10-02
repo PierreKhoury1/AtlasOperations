@@ -22,6 +22,8 @@ import functools
 import io
 import json
 import os
+import platform
+import tempfile
 import re
 import shutil
 import subprocess
@@ -44,8 +46,8 @@ DEFAULT_VLM_PROVIDER = os.environ.get("VISION_PROVIDER", "openrouter")
 MAX_SIDE = 960                      # frames are downscaled to this before detection / VLM
 FRAME_TIMEOUT = float(os.environ.get("VISION_GRAB_TIMEOUT", "12"))
 # Live detector runtime: auto | openvino | torch. OpenVINO runs the same weights, exported once at a fixed 384x640 input
-# (a 16:9 frame letterboxed to 640 wide, what the torch path sees too), at ~3.5x less CPU per frame on x86; auto falls
-# back to torch when openvino is missing or the export fails.
+# (a 16:9 frame letterboxed to 640 wide, what the torch path sees too), at ~3.3-3.7x less CPU per frame (measured on a
+# 4-core AMX Xeon, bf16; less on CPUs without it); auto falls back to torch when openvino is missing or the export fails.
 VISION_RUNTIME = os.environ.get("VISION_RUNTIME", "auto").strip().lower()
 OV_IMGSZ = (384, 640)
 OV_THREADS = int(os.environ.get("VISION_OV_THREADS", "1"))   # inference threads per camera: one each scales best across feeds
@@ -283,10 +285,17 @@ def _limit_ov_threads(predictor, xml: Path) -> None:
     if list(backend.ov_compiled_model.get_property("EXECUTION_DEVICES")) != ["CPU"]:
         return                                         # an Intel GPU / NPU picked by AUTO: leave it alone
     backend._atlas_threads = n = max(1, OV_THREADS)
+    if os.name == "nt" or platform.machine().lower() in ("arm64", "aarch64"):
+        return                                         # ultralytics forces f32 there to avoid reduced-precision kernel failures
     try:
         import openvino as ov
         core = ov.Core()
         conf = {"PERFORMANCE_HINT": "LATENCY", "INFERENCE_NUM_THREADS": n, "ENABLE_CPU_PINNING": False}
+        for k in ("INFERENCE_PRECISION_HINT", "EXECUTION_MODE_HINT"):   # keep the precision ultralytics compiled with
+            try:
+                conf[k] = backend.ov_compiled_model.get_property(k)
+            except Exception:
+                pass
         compiled = core.compile_model(core.read_model(str(xml)), "CPU", conf)
         backend.compile_model = functools.partial(core.compile_model, device_name="CPU", config=conf)
         backend.ov_compiled_model = compiled
@@ -344,13 +353,22 @@ class Detector:
                 return None
             try:
                 import openvino  # noqa: F401
-                if not any(target.glob("*.xml")):
-                    self._load()                       # weights on disk
+                xml = next(target.glob("*.xml"), None)
+                self._load()                           # weights on disk
+                if xml is None or xml.stat().st_mtime < Path(self.weights).stat().st_mtime:   # missing, or older than the weights
                     from ultralytics import YOLO
-                    out = Path(YOLO(self.weights).export(format="openvino", imgsz=[h, w], verbose=False))
-                    if target.exists():
-                        shutil.rmtree(target)
-                    shutil.move(str(out), str(target))
+                    # export a copy in a scratch folder: ultralytics writes <stem>_openvino_model next to the weights,
+                    # which may be someone's own export
+                    tmp = Path(tempfile.mkdtemp(prefix=".ov-export-", dir=target.parent))
+                    try:
+                        src = tmp / Path(self.weights).name
+                        shutil.copy2(self.weights, src)
+                        out = Path(YOLO(str(src)).export(format="openvino", imgsz=[h, w], verbose=False))
+                        if target.exists():
+                            shutil.rmtree(target)
+                        shutil.move(str(out), str(target))
+                    finally:
+                        shutil.rmtree(tmp, ignore_errors=True)
                 return target
             except Exception as exc:
                 self._ov_error = f"{type(exc).__name__}: {str(exc)[:160]}"
@@ -401,6 +419,16 @@ class Detector:
 
 
 DETECTOR = Detector()
+
+
+def tile_grid(w: int, h: int, nx: int, ny: int, overlap: float) -> tuple[list[tuple[int, int]], int, int]:
+    """Overlapping nx x ny tiles over a w x h frame: [(x0, y0)] row by row, tile width, tile height. The last tile of a row
+    or column ends exactly at the frame, so tile_edge_cut never mistakes the frame border for an interior edge
+    (flooring the tile size would leave it a few pixels short)."""
+    tw, th = int(w / (nx - (nx - 1) * overlap)), int(h / (ny - (ny - 1) * overlap))
+    xs = [w - tw if i == nx - 1 else min(w - tw, int(i * tw * (1 - overlap))) for i in range(nx)]
+    ys = [h - th if j == ny - 1 else min(h - th, int(j * th * (1 - overlap))) for j in range(ny)]
+    return [(x, y) for y in ys for x in xs], tw, th
 
 
 def tile_edge_cut(box, x0: int, y0: int, tw: int, th: int, w: int, h: int, margin: float = 2.0) -> bool:
@@ -456,14 +484,8 @@ class PreciseDetector:
         scores: list[float] = []
         clss: list[int] = []
         if nx * ny > 1 and min(h, w) >= 480:
-            ov = self.overlap
-            tw, th = int(w / (nx - (nx - 1) * ov)), int(h / (ny - (ny - 1) * ov))
-            crops, offs = [], []
-            for j in range(ny):
-                for i in range(nx):
-                    x0, y0 = min(w - tw, int(i * tw * (1 - ov))), min(h - th, int(j * th * (1 - ov)))
-                    crops.append(frame[y0:y0 + th, x0:x0 + tw])
-                    offs.append((x0, y0))
+            offs, tw, th = tile_grid(w, h, nx, ny, self.overlap)
+            crops = [frame[y0:y0 + th, x0:x0 + tw] for x0, y0 in offs]
             for r, (x0, y0) in zip(m.predict(crops, imgsz=self.tile_size, conf=self.conf, verbose=False), offs):
                 for b in r.boxes:
                     x1, y1, x2, y2 = [float(v) for v in b.xyxy[0]]

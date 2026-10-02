@@ -169,8 +169,9 @@ exports its weights once to OpenVINO at a fixed 384x640 input (`data/models/yolo
 seconds on first use) and runs every camera on it with one inference thread each (`VISION_OV_THREADS`); ByteTrack ids,
 labels and box coordinates are unchanged. Without `openvino` installed, or if the export fails, it logs once and runs
 on torch. The camera status shows which one runs (`yolo11n (openvino)`). Measured on WILDTRACK on a 4-core Xeon
-(`python scripts/bench_detector.py live-speed` / `live-accuracy`): the live `.track` call went from 83 to 23 CPU-ms per
-frame with 4 cameras and from 89 to 24 with 7 (33 -> 140 and 35 -> 135 frames a second in total), with the same person
+(`python scripts/bench_detector.py live-speed` / `live-accuracy`): the live `.track` call went from 83-89 to about 23-27 CPU-ms
+per frame with 4-7 cameras (about 33 -> 120-140 frames a second in total; an independent re-run under light load got the
+lower end), about half of it from one inference thread per camera (torch at one thread is ~64 CPU-ms), with the same person
 detection on 100 held-out instants x 7 cameras (precision / recall / F1 0.785 / 0.495 / 0.607 on torch, 0.783 / 0.496 /
 0.607 on OpenVINO). The gain relies partly on this CPU's bf16 (AMX); older x86 CPUs gain less. The record detector
 (object catalogue, audits; yolo11s on 2x2 tiles plus the whole frame) now drops every tile box that touches an

@@ -1594,7 +1594,7 @@ async function loadCameras(){
     $('#cs-notes').textContent = st.notes ?? st.events ?? 0; $('#cs-alerts').textContent = st.triggered ?? 0;
     api('/names').then(n => { if (n && n.names) { NAMES_KNOWN = n.names.map(x => x.name); $('#cs-names').textContent = n.names.length; } }); } catch(_){}
   $('#vision-hook-url').value = R.hook_url || '';
-  const det = $('#cam-det'); det.textContent = R.detector.available ? 'local detector: ' + R.detector.weights : 'no local detector'; det.style.color = R.detector.available ? 'var(--ok)' : 'var(--muted)'; det.title = R.detector.error || 'ultralytics YOLO, runs on this machine';
+  const det = $('#cam-det'); det.textContent = R.detector.available ? 'local detector: ' + R.detector.weights : 'no local detector'; det.style.color = R.detector.available ? 'var(--ok)' : 'var(--muted)'; det.title = R.detector.error || ('ultralytics YOLO, runs on this machine' + (R.detector.runtime_error ? ' · OpenVINO unavailable, running on torch: ' + R.detector.runtime_error : ''));
   const v = $('#cam-vlm'); v.textContent = R.vlm.ready ? 'analyst: ' + R.vlm.model.split('/').pop() : (R.mode==='demo' ? 'analyst: demo' : 'analyst: no key'); v.style.color = R.vlm.ready ? 'var(--ok)' : 'var(--muted)';
   const sel = $('#ev-cam'); const cur = sel.value; sel.innerHTML = '<option value="">all cameras</option>' + CAMS.concat(NODES).map(c=>`<option value="${esc(c.name)}" ${c.name===cur?'selected':''}>${esc(c.name)}</option>`).join('');
   const nodeCards = NODES.map(n => { const le = n.last_event || {}; const c = le.counts || {}; const fresh = (Date.now()/1000 - n.last_ts) < 900;
