@@ -19,3 +19,4 @@ node/node.json
 workspace/vision-eval/wildtrack/review.json
 workspace/vision-eval/wildtrack/preds-*.json
 workspace/vision-eval/wildtrack/notes.json
+.claude/worktrees/
