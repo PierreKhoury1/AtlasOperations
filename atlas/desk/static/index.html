@@ -1738,7 +1738,9 @@ function renderConnLinks(){
 }
 // cameras Atlas planned while designing the team but that have no stream address yet
 function renderPlanned(planned, samples){
-  const box = $('#cam-planned'); if (!box) return; box.classList.toggle('hide', !planned.length); if (!planned.length) return;
+  const box = $('#cam-planned'); if (!box) return; box.classList.toggle('hide', !planned.length); if (!planned.length) { box.innerHTML = ''; box.dataset.key = ''; return; }
+  const key = JSON.stringify([planned, samples.length, (CFG.agents || []).map(a => a.id)]);   // the page refreshes every few seconds: never wipe what is being typed
+  if (box.dataset.key === key) return; box.dataset.key = key;
   const who = n => (CFG.agents || []).filter(a => a.id !== 'atlas' && JSON.stringify([a.goal, a.role, a.instructions]).toLowerCase().includes(n.toLowerCase()));
   const opts = samples.map(x => `<option value="sample:${esc(x.name)}" title="${esc(x.label)}">sample: ${esc(x.name)}</option>`).join('');
   box.innerHTML = `<div class="ph"><h2>Cameras your team is waiting for</h2><span class="hint" style="margin:0">Atlas planned these; give each a stream address (rtsp://, http://…/snapshot, a webcam number) or sample footage</span></div>
