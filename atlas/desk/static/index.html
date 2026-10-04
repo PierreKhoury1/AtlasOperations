@@ -295,6 +295,26 @@ aside.simple [data-lvl="full"]{display:none}
 .kpi b{transition:color .3s}
 .camstats{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
 .camstats .kv b{font-variant-numeric:tabular-nums}
+.gapb{margin-left:auto;color:var(--warn);font-size:10.5px;font-weight:600}
+.tlinks{display:flex;flex-direction:column;gap:6px;font-size:12px;margin-bottom:6px}
+.tlinks .k{display:inline-block;width:70px;color:var(--muted);font-size:11px}
+.tlinks .gap{color:var(--warn);display:flex;flex-wrap:wrap;gap:6px;align-items:center;font-size:12px}
+.planrow{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,1.2fr) auto auto;gap:10px;align-items:center;padding:9px 0;border-bottom:1px solid var(--line)}
+.planrow:last-child{border-bottom:0}
+.planrow .pn small{display:block;color:var(--muted);font-size:12px}
+.planrow select{width:auto;font-size:12px}
+.needrow{display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid var(--line);font-size:13px}
+.needrow:last-child{border-bottom:0}
+.needrow>span:not(.achip){flex:1;color:var(--text2)}
+.camagents{display:flex;flex-wrap:wrap;gap:5px;align-items:center;margin:4px 0 6px;font-size:12px}
+.camagents .lbl{color:var(--muted);font-size:11px;margin-right:2px}
+.camagents .none{color:var(--warn);font-size:11.5px}
+.camagents select{width:auto;font-size:11.5px;padding:2px 6px;height:24px}
+.achip{display:inline-flex;align-items:center;gap:5px;border:1px solid var(--line2);border-radius:12px;padding:1px 9px 1px 7px;font-size:11.5px;cursor:pointer;background:var(--panel2);color:var(--text)}
+.achip i{width:7px;height:7px;border-radius:50%;background:var(--ac)}
+.achip small{color:var(--muted)}
+.achip .x{color:var(--muted);font-weight:600;margin-left:2px;padding:0 2px}.achip .x:hover{color:var(--danger)}
+.achip:hover{border-color:var(--ac)}
 .wall{border:1px solid var(--line);background:var(--panel);border-radius:3px;margin-bottom:14px;overflow:hidden;animation:rise .25s ease-out}
 @keyframes rise{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
 .wall .wh{display:flex;align-items:center;gap:10px;padding:8px 12px;border-bottom:1px solid var(--line);background:var(--panel2)}
@@ -557,6 +577,7 @@ aside.simple [data-lvl="full"]{display:none}
   <div class="phead"><div><h1>Integrations</h1><p class="lead">Connect the desk to the real world. Email (SMTP or Resend), WhatsApp (Meta or Twilio), SMS, HubSpot / Pipedrive CRM sync, Google Calendar, Slack pings, any HTTP API or MCP server, inbound webhooks. Writes need your approval unless you switch a connector to auto.</p></div></div>
   <div class="grid g2" style="grid-template-columns:1.2fr 1fr">
     <div>
+      <div class="panel hide" id="needs-panel" style="margin-bottom:14px"><div class="ph"><h2>What your agents need</h2><span class="hint" style="margin:0">from each agent's job and tools</span></div><div class="pb" id="needs-list"></div></div>
       <div class="panel" style="margin-bottom:14px"><div class="ph"><h2>Connected systems</h2></div><div class="pb" id="conn-list"></div></div>
       <div class="panel" style="margin-bottom:14px"><div class="ph"><h2>Channels</h2><span class="hint">what an approved action actually does</span></div><div class="pb" id="conn-channels"></div></div>
       <div class="panel"><div class="ph"><h2>Inbound</h2><span class="hint">forms, Zapier, Make, WhatsApp, SMS</span></div><div class="pb">
@@ -606,6 +627,7 @@ aside.simple [data-lvl="full"]{display:none}
   <div id="cam-live"></div>
   <div class="grid g2" style="grid-template-columns:1.6fr 1fr">
     <div>
+      <div class="panel hide" id="cam-planned" style="margin-bottom:14px"></div>
       <div class="camgrid" id="cam-grid" style="margin-bottom:14px"><div class="empty">Loading…</div></div>
       <div class="panel"><div class="ph"><h2>What the cameras saw</h2><div class="row" style="gap:6px"><select id="ev-cam" style="width:auto;font-size:12px;padding:5px 8px" onchange="loadVisionEvents()"><option value="">all cameras</option></select><select id="ev-hours" style="width:auto;font-size:12px;padding:5px 8px" onchange="loadVisionEvents()"><option value="1">last hour</option><option value="24" selected>last 24h</option><option value="168">last 7 days</option></select><label style="margin:0;display:flex;gap:5px;align-items:center;font-size:12px"><input type="checkbox" id="ev-alerts" style="width:auto" onchange="loadVisionEvents()"> alerts only</label><a class="link" style="font-size:12px" href="/api/vision/journal?format=html" target="_blank" rel="noopener">today's journal ↗</a></div></div>
         <div class="pb" id="ev-list" style="max-height:520px;overflow:auto"></div></div>
@@ -1093,6 +1115,10 @@ function teamFromCfg(){
   return [...list.filter(a => a.id === 'atlas'), ...list.filter(a => a.id !== 'atlas')];
 }
 function loadTeam(){
+  const before = JSON.stringify(LINKS);                                            // redraw only when the links changed, never mid-edit
+  loadLinks().then(() => { const ws2 = $('#tm-ws');
+    if (page !== 'team' || !TEAM.agents || TEAM.dirty || JSON.stringify(LINKS) === before || (ws2 && ws2.contains(document.activeElement) && document.activeElement !== ws2)) return;
+    renderTeam(); if (TEAM.sel >= 0) teamInspect(TEAM.sel); });
   if (!CFG.agents) return;
   const ws = $('#tm-ws'); if (!ws || !ws.clientWidth) return;                          // section hidden — lay out when it is visible
   if (TEAM.cams === null) { TEAM.cams = []; api('/cameras').then(R => { TEAM.cams = (R && Array.isArray(R.cameras)) ? R.cameras : []; if (page === 'team') teamRenderCams(); }); }
@@ -1111,6 +1137,28 @@ function teamCatalogue(a){
   return cat;
 }
 /* ---- canvas render + layout */
+function teamGapBadge(a){ const e = LINKS && LINKS.agents[a.id]; const n = e ? e.gaps.length : 0;
+  return n ? `<span class="gapb" title="${esc(e.gaps.join(' · '))}">⚠ ${n}</span>` : ''; }
+function teamOpenId(id, tries = 0){
+  const i = (TEAM.agents || []).findIndex(a => a.id === id);
+  if (i >= 0 && document.getElementById(tkid(TEAM.agents[i]._k))) return teamInspect(i);
+  if (tries < 20) setTimeout(() => teamOpenId(id, tries + 1), 150);
+}
+function teamLinksHtml(a, i){
+  const e = LINKS && LINKS.agents[a.id]; if (!e) return '';
+  const cams = e.cameras.length ? e.cameras.map(n => `<span class="tag" style="cursor:pointer" onclick="go('cameras')">📷 ${esc(n)}</span>`).join(' ')
+    : (e.any_camera ? '<span class="hint" style="margin:0">any camera (none named in its job)</span>' : '<span class="hint" style="margin:0">none</span>');
+  const ch = Object.entries(e.channels).map(([k, v]) => `<span class="tag" style="${v ? 'color:var(--ok);border-color:var(--ok)' : 'color:var(--warn);border-color:var(--warn)'}">${esc(k)}: ${v ? esc(v) : 'not connected'}</span>`).join(' ');
+  const fix = g => { if (/cannot send/.test(g)) return `<button class="btn sm" onclick="teamToolOn(${i},'queue_action')">Let it send (with approval)</button>`;
+    if (/no camera tools/.test(g)) return `<button class="btn sm" onclick="teamToolOn(${i},'camera_ask')">Give it camera tools</button>`; return gapFix(g, a.id); };
+  return `<label>Links</label><div class="tlinks"><div><span class="k">Cameras</span>${cams}</div>${ch ? `<div><span class="k">Sends by</span>${ch}</div>` : ''}
+    ${e.gaps.map(g => `<div class="gap">⚠ ${esc(g)} ${fix(g)}</div>`).join('')}</div>`;
+}
+function teamToolOn(i, tool){
+  const a = TEAM.agents[i]; if (!a) return;
+  for (const t of (tool === 'camera_ask' ? ['camera_ask', 'camera_events', 'camera_look'] : [tool])) if (!a.tools.includes(t)) a.tools.push(t);
+  teamSetDirty(true); renderTeam(); teamInspect(i); toast('Granted: save the team to apply');
+}
 function renderTeam(){
   const box = $('#tm-nodes');
   box.innerHTML = TEAM.agents.map((a, i) => {
@@ -1121,7 +1169,7 @@ function renderTeam(){
       <div class="role" id="role-${k}">${esc(a.role) || '<span style="color:var(--faint)">no role yet</span>'}</div>
       <div class="asg hide" id="asg-${k}"></div>
       <div class="chips" id="chips-${k}"></div>
-      <div class="nf"><span id="tools-${k}">${nt} tool${nt === 1 ? '' : 's'}</span>${a.engine === 'hermes_agent' ? '<span class="eng" title="Runs inside the Hermes Agent runtime">Hermes</span>' : ''}<span id="it-${k}"></span><span class="badge hide" id="ap-${k}"></span></div></div>`;
+      <div class="nf"><span id="tools-${k}">${nt} tool${nt === 1 ? '' : 's'}</span>${a.engine === 'hermes_agent' ? '<span class="eng" title="Runs inside the Hermes Agent runtime">Hermes</span>' : ''}<span id="it-${k}"></span><span class="badge hide" id="ap-${k}"></span>${teamGapBadge(a)}</div></div>`;
   }).join('') || '<div class="empty" style="margin:40px;border:0">No agents — reload the page</div>';
   box.querySelectorAll('.tmn[data-i]').forEach(el => el.addEventListener('pointerdown', teamDown));
   teamPlace();
@@ -1186,7 +1234,11 @@ function teamEdges(){
   const curve = (from, to, cls, color) => { const rt = to.cx >= from.cx; const x1 = rt ? from.r : from.l, y1 = from.cy, x2 = rt ? to.l : to.r, y2 = to.cy, mx = (x1 + x2) / 2;
     return `<path class="tme ${cls}" style="--c:${color}" d="M${x1},${y1} C${mx},${y1} ${mx},${y2} ${x2},${y2}"/>`; };
   const ab = box(A); let out = '';
-  ws.querySelectorAll('#tm-cams .tmn').forEach(el => { out += curve(box(el), ab, 'cam', 'var(--line2)'); });
+  ws.querySelectorAll('#tm-cams .tmn').forEach(el => {                       // a camera feeds the agents that watch it, else Atlas
+    const cam = (TEAM.cams || [])[+(el.id.split('-')[1])], ids = cam && LINKS ? (LINKS.cameras[cam.name] || []) : [];
+    const to = ids.map(id => TEAM.agents.find(a => a.id === id)).filter(Boolean).map(a => document.getElementById(tkid(a._k))).filter(Boolean);
+    if (!to.length) out += curve(box(el), ab, 'cam', 'var(--line2)');
+    to.forEach(t => { out += curve(box(el), box(t), 'cam', t.style.getPropertyValue('--c') || 'var(--line2)'); }); });
   ws.querySelectorAll('#tm-nodes .tmn[data-i]').forEach(el => { if (el === A) return;
     const ag = TEAM.agents[+el.dataset.i]; let from = ab;
     if (ag && ag.reports_to && ag.reports_to !== 'atlas') { const lead = TEAM.agents.find(x => x.id === ag.reports_to); const L = lead && document.getElementById(tkid(lead._k)); if (L) from = box(L); }
@@ -1237,6 +1289,7 @@ function teamInspect(i){
     <div class="hint" style="margin-top:10px"><span class="tag">${esc(a.id || 'id from name')}</span> <span class="model">${esc(a.model || '(default model)')}${a.engine ? ' · ' + esc(a.engine) : ''}</span>${a.engine === 'hermes_agent' ? '<br><span style="color:var(--warn)">Runs inside the Hermes Agent runtime with its own tools; the grants below apply when it runs on the built-in engine.</span>' : ''}</div>
     <label>System prompt</label><textarea rows="9" class="sp" placeholder="${isAtlas ? 'How Atlas should run this desk, who it delegates to, what it must never do…' : 'What this agent does, how it works, what it must never do…'}" oninput="teamField(${i},'system_prompt',this.value)">${esc(a.system_prompt)}</textarea>
     <label>Tools</label><div class="tchips">${chips || '<span class="hint" style="margin:0">no tools in the catalogue</span>'}</div>
+    ${isAtlas ? '' : teamLinksHtml(a, i)}
     ${isAtlas ? '' : `<div class="foot"><button class="btn sm d" onclick="teamRemove(${i})">✕ Remove agent</button><span class="hint" style="margin:0;align-self:center">${a._srv ? 'Removed on save' : 'Not saved yet'}</span></div>`}`;
   insp.classList.add('on');
 }
@@ -1488,7 +1541,8 @@ async function loadConnectors(){
   const CH = {email:'Email', whatsapp:'WhatsApp', sms:'SMS', booking:'Calendar booking'};
   $('#conn-channels').innerHTML = Object.entries(CH).map(([k,l])=>`<span class="tag" style="margin:0 8px 6px 0;${R.channels && R.channels[k] ? 'color:var(--ok);border-color:var(--ok)' : ''}">${l}: ${R.channels && R.channels[k] ? 'live' : 'simulated'}</span>`).join('');
   if (!$('#c-kind').options.length) { $('#c-kind').innerHTML = Object.entries(KINDS).filter(([k])=>k!=='webhook').map(([k,v])=>`<option value="${k}">${esc(v.label)}</option>`).join(''); connFields(); }
-  $('#conn-list').innerHTML = R.connectors.length ? `<table><tr><th>Name</th><th>Type</th><th>Details</th><th>Writes</th><th>Status</th><th></th></tr>` + R.connectors.map(c=>`<tr><td><b>${esc(c.name)}</b></td><td><span class="tag">${esc(c.kind)}</span></td><td class="model">${esc(Object.entries(c.config).filter(([k])=>k!=='notes').map(([k,v])=>k+'='+v).join('  ').slice(0,90))}</td><td><label style="margin:0;display:flex;gap:6px;align-items:center"><input type="checkbox" style="width:auto" ${c.auto?'checked':''} onchange="api('/connectors/${c.id}',{method:'PATCH',body:{auto:this.checked}})"> auto</label></td><td class="hint">${esc(c.status||'untested')}</td><td class="row"><button class="btn sm" onclick="testConn(${c.id})">Test</button><button class="btn sm d" onclick="delConn(${c.id})">✕</button></td></tr>`).join('') + '</table>' : '<div class="empty">No connectors yet. Add email sending, an inbox or an API on the right.</div>';
+  $('#conn-list').innerHTML = R.connectors.length ? `<table><tr><th>Name</th><th>Type</th><th>Details</th><th>Writes</th><th>Used by</th><th>Status</th><th></th></tr>` + R.connectors.map(c=>`<tr><td><b>${esc(c.name)}</b></td><td><span class="tag">${esc(c.kind)}</span></td><td class="model">${esc(Object.entries(c.config).filter(([k])=>k!=='notes').map(([k,v])=>k+'='+v).join('  ').slice(0,90))}</td><td><label style="margin:0;display:flex;gap:6px;align-items:center"><input type="checkbox" style="width:auto" ${c.auto?'checked':''} onchange="api('/connectors/${c.id}',{method:'PATCH',body:{auto:this.checked}})"> auto</label></td><td class="usedby" data-c="${esc(c.name)}"></td><td class="hint">${esc(c.status||'untested')}</td><td class="row"><button class="btn sm" onclick="testConn(${c.id})">Test</button><button class="btn sm d" onclick="delConn(${c.id})">✕</button></td></tr>`).join('') + '</table>' : '<div class="empty">No connectors yet. Add email sending, an inbox or an API on the right.</div>';
+  loadLinks().then(renderConnLinks);
 }
 function connFields(){
   const k = $('#c-kind').value, spec = KINDS[k]; if (!spec) return;
@@ -1588,6 +1642,7 @@ function wallEvent(ev){
 }
 async function loadCameras(){
   const R = await api('/cameras'); if (!R) return; CAMS = R.cameras; const NODES = R.nodes || [];
+  renderPlanned(R.planned || [], R.samples || []);
   $('#n-cams').textContent = CAMS.length + NODES.length;
   try { const st = R.stats || {}; const live = CAMS.filter(c => c.watch_job && c.watch_job.enabled).length;
     $('#cs-live').textContent = live; $('#cs-dot').className = 'dot' + (live ? ' live' : '');
@@ -1621,12 +1676,89 @@ async function loadCameras(){
         <span class="live ${watching?'on':''}">${watching ? 'watching · '+(JSON.parse(c.watch_job.task||'{}').every_s||30)+'s' : 'idle'}</span></div>
       <div class="body">
         <h3>${esc(c.name)}<small title="${esc(src)}">${esc(c.source_kind)}${ts ? ' · ' + hms(ts) : ''}</small></h3>
+        <div class="camagents" id="ca-${c.id}"></div>
         <div class="hint" style="margin:0">${esc(seenTxt)}${s.motion!=null ? ` · motion ${Number(s.motion).toFixed(2)}` : ''}${s.backend && s.backend!=='none' ? ` · ${esc(s.backend)}` : ''}${s.reason ? ` · ${esc(s.reason)}` : ''}</div>
         <div class="hint" style="margin:0">watch for <b>${esc(c.rule.labels.join(', '))}</b> ≥${c.rule.min_count}${c.rule.dwell_min > 0 ? ' for '+c.rule.dwell_min+' min' : ''}${c.rule.hours ? ' during '+esc(c.rule.hours) : ''} · cooldown ${c.rule.cooldown_min}m · ${c.rule.repeat==='always' ? 'repeats' : c.rule.repeat==='once' ? 'once per stay' : 'repeats on change'}${s.present_s ? ' · present '+Math.round(s.present_s/60)+'m' : ''}${['1','true','on','yes'].includes(String((c.config||{}).journal||'').toLowerCase()) ? ' · <b>journal on</b>' : ''}${c.rule.alerts===false ? ' · alerts off' : ''}${c.rule.question ? ` · asks “${esc(c.rule.question)}”` : ''}</div>
         ${(s.answer || (le && le.answer)) ? `<div class="ans">${esc(s.answer || le.answer)}</div>` : ''}
         <div class="act"><input id="camq-${c.id}" placeholder="ask the analyst about this frame…" onkeydown="if(event.key==='Enter')lookCam(${c.id})"><button class="btn sm p" onclick="lookCam(${c.id})" ${busy?'disabled':''}>${busy?'…':'Look now'}</button><button class="btn sm ${LIVE.id===c.id?'p':''}" onclick="${LIVE.id===c.id?'closeLive()':`openLive(${c.id})`}" title="Watch this camera as live video with detections, and the journal being written in real time">${LIVE.id===c.id?'Close live':'Live'}</button></div>
         <div class="act"><button class="btn sm ${watching?'':'p'}" onclick="watchCam(${c.id}, ${watching?'false':'true'}, ${['1','true','on','yes'].includes(String((c.config||{}).journal||'').toLowerCase()) ? 8 : 30})">${watching ? 'Stop watching' : 'Watch'}</button><button class="btn sm" onclick="lookCam(${c.id}, true)" title="Force an alert run now (demo / test)">Trigger alert</button><span class="spacer"></span>${s.run_id ? `<button class="btn sm" onclick="liveWant='${s.run_id}';go('live')">See run ›</button>` : ''}<button class="btn sm d" onclick="delCam(${c.id})">✕</button></div>
       </div></div>`; }).join('') + nodeCards;
+  loadLinks().then(renderCamAgents);
+}
+// ---- agents on every tab: who watches which camera, who sends through which connector, and what is missing
+let LINKS = null;
+async function loadLinks(){ const r = await api('/agents/links'); if (r && r.agents) LINKS = r; return LINKS; }
+const agentName = id => ((CFG && CFG.agents || []).find(a => a.id === id) || {name: id}).name;
+const agentColor = id => ((CFG && CFG.agents || []).find(a => a.id === id) || {}).color || 'var(--muted)';
+function agentChip(id, extra){ return `<span class="achip" style="--ac:${agentColor(id)}" onclick="go('team');setTimeout(()=>teamOpenId&&teamOpenId('${id}'),400)" title="open ${esc(agentName(id))} on the Team tab"><i></i>${esc(agentName(id))}${extra || ''}</span>`; }
+function renderCamAgents(){
+  if (!LINKS) return;
+  const specs = (CFG.agents || []).filter(a => a.id !== 'atlas' && a.enabled !== false);
+  for (const c of CAMS) {
+    const box = $(`#ca-${c.id}`); if (!box) continue;
+    const mine = LINKS.cameras[c.name] || [], any = LINKS.any_camera || [];
+    const chips = mine.map(id => agentChip(id, `<b class="x" title="stop ${esc(agentName(id))} watching this camera" onclick="event.stopPropagation();assignCam(${c.id}, '${id}', false)">×</b>`)).join('')
+      + any.map(id => agentChip(id, ' <small>any camera</small>')).join('');
+    const free = specs.filter(a => !mine.includes(a.id));
+    box.innerHTML = `<span class="lbl">Watched by</span>${chips || '<span class="none">no agent: only the rule runs</span>'}`
+      + (free.length ? `<select onchange="if(this.value)assignCam(${c.id}, this.value, true)"><option value="">+ assign an agent…</option>${free.map(a => `<option value="${a.id}">${esc(a.name)}</option>`).join('')}</select>` : '');
+  }
+}
+// channel / tool -> the connector type to preselect in "Add a connector"
+const NEED_KIND = {email: 'smtp', whatsapp: 'whatsapp', sms: 'twilio', slack: 'slack', gcal: 'gcal', http: 'http', mcp: 'mcp', higgsfield: 'higgsfield'};
+function gapFix(g, aid){
+  const m = g.match(/no (\w+) connector|needs a (\w+)/); const kind = m && NEED_KIND[m[1] || m[2]];
+  if (kind) return `<button class="btn sm" onclick="connectKind('${kind}')">Connect ${esc(KINDS && KINDS[kind] ? KINDS[kind].label : kind)} →</button>`;
+  if (/cannot send/.test(g)) return `<button class="btn sm" onclick="grantTool('${aid}','queue_action')">Let it send (with your approval)</button>`;
+  if (/no camera tools/.test(g)) return `<button class="btn sm" onclick="grantTool('${aid}','camera_ask')">Give it camera tools</button>`;
+  return '';
+}
+async function connectKind(kind){
+  go('integrations'); await loadConnectors();
+  const sel = $('#c-kind'); if (sel && [...sel.options].some(o => o.value === kind)) { sel.value = kind; connFields(); }
+  const n = $('#c-name'); if (n) { n.scrollIntoView({behavior: 'smooth', block: 'center'}); n.focus(); }
+}
+async function grantTool(aid, tool){
+  const did = (CFG.desk || {}).id; if (!did) return;
+  const agents = (CFG.agents || []).map(a => ({id: a.id, name: a.name, role: a.role, color: a.color, enabled: a.enabled, reports_to: a.reports_to,
+    goal: a.goal, instructions: a.instructions, system_prompt: a.system_prompt, engine: a.engine, members: a.members,
+    tools: a.id === aid ? [...new Set([...(a.tools || []), ...(tool === 'camera_ask' ? ['camera_ask', 'camera_events', 'camera_look'] : [tool])])] : a.tools}));
+  const r = await api(`/desks/${did}`, {method: 'PATCH', body: {agents}});
+  if (!r || r.error) return toast(r?.error || 'failed');
+  toast(`${agentName(aid)} can now use ${tool}${tool === 'queue_action' ? ': everything it sends waits for your approval' : ''}`);
+  await loadCfg(); await loadLinks(); renderConnLinks(); renderCamAgents(); if (page === 'team') loadTeam();
+}
+function renderConnLinks(){
+  if (!LINKS) return;
+  document.querySelectorAll('#conn-list td.usedby').forEach(td => { const ids = LINKS.connectors[td.dataset.c] || [];
+    td.innerHTML = ids.length ? ids.map(id => agentChip(id)).join(' ') : '<span class="hint" style="margin:0">no agent yet</span>'; });
+  const rows = Object.entries(LINKS.agents).flatMap(([id, e]) => e.gaps.map(g => [id, g]));
+  const p = $('#needs-panel'); if (!p) return; p.classList.toggle('hide', !rows.length);
+  $('#needs-list').innerHTML = rows.map(([id, g]) => `<div class="needrow">${agentChip(id)}<span>${esc(g)}</span>${gapFix(g, id)}</div>`).join('');
+}
+// cameras Atlas planned while designing the team but that have no stream address yet
+function renderPlanned(planned, samples){
+  const box = $('#cam-planned'); if (!box) return; box.classList.toggle('hide', !planned.length); if (!planned.length) return;
+  const who = n => (CFG.agents || []).filter(a => a.id !== 'atlas' && JSON.stringify([a.goal, a.role, a.instructions]).toLowerCase().includes(n.toLowerCase()));
+  const opts = samples.map(x => `<option value="sample:${esc(x.name)}" title="${esc(x.label)}">sample: ${esc(x.name)}</option>`).join('');
+  box.innerHTML = `<div class="ph"><h2>Cameras your team is waiting for</h2><span class="hint" style="margin:0">Atlas planned these; give each a stream address (rtsp://, http://…/snapshot, a webcam number) or sample footage</span></div>
+    <div class="pb">${planned.map(p => `<div class="planrow"><div class="pn"><b>📷 ${esc(p.name)}</b><small>${esc(p.notes || p.focus || '')}</small><div class="camagents">${who(p.name).map(a => agentChip(a.id)).join('') || '<span class="none">no agent named it yet</span>'}</div></div>
+      <input id="pl-${esc(p.name)}" placeholder="rtsp://… or http://…/snapshot.jpg or 0">
+      <select onchange="if(this.value){document.getElementById('pl-${esc(p.name)}').value=this.value}"><option value="">or sample footage…</option>${opts}</select>
+      <button class="btn sm p" onclick="connectPlanned('${esc(p.name)}')">Connect</button></div>`).join('')}</div>`;
+}
+async function connectPlanned(name){
+  const src = (document.getElementById('pl-' + name) || {}).value || '';
+  if (!src.trim()) return toast('Give a stream address or pick sample footage');
+  const r = await api('/cameras/planned', {method: 'POST', body: {name, source: src.trim()}});
+  if (!r || r.error) return toast(r?.error || 'failed');
+  toast(`${name} connected: watching and writing its journal`); loadCameras();
+}
+async function assignCam(cid, agent, on){
+  const r = await api(`/cameras/${cid}/assign`, {method:'POST', body:{agent, on}});
+  if (!r || r.error) return toast(r?.error || 'failed');
+  toast(on ? `${agentName(agent)} now watches ${r.camera}` : `${agentName(agent)} no longer watches ${r.camera}`);
+  await loadCfg(); await loadLinks(); renderCamAgents();
 }
 // ---- live view: MJPEG picture with detections + the journal streamed token by token
 const LIVE = {id:null, es:null, cam:'', typing:false, buf:'', hist:[], ticks:0, statT:null};

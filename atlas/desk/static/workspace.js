@@ -289,7 +289,7 @@ function closeInsp(){ W.sel = null; $('#insp').classList.remove('on'); document.
 async function buildDesk(){
   if (!W.bp || !(W.bp.agents || []).length) return;
   $('#build-btn').disabled = true; $('#build-hint').textContent = 'Building the desk…';
-  const r = await api(`/design/${W.sid}/build`, {method: 'POST', body: {blueprint: W.bp, tier: W.tier, name: W.deskName || 'New desk'}});
+  const r = await api(`/design/${W.sid}/build`, {method: 'POST', body: {blueprint: W.bp, tier: W.tier, name: W.deskName || ''}});
   if (!r || r.error) { $('#build-hint').textContent = (r && r.error) || 'build failed'; $('#build-btn').disabled = false; return; }
   W.deskId = r.desk.id; W.deskName = r.desk.business_name || r.desk.name; $('#bz-name').textContent = W.deskName;
   (r.cameras || []).forEach(c => { const k = W.cams.get(c.name); if (k) { k.id = c.id; k.journal = c.journal; setCamState(k, 'starting…', ''); } });

@@ -1620,6 +1620,37 @@ def _vev_public(e: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
+@app.get("/api/agents/links")
+def api_agent_links():
+    """Which agent watches which camera and sends through which connector, with the gaps: read by every tab."""
+    from .. import agent_links as AL
+    desk = need_desk()
+    conns = store.connectors(desk["id"])
+    cams = [c for c in conns if c["kind"] == "camera"]
+    out = AL.links(desk_configs(desk)["agents"], cams, [c for c in conns if c["kind"] != "camera"])
+    out["camera_ids"] = {c["name"]: c["id"] for c in cams}
+    return jsonify(out)
+
+
+@app.post("/api/cameras/<int:cid>/assign")
+def api_camera_assign(cid):
+    """{agent, on=true}: name this camera in the agent's instructions (and grant the camera tools), or take it out."""
+    from .. import agent_links as AL
+    desk = need_desk()
+    cam = _camera(cid, desk)
+    d = request.get_json(silent=True) or {}
+    aid = str(d.get("agent") or "")
+    conf = dict(desk.get("config") or {})
+    roster = json.loads(json.dumps(conf.get("agents") or templates.get(desk.get("template") or DEFAULT_TEMPLATE)["agents"]))
+    i = next((k for k, a in enumerate(roster) if a.get("id") == aid), None)
+    if i is None or aid == "atlas":
+        return jsonify({"error": "pick a specialist agent of this desk"}), 400
+    roster[i] = AL.assign_camera(roster[i], cam["name"], bool(d.get("on", True)))
+    conf["agents"] = roster
+    store.update_desk(desk["id"], config=conf)
+    return jsonify({"ok": True, "agent": aid, "camera": cam["name"], "on": bool(d.get("on", True))})
+
+
 @app.get("/api/cameras")
 def api_cameras():
     desk = need_desk()
@@ -1642,7 +1673,34 @@ def api_cameras():
                     "detector": {"available": V.DETECTOR.available, "error": V.DETECTOR.error, "weights": getattr(V.DETECTOR, "label", os.path.basename(V.YOLO_WEIGHTS)),
                                  "runtime_error": getattr(V.DETECTOR, "_ov_error", "")},
                     "vlm": {"ready": V.vlm_ready() and _mode() != "demo", "model": V.DEFAULT_VLM},
-                    "stats": store.vision_stats(desk["id"], time.time() - 86400), "hook_url": hook})
+                    "stats": store.vision_stats(desk["id"], time.time() - 86400), "hook_url": hook,
+                    "planned": _planned_cameras(desk, cams),
+                    "samples": [{"name": n, "label": DS.SAMPLE_LABELS.get(n, n.replace("-", " "))} for n in DS.sample_clips()]})
+
+
+def _planned_cameras(desk: dict[str, Any], cams: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Cameras Atlas planned for this desk that are not connected yet (built without a stream address)."""
+    have = {c["name"] for c in cams}
+    bp = (desk.get("config") or {}).get("blueprint") or {}
+    return [{k: cam.get(k, "") for k in ("name", "notes", "focus", "watch_for")} for cam in bp.get("cameras") or []
+            if cam.get("name") and cam["name"] not in have]
+
+
+@app.post("/api/cameras/planned")
+def api_camera_planned():
+    """{name, source}: connect a camera Atlas planned (journal, focus and notes as designed) and start watching it."""
+    desk = need_desk()
+    d = request.get_json(silent=True) or {}
+    bp = (desk.get("config") or {}).get("blueprint") or {}
+    cam = next((c for c in bp.get("cameras") or [] if c.get("name") == d.get("name")), None)
+    if not cam:
+        return jsonify({"error": "no planned camera by that name"}), 404
+    if not DS.resolve_camera_source(str(d.get("source") or "")):
+        return jsonify({"error": "give a stream address (rtsp://, http://, a webcam index) or pick sample footage"}), 400
+    made, missing = _build_cameras(desk, {"cameras": [dict(cam, source=str(d["source"]))]})
+    if not made:
+        return jsonify({"error": f"could not use that source for {cam['name']}"}), 400
+    return jsonify({"ok": True, "camera": made[0]})
 
 
 @app.post("/api/cameras/<int:cid>/look")
@@ -2797,8 +2855,8 @@ def api_design_build(sid):
     if not bp or not bp.get("agents"):
         return jsonify({"error": "The blueprint has no agents yet - keep talking to the designer first."}), 400
     tier = d.get("tier") if d.get("tier") in templates.TIERS else s.tier
-    conf = DS.blueprint_to_desk(bp, tier)
-    name = (d.get("name") or (bp.get("business") or {}).get("name") or "New desk").strip()
+    name = (d.get("name") or (bp.get("business") or {}).get("name") or (u or {}).get("company") or "New desk").strip()
+    conf = DS.blueprint_to_desk(bp, tier, name=name)
     if not (bp.get("business") or {}).get("name"):                 # never show the template's placeholder business name
         conf["business"]["name"] = name
     if s.desk_id and store.desk(s.desk_id):

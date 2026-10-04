@@ -772,12 +772,15 @@ def _agent_prompt(a: dict[str, Any], biz: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
-def blueprint_to_desk(bp: dict[str, Any], tier: str = "free") -> dict[str, Any]:
-    """Turn an approved blueprint into {business, agents, workflows} for store.add_desk."""
+def blueprint_to_desk(bp: dict[str, Any], tier: str = "free", name: str = "") -> dict[str, Any]:
+    """Turn an approved blueprint into {business, agents, workflows} for store.add_desk. `name` (the owner's company)
+    stands in when the blueprint names no business, so no prompt ever carries the template's placeholder name."""
     bp = normalise(bp) or {}
     biz_in = bp.get("business") or {}
     base = json.loads(json.dumps(T.CONSULTANCY["business"]))
     b = {**base, **biz_in}
+    if not str(biz_in.get("name") or "").strip():
+        b["name"] = name.strip() or "this business"
     b["model"] = "custom"
     b["currency"] = b.get("currency") or "GBP"
     pol = bp.get("policy") or {}
