@@ -27,7 +27,7 @@ _FENCE = re.compile(r"```(?:json)?\s*(\{.*?\})\s*```", re.S)
 SPECIALIST_TOOLS = ["read_file", "list_files", "web_fetch", "run_python", "save_deliverable", "camera_look", "camera_events", "camera_ask"]
 ATLAS_TOOLS = ["delegate", "list_agents", "save_deliverable", "read_file", "list_files", "crm_lookup", "crm_update",
                 "queue_action", "list_connectors", "http_request", "schedule_task", "mcp", "run_python", "remember", "recall", "generate_media"]
-PALETTE = ["#7c3aed", "#db2777", "#1f9d63", "#b45309", "#0e7490", "#6d28d9", "#ea580c", "#15803d", "#a21caf", "#0369a1"]
+PALETTE = ["#4c90f0", "#32a467", "#ec9a3c", "#9881f3", "#2ec4b6", "#e76a6e", "#68c1ee", "#d1980b", "#c274c2", "#8eb125"]   # muted (Blueprint)
 STATUS_MARK = "\x00"                      # on_token prefix for a status line instead of prose
 CONNECTOR_KINDS = ("smtp", "imap", "http", "mcp", "webhook", "hermes_agent", "higgsfield")
 TRIGGER_KINDS = ("webhook", "inbox", "schedule", "manual")
@@ -38,7 +38,11 @@ team - the specialist agents you will brief, run and review - to do that work. S
 researcher who…"); you are the one who will lead this team.
 
 How to run the conversation
-- Professional, plain English, no hype. 40-110 words per turn. One focused question per turn.
+- Professional, plain English, no hype, no persona talk. Design turns: 40-110 words, at most one focused question.
+- The owner may also just ask you something (advice, a fact, how to price, how to word an email, what a term means).
+  Then answer it properly, like a sharp analyst: specific, complete, as long as the answer needs (usually under 200
+  words). Do not pivot to selling the desk, do not tack on a question about their business, and do not invent or change
+  the team for it: set "intent": "answer" and keep "blueprint" null (the current sketch, if any, stays as it is).
 - Make concrete suggestions early. After the first answer you already know enough to sketch a first draft of the desk;
   refine it every turn instead of asking ten questions first.
 - Prefer ONE function first (e.g. inbound lead handling, proposal writing, inbox triage, order follow-ups), then extras.
@@ -79,18 +83,21 @@ Design rules
   Fill what you know; leave unknown fields out (do not invent a sender name or pricing).
 
 Output format — MANDATORY on every turn
-Write your reply to the owner as plain prose first (no markdown headings, no bullet spam). Then, on a new line, append
-exactly one machine block and nothing after it:
+Write your reply to the owner first, in clean light markdown so it scans easily: short paragraphs, **bold** for the
+key terms, a numbered or bulleted list when there are steps or options, a "### " subheading only in longer answers, a
+table only when comparing options. No headings on short replies. Then, on a new line, append exactly one machine block
+and nothing after it:
 
-<atlas-design>{"suggestions": ["3-4 short reply options for the owner, max 8 words each"], "ready": false, "blueprint": { "business": {...}, "agents": [...], "workflows": [...], "connectors": [...], "policy": {...} }}</atlas-design>
+<atlas-design>{"intent": "design", "suggestions": ["3-4 short reply options for the owner, max 8 words each"], "ready": false, "blueprint": { "business": {...}, "agents": [...], "workflows": [...], "connectors": [...], "policy": {...} }}</atlas-design>
 
-The blueprint must be COMPLETE each time (full current state, not a diff). On the very first turn, before the owner
+"intent" is "design" when the turn shapes the desk and "answer" when you only answered a question (then "blueprint"
+is null and "suggestions" are natural follow-up questions, or an empty list).
+On a design turn the blueprint must be COMPLETE (full current state, not a diff). On the very first turn, before the owner
 has said anything substantive, "blueprint" may be null."""
 
-GREETING = ("Hi, I'm Atlas. I run a team of AI agents for your business — I brief them, check their work, and nothing goes "
-            "out without your approval. Tell me what your business does and which task eats the most time each week: "
-            "answering enquiries, writing proposals, chasing invoices, watching an inbox, anything repetitive. I'll "
-            "assemble the team in front of you as we talk.")
+GREETING = ("Describe the business and the work to take off your plate: enquiries, proposals, invoices, an inbox, cameras. "
+            "The team is drafted on the canvas as you go, and nothing is sent without your approval. "
+            "You can also ask a question directly.")
 GREETING_SUGGESTIONS = ["We get enquiries we answer too slowly", "Proposals take us days to write",
                         "Our inbox needs triage every morning", "I want my shop cameras documented"]
 
@@ -495,7 +502,7 @@ def reply(session: DesignSession, user_text: str, on_token: Callable[[str], None
         else:
             raw = _live_turn(session, providers_cfg, designer_model, on_token)
         prose, data = split_reply(raw)
-        prose = re.sub(r"\*\*|__|^#+\s*", "", prose, flags=re.M).strip()      # no markdown in the chat column
+        prose = prose.strip()                                # light markdown: the workspace renders it
         if not prose:
             prose = "Noted. I have updated the sketch — tell me more, or press Approve & build when it looks right."
         suggestions = []
@@ -590,12 +597,15 @@ def _live_turn(session: DesignSession, providers_cfg: dict[str, Any] | None, mod
     _, data = split_reply(raw)
     said = " ".join(m["content"] for m in session.messages if m["role"] == "user" and isinstance(m["content"], str))
     substantive = bool(session.blueprint) or bool(session.profile) or len(said.split()) >= 12
-    if substantive and not (data and isinstance(data.get("blueprint"), dict)):
+    answered = bool(data) and str(data.get("intent") or "").lower() == "answer"     # a plain question: no team for it
+    if substantive and not answered and not (data and isinstance(data.get("blueprint"), dict)):
         try:
             fix = prov.chat(system, msgs + [{"role": "assistant", "content": raw},
                                            prov.user_message("Output ONLY the <atlas-design>{...}</atlas-design> block, nothing else. "
                                                              "Include your best FIRST-DRAFT blueprint for what has been said so far (make reasonable "
-                                                             "assumptions; the owner can adjust it on the canvas). Keep the same suggestions.")],
+                                                             "assumptions; the owner can adjust it on the canvas). Keep the same suggestions. If the owner has only "
+                                                             "asked general questions and not described work to take on, set \"intent\": \"answer\" "
+                                                             "and \"blueprint\": null instead.")],
                             [], model or "")
             _, data2 = split_reply(fix.text or "")
             if data2:

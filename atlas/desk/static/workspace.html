@@ -4,35 +4,39 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Atlas Workspace</title>
-<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
 <link rel="stylesheet" href="/desk/static/workspace.css">
 <script>try{document.documentElement.dataset.theme=localStorage.getItem("atlas-theme")||"dark"}catch(e){document.documentElement.dataset.theme="dark"}</script>
 </head>
 <body>
 <div id="ws" class="meet">
 
-  <!-- top bar (appears once the workspace opens) -->
+  <!-- top bar -->
   <header id="bar">
-    <a class="brand" href="/desk" title="Back to the desk"><i></i>Atlas</a>
-    <div class="crumbs"><span id="bz-name">New desk</span><span class="sep">·</span><span id="phase-label">designing the team</span></div>
+    <a class="brand" href="/desk" title="Full dashboard"><i></i>ATLAS</a>
+    <div class="crumbs"><span class="sep">/</span><span id="bz-name">New operation</span><span class="sep">/</span><span id="phase-label">brief</span></div>
     <div class="spacer"></div>
     <div id="jobbar" class="hide"><input id="job" placeholder="Give the team a job… e.g. a customer enquiry, a report to prepare, a list to chase" onkeydown="if(event.key==='Enter')deploy()"><button class="btn p" id="deploy-btn" onclick="deploy()">Deploy →</button></div>
+    <button class="btn ghost" id="addcam-btn" onclick="openAttach(null)" title="Connect a camera: RTSP, a file, a webcam, a snapshot URL or sample footage">+ Camera</button>
     <button class="btn ghost" id="approvals-btn" onclick="toggleApprovals()" title="Outbound actions waiting for you">Approvals <span class="badge hide" id="ap-n">0</span></button>
     <button class="btn ghost" id="tier-pill" onclick="toggleTier()" title="Free models cost nothing but have a daily limit; paid models cost a few pence">free models</button>
-    <button class="btn ghost" id="help-btn" onclick="openGuide()" title="How to use Atlas">How it works</button>
+    <button class="btn ghost" id="help-btn" onclick="openGuide()" title="How to use Atlas">Guide</button>
   </header>
 
   <!-- left: the conversation with Atlas -->
   <section id="chat">
-    <div id="orbwrap"><div id="orb"><span></span><span></span><span></span><b>A</b></div><div id="orbname">Atlas</div><div id="orbstate">listening</div></div>
+    <div id="chat-head">
+      <div class="meet-only"><div class="eyebrow">Atlas / New operation</div><h1>What should the desk take on?</h1></div>
+      <div class="open-only"><span class="eyebrow">Conversation</span><span class="spacer"></span><span class="state" id="chat-state">ready</span></div>
+    </div>
     <div id="msgs"></div>
     <div id="sugg"></div>
     <div id="mydesks" class="hide"></div>
     <div id="composer">
-      <textarea id="say" rows="2" placeholder="Tell Atlas what your business does and what eats your time…" onkeydown="sayKey(event)"></textarea>
+      <textarea id="say" rows="3" placeholder="Describe the business and the work, or ask a question" onkeydown="sayKey(event)"></textarea>
       <button class="btn p" id="send" onclick="send()">Send</button>
     </div>
-    <div id="meet-foot"><button class="linkish" onclick="openGuide()">How it works</button><span>·</span><span>nothing leaves without your approval</span><span>·</span><button class="linkish" id="tier-btn" onclick="toggleTier()" title="Switch between free and paid models">free models</button></div>
+    <div id="meet-foot"><span>Enter to send · Shift+Enter for a new line</span><span class="spacer"></span><span>Outbound actions require approval</span><span>·</span><button class="linkish" id="tier-btn" onclick="toggleTier()" title="Switch between free and paid models">free models</button></div>
     <div id="chat-foot">
       <button class="btn" id="build-btn" onclick="buildDesk()" disabled>Build this desk →</button>
       <span class="hint" id="build-hint">Atlas needs a first draft of the team before you can build.</span>
@@ -44,10 +48,11 @@
     <div id="canvas">
       <svg id="edges"></svg>
       <div id="nodes"></div>
-      <div id="empty" class="hide">The team appears here as Atlas assigns it.</div>
+      <div id="canvas-tools"><span class="hint">Drag cards · drag the background to pan · Ctrl+scroll to zoom</span><button class="btn sm" onclick="zoomBy(1/1.15)" title="Zoom out">−</button><button class="btn sm" onclick="zoomBy(1.15)" title="Zoom in">+</button><button class="btn sm" onclick="resetLayout()">Reset layout</button></div>
+      <div id="empty" class="hide">No agents yet. The team is drafted here once the work is described.</div>
     </div>
     <div id="camstrip" class="hide">
-      <div class="csh"><b>Cameras</b><span class="hint" id="cam-hint">each camera keeps a detailed written journal</span><span class="spacer"></span><a id="journal-link" href="/api/vision/journal?format=html" target="_blank" rel="noopener">Read today's journal ↗</a></div>
+      <div class="csh"><b>Cameras</b><span class="hint" id="cam-hint">each camera keeps a detailed written journal</span><span class="spacer"></span><button class="btn sm" onclick="openAttach(null)">+ Add camera</button><a id="journal-link" href="/api/vision/journal?format=html" target="_blank" rel="noopener">Read today's journal ↗</a></div>
       <div id="cams"></div>
     </div>
     <div id="feedwrap"><div id="feed"></div></div>
@@ -60,7 +65,7 @@
   <aside id="apdrawer" class="drawer"><div class="dh"><b>Waiting for your approval</b><button class="x" onclick="toggleApprovals(false)">×</button></div><div class="db" id="ap-body"></div></aside>
 
   <!-- run summary card -->
-  <div id="summary" class="hide"><div class="sh"><b>Run finished</b><button class="x" onclick="$('#summary').classList.add('hide')">×</button></div><pre id="summary-text"></pre></div>
+  <div id="summary" class="hide"><div class="sh"><b>Run finished</b><button class="x" onclick="$('#summary').classList.add('hide')">×</button></div><div id="summary-text" class="md"></div></div>
 
   <!-- tutorial coach -->
   <div id="coach" class="hide"><div id="coach-box"><div id="coach-step"></div><h3 id="coach-title"></h3><p id="coach-text"></p><div class="row"><button class="btn" onclick="tutSkip()">Skip</button><span class="spacer"></span><button class="btn p" id="coach-next" onclick="tutNext()">Next</button></div></div></div>
@@ -70,13 +75,41 @@
     <img id="live-img" alt="">
     <div class="lnote"><b>Latest journal note</b><p id="live-note"></p><a id="live-journal" target="_blank" rel="noopener">Read this camera's journal ↗</a></div>
   </div></div>
+  <!-- attach a feed to a camera -->
+  <div id="attach" class="modal hide" onclick="if(event.target===this)closeAttach()"><div class="mbox">
+    <div class="gh"><div><div class="gk" id="at-kicker">Camera feed</div><h2 id="at-title">Connect a camera</h2></div><button class="x" onclick="closeAttach()">×</button></div>
+    <div class="field" id="at-name-row"><label for="at-cam-name">Camera name</label><input id="at-cam-name" placeholder="e.g. front-door, till, kitchen-pass" maxlength="60"></div>
+    <div class="tabs" id="at-tabs">
+      <button data-k="rtsp" onclick="atTab('rtsp')">RTSP stream</button><button data-k="upload" onclick="atTab('upload')">Upload file</button><button data-k="webcam" onclick="atTab('webcam')">Webcam</button><button data-k="http" onclick="atTab('http')">Snapshot URL</button><button data-k="sample" onclick="atTab('sample')">Sample footage</button>
+    </div>
+    <div class="pane" data-k="rtsp">
+      <div class="field"><label for="at-rtsp">Stream address</label><input id="at-rtsp" spellcheck="false" placeholder="rtsp://user:password@192.168.1.20:554/Streaming/Channels/101" onkeydown="if(event.key==='Enter')testAttach()"></div>
+      <div class="hint">Common paths. Hikvision: <code>/Streaming/Channels/101</code> · Dahua / Amcrest: <code>/cam/realmonitor?channel=1&amp;subtype=0</code> · Reolink: <code>/h264Preview_01_main</code> · Tapo: <code>/stream1</code>. Atlas connects over TCP.</div>
+    </div>
+    <div class="pane" data-k="upload">
+      <label class="drop" id="at-drop" for="at-file"><b>Drop a video or image here</b><span>or click to choose a file</span><span class="hint">mp4, mov, mkv, avi, webm, ts, jpg, png · recordings loop like a live camera</span></label>
+      <input type="file" id="at-file" accept="video/*,image/jpeg,image/png,.mkv,.ts,.m4v" hidden onchange="uploadAttach(this.files[0])">
+      <div class="prog hide" id="at-prog"><i id="at-bar"></i><span id="at-ptext"></span></div>
+    </div>
+    <div class="pane" data-k="webcam">
+      <div class="field"><label for="at-webcam">Device on the computer running Atlas</label><select id="at-webcam"><option value="0">Camera 0 (usually the built-in webcam)</option><option value="1">Camera 1</option><option value="2">Camera 2</option><option value="3">Camera 3</option></select></div>
+      <div class="hint">A USB or built-in camera on this machine. Press Test to check it answers.</div>
+    </div>
+    <div class="pane" data-k="http">
+      <div class="field"><label for="at-http">Snapshot or MJPEG URL</label><input id="at-http" spellcheck="false" placeholder="http://user:password@192.168.1.20/ISAPI/Streaming/channels/101/picture" onkeydown="if(event.key==='Enter')testAttach()"></div>
+      <div class="hint">Any address that returns a JPEG (ESP32-CAM <code>/capture</code>, Hikvision <code>/ISAPI/.../picture</code>) or an MJPEG stream.</div>
+    </div>
+    <div class="pane" data-k="sample"><div class="list" id="at-samples"><div class="hint">Loading sample footage…</div></div></div>
+    <div class="preview"><div class="pv" id="at-pv"><span>Test the source to see a frame from it.</span></div><div class="pmsg" id="at-msg"></div></div>
+    <div class="row"><button class="btn" id="at-live" onclick="atLive()">Open live view</button><span class="spacer"></span><button class="btn" id="at-test" onclick="testAttach()">Test connection</button><button class="btn p" id="at-go" onclick="doAttach()">Attach feed</button></div>
+  </div></div>
   <!-- how-to guide -->
   <div id="guide" class="hide" onclick="if(event.target===this)closeGuide()"><div id="guide-box">
-    <div class="gh"><div><div class="gk">Guide</div><h2>How Atlas works</h2></div><button class="x" onclick="closeGuide()">×</button></div>
+    <div class="gh"><div><div class="gk">Guide</div><h2>Operating Atlas</h2></div><button class="x" onclick="closeGuide()">×</button></div>
     <ol class="gsteps">
-      <li><b>Talk to Atlas.</b> Say what your business does and what eats your time, in your own words. Tap a suggestion if you want a quick start. The workspace opens on its own as soon as Atlas has a first idea.</li>
+      <li><b>Brief.</b> Describe the business and the work to take on, in plain words. Plain questions get plain answers and do not create a team. The canvas opens once there is a first draft.</li>
       <li><b>Watch the team appear.</b> Atlas draws the agents it will run for you. Click any card to read its brief. Reshape it by talking: "add a reviewer", "put the writers under one lead", "remove the researcher".</li>
-      <li><b>Add your cameras.</b> Say "I have cameras at the till and the back door" and paste the stream addresses (rtsp://...), or say "try it on sample hotel footage". Each camera keeps a detailed journal of what it sees: who arrives, what they wear and carry, how long they wait, what changes.</li>
+      <li><b>Add your cameras.</b> Press <i>+ Camera</i>, or click any camera tile, and pick how to connect it: an RTSP stream, an uploaded recording, a webcam on this computer, a snapshot URL or sample footage. Test shows a frame before you attach it. You can also just say "I have cameras at the till and the back door". Each camera keeps a detailed journal of what it sees: who arrives, what they wear and carry, how long they wait, what changes.</li>
       <li><b>Build.</b> Press <i>Build this desk</i>. The agents and cameras go live. Camera tiles show the latest picture and the latest note.</li>
       <li><b>Ask anything.</b> Type a question into the chat, for example "Was any bag left unattended?" or "How long did the guest at reception wait?". Atlas answers from the journal, with times, and shows the frames it used.</li>
       <li><b>Give the team a job.</b> Use the bar at the top: a customer enquiry, a report, a daily summary. Every agent's work streams onto its card as it happens.</li>
@@ -86,6 +119,18 @@
     <div class="row"><button class="btn" onclick="closeGuide();tutStart(true)">Replay the walkthrough</button><span class="spacer"></span><button class="btn p" onclick="closeGuide()">Got it</button></div>
   </div></div>
   <div id="toast"></div>
+
+  <!-- status bar -->
+  <footer id="status">
+    <span class="sb"><i id="sb-dot"></i><b id="sb-mode">—</b></span>
+    <span class="sb">State <b id="sb-state">ready</b></span>
+    <span class="sb">Engine <b id="sb-engine">—</b></span>
+    <span class="sb">Models <b id="sb-tier">free</b></span>
+    <span class="sb">Desk <b id="sb-desk">none</b></span>
+    <span class="spacer"></span>
+    <span class="sb">Approvals required</span>
+    <span class="sb"><b id="sb-clock">--:--:--</b> UTC</span>
+  </footer>
 </div>
 <script src="/desk/static/workspace.js"></script>
 </body>

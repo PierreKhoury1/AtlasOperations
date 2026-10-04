@@ -8,7 +8,20 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 const api = async (p, opt) => { const r = await fetch('/api' + p, opt ? {headers:{'Content-Type':'application/json'}, ...opt, body: opt.body ? JSON.stringify(opt.body) : undefined} : undefined); if (r.status === 401) { location.href = '/login?next=/desk/workspace'; return null; } try { return await r.json(); } catch (_) { return {error: 'bad response ' + r.status}; } };
 function toast(m){ const t = $('#toast'); t.textContent = m; t.classList.add('on'); clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.remove('on'), 2800); }
 
-const PALETTE = ['#7c3aed', '#db2777', '#1f9d63', '#b45309', '#0e7490', '#6d28d9', '#ea580c', '#15803d', '#a21caf', '#0369a1'];
+const PALETTE = ['#4c90f0', '#32a467', '#ec9a3c', '#9881f3', '#2ec4b6', '#e76a6e', '#68c1ee', '#d1980b', '#c274c2', '#8eb125'];   // muted, one per agent
+const hhmmss = d => (d || new Date()).toLocaleTimeString('en-GB', {hour12: false});
+function setState(t){ t = String(t || 'ready').toLowerCase(); const busy = t !== 'ready'; ['#sb-state', '#chat-state'].forEach(q => { const el = $(q); if (el) { el.textContent = t; el.classList.toggle('busy', busy); } }); }
+function setDeskStatus(){ const d = $('#sb-desk'); if (d) d.textContent = W.deskId ? `${W.deskName || 'desk'} #${W.deskId}` : (W.bp ? 'draft' : 'none'); const t = $('#sb-tier'); if (t) t.textContent = W.tier === 'free' ? 'free' : 'paid'; }
+async function initStatus(){
+  const dot = $('#sb-dot'), mode = $('#sb-mode');
+  const live = W.mode === 'live' && !W.liveReason;
+  mode.textContent = live ? 'live' : (W.mode || 'demo'); dot.className = live ? 'ok' : 'warn';
+  const h = await api('/health') || {};
+  $('#sb-engine').textContent = h.hermes_agent ? 'hermes ok' : (h.ok ? 'built-in' : 'unreachable');
+  if (h.ok === false) dot.className = 'bad';
+  setDeskStatus();
+  const tick = () => { $('#sb-clock').textContent = new Date().toISOString().slice(11, 19); }; tick(); setInterval(tick, 1000);
+}
 const W = {
   phase: 'meet',            // meet -> design -> run
   sid: null, mode: 'demo', tier: 'free', liveReason: '',
@@ -21,6 +34,9 @@ const W = {
   sel: null, busy: false, edgeAnim: null,
   cams: new Map(),          // name -> {name, id, source, sample, journal, alerts, el, seenTs, lastEv}
   camPoll: null, evSince: 0,
+  manual: new Map(),        // id -> {x,y}: cards the owner dragged (canvas units)
+  pan: {x: 0, y: 0}, uz: 1, // background pan (px) and the owner's zoom on top of the fit
+  addedCams: new Map(),     // name -> source: feeds attached by hand before the desk is built
 };
 
 /* ------------------------------------------------------------------ boot */
@@ -28,12 +44,13 @@ window.addEventListener('DOMContentLoaded', boot);
 async function boot(){
   const cfg = await api('/config') || {};
   W.mode = cfg.mode || 'demo'; W.liveReason = cfg.live_reason || '';
+  initStatus();
   const q = new URLSearchParams(location.search);
   if (q.get('desk') && cfg.desk) {                                   // existing desk: open straight into run mode
-    W.deskId = cfg.desk.id; W.deskName = cfg.business && cfg.business.name || cfg.desk.name;
+    W.deskId = cfg.desk.id; W.deskName = cfg.business && cfg.business.name || cfg.desk.name; loadView();
     W.tier = cfg.desk.tier || 'free'; $('#tier-pill').textContent = W.tier === 'free' ? 'free models' : 'paid models';
     loadAgentsFromConfig(cfg.agents || []);
-    $('#bz-name').textContent = W.deskName;
+    $('#bz-name').textContent = W.deskName; setDeskStatus();
     await openWorkspace();
     await spawnAll();
     const cams = await api('/cameras') || {};
@@ -42,17 +59,17 @@ async function boot(){
     enterRunMode();
     if (W.cams.size) { startCamPoll(); setSugg(CAM_QUESTIONS); }
     addMsg('a', W.cams.size
-      ? `This is the ${W.deskName} desk: ${W.agents.size} agent${W.agents.size === 1 ? '' : 's'} and ${W.cams.size} camera${W.cams.size === 1 ? '' : 's'} keeping a journal. Ask me anything about what the cameras saw, give the team a job in the bar above, or tell me what to change.`
-      : `This is the ${W.deskName} desk. Give the team a job in the bar above and watch them work.`);
+      ? `${W.deskName}: ${W.agents.size} agent${W.agents.size === 1 ? '' : 's'}, ${W.cams.size} camera${W.cams.size === 1 ? '' : 's'} keeping a journal. Ask about what the cameras saw, give the team a job in the bar above, or describe a change.`
+      : `${W.deskName}: ${W.agents.size} agent${W.agents.size === 1 ? '' : 's'} on the desk. Give the team a job in the bar above, or describe a change.`);
     tutStart(false, W.cams.size ? 'watching' : 'built');
     return;
   }
   const s = await api('/design/start', {method: 'POST', body: {tier: W.tier}});
-  if (!s || s.error) { addMsg('a', (s && s.error) || 'Atlas is not available right now.'); return; }
-  W.sid = s.sid; W.mode = s.mode;
+  if (!s || s.error) { addMsg('s', (s && s.error) || 'Atlas is not available right now.'); setState('unavailable'); return; }
+  W.sid = s.sid; W.mode = s.mode; loadView();
   sessionStorage.setItem('ws_sid', s.sid);
-  const greet = (s.transcript && s.transcript[0] && s.transcript[0].text) || 'Tell me about your business.';
-  await typeMsg(greet);
+  const greet = (s.transcript && s.transcript[0] && s.transcript[0].text) || 'Describe the business and the work to take on.';
+  addMsg('a', greet);
   setSugg(s.suggestions || []);
   loadMyDesks();
   if (W.liveReason) addMsg('s', 'no model key: ' + W.liveReason + ' (running the scripted designer)');
@@ -63,21 +80,13 @@ function loadAgentsFromConfig(list){
   W.agents.clear(); W.order = [];
   list.forEach((a, i) => { if (a.id === 'atlas') return;
     W.agents.set(a.id, {id: a.id, name: a.name, role: a.role || '', goal: a.goal || '', instructions: a.instructions || [], tools: (a.tools || []).filter(t => !['delegate','list_agents','finish'].includes(t)),
-      engine: a.engine || 'atlas', reports_to: a.reports_to || 'atlas', members: a.members || [], color: a.color || PALETTE[i % PALETTE.length]}); });
+      engine: a.engine || 'atlas', reports_to: a.reports_to || 'atlas', members: a.members || [], color: PALETTE[i % PALETTE.length]}); });
   W.order = orderIds();
 }
 
 /* ------------------------------------------------------------------ chat */
-function addMsg(role, text, cls){ const d = document.createElement('div'); d.className = 'm ' + role + (cls ? ' ' + cls : ''); d.textContent = text; $('#msgs').appendChild(d); $('#msgs').scrollTop = 1e9; return d; }
-async function typeMsg(text){
-  const d = addMsg('a', ''); const cur = document.createElement('i'); cur.className = 'cur'; d.appendChild(cur);
-  $('#orbstate').textContent = 'speaking'; W.typing = true;
-  const t0 = performance.now(); let shown = 0;                      // time-based: ~260 chars/s even when timers are throttled
-  while (shown < text.length) { if (!W.typing) break; const want = Math.min(text.length, Math.max(shown + 1, Math.round((performance.now() - t0) * 0.26)));
-    d.insertBefore(document.createTextNode(text.slice(shown, want)), cur); shown = want; $('#msgs').scrollTop = 1e9; await sleep(16); }
-  if (shown < text.length) d.insertBefore(document.createTextNode(text.slice(shown)), cur);
-  W.typing = false; cur.remove(); $('#orbstate').textContent = 'listening'; return d;
-}
+function addMsg(role, text, cls){ const d = document.createElement('div'); d.className = 'm ' + role + (cls ? ' ' + cls : ''); d.dataset.who = role === 'u' ? 'You' : (role === 'a' ? 'Atlas' : ''); d.dataset.t = hhmmss(); if (role === 'a') { d.classList.add('md'); d.innerHTML = md(text); } else d.textContent = text; $('#msgs').appendChild(d); $('#msgs').scrollTop = 1e9; return d; }
+async function typeMsg(text){ return addMsg('a', text); }      // shown at once: no typing effect
 function setSugg(list){ $('#sugg').innerHTML = (list || []).map(s => `<button onclick="send(${JSON.stringify(s).replace(/"/g, '&quot;')})">${esc(s)}</button>`).join(''); }
 function sayKey(ev){ if (ev.key === 'Enter' && !ev.shiftKey) { ev.preventDefault(); send(); } }
 
@@ -89,8 +98,11 @@ async function send(text){
   W.lastSaid = text;
   if (W.phase === 'run' && !W.sid) { $('#job').value = text; return deploy(); }
   addMsg('u', text); setSugg([]);
-  W.busy = true; $('#send').disabled = true; $('#orb').classList.add('busy'); $('#orbstate').textContent = 'thinking';
-  const d = addMsg('a', ''); const cur = document.createElement('i'); cur.className = 'cur'; d.appendChild(cur);
+  if (W.phase === 'meet') $('#ws').classList.add('talk');               // the brief screen becomes a full conversation
+  W.busy = true; $('#send').disabled = true; setState('working');
+  const d = addMsg('a', ''); let acc = '', raf = 0;
+  const paint = () => { raf = 0; d.innerHTML = md(acc) + '<i class="cur"></i>'; $('#msgs').scrollTop = 1e9; };
+  paint();
   let result = null;
   try {
     const r = await fetch(`/api/design/${W.sid}/say`, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({text})});
@@ -103,23 +115,23 @@ async function send(text){
         for (const line of chunk.split('\n')) {
           if (!line.startsWith('data: ')) continue;
           let ev; try { ev = JSON.parse(line.slice(6)); } catch (_) { continue; }
-          if (ev.t === 'tok') { d.insertBefore(document.createTextNode(ev.d), cur); $('#msgs').scrollTop = 1e9; }
-          else if (ev.t === 'status') { $('#orbstate').textContent = ev.d.toLowerCase(); }
+          if (ev.t === 'tok') { acc += ev.d; if (!raf) raf = requestAnimationFrame(paint); }
+          else if (ev.t === 'status') { setState(ev.d); }
           else if (ev.t === 'done') result = ev;
           else if (ev.t === 'error') result = {error: ev.error};
         }
       }
     }
   } catch (e) { result = {error: String(e)}; }
-  cur.remove();
-  W.busy = false; $('#send').disabled = false; $('#orb').classList.remove('busy'); $('#orbstate').textContent = 'listening';
-  if (!result || result.error) { d.textContent = (result && result.error) || 'Atlas did not answer. Try again.'; return; }
+  cancelAnimationFrame(raf);
+  W.busy = false; $('#send').disabled = false; setState('ready');
+  if (!result || result.error) { d.innerHTML = md((result && result.error) || 'Atlas did not answer. Try again.'); return; }
   const last = (result.transcript || []).filter(m => m.role === 'assistant').pop();
-  if (!d.textContent.trim()) d.textContent = (last && last.text) || result.text || 'Atlas did not answer. Try again.';
+  d.innerHTML = md(result.text || (last && last.text) || acc || 'Atlas did not answer. Try again.');   // the final text, without the machine block
   setSugg(result.suggestions || []);
-  if (result.blueprint && (result.blueprint.agents || []).length) await applyBlueprint(result.blueprint);
+  if (result.blueprint && (result.blueprint.agents || []).length) { await applyBlueprint(result.blueprint); setDeskStatus(); }
   $('#build-btn').disabled = !(W.bp && W.bp.agents && W.bp.agents.length);
-  $('#build-hint').textContent = result.ready ? 'Atlas thinks the team is ready. Build it, or keep refining.' : (W.bp ? 'Keep talking to reshape the team, or build it now.' : 'Atlas needs a first draft of the team before you can build.');
+  $('#build-hint').textContent = result.ready ? 'Draft complete. Build it, or keep refining.' : (W.bp ? 'Describe changes to reshape the team, or build now.' : 'Build is available once there is a first draft.');
   if (result.ready) tutHook('ready');
 }
 
@@ -127,9 +139,9 @@ async function send(text){
 async function openWorkspace(){
   if (W.phase !== 'meet') return;
   W.phase = 'design';
-  $('#phase-label').textContent = 'designing the team';
+  $('#phase-label').textContent = 'design';
   const ws = $('#ws'); ws.classList.remove('meet'); ws.classList.add('open');
-  await sleep(950);                                                  // grid + orb transitions
+  await sleep(500);                                                  // grid transition
   layoutAll(false);
 }
 
@@ -145,7 +157,7 @@ async function applyBlueprint(bp){
   W.bp = bp;
   const incoming = new Map();
   (bp.agents || []).forEach((a, i) => incoming.set(a.id, {id: a.id, name: a.name, role: a.role || '', goal: a.goal || '', instructions: a.instructions || [],
-    tools: a.tools || [], engine: a.engine || 'atlas', reports_to: a.reports_to || 'atlas', members: a.members || [], color: a.color || PALETTE[i % PALETTE.length]}));
+    tools: a.tools || [], engine: a.engine || 'atlas', reports_to: a.reports_to || 'atlas', members: a.members || [], color: PALETTE[i % PALETTE.length]}));
   const business = bp.business || {};
   if (business.name) { W.deskName = business.name; $('#bz-name').textContent = business.name; }
   const first = W.phase === 'meet';
@@ -154,7 +166,7 @@ async function applyBlueprint(bp){
   incoming.forEach((a, id) => { const old = W.agents.get(id); if (!old) added.push(a); else { if (old.reports_to !== a.reports_to) moved.push(a); else if (old.role !== a.role || old.name !== a.name || (old.tools || []).join() !== (a.tools || []).join()) changed.push(a); } });
   W.agents.forEach((a, id) => { if (!incoming.has(id)) removed.push(a); });
   // narrate what Atlas is doing to the team
-  if (first && added.length) addMsg('s', 'Atlas is assembling your team…', 'assign');
+  if (first && added.length) addMsg('s', 'drafting team', 'assign');
   // update state
   W.agents = incoming;                                               // blueprint order, not first-seen order
   W.order = orderIds();
@@ -169,6 +181,7 @@ async function applyBlueprint(bp){
   }
   moved.forEach(a => { const to = a.reports_to === 'atlas' ? 'Atlas' : (W.agents.get(a.reports_to) || {}).name || a.reports_to; addMsg('s', `↳ ${a.name} now reports to ${to}`, 'assign'); removeEdge(a.id); drawEdge(a.id, true); });
   changed.forEach(a => { const el = nodeEl(a.id); if (el) { renderNodeInner(el, a); el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash'); } });
+  W.addedCams.forEach((src, name) => { const list = bp.cameras = bp.cameras || []; const c = list.find(x => x.name === name); if (c) { if (!c.source) c.source = src; } else list.push({name, source: src, journal: true, notes: '', focus: ''}); });   // hand-attached feeds survive a redraft
   await applyCams(bp.cameras || []);
   if (first) { tutHook('team'); }
   if (W.sel && !W.agents.has(W.sel)) closeInsp();
@@ -193,9 +206,10 @@ function layoutAll(animate, freshIds){
   const total = heights.reduce((s, h) => s + h, 0) + Math.max(0, blocks.length - 1) * GAP;
   const hasMembers = blocks.some(b => b.members.length);
   const needW = NW_ATLAS + COL + (hasMembers ? COL : 0) + (NW - 30) + 48;
-  const k = W.k = Math.max(.5, Math.min(1, (H0 - 40) / Math.max(1, total), W0 / needW));
+  const k = W.k = Math.max(.5, Math.min(1, (H0 - 40) / Math.max(1, total), W0 / needW)) * (W.uz || 1);
   const H = H0 / k, Wd = W0 / k;
-  ['#nodes', '#edges'].forEach(q => { const st = $(q).style; st.inset = 'auto'; st.left = st.top = '0'; st.width = Wd + 'px'; st.height = H + 'px'; st.transformOrigin = '0 0'; st.transform = k < 1 ? `scale(${k})` : ''; });
+  W.vb = [Wd, H];                                                    // the edges' viewBox must match the box the nodes were laid out in
+  ['#nodes', '#edges'].forEach(q => { const st = $(q).style; st.inset = 'auto'; st.left = st.top = '0'; st.width = Wd + 'px'; st.height = H + 'px'; st.transformOrigin = '0 0'; }); applyView();
   const x0 = Math.max(24, Math.round((Wd - (NW_ATLAS + COL + (hasMembers ? COL : 0) + (NW - 30))) / 2));
   let y = Math.max(20, Math.round((H - total) / 2));
   const atlasY = Math.max(20, Math.round(H / 2 - 48));
@@ -210,11 +224,11 @@ function layoutAll(animate, freshIds){
   $('#empty').classList.toggle('hide', W.agents.size > 0);
   redrawEdges(); if (animate) animateEdges(900);
 }
-function setPos(id, x, y, w, animate){ W.pos.set(id, {x, y, w}); const el = nodeEl(id); if (el && !el.classList.contains('spawn')) { if (!animate) el.style.transition = 'none'; el.style.transform = `translate(${x}px,${y}px)`; if (!animate) { void el.offsetWidth; el.style.transition = ''; } } }
+function setPos(id, x, y, w, animate){ const m = W.manual.get(id); if (m) { x = m.x; y = m.y; } W.pos.set(id, {x, y, w}); const el = nodeEl(id); if (el && !el.classList.contains('spawn')) { if (!animate) el.style.transition = 'none'; el.style.transform = `translate(${x}px,${y}px)`; if (!animate) { void el.offsetWidth; el.style.transition = ''; } } }
 function nodeEl(id){ return document.getElementById('n-' + id.replace(/[^a-zA-Z0-9_#-]/g, '-')); }
 function ensureAtlasNode(){
   let el = nodeEl('atlas'); const p = W.pos.get('atlas');
-  if (!el) { el = document.createElement('div'); el.className = 'node atlas'; el.id = 'n-atlas'; el.onclick = () => inspect('atlas');
+  if (!el) { el = document.createElement('div'); el.className = 'node atlas'; el.id = 'n-atlas'; el.dataset.id = 'atlas'; el.onclick = () => { if (!W.dragged) inspect('atlas'); };
     el.innerHTML = `<div class="nm">Atlas <span class="tag lead">lead</span></div><div class="role">Orchestrator — briefs, reviews, approves</div><div class="asg"></div><div class="chips"></div><div class="out"></div><div class="ft"></div>`;
     el.style.transition = 'none'; el.style.transform = `translate(${p.x}px,${p.y}px)`; $('#nodes').appendChild(el); void el.offsetWidth; el.style.transition = ''; }
   else el.style.transform = `translate(${p.x}px,${p.y}px)`;
@@ -229,10 +243,10 @@ function renderNodeInner(el, a){
 async function spawn(id, fromId){
   const a = W.agents.get(id); if (!a) return; if (nodeEl(id)) { renderNodeInner(nodeEl(id), a); return; }
   const from = W.pos.get(fromId) || W.pos.get('atlas') || {x: 40, y: 40, w: 200}; const to = W.pos.get(id) || from;
-  const el = document.createElement('div'); el.className = 'node spawn'; el.id = 'n-' + id; el.onclick = () => inspect(id);
+  const el = document.createElement('div'); el.className = 'node spawn'; el.id = 'n-' + id; el.dataset.id = id; el.onclick = () => { if (!W.dragged) inspect(id); };
   el.innerHTML = `<div class="nm"></div><div class="role"></div><div class="asg"></div><div class="chips"></div><div class="out"></div><div class="ft"></div>`;
   renderNodeInner(el, a);
-  el.style.transition = 'none'; el.style.transform = `translate(${from.x + from.w / 2 - NW / 2}px,${from.y + 20}px) scale(.25)`;
+  el.style.transition = 'none'; el.style.transform = `translate(${to.x}px,${to.y}px)`;      // fades in place, no fly-out
   $('#nodes').appendChild(el); void el.offsetWidth; el.style.transition = '';
   await sleep(20);
   el.classList.remove('spawn'); el.style.transform = `translate(${to.x}px,${to.y}px)`;
@@ -257,12 +271,14 @@ function drawEdge(id, animate){
 }
 function removeEdge(id){ const p = $('#edges').querySelector(`[data-e="${id}"]`); if (p) p.remove(); }
 function redrawEdges(){
-  const svg = $('#edges'); const c = $('#canvas'); const k = W.k || 1; svg.setAttribute('viewBox', `0 0 ${c.clientWidth / k} ${c.clientHeight / k}`);
+  const svg = $('#edges'); const c = $('#canvas'); const k = W.k || 1; const vb = W.vb || [c.clientWidth / k, c.clientHeight / k]; svg.setAttribute('viewBox', `0 0 ${vb[0]} ${vb[1]}`);
   W.agents.forEach((a, id) => { if (nodeEl(id)) { const p = svg.querySelector(`[data-e="${id}"]`); if (p) p.setAttribute('d', edgeD(parentOf(id), id)); else drawEdge(id, false); } });
   if (W.run) W.run.inst.forEach((s, inst) => { if (s.ghost) { const p = svg.querySelector(`[data-e="${inst}"]`); if (p) p.setAttribute('d', edgeD(s.parent, inst)); } });
 }
 function animateEdges(ms){ const end = performance.now() + ms; cancelAnimationFrame(W.edgeAnim); const step = () => { redrawEdges(); if (performance.now() < end) W.edgeAnim = requestAnimationFrame(step); }; W.edgeAnim = requestAnimationFrame(step); }
-window.addEventListener('resize', () => { if (W.phase !== 'meet') layoutAll(false); });
+// re-lay out whenever the canvas changes size: window resize, the column opening, the event log or camera strip appearing
+if (window.ResizeObserver) new ResizeObserver(() => { if (W.phase === 'meet') return; cancelAnimationFrame(W.relayout); W.relayout = requestAnimationFrame(() => layoutAll(false)); }).observe(document.getElementById('canvas'));
+else window.addEventListener('resize', () => { if (W.phase !== 'meet') layoutAll(false); });
 
 /* ------------------------------------------------------------------ inspector */
 function inspect(id){
@@ -288,26 +304,27 @@ function closeInsp(){ W.sel = null; $('#insp').classList.remove('on'); document.
 /* ------------------------------------------------------------------ build */
 async function buildDesk(){
   if (!W.bp || !(W.bp.agents || []).length) return;
-  $('#build-btn').disabled = true; $('#build-hint').textContent = 'Building the desk…';
+  $('#build-btn').disabled = true; $('#build-hint').textContent = 'Building…'; setState('building');
   const r = await api(`/design/${W.sid}/build`, {method: 'POST', body: {blueprint: W.bp, tier: W.tier, name: W.deskName || ''}});
+  setState('ready');
   if (!r || r.error) { $('#build-hint').textContent = (r && r.error) || 'build failed'; $('#build-btn').disabled = false; return; }
-  W.deskId = r.desk.id; W.deskName = r.desk.business_name || r.desk.name; $('#bz-name').textContent = W.deskName;
+  W.deskId = r.desk.id; W.deskName = r.desk.business_name || r.desk.name; $('#bz-name').textContent = W.deskName; setDeskStatus(); saveView();
   (r.cameras || []).forEach(c => { const k = W.cams.get(c.name); if (k) { k.id = c.id; k.journal = c.journal; setCamState(k, 'starting…', ''); } });
-  const camLine = (r.cameras || []).length ? ` ${r.cameras.length} camera${r.cameras.length === 1 ? ' is' : 's are'} now watching and writing the journal. Ask me anything about what they see.` : '';
+  const camLine = (r.cameras || []).length ? ` ${r.cameras.length} camera${r.cameras.length === 1 ? '' : 's'} writing the journal; ask about what they see.` : '';
   const missing = (r.cameras_missing || []).length ? ` Still needed: the stream address for ${r.cameras_missing.join(', ')} (add it on the Cameras page of the full dashboard).` : '';
-  addMsg('a', `Built. ${W.agents.size} specialist${W.agents.size === 1 ? '' : 's'} on the desk, every outbound message waits for your approval.${camLine}${missing} Give the team a job in the bar above, or keep telling me what to change.`);
+  addMsg('a', `Desk built: ${W.agents.size} agent${W.agents.size === 1 ? '' : 's'}. Outbound messages wait for approval.${camLine}${missing} Give the team a job in the bar above.`);
   toast('Desk built');
   enterRunMode();
   if ((r.cameras || []).length) { startCamPoll(); setSugg(CAM_QUESTIONS); tutHook('watching'); } else tutHook('built');
 }
 function enterRunMode(){
   W.phase = 'run'; $('#ws').classList.add('run');
-  $('#jobbar').classList.remove('hide'); $('#phase-label').textContent = 'ready — give the team a job';
+  $('#jobbar').classList.remove('hide'); $('#phase-label').textContent = 'ready';
   $('#chat-foot').classList.add('hide');
-  $('#say').placeholder = W.sid ? 'Ask Atlas to change the team, or type a job here…' : 'Give the team a job…';
+  $('#say').placeholder = W.sid ? 'Describe a change to the team, or type a job' : (W.cams.size ? 'Ask about the cameras, or type a job' : 'Type a job for the team');
   document.querySelectorAll('.node .nm .tag').forEach(t => { if (!t.classList.contains('lead') && !t.textContent.startsWith('↳')) t.textContent = 'idle'; });
   loadApprovals();
-  setTimeout(() => $('#job').focus(), 300);
+  setTimeout(() => $('#job').focus({preventScroll: true}), 300);
 }
 
 /* ------------------------------------------------------------------ run: real events, live output */
@@ -325,7 +342,7 @@ async function deploy(){
   W.agents.forEach(a => { const el = nodeEl(a.id); if (el) el.querySelector('.chips').innerHTML = ''; });
   const atlas = nodeEl('atlas'); if (atlas) atlas.querySelector('.chips').innerHTML = '';
   W.run = {id: r.run_id, inst: new Map(), active: true, tin: 0, tout: 0};
-  $('#phase-label').textContent = 'team working…';
+  $('#phase-label').textContent = 'running'; setState('running');
   const es = new EventSource(`/api/stream?run=${encodeURIComponent(r.run_id)}&since=0`);
   W.run.es = es;
   es.onmessage = m => { try { onRunEvent(JSON.parse(m.data)); } catch (_) {} };
@@ -356,7 +373,7 @@ function onRunEvent(e){
   if (!W.run || e.run_id !== W.run.id) return;
   if (typeof e.data === 'string') { try { e.data = JSON.parse(e.data || '{}'); } catch (_) { e.data = {}; } }
   e.data = e.data || {};
-  if (e.kind === 'usage') { W.run.tin = e.data.tokens_in; W.run.tout = e.data.tokens_out; $('#phase-label').textContent = `team working… ${(W.run.tin || 0).toLocaleString()} tokens in`; return; }
+  if (e.kind === 'usage') { W.run.tin = e.data.tokens_in; W.run.tout = e.data.tokens_out; $('#phase-label').textContent = `running · ${(W.run.tin || 0).toLocaleString()} tok in`; return; }
   if (e.kind === 'token') { if (e.data.thinking) return; const s = instState(e); s.text += e.text; if (s.text.length > 6000) s.text = s.text.slice(-6000); const el = elFor(s); if (el) { const o = el.querySelector('.out'); o.textContent = s.text.slice(-420); } const live = document.getElementById('live-' + s.inst); if (live) { live.textContent = s.text; live.scrollTop = 1e9; } if (s.status !== 'writing') { s.status = 'writing'; setTag(el, 'writing', 'busy'); } return; }
   if (e.agent !== 'system' && e.agent !== 'owner') {
     const s = instState(e); const el = elFor(s);
@@ -373,9 +390,9 @@ function onRunEvent(e){
     W.run.active = false; if (W.run.es) W.run.es.close();
     document.querySelectorAll('.node.busy').forEach(n => { n.classList.remove('busy'); n.classList.add('done'); setTag(n, 'done ✓', 'done'); });
     $('#edges').querySelectorAll('path.on').forEach(p => { p.classList.remove('on'); p.classList.add('done'); });
-    $('#phase-label').textContent = (e.data.status || 'done') + ' — give the team another job';
-    $('#summary-text').textContent = (e.text || '').trim(); $('#summary').classList.remove('hide');
-    addMsg('a', `Done. ${(e.text || '').split('---').pop().trim() || 'Run finished.'}`);
+    $('#phase-label').textContent = (e.data.status || 'done'); setState('ready');
+    $('#summary-text').innerHTML = md((e.text || '').trim()); $('#summary').classList.remove('hide');
+    addMsg('a', `Run finished. ${(e.text || '').split('---').pop().trim()}`.trim());
     loadApprovals(); tutHook('done');
   }
   if (!['token', 'usage', 'log'].includes(e.kind)) feed(e);
@@ -408,7 +425,7 @@ function toggleApprovals(force){ const d = $('#apdrawer'); const on = typeof for
 const TUT = {steps: [], i: -1, auto: true, on: false};
 const TUT_STEPS = {
   meet: [
-    {t: '#orbwrap', h: 'This is Atlas', p: 'Atlas runs your desk. It designs the team, briefs every agent, checks their work and never sends anything without you.'},
+    {t: '#chat-head', h: 'Atlas', p: 'Atlas designs the team, briefs every agent, checks their work and never sends anything without your approval.'},
     {t: '#composer', h: 'Tell it about your business', p: 'One or two sentences: what you do, and the job that eats your time. Try a suggestion chip if you want a quick start. Atlas will open the workspace and assemble the team as you talk.', end: true},
   ],
   team: [
@@ -462,7 +479,7 @@ function tutSkip(){ TUT.auto = false; localStorage.setItem('ws_tut_done', '1'); 
 
 /* ------------------------------------------------------------------ cameras: tiles, live picture, journal, questions */
 const CAM_QUESTIONS = ['What happened in the last 10 minutes?', 'Was anything left behind?', 'Who waited the longest?', 'Describe everyone who came in'];
-function camKind(src){ src = String(src || ''); if (!src) return 'needs a stream address'; if (src.startsWith('sample:') || /AtlasDemo[\\/]videos/i.test(src)) return 'sample footage'; if (/^rtsps?:/i.test(src)) return 'RTSP camera'; if (/^https?:/i.test(src)) return 'snapshot URL'; if (/^\d+$/.test(src)) return 'webcam'; if (/\.(mp4|mov|avi|mkv|webm)$/i.test(src)) return 'recording'; return 'camera'; }
+function camKind(src){ src = String(src || ''); if (!src) return 'needs a stream address'; if (src.startsWith('sample:') || /AtlasDemo[\\/]videos|[\\/]samples[\\/]/i.test(src)) return 'sample footage'; if (/^rtsps?:/i.test(src)) return 'RTSP camera'; if (/^https?:/i.test(src)) return 'snapshot URL'; if (/^\d+$/.test(src)) return 'webcam'; if (/\.(mp4|mov|avi|mkv|webm|m4v|ts|mpe?g)$/i.test(src)) return 'recording'; if (/\.(jpe?g|png)$/i.test(src)) return 'still image'; return 'camera'; }
 function setCamState(k, text, cls){ if (!k.el) return; const t = k.el.querySelector('.cn .tag'); t.textContent = text; t.className = 'tag ' + (cls || ''); }
 async function applyCams(list, instant){
   const incoming = new Map((list || []).map(c => [c.name, c]));
@@ -473,11 +490,11 @@ async function applyCams(list, instant){
   if (first) { layoutAll(true); animateEdges(700); }
   for (const [name, c] of incoming) {
     const k = W.cams.get(name);
-    if (k) { Object.assign(k, {source: c.source, journal: c.journal !== false, alerts: !!c.alerts, id: c.id || k.id}); k.el.querySelector('.kind').textContent = camKind(c.source); continue; }
+    if (k) { Object.assign(k, {source: c.source, journal: c.journal !== false, alerts: !!c.alerts, id: c.id || k.id}); const kd = k.el.querySelector('.kind'); if (kd) kd.textContent = camKind(c.source); continue; }
     const nk = {name, id: c.id || null, source: c.source || '', journal: c.journal !== false, alerts: !!c.alerts, el: null, seenTs: 0};
     const el = document.createElement('div'); el.className = 'cam' + (instant ? '' : ' spawn');
     el.innerHTML = `<div class="pic"><span class="kind">${esc(camKind(c.source))}</span></div><div class="cb"><div class="cn">${esc(name)}<span class="tag ${nk.journal ? 'on' : ''}">${nk.journal ? 'journal on' : 'rules only'}</span></div><div class="note">${esc(c.notes || c.focus || 'waiting for the first note')}</div></div>`;
-    el.onclick = () => openLive(name);
+    el.onclick = () => openAttach(name);
     $('#cams').appendChild(el); nk.el = el; W.cams.set(name, nk);
     if (!instant) { addMsg('s', `+ camera ${name}: ${camKind(c.source)}${nk.journal ? ', keeping a journal' : ''}`, 'assign'); void el.offsetWidth; await sleep(30); el.classList.remove('spawn'); await sleep(170); }
   }
@@ -513,11 +530,11 @@ async function pollCams(){
 function looksLikeQuestion(t){ return /\?\s*$/.test(t) || /^(who|what|when|where|why|how|was|were|did|does|do|is|are|has|have|had|any|anyone|anything|show|describe|tell me|list|summar|count)\b/i.test(t.trim()); }
 async function askCams(text){
   addMsg('u', text); setSugg([]);
-  W.busy = true; $('#send').disabled = true; $('#orb').classList.add('busy'); $('#orbstate').textContent = 'reading the journal';
+  W.busy = true; $('#send').disabled = true; setState('reading journal');
   if (W.deskId) await api(`/desks/${W.deskId}/select`, {method: 'POST', body: {}});
   const r = await api('/vision/ask', {method: 'POST', body: {question: text, hours: 24}});
-  W.busy = false; $('#send').disabled = false; $('#orb').classList.remove('busy'); $('#orbstate').textContent = 'listening';
-  if (!r || r.error) { addMsg('a', (r && r.error) || 'I could not read the journal just now. Try again.'); return; }
+  W.busy = false; $('#send').disabled = false; setState('ready');
+  if (!r || r.error) { addMsg('s', (r && r.error) || 'could not read the journal; try again'); return; }
   const d = await typeMsg(r.answer || 'Nothing in the journal answers that yet.');
   d.classList.add('cams');
   const ev = (r.evidence || []).filter(e => e.snapshot_url).slice(-6);
@@ -536,7 +553,8 @@ async function loadMyDesks(){
   const r = await api('/desks'); const list = (r && r.desks || []).filter(d => d.name && d.name !== 'My business').slice(0, 8);
   if (!list.length) return;
   const box = $('#mydesks');
-  box.innerHTML = '<span>Or open one of your desks:</span>' + list.map(d => `<button onclick="openDesk(${d.id})">${esc(d.business_name || d.name)}</button>`).join('');
+  const day = ts => ts ? new Date(ts * 1000).toLocaleDateString('en-GB', {day: '2-digit', month: 'short'}) : '';
+  box.innerHTML = '<div class="lh">Desks</div>' + list.map(d => `<button onclick="openDesk(${d.id})"><span>${esc(d.business_name || d.name)}</span><span class="c">${esc((d.template || '').replace(/_/g, ' '))}</span><span class="c">${esc(d.tier || '')}</span><span class="c">#${d.id} · ${esc(day(d.created))}</span><span class="go">→</span></button>`).join('');
   box.classList.remove('hide');
 }
 async function openDesk(id){ await api(`/desks/${id}/select`, {method: 'POST', body: {}}); location.href = '/desk/workspace?desk=' + id; }
@@ -550,7 +568,7 @@ async function setTier(tier){
   if (!W.sid) return toast(W.deskId ? 'This desk was built on ' + (W.tier === 'free' ? 'free' : 'paid') + ' models; change it in Desk setup' : 'Start a conversation first');
   const r = await api(`/design/${W.sid}/tier`, {method: 'POST', body: {tier}});
   if (!r || r.error) return toast((r && r.error) || 'could not switch');
-  W.tier = r.tier; const lbl = W.tier === 'free' ? 'free models' : 'paid models (about 3p a message)'; $('#tier-btn').textContent = lbl; $('#tier-pill').textContent = lbl;
+  W.tier = r.tier; const lbl = W.tier === 'free' ? 'free models' : 'paid models (about 3p a message)'; $('#tier-btn').textContent = lbl; $('#tier-pill').textContent = lbl; setDeskStatus();
   addMsg('s', W.tier === 'free' ? 'switched to free models' : 'switched to paid models: Claude for design, a paid vision model for the cameras', 'assign');
 }
 function toggleTier(){ return setTier(W.tier === 'free' ? 'balanced' : 'free'); }
@@ -569,3 +587,199 @@ function openLive(name){
 function closeLive(){ $('#live-img').src = ''; $('#liveview').classList.add('hide'); W.liveCam = null; }
 document.addEventListener('keydown', e => { if (e.key === 'Escape' && W.liveCam) closeLive(); });
 setInterval(() => { if (W.liveCam) { const k = W.cams.get(W.liveCam); if (k && k.note) $('#live-note').textContent = k.note; } }, 2000);
+
+
+/* ------------------------------------------------------------------ formatted replies (a small, safe markdown subset) */
+function mdInline(t){
+  return esc(t)
+    .replace(/`([^`]+)`/g, '<code>$1</code>')
+    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+    .replace(/(^|[\s(])\*([^*\s][^*]*?)\*(?=[\s).,;:!?]|$)/g, '$1<em>$2</em>')
+    .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+}
+function md(src){
+  const lines = String(src ?? '').replace(/\r/g, '').split('\n'); const out = []; let list = null, para = [], code = null, table = null;
+  const flushPara = () => { if (para.length) { out.push('<p>' + para.map(mdInline).join('<br>') + '</p>'); para = []; } };
+  const flushList = () => { if (list) { out.push(`<${list.tag}>` + list.items.map(i => `<li>${mdInline(i)}</li>`).join('') + `</${list.tag}>`); list = null; } };
+  const flushTable = () => { if (table) { const [head, ...rows] = table.filter(r => !/^\s*\|?\s*:?-{2,}/.test(r.join('|'))); out.push('<div class="tw"><table><thead><tr>' + head.map(c => `<th>${mdInline(c)}</th>`).join('') + '</tr></thead><tbody>' + rows.map(r => '<tr>' + r.map(c => `<td>${mdInline(c)}</td>`).join('') + '</tr>').join('') + '</tbody></table></div>'); table = null; } };
+  const flush = () => { flushPara(); flushList(); flushTable(); };
+  for (const raw of lines) {
+    const line = raw.replace(/\s+$/, '');
+    if (code !== null) { if (/^```/.test(line)) { out.push('<pre><code>' + esc(code.join('\n')) + '</code></pre>'); code = null; } else code.push(raw); continue; }
+    if (/^```/.test(line)) { flush(); code = []; continue; }
+    if (/^\s*\|.*\|\s*$/.test(line)) { flushPara(); flushList(); (table = table || []).push(line.trim().replace(/^\||\|$/g, '').split('|').map(c => c.trim())); continue; }
+    flushTable();
+    let m;
+    if (!line.trim()) { flushPara(); flushList(); continue; }
+    if ((m = line.match(/^(#{1,4})\s+(.*)$/))) { flush(); const lv = Math.min(4, m[1].length + 1); out.push(`<h${lv}>${mdInline(m[2])}</h${lv}>`); continue; }
+    if (/^\s*(?:-{3,}|\*{3,}|_{3,})\s*$/.test(line)) { flush(); out.push('<hr>'); continue; }
+    if ((m = line.match(/^\s*>\s?(.*)$/))) { flush(); out.push(`<blockquote>${mdInline(m[1])}</blockquote>`); continue; }
+    if ((m = line.match(/^\s*(?:[-*•])\s+(.*)$/))) { flushPara(); if (!list || list.tag !== 'ul') { flushList(); list = {tag: 'ul', items: []}; } list.items.push(m[1]); continue; }
+    if ((m = line.match(/^\s*\d+[.)]\s+(.*)$/))) { flushPara(); if (!list || list.tag !== 'ol') { flushList(); list = {tag: 'ol', items: []}; } list.items.push(m[1]); continue; }
+    if (list && /^\s{2,}\S/.test(raw)) { list.items[list.items.length - 1] += ' ' + line.trim(); continue; }
+    flushList(); para.push(line.trim());
+  }
+  if (code !== null) out.push('<pre><code>' + esc(code.join('\n')) + '</code></pre>');
+  flush();
+  return out.join('');
+}
+
+/* ------------------------------------------------------------------ canvas: drag cards, pan, zoom, remembered per desk */
+function viewKey(){ return W.deskId ? 'ws_view_d' + W.deskId : (W.sid ? 'ws_view_s' + W.sid : ''); }
+function loadView(){ try { const v = JSON.parse(localStorage.getItem(viewKey()) || 'null'); if (!v) return; W.manual = new Map(Object.entries(v.manual || {})); W.pan = v.pan || {x: 0, y: 0}; W.uz = v.uz || 1; } catch (_) {} }
+function saveView(){ const k = viewKey(); if (!k) return; try { localStorage.setItem(k, JSON.stringify({manual: Object.fromEntries(W.manual), pan: W.pan, uz: W.uz})); } catch (_) {} }
+function applyView(){ ['#nodes', '#edges'].forEach(q => { $(q).style.transform = `translate(${W.pan.x}px,${W.pan.y}px) scale(${W.k || 1})`; }); }
+function zoomBy(f, cx, cy){
+  const c = $('#canvas').getBoundingClientRect(); cx = cx ?? c.width / 2; cy = cy ?? c.height / 2;
+  const k0 = W.k || 1, uz = Math.max(.35, Math.min(2.5, (W.uz || 1) * f)); const k1 = k0 * uz / (W.uz || 1);
+  W.pan = {x: cx - (cx - W.pan.x) * k1 / k0, y: cy - (cy - W.pan.y) * k1 / k0};           // zoom about the pointer
+  W.uz = uz; W.k = k1; applyView(); saveView();
+}
+function resetLayout(){ W.manual.clear(); W.pan = {x: 0, y: 0}; W.uz = 1; saveView(); layoutAll(true); toast('Layout reset'); }
+(function canvasInput(){
+  const cv = document.getElementById('canvas'); let drag = null;
+  cv.addEventListener('pointerdown', ev => {
+    if (ev.button !== 0 || ev.target.closest('#canvas-tools')) return;
+    const node = ev.target.closest('.node'); W.dragged = false;
+    if (node && node.dataset.id && !node.classList.contains('ghost')) {
+      const id = node.dataset.id, p = W.pos.get(id); if (!p) return;
+      drag = {kind: 'node', id, el: node, x0: ev.clientX, y0: ev.clientY, px: p.x, py: p.y};
+    } else if (!node) drag = {kind: 'pan', x0: ev.clientX, y0: ev.clientY, px: W.pan.x, py: W.pan.y};
+    if (drag) drag.pid = ev.pointerId;                   // capture only once it is a drag, so a plain click still reaches the card
+  });
+  cv.addEventListener('pointermove', ev => {
+    if (!drag) return; const dx = ev.clientX - drag.x0, dy = ev.clientY - drag.y0;
+    if (!W.dragged && Math.hypot(dx, dy) < 4) return;
+    if (!W.dragged) { W.dragged = true; try { cv.setPointerCapture(drag.pid); } catch (_) {} cv.classList.add(drag.kind === 'node' ? 'dragging' : 'panning'); if (drag.el) { drag.el.style.transition = 'none'; drag.el.classList.add('lifted'); } }
+    if (drag.kind === 'node') {
+      const k = W.k || 1, x = drag.px + dx / k, y = drag.py + dy / k, p = W.pos.get(drag.id);
+      W.pos.set(drag.id, {...p, x, y}); W.manual.set(drag.id, {x: Math.round(x), y: Math.round(y)});
+      drag.el.style.transform = `translate(${x}px,${y}px)`; redrawEdges();
+    } else { W.pan = {x: drag.px + dx, y: drag.py + dy}; applyView(); }
+  });
+  const end = () => {
+    if (!drag) return;
+    if (drag.el) { drag.el.style.transition = ''; drag.el.classList.remove('lifted'); }
+    cv.classList.remove('dragging', 'panning'); if (W.dragged) saveView();
+    drag = null; setTimeout(() => { W.dragged = false; }, 0);                   // the click that ends a drag is not a click
+  };
+  cv.addEventListener('pointerup', end); cv.addEventListener('pointercancel', end);
+  cv.addEventListener('wheel', ev => { if (!ev.ctrlKey && !ev.metaKey) return; ev.preventDefault(); const r = cv.getBoundingClientRect(); zoomBy(ev.deltaY < 0 ? 1.1 : 1 / 1.1, ev.clientX - r.left, ev.clientY - r.top); }, {passive: false});
+})();
+
+/* ------------------------------------------------------------------ attach a feed to a camera (RTSP, upload, webcam, snapshot URL, sample) */
+const AT = {name: null, tab: 'rtsp', uploaded: '', uploadedName: '', sample: '', samples: null, tested: ''};
+function srcTab(src){ const k = camKind(src); return {'RTSP camera': 'rtsp', 'snapshot URL': 'http', 'webcam': 'webcam', 'sample footage': 'sample', 'recording': 'upload', 'still image': 'upload'}[k] || 'rtsp'; }
+async function openAttach(name){
+  const cam = name ? W.cams.get(name) : null;
+  AT.name = name; AT.uploaded = ''; AT.uploadedName = ''; AT.tested = ''; AT.sample = '';
+  $('#at-title').textContent = cam ? name : 'Connect a camera';
+  $('#at-kicker').textContent = cam ? (cam.source ? 'Camera feed · ' + camKind(cam.source) : 'Camera feed · not connected') : 'New camera';
+  $('#at-name-row').classList.toggle('hide', !!cam); $('#at-cam-name').value = '';
+  ['#at-rtsp', '#at-http'].forEach(q => { $(q).value = ''; });
+  const src = cam && cam.source || '';
+  if (src) { const t = srcTab(src); if (t === 'rtsp') $('#at-rtsp').value = src; else if (t === 'http') $('#at-http').value = src; else if (t === 'webcam') $('#at-webcam').value = src; else if (t === 'upload') { AT.uploaded = src; AT.uploadedName = src.split(/[\\/]/).pop(); } else if (t === 'sample') AT.sample = src; }
+  atPreview(cam && cam.id ? `/api/cameras/${cam.id}/frame.jpg?t=${Date.now()}` : '', cam && cam.id ? 'Latest frame from this camera.' : '');
+  $('#at-live').classList.toggle('hide', !(cam && cam.id));
+  $('#at-go').textContent = cam && cam.source ? 'Switch feed' : 'Attach feed';
+  atTab(src ? srcTab(src) : 'rtsp');
+  $('#attach').classList.remove('hide');
+  setTimeout(() => (cam ? ($('#at-' + AT.tab) || {focus(){}}) : $('#at-cam-name')).focus(), 50);
+  if (!AT.samples) loadSamples();
+}
+function closeAttach(){ $('#attach').classList.add('hide'); }
+function atTab(k){
+  AT.tab = k;
+  document.querySelectorAll('#at-tabs button').forEach(b => b.classList.toggle('on', b.dataset.k === k));
+  document.querySelectorAll('#attach .pane').forEach(p => p.classList.toggle('hide', p.dataset.k !== k));
+  if (k === 'upload') atUploadLabel();
+  $('#at-test').classList.toggle('hide', k === 'sample' && !AT.sample);
+}
+function atUploadLabel(){ const d = $('#at-drop'); d.classList.toggle('done', !!AT.uploaded); d.querySelector('b').textContent = AT.uploaded ? AT.uploadedName : 'Drop a video or image here'; d.querySelector('span').textContent = AT.uploaded ? 'uploaded · click to choose a different file' : 'or click to choose a file'; }
+function atPreview(src, msg, bad){
+  const pv = $('#at-pv'); pv.innerHTML = src ? `<img src="${esc(src)}" alt="" onerror="this.remove()">` : '<span>Test the source to see a frame from it.</span>';
+  const m = $('#at-msg'); m.textContent = msg || ''; m.className = 'pmsg' + (bad ? ' bad' : (src ? ' ok' : ''));
+}
+function atSource(){
+  if (AT.tab === 'rtsp') return $('#at-rtsp').value.trim();
+  if (AT.tab === 'http') return $('#at-http').value.trim();
+  if (AT.tab === 'webcam') return $('#at-webcam').value;
+  if (AT.tab === 'upload') return AT.uploaded;
+  return AT.sample;
+}
+function atCheck(src){
+  if (!src) return {upload: 'Choose a file first.', sample: 'Pick a clip first.', rtsp: 'Enter the stream address.', http: 'Enter the snapshot URL.'}[AT.tab] || 'Pick a source.';
+  if (AT.tab === 'rtsp' && !/^rtsps?:\/\//i.test(src)) return 'An RTSP address starts with rtsp:// (for example rtsp://user:password@192.168.1.20:554/...).';
+  if (AT.tab === 'http' && !/^https?:\/\//i.test(src)) return 'A snapshot URL starts with http:// or https://';
+  return '';
+}
+async function loadSamples(){
+  const r = await api('/cameras'); AT.samples = (r && r.samples) || [];
+  const box = $('#at-samples');
+  box.innerHTML = AT.samples.length ? AT.samples.map(c => `<button data-s="sample:${esc(c.name)}" onclick="pickSample(this.dataset.s)"><span>${esc(c.label)}</span><span class="c">${esc(c.name)}</span></button>`).join('') : '<div class="hint">No sample footage is installed on this desk.</div>';
+  if (AT.sample) markSample();
+}
+function markSample(){ document.querySelectorAll('#at-samples button').forEach(b => b.classList.toggle('on', b.dataset.s === AT.sample || (AT.sample && !AT.sample.startsWith('sample:') && AT.sample.includes(b.dataset.s.slice(7))))); }
+function pickSample(s){ AT.sample = s; markSample(); $('#at-test').classList.remove('hide'); testAttach(); }
+function uploadAttach(file){
+  if (!file) return;
+  const fd = new FormData(); fd.append('file', file);
+  const xhr = new XMLHttpRequest(); xhr.open('POST', '/api/cameras/upload');
+  $('#at-prog').classList.remove('hide'); $('#at-bar').style.width = '0%'; $('#at-ptext').textContent = `uploading ${file.name}`;
+  xhr.upload.onprogress = e => { if (e.lengthComputable) { const pc = Math.round(e.loaded * 100 / e.total); $('#at-bar').style.width = pc + '%'; $('#at-ptext').textContent = `uploading ${file.name} · ${pc}%`; } };
+  xhr.onload = () => {
+    let r = {}; try { r = JSON.parse(xhr.responseText || '{}'); } catch (_) {}
+    if (xhr.status === 401) { location.href = '/login?next=/desk/workspace'; return; }
+    if (xhr.status >= 400 || r.error) { $('#at-prog').classList.add('hide'); atPreview('', r.error || `upload failed (${xhr.status})`, true); return; }
+    AT.uploaded = r.source; AT.uploadedName = file.name; atUploadLabel();
+    $('#at-ptext').textContent = `${file.name} · ${(r.bytes / 1048576).toFixed(1)} MB uploaded`;
+    testAttach();
+  };
+  xhr.onerror = () => { $('#at-prog').classList.add('hide'); atPreview('', 'upload failed: the connection dropped', true); };
+  xhr.send(fd);
+}
+async function testAttach(){
+  const src = atSource(); const bad = atCheck(src); if (bad) return atPreview('', bad, true);
+  $('#at-test').disabled = true; atPreview('', AT.tab === 'rtsp' ? 'Connecting to the stream…' : 'Reading a frame…');
+  const r = await api('/cameras/probe', {method: 'POST', body: {source: src}});
+  $('#at-test').disabled = false;
+  if (!r || !r.ok) return atPreview('', (r && r.error) || 'no answer from the source', true);
+  AT.tested = src; atPreview(r.preview, `Connected · ${camKind(r.source || src)}`);
+}
+async function doAttach(){
+  const src = atSource(); const bad = atCheck(src); if (bad) return atPreview('', bad, true);
+  let name = AT.name;
+  if (!name) { name = $('#at-cam-name').value.trim().toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9_-]/g, ''); if (!name) { $('#at-cam-name').focus(); return atPreview('', 'Name the camera first, e.g. front-door.', true); } if (W.cams.has(name)) return atPreview('', `There is already a camera called ${name}.`, true); }
+  if (AT.tested !== src) { await testAttach(); if (AT.tested !== src) return; }       // never attach an untested source
+  $('#at-go').disabled = true;
+  try {
+    if (W.deskId) {
+      const k = W.cams.get(name);
+      const r = await api('/cameras/attach', {method: 'POST', body: {name, source: src, cid: k && k.id || undefined}});
+      if (!r || r.error) return atPreview('', (r && r.error) || 'could not attach', true);
+      if (!k) await applyCams([...[...W.cams.values()].map(c => ({name: c.name, source: c.source, journal: c.journal, alerts: c.alerts, id: c.id})), {name, source: src, journal: true, id: r.camera.id}], false);
+      const nk = W.cams.get(name); Object.assign(nk, {id: r.camera.id, source: src, seenTs: 0}); const kd = nk.el.querySelector('.kind'); if (kd) kd.textContent = camKind(src);
+      setCamState(nk, 'starting…', 'on'); if (W.phase === 'run') { startCamPoll(); setSugg(CAM_QUESTIONS); }
+      addMsg('s', `camera ${name} → ${camKind(src)}`, 'assign');
+    } else {                                                                            // not built yet: it goes into the draft
+      if (!W.bp) W.bp = {agents: [], cameras: []};
+      const list = W.bp.cameras = W.bp.cameras || []; const c = list.find(x => x.name === name);
+      if (c) c.source = src; else list.push({name, source: src, journal: true, notes: '', focus: ''});
+      W.addedCams.set(name, src);
+      if (W.phase === 'meet') await openWorkspace();
+      await applyCams(list);
+      const kd = W.cams.get(name).el.querySelector('.kind'); if (kd) kd.textContent = camKind(src);
+      addMsg('s', `camera ${name} → ${camKind(src)} (goes live when the desk is built)`, 'assign');
+      $('#build-btn').disabled = !((W.bp.agents || []).length);
+    }
+    toast(`${name}: ${camKind(src)} attached`); closeAttach();
+  } finally { $('#at-go').disabled = false; }
+}
+function atLive(){ const n = AT.name; closeAttach(); if (n) openLive(n); }
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && !$('#attach').classList.contains('hide')) closeAttach(); });
+(function dropZone(){
+  const d = document.getElementById('at-drop'); if (!d) return;
+  ['dragenter', 'dragover'].forEach(t => d.addEventListener(t, e => { e.preventDefault(); d.classList.add('over'); }));
+  ['dragleave', 'drop'].forEach(t => d.addEventListener(t, e => { e.preventDefault(); d.classList.remove('over'); }));
+  d.addEventListener('drop', e => { const f = e.dataTransfer.files && e.dataTransfer.files[0]; if (f) uploadAttach(f); });
+})();

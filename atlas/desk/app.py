@@ -1496,6 +1496,10 @@ def api_delete_connector(cid):
     if not c or c["desk_id"] != desk["id"]:
         abort(404)
     store.delete_connector(cid)
+    if c["kind"] == "camera":                              # its watch job goes too, or it keeps ticking on a missing camera
+        for j in store.jobs(desk["id"]):
+            if j["kind"] == "camera_watch" and f'"connector": "{c["name"]}"' in (j["task"] or ""):
+                store.delete_job(j["id"])
     from .. import mcp_client as M
     M.REGISTRY.drop(cid)
     return jsonify({"ok": True})
@@ -1701,6 +1705,87 @@ def api_camera_planned():
     if not made:
         return jsonify({"error": f"could not use that source for {cam['name']}"}), 400
     return jsonify({"ok": True, "camera": made[0]})
+
+
+# ---- attaching a feed to a camera tile: upload a recording, test any source, attach it (built or planned camera)
+CAMERA_UPLOAD_DIR = cfg.DATA_DIR / "uploads" / "cameras"
+CAMERA_UPLOAD_EXT = V.VIDEO_EXT | {".jpg", ".jpeg", ".png"}
+CAMERA_UPLOAD_MAX = int(os.environ.get("CAMERA_UPLOAD_MAX_MB", "2048")) * 1024 * 1024
+
+
+def _signed_in() -> None:
+    if not current_user() and not OPEN:
+        abort(401)
+
+
+@app.post("/api/cameras/upload")
+def api_camera_upload():
+    """multipart "file": a recording (mp4, mov, mkv, ...) or a still image, stored on the server and played as a camera
+    (recordings loop on the shared clock, like the sample footage). Returns {"source": path} for /attach."""
+    _signed_in()
+    f = request.files.get("file")
+    if not f or not f.filename:
+        return jsonify({"error": "choose a video or image file"}), 400
+    ext = Path(f.filename).suffix.lower()
+    if ext not in CAMERA_UPLOAD_EXT:
+        return jsonify({"error": f"{ext or 'that file type'} is not supported; use " + ", ".join(sorted(CAMERA_UPLOAD_EXT))}), 400
+    if request.content_length and request.content_length > CAMERA_UPLOAD_MAX:
+        return jsonify({"error": f"file is larger than {CAMERA_UPLOAD_MAX // (1024 * 1024)} MB"}), 413
+    CAMERA_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+    stem = re.sub(r"[^a-zA-Z0-9_-]+", "-", Path(f.filename).stem).strip("-")[:40] or "camera"
+    dest = CAMERA_UPLOAD_DIR / f"{stem}-{secrets.token_hex(4)}{ext}"
+    f.save(dest)
+    return jsonify({"source": str(dest), "name": f.filename, "kind": V.source_kind(str(dest)), "bytes": dest.stat().st_size})
+
+
+@app.post("/api/cameras/probe")
+def api_camera_probe():
+    """{source}: grab one frame to prove the source works before attaching it. {ok, kind, preview (data URL)} or {ok:false, error}."""
+    _signed_in()
+    d = request.get_json(silent=True) or {}
+    raw = str(d.get("source") or "").strip()
+    src = DS.resolve_camera_source(raw)
+    if not src:
+        return jsonify({"ok": False, "error": "enter a stream address, pick a file or choose sample footage"}), 400
+    kind = V.source_kind(src)
+    try:
+        jpeg = V.grab(src)
+    except Exception as exc:
+        return jsonify({"ok": False, "kind": kind, "error": str(exc)[:300] or type(exc).__name__})
+    return jsonify({"ok": True, "kind": kind, "source": src, "preview": "data:image/jpeg;base64," + base64.b64encode(jpeg).decode()})
+
+
+@app.post("/api/cameras/attach")
+def api_camera_attach():
+    """{name, source, cid?, notes?, focus?}: point a camera at a feed. An existing camera keeps its journal settings
+    and only swaps the source; a planned or brand-new camera is created with a journal and a watch job."""
+    desk = need_desk()
+    d = request.get_json(silent=True) or {}
+    name = re.sub(r"\s+", "-", str(d.get("name") or "").strip())[:60]
+    src = DS.resolve_camera_source(str(d.get("source") or ""))
+    if not name:
+        return jsonify({"error": "name the camera"}), 400
+    if not src:
+        return jsonify({"error": "give a stream address (rtsp://, http://), a webcam number, an uploaded file or sample footage"}), 400
+    c = store.connector(int(d["cid"])) if d.get("cid") else store.connector_by_name(desk["id"], name)
+    if c and (c["desk_id"] != desk["id"] or c["kind"] != "camera"):
+        abort(404)
+    if c:
+        store.update_connector(c["id"], config=I.merge_secrets(c["config"], {"source": src}), status="")
+        c = store.connector(c["id"])
+        if not any(j["kind"] == "camera_watch" and f'"connector": "{c["name"]}"' in (j["task"] or "") for j in store.jobs(desk["id"])):
+            store.add_job(desk["id"], "camera_watch", f"Watch {c['name']}", json.dumps({"connector": c["name"], "every_s": 8}), 1, time.time())
+        cam = {"id": c["id"], "name": c["name"]}
+    else:
+        bp = (desk.get("config") or {}).get("blueprint") or {}
+        plan = next((x for x in bp.get("cameras") or [] if x.get("name") == name), None) or {}
+        made, _ = _build_cameras(desk, {"cameras": [{**plan, "name": name, "source": src,
+                                                     "notes": plan.get("notes") or str(d.get("notes") or ""),
+                                                     "focus": plan.get("focus") or str(d.get("focus") or "")}]})
+        if not made:
+            return jsonify({"error": f"could not use that source for {name}"}), 400
+        cam = made[0]
+    return jsonify({"ok": True, "camera": {**cam, "source_kind": V.source_kind(src)}})
 
 
 @app.post("/api/cameras/<int:cid>/look")
@@ -2697,7 +2782,7 @@ def api_design_start():
     tier = d.get("tier") if d.get("tier") in templates.TIERS else "free"
     s = DS.new_session(_mode(), tier)
     if u and u.get("company"):
-        s.transcript[0]["text"] = s.transcript[0]["text"].replace("Tell me what your business does", f"Tell me what {u['company']} does")
+        s.transcript[0]["text"] = s.transcript[0]["text"].replace("Describe the business", f"Describe {u['company']}", 1)
     links = d.get("links") or []
     if isinstance(links, str):
         links = re.split(r"[\s,]+", links)
@@ -3027,8 +3112,9 @@ threading.Thread(target=_watchdog_loop, daemon=True, name="atlas-watchdog").star
 
 def main():
     port = int(os.environ.get("PORT", "8094"))
-    print(f"Atlas Desk  mode={_mode()}  accounts={'off' if OPEN else 'on'}  http://localhost:{port}/desk")
-    app.run(host="0.0.0.0", port=port, debug=False, threaded=True)
+    host = os.environ.get("DESK_HOST", "127.0.0.1").strip() or "127.0.0.1"   # this machine only; DESK_HOST=0.0.0.0 to share on the LAN
+    print(f"Atlas Desk  mode={_mode()}  accounts={'off' if OPEN else 'on'}  http://localhost:{port}/desk  (bound to {host})")
+    app.run(host=host, port=port, debug=False, threaded=True)
 
 
 if __name__ == "__main__":
