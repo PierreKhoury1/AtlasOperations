@@ -106,6 +106,8 @@ _MIGRATIONS = [
     ("jobs", "last_status", "TEXT DEFAULT ''"),
     ("runs", "ended", "REAL"),
     ("events", "data", "TEXT DEFAULT ''"),
+    ("actions", "case_id", "INTEGER DEFAULT 0"),                 # the case an approval belongs to (atlas/cases.py)
+    ("runs", "case_id", "INTEGER DEFAULT 0"),
 ]
 
 STAGES = ("New", "Contacted", "Qualified", "Proposal", "Won", "Lost")
@@ -124,7 +126,8 @@ class Store:
         self._lock = threading.Lock()
         self._conn = DB.connect(path, url)
         self.backend = "postgres" if isinstance(self._conn, DB.PgConn) else "sqlite"
-        self._conn.executescript(_SCHEMA)
+        from . import cases as _C, records as _R            # records + cases own their tables; created with the rest
+        self._conn.executescript(_SCHEMA + _R.SCHEMA + _C.SCHEMA)
         for table, col, decl in _MIGRATIONS:
             if col not in DB.columns(self._conn, table):
                 DB.add_column(self._conn, table, col, decl)
@@ -567,7 +570,8 @@ class Store:
             run_ids = [r[0] for r in self._conn.execute("SELECT id FROM runs WHERE desk_id=?", (desk_id,)).fetchall()]
             for rid in run_ids:
                 self._conn.execute("DELETE FROM events WHERE run_id=?", (rid,))
-            for t in ("runs", "actions", "leads", "contacts", "jobs", "memories", "vision_events"):
+            for t in ("runs", "actions", "leads", "contacts", "jobs", "memories", "vision_events", "records", "record_links",
+                      "timeline", "cases", "case_records"):
                 self._conn.execute(f"DELETE FROM {t} WHERE desk_id=?", (desk_id,))
             self._conn.commit()
 
@@ -681,7 +685,13 @@ class Store:
                 if sets:
                     self._conn.execute(f"UPDATE contacts SET {sets}, updated=? WHERE id=?", (*fields.values(), time.time(), cid))
             self._conn.commit()
-        return _rows(self._conn.execute("SELECT * FROM contacts WHERE id=?", (cid,)))[0]
+        row = _rows(self._conn.execute("SELECT * FROM contacts WHERE id=?", (cid,)))[0]
+        try:                                                  # every CRM contact is also a person record (atlas/records.py)
+            from . import records as _R
+            _R.mirror_contact(self, desk_id, row)
+        except Exception:
+            pass
+        return row
 
     # ------------------------------------------------------------------ approval queue
     def add_action(self, run_id: str, agent: str, kind: str, to: str, subject: str, body: str, reason: str,
@@ -718,6 +728,16 @@ class Store:
                                (status, time.time(), by, note, aid))
             self._conn.commit()
         return self.action(aid)
+
+    def tag_action_case(self, aid: int, case_id: int) -> None:
+        with self._lock:
+            self._conn.execute("UPDATE actions SET case_id=? WHERE id=?", (int(case_id or 0), aid))
+            self._conn.commit()
+
+    def set_run_case(self, run_id: str, case_id: int) -> None:
+        with self._lock:
+            self._conn.execute("UPDATE runs SET case_id=? WHERE id=?", (int(case_id or 0), run_id))
+            self._conn.commit()
 
     # ------------------------------------------------------------------ leads
     def add_lead(self, name: str, company: str, email: str, phone: str, source: str, notes: str, desk_id: int = 1) -> int:
@@ -818,6 +838,8 @@ class DeskStore:
     def actions(self, status="", limit=200): return self.s.actions(status, limit, self.desk_id)
     def action(self, aid): return self.s.action(aid)
     def decide_action(self, *a, **k): return self.s.decide_action(*a, **k)
+    def tag_action_case(self, aid, case_id): return self.s.tag_action_case(aid, case_id)
+    def set_run_case(self, run_id, case_id): return self.s.set_run_case(run_id, case_id)
     def add_lead(self, name, company, email, phone, source, notes):
         return self.s.add_lead(name, company, email, phone, source, notes, self.desk_id)
     def leads(self, limit=200): return self.s.leads(limit, self.desk_id)

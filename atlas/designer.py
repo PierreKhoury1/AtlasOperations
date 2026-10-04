@@ -24,7 +24,8 @@ from . import tools as TL
 _BLOCK = re.compile(r"<atlas-design>\s*(\{.*?\})\s*</atlas-design>", re.S)
 _FENCE = re.compile(r"```(?:json)?\s*(\{.*?\})\s*```", re.S)
 
-SPECIALIST_TOOLS = ["read_file", "list_files", "web_fetch", "run_python", "save_deliverable", "camera_look", "camera_events", "camera_ask"]
+SPECIALIST_TOOLS = ["read_file", "list_files", "web_fetch", "run_python", "save_deliverable", "camera_look", "camera_events", "camera_ask",
+                    "record_find", "record_get", "record_save", "crm_lookup", "browse", "calendar_free_slots", "recall"]
 ATLAS_TOOLS = ["delegate", "list_agents", "save_deliverable", "read_file", "list_files", "crm_lookup", "crm_update",
                 "queue_action", "list_connectors", "http_request", "schedule_task", "mcp", "run_python", "remember", "recall", "generate_media"]
 PALETTE = ["#4c90f0", "#32a467", "#ec9a3c", "#9881f3", "#2ec4b6", "#e76a6e", "#68c1ee", "#d1980b", "#c274c2", "#8eb125"]   # muted (Blueprint)
@@ -59,11 +60,14 @@ Design rules
   sub-team, whose "reports_to" is their lead's id. Use a sub-team (one lead + 2-4 members, max depth atlas -> lead ->
   member) only when the work naturally splits into parallel strands with their own coordinator (a research pod over
   several markets, one writer per channel). Flat is the default.
-- 2-6 specialist agents. Each agent: short id (a-z, _), name, role (3-6 words), goal (1-2 sentences: what it produces
-  and the quality bar), tools (subset of: read_file, list_files, web_fetch, run_python, save_deliverable),
+- 2-6 specialist agents, each defined by its FUNCTIONS, not by text. Every agent needs at least one tool that acts;
+  a role that would only write text belongs to Atlas. Each agent: short id (a-z, _), name, role (3-6 words), goal
+  (ONE line, max 100 characters), tools (subset of: record_find / record_get / record_save = the desk's business
+  records, crm_lookup, web_fetch, browse = a real browser, calendar_free_slots, camera_ask / camera_events /
+  camera_look, run_python, recall, read_file, list_files, save_deliverable),
   "strong": true only if the role needs top-tier judgement or client-facing writing,
-  "instructions": 3-6 short operating rules written for THIS role in THIS business (what to check first, what it
-  must never do, the exact shape of what it hands back) - these become the agent's standing orders,
+  "instructions": 1-3 rules, max 90 characters each, only what the tools cannot say (what to check first, what it
+  must never do),
   "engine": "hermes_agent" or "atlas", and "reports_to": "atlas" for a top-level agent or the id of the lead it
   works under. A lead is just an agent whose members name it in "reports_to" - e.g. {"id": "enquiries_lead",
   "reports_to": "atlas"} with {"id": "stock", "reports_to": "enquiries_lead"}. When the owner asks for a pod, a
@@ -339,12 +343,15 @@ def normalise(bp: dict[str, Any] | None, prev: dict[str, Any] | None = None) -> 
         instr = a.get("instructions")
         if isinstance(instr, str):
             instr = [x.strip(" -•\t") for x in instr.splitlines()]
-        instr = [str(x).strip()[:220] for x in (instr if isinstance(instr, list) else []) if str(x).strip()][:8]
+        from . import team as _TM
+        instr = [str(x).strip()[:_TM.RULE_CHARS] for x in (instr if isinstance(instr, list) else []) if str(x).strip()][:_TM.MAX_RULES]
+        if aid != "atlas" and not any(t in _TM.FUNCTION_TOOLS for t in tools):
+            tools = tools + ["record_find", "record_get"]          # no text-only agents: at least read the business records
         agents.append({
             "id": aid,
             "name": str(a.get("name") or aid.replace("_", " ").title())[:40],
             "role": str(a.get("role") or "Specialist")[:60],
-            "goal": str(a.get("goal") or a.get("description") or "")[:600],
+            "goal": _TM._one_line(a.get("goal") or a.get("description") or "", _TM.GOAL_CHARS),
             "tools": tools if aid != "atlas" else list(ATLAS_TOOLS),
             "reports_to": (_slug(a.get("reports_to") or "atlas") or "atlas") if aid != "atlas" else "",
             "camera": str(a.get("camera") or "")[:32],
@@ -768,18 +775,8 @@ def _demo_cameras(low: str) -> list[dict[str, Any]]:
 
 # ---------------------------------------------------------------------------- blueprint -> desk config
 def _agent_prompt(a: dict[str, Any], biz: dict[str, Any]) -> str:
-    lines = [f"You are {a['name']}, {a['role']} for {biz.get('name') or 'the business'}.",
-             f"Your job: {a.get('goal') or a['role']}."]
-    if biz.get("tone"):
-        lines.append(f"House tone: {biz['tone']}")
-    if biz.get("description"):
-        lines.append(f"About the business: {biz['description']}")
-    if a.get("instructions"):
-        lines.append("Standing orders for this role:")
-        lines.extend(f"- {x}" for x in a["instructions"])
-    lines.append("Be specific and concise. Never invent facts about the client; say what you assumed. "
-                 "Do not include prices, fees or placeholders like [name] in anything customer-facing unless the task supplies them.")
-    return "\n".join(lines)
+    from . import team as TM                            # one prompt builder for every designed agent (short, function-first)
+    return TM.agent_prompt(a, biz)
 
 
 def blueprint_to_desk(bp: dict[str, Any], tier: str = "free", name: str = "") -> dict[str, Any]:

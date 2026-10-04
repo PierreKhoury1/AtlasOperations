@@ -22,7 +22,9 @@ from typing import Any, Callable
 
 from . import integrations as I
 from . import mcp_client as M
+from . import cases as C
 from . import policy as P
+from . import records as R
 from . import secure as S
 from . import tools as T
 from .config import RUNS_DIR
@@ -55,7 +57,7 @@ class Cancelled(Exception):
 
 
 PARALLEL_SAFE = {"delegate", "camera_look", "camera_events", "camera_ask", "web_fetch", "read_file", "list_files", "crm_lookup",
-                 "recall", "http_request", "calendar_free_slots", "list_agents", "browse"}
+                 "recall", "http_request", "calendar_free_slots", "list_agents", "browse", "record_find", "record_get", "case_list"}
 
 
 class Orchestrator:
@@ -79,6 +81,7 @@ class Orchestrator:
         self._policy_hits: dict[tuple[str, str], int] = {}
         self._tl = threading.local()                      # per-thread current agent instance (parallel delegations)
         self._inst_counts: dict[str, int] = {}
+        self.case_id: int | None = configs.get("case_id") or None   # the case this run works (atlas/cases.py), if any
 
     # ------------------------------------------------------------------ events
     def emit(self, kind: str, agent: str = "system", text: str = "", **data):
@@ -97,6 +100,11 @@ class Orchestrator:
             cur = getattr(self._tl, "inst", None)
             if cur and cur.split("#")[0] == agent:
                 data["inst"] = cur
+        if kind == "approval" and self.case_id and data.get("action_id") and self.store is not None and hasattr(self.store, "tag_action_case"):
+            try:                                           # every approval queued in a case run belongs to that case
+                self.store.tag_action_case(int(data["action_id"]), self.case_id)
+            except Exception:
+                pass
         ev = Event(kind, agent, text, data)
         if self.store and self.run_id and kind not in ("usage", "token"):
             try:
@@ -186,6 +194,12 @@ class Orchestrator:
                 parts.append("Cameras (camera_look to see now, camera_events to search history):\n" + I.describe(cams))
             else:
                 parts.append("No cameras connected yet (the owner adds them under Cameras).")
+        if "record_find" in agent.get("tools", []) and self.store is not None and hasattr(self.store, "desk_id"):
+            try:
+                txt = R.summary_text(self.store)
+            except Exception:
+                txt = ""
+            parts.append(txt or "No business records yet - save people, bookings and orders you learn about with record_save.")
         if "recall" in agent.get("tools", []) and self.store is not None and hasattr(self.store, "recall"):
             mem = self.store.recall("", 15)
             if mem:
@@ -738,6 +752,21 @@ class Orchestrator:
                            + (" | ALERT " + r["reason"] if r.get("triggered") else (" | " + r["reason"] if r.get("reason") else ""))
                            + (f" | analyst: {r['answer'][:160]}" if r.get("answer") else ""))
             return "\n".join(out)
+        if name in ("record_find", "record_get", "record_save"):
+            return self._record_tool(aid, name, args)
+        if name in C.TOOL_NAMES:
+            if not self.store or not hasattr(self.store, "desk_id"):
+                return "no cases in this context"
+            try:
+                out, bound = C.tool(self.store, name, args, aid, self.run_id, self.case_id)
+            except Exception as exc:
+                return f"ERROR: {name} failed: {type(exc).__name__}: {str(exc)[:200]}"
+            if bound and bound != self.case_id:
+                self.case_id = bound
+                if hasattr(self.store, "set_run_case"):
+                    self.store.set_run_case(self.run_id, bound)
+            self.emit("tool", aid, f"{name} → {out[:140]}")
+            return out
         if name == "remember":
             if not self.store or not hasattr(self.store, "remember"):
                 return "no memory in this context"
@@ -808,6 +837,49 @@ class Orchestrator:
         assert self._ws is not None
         return self._ws.call(name, args)
 
+    def _record_tool(self, aid: str, name: str, args: dict[str, Any]) -> str:
+        if not self.store or not hasattr(self.store, "desk_id"):
+            return "no business records in this context"
+        st = self.store
+        try:
+            if name == "record_find":
+                rows = R.search(st, rtype=str(args.get("type") or ""), query=str(args.get("query") or ""),
+                                limit=max(1, min(int(args.get("limit") or 15), 50)))
+                what = repr(str(args.get("query") or "")) + (f", {args['type']}" if args.get("type") else "")
+                self.emit("tool", aid, f"record_find({what}) → {len(rows)}")
+                return "\n".join("- " + R.brief(r) for r in rows) or "no matching records"
+            if name == "record_get":
+                ref = args.get("id") or args.get("record") or ""
+                rec = R.resolve_ref(st, None, ref)
+                self.emit("tool", aid, f"record_get {ref} → {'found' if rec else 'none'}")
+                return R.describe(st, rec["id"]) if rec else f"no record {ref!r} (record_find searches by name, email, ref...)"
+            if name == "record_save":
+                rtype = str(args.get("type") or "").strip()
+                fields = args.get("fields") if isinstance(args.get("fields"), dict) else {}
+                rec, changed = R.upsert(st, None, rtype, fields, key=str(args.get("key") or ""), title=str(args.get("title") or ""),
+                                        source="agent", actor=aid, run_id=self.run_id)
+                linked = []
+                for l in (args.get("links") or [])[:12]:
+                    if not isinstance(l, dict):
+                        continue
+                    dst = R.resolve_ref(st, None, l.get("to"))
+                    if dst and R.link(st, None, rec["id"], str(l.get("rel") or "related_to"), dst["id"], source="agent", actor=aid):
+                        linked.append(f"{l.get('rel')} #{dst['id']}")
+                    elif not dst:
+                        linked.append(f"(no record {l.get('to')!r} to link)")
+                if args.get("note"):
+                    R.add_timeline(st, None, record_id=rec["id"], kind="note", actor=aid, text=str(args["note"])[:2000], run_id=self.run_id)
+                if self.case_id:
+                    C.attach(st.s, st.desk_id, self.case_id, rec["id"], "related")
+                self.emit("tool", aid, f"record_save {rec['type']} #{rec['id']} {rec['title'][:60]}" + (f" ({', '.join(changed[:5])})" if changed else ""))
+                return (f"saved {rec['type']} #{rec['id']} {rec['title']}" + (f" - changed {', '.join(changed)}" if changed else " - no new facts")
+                        + (f"; linked {', '.join(linked)}" if linked else ""))
+        except ValueError as exc:
+            return f"ERROR: {exc}"
+        except Exception as exc:
+            return f"ERROR: {name} failed: {type(exc).__name__}: {str(exc)[:200]}"
+        return f"unknown record tool {name}"
+
     # ------------------------------------------------------------------ entry
     def run(self, task: str, mode: str = "auto") -> RunResult:
         self._cancel.clear()
@@ -831,9 +903,13 @@ class Orchestrator:
             self.emit("deliverable", "system", str(p), path=str(p))
 
         self._ws = T.WorkspaceTools(self.run_dir, on_deliverable)
+        self.case_id = self.configs.get("case_id") or None
         if self.store:
             self.store.create_run(self.run_id, task, mode, str(self.run_dir))
-        self.emit("log", "system", f"run {self.run_id}  mode={mode}  business={self.business.get('name')}")
+            if self.case_id and hasattr(self.store, "set_run_case"):
+                self.store.set_run_case(self.run_id, self.case_id)
+        self.emit("log", "system", f"run {self.run_id}  mode={mode}  business={self.business.get('name')}"
+                  + (f"  case=#{self.case_id}" if self.case_id else ""))
         status, summary = "done", ""
         try:
             if mode == "auto":

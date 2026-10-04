@@ -481,6 +481,10 @@ class DemoProvider(Provider):
                     calls.append(ToolCall("q2", "crm_update", {"contact": to, "fields": {"stage": "Qualified",
                                           "notes": "Researched + outreach drafted; awaiting approval."}}))
                 return resp("Drafts ready. Queuing the outreach for approval and updating the CRM.", calls, "tool_use")
+            if "case_update" in names and task.startswith("Case #") and " updated: " not in done_kinds:
+                note = ("Reply drafted and queued for the owner's approval." if "queued for approval" in done_kinds
+                        else "Step reviewed; nothing to send.")
+                return resp("Recording the step on the case.", [ToolCall("c1", "case_update", {"note": note})], "tool_use")
             if "save_deliverable" in names and "saved " not in done_kinds:
                 body = "\n\n".join(f"## {i+1}\n{o}" for i, o in enumerate(outs) if o and "queued" not in o and "updated" not in o)
                 return resp("", [ToolCall("s1", "save_deliverable", {"filename": "deliverable.md",

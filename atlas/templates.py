@@ -23,8 +23,12 @@ with a concise summary of what was produced and any open questions for the owner
 
 _SPECIALIST_SUFFIX = """
 
+Atlas sent you this task. Reply with the finished result only; say what you assumed."""
+# earlier wording, stripped from stored prompts so desks built before do not carry both
+_OLD_SPECIALIST_SUFFIXES = ("""
+
 You receive a task from Atlas (the orchestrator). Produce your deliverable directly and completely in your reply —
-it will be passed back verbatim. State assumptions explicitly. If information is genuinely missing, say what you assumed."""
+it will be passed back verbatim. State assumptions explicitly. If information is genuinely missing, say what you assumed.""",)
 
 
 def _agent(id_: str, name: str, role: str, prompt: str, tools: list[str] | None = None,

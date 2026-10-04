@@ -288,6 +288,67 @@ SCHEMAS: dict[str, dict[str, Any]] = {
         "description": "Search desk memory (facts stored with remember) by keyword. Empty query returns the most recent facts.",
         "parameters": {"type": "object", "properties": {"query": {"type": "string"}}},
     },
+    "record_find": {
+        "name": "record_find",
+        "description": "Search the desk's business records (people, organisations, bookings, orders, invoices, products, cameras, and any custom type). Use before guessing who someone is or what they bought. Returns id, type, title and key facts.",
+        "parameters": {"type": "object", "properties": {
+            "query": {"type": "string", "description": "Words to match in names, emails, phones, refs or any field. Empty = most recent."},
+            "type": {"type": "string", "description": "Optional record type: person, organisation, booking, order, invoice, product, place, camera, or a custom type."},
+            "limit": {"type": "integer", "description": "Max results (default 15)."}}},
+    },
+    "record_get": {
+        "name": "record_get",
+        "description": "Everything the desk knows about one record: its fields, linked records, the cases about it and its recent history (messages, replies, notes).",
+        "parameters": {"type": "object", "properties": {
+            "id": {"type": "string", "description": "Record id (e.g. 12 or #12) or type:key (e.g. person:jane@example.com)."}},
+            "required": ["id"]},
+    },
+    "record_save": {
+        "name": "record_save",
+        "description": "Create or update a business record and optionally link it to others. Same type+key = same record (fields merge). Save facts that matter later: who a customer is, a booking, an order, a supplier.",
+        "parameters": {"type": "object", "properties": {
+            "type": {"type": "string", "description": "person, organisation, booking, order, invoice, product, place, camera - or a short custom type like supplier or vehicle."},
+            "key": {"type": "string", "description": "Natural id (email for a person, booking/order ref, SKU). Omit to derive it from the fields."},
+            "title": {"type": "string", "description": "Display name. Omit to use name/ref."},
+            "fields": {"type": "object", "description": "Field values, e.g. {\"name\": \"Jane Doe\", \"email\": \"jane@x.com\", \"phone\": \"+44...\"}."},
+            "links": {"type": "array", "description": "Edges to other records.", "items": {"type": "object", "properties": {
+                "rel": {"type": "string", "description": "Relationship, e.g. works_at, booked_by, for_customer, supplied_by."},
+                "to": {"type": "string", "description": "Target record id or type:key."}}, "required": ["rel", "to"]}},
+            "note": {"type": "string", "description": "Optional line for the record's history."}},
+            "required": ["type", "fields"]},
+    },
+    "case_open": {
+        "name": "case_open",
+        "description": "Open a case: work that spans several steps or days (an enquiry to answer and follow up, an incident to watch, a task needing the owner). The desk then drives it with timers and deadlines. If this run has no case yet, it becomes this run's case.",
+        "parameters": {"type": "object", "properties": {
+            "type": {"type": "string", "description": "enquiry, incident or task (or a playbook this desk defines)."},
+            "title": {"type": "string"},
+            "record": {"type": "string", "description": "What the case is about: record id or type:key."},
+            "priority": {"type": "string", "enum": ["low", "normal", "high", "urgent"]},
+            "note": {"type": "string", "description": "What the case is and what is known so far."}},
+            "required": ["type", "title"]},
+    },
+    "case_update": {
+        "name": "case_update",
+        "description": "Update a case: add a note or a fact, change priority, link a record, move it to another state when this step is done, or schedule a later check (wait_hours). Defaults to this run's case.",
+        "parameters": {"type": "object", "properties": {
+            "case_id": {"type": "string", "description": "Omit for this run's case."},
+            "note": {"type": "string", "description": "What you found or did (goes on the case history)."},
+            "fact": {"type": "string", "description": "A short durable fact for later steps (e.g. 'prefers mornings')."},
+            "state": {"type": "string", "description": "Move to this state (see the states listed in the task)."},
+            "outcome": {"type": "string", "description": "When closing: how it ended."},
+            "close": {"type": "boolean", "description": "Close the case (moves it to its done state)."},
+            "wait_hours": {"type": "number", "description": "Look at the case again after this many hours."},
+            "priority": {"type": "string", "enum": ["low", "normal", "high", "urgent"]},
+            "link_record": {"type": "string", "description": "Attach another record (id or type:key)."}}},
+    },
+    "case_list": {
+        "name": "case_list",
+        "description": "List this desk's cases (open by default) with their state and what each is waiting for.",
+        "parameters": {"type": "object", "properties": {
+            "type": {"type": "string"}, "state": {"type": "string"},
+            "include_closed": {"type": "boolean"}, "limit": {"type": "integer"}}},
+    },
     "finish": {
         "name": "finish",
         "description": "Signal the task is complete. Provide the final summary for the owner.",
@@ -302,7 +363,10 @@ SCHEMAS: dict[str, dict[str, Any]] = {
 ALL_TOOL_NAMES = list(SCHEMAS.keys())
 ORCHESTRATOR_ONLY = {"delegate", "list_agents", "finish", "assemble_team", "video_describe", "queue_action", "crm_lookup", "crm_update",
                      "list_connectors", "http_request", "schedule_task", "remember", "recall",
-                     "calendar_free_slots", "calendar_book", "generate_media", "camera_look", "camera_events", "camera_ask", "browse"}
+                     "calendar_free_slots", "calendar_book", "generate_media", "camera_look", "camera_events", "camera_ask", "browse",
+                     "record_find", "record_get", "record_save", "case_open", "case_update", "case_list"}
+RECORD_TOOLS = ["record_find", "record_get", "record_save"]
+CASE_TOOLS = ["case_open", "case_update", "case_list"]
 
 
 def schema_for(names: list[str]) -> list[dict[str, Any]]:

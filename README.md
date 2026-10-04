@@ -83,6 +83,29 @@ uses `config/providers.json` / `ANTHROPIC_API_KEY`.
 
 Deploy: `render.yaml` (gunicorn, free plan, demo mode). Site files live in `site/`.
 
+## Records and cases (`/desk/ops`)
+
+A run is one job. **Cases** are the work that spans days: answer the lead, wait for the reply, follow up, book, close.
+**Records** are the desk's live model of the business that every run reads from and writes to.
+
+- **Records** (`atlas/records.py`): typed things (person, organisation, booking, order, invoice, product, place, camera,
+  or any custom type) keyed by their natural id (email, phone, booking ref, SKU), with links between them and a
+  timeline. CRM contacts and cameras mirror in automatically. Agent tools: `record_find`, `record_get`, `record_save`.
+- **Cases** (`atlas/cases.py`): a playbook (`enquiry`, `incident`, `task`, or the desk's own under config `ops.playbooks`)
+  of work / wait / done states. Work states run Atlas with the step and the case history; wait states wait for a
+  reply, the owner or the clock; every state can carry a deadline. Events move the case: an approved message was
+  sent, the owner rejected a draft (Atlas redrafts from the note, owner after 3), the customer replied (email, SMS,
+  WhatsApp or a reply the owner logs), a camera fired again, a timer ran out. Agent tools: `case_open`,
+  `case_update`, `case_list`.
+- Leads, inbound messages and camera alerts open cases on their own; a second message from the same person continues
+  their open case instead of starting a new lead. Every approval queued in a case run carries the case id.
+- Operations page `/desk/ops`: queues (needs you / Atlas working / waiting on customer / scheduled / overdue),
+  dense case and record tables, inspector with approvals, timeline and what moves the case next, `Ctrl K` search.
+- Desk config `ops: {"cases": false}` (or `lead_cases` / `camera_cases`) switches it off.
+
+Agents are defined by their functions: designed agents get a one-line goal, at most three short rules, and at least one
+tool that acts; an agent with no function is given read access to the records and flagged.
+
 ## Integrations (what an approved action actually does)
 
 Every outbound action still goes through the approval queue. Connectors decide what happens when you click **Approve**. Add them under **Integrations** in the portal (or `POST /api/connectors`); each has a **Test** button. Secrets are stored server-side and returned masked.

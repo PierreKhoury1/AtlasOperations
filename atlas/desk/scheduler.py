@@ -7,6 +7,8 @@ Job kinds
   http_poll    call an HTTP connector and hand the result to the desk as a task
   camera_watch grab a frame from each camera connector, detect, log, and wake the desk when the rule fires
 
+Every loop also ticks the case clock (atlas/cases.py): waits that ran out, scheduled re-checks, missed deadlines.
+
 `start(store, start_run, desk_for)` is called once by the Flask app. Everything the jobs do goes
 through the normal orchestrator, so approvals, policy and the audit log apply exactly as for a lead.
 """
@@ -21,6 +23,7 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Callable
 
 from .. import alerts as AL
+from .. import cases as C
 from .. import integrations as I
 from .. import journal as JR
 from .. import vision as V
@@ -46,6 +49,7 @@ MIN_CAMERA_S = 5                                         # fastest camera_watch 
 LIVE = lambda: True                                       # replaced by the app: is this desk on live models?
 BASE_URL = lambda: ""                                     # replaced by the app: public URL for snapshot links
 DISPATCH = None                                           # replaced by the app: send an approved action for real
+LEAD_RUN = None                                           # replaced by the app: work a new lead as an enquiry case
 _last_frame: dict[tuple[int, str], bytes] = {}          # (desk_id, camera) -> last raw frame (motion baseline)
 _last_seen: dict[tuple[int, str], dict[str, Any]] = {}  # (desk_id, camera) -> last analysis (portal "live" tile)
 _present: dict[tuple[int, str], tuple[float, float]] = {}  # (desk_id, camera) -> (since, last seen) while the rule's count holds
@@ -165,7 +169,10 @@ def camera_tick(store, desk: dict[str, Any], conn: dict[str, Any], start_run: Ca
                  + (f"Camera notes: {cfg.get('notes')}\n" if cfg.get("notes") else "")
                  + f"Event id: {event['id']}. Snapshot: {event['snapshot']}. Use camera_look for a fresh frame and camera_events for history.")
         try:
-            rid = start_run(desk, task, "auto")
+            if C.enabled(desk, "camera_cases") and C.START_RUN is not None and start_run is C.START_RUN:
+                rid = C.camera_alert(store, desk, conn["name"], task, reason, event["id"])   # one incident case per camera episode
+            else:
+                rid = start_run(desk, task, "auto")
             ds.set_vision_run(event["id"], rid)
         except BaseException as exc:                   # Flask abort (spend cap / 402) or a provider error: keep the event, say why
             why = getattr(getattr(exc, "response", None), "data", b"") or str(exc) or type(exc).__name__
@@ -203,13 +210,24 @@ def _run_job(store, job: dict[str, Any], start_run: Callable, desk_for: Callable
             return "no IMAP connector"
         mails = I.fetch_unseen(conn["config"], limit=5)
         started = []
+        cases_on = C.enabled(desk, "lead_cases") and LEAD_RUN is not None and start_run is C.START_RUN
         for m in mails:
+            open_ = C.match_open(store, desk["id"], email=m["from_email"]) if cases_on else None
+            if open_:                                    # a reply to a conversation the desk is already having
+                rid = C.inbound_reply(store, desk, open_, "email", f"Subject: {m['subject']}\n\n{m['body']}",
+                                      actor=m["from_name"] or m["from_email"],
+                                      extra=f"Reply by email (queue_action kind=email, to={m['from_email']}, subject 'Re: {m['subject'][:80]}').")
+                started.append(rid or f"case #{open_['id']}")
+                continue
             lid = ds.add_lead(m["from_name"], "", m["from_email"], "", "email",
                               f"Subject: {m['subject']}\n\n{m['body']}")
             ds.upsert_contact(m["from_email"], {"name": m["from_name"], "email": m["from_email"], "stage": "New", "notes": "Inbound email"})
-            task = (f"New inbound email — handle end to end.\nName: {m['from_name']}\nEmail: {m['from_email']}\n"
-                    f"Source: email\nSubject: {m['subject']}\n\nMessage:\n{m['body']}")
-            rid = start_run(desk, task, "auto", lid)
+            if cases_on:
+                rid = LEAD_RUN(desk, lid)
+            else:
+                task = (f"New inbound email — handle end to end.\nName: {m['from_name']}\nEmail: {m['from_email']}\n"
+                        f"Source: email\nSubject: {m['subject']}\n\nMessage:\n{m['body']}")
+                rid = start_run(desk, task, "auto", lid)
             ds.set_lead(lid, status="running", run_id=rid)
             started.append(rid)
         return f"{len(mails)} new email(s)" + (f", runs {', '.join(started)}" if started else "")
@@ -222,7 +240,8 @@ def _run_job(store, job: dict[str, Any], start_run: Callable, desk_for: Callable
         cutoff = time.time() - days * 86400
         pending_to = {a["to"] for a in ds.actions("pending")}
         due = [c for c in ds.contacts() if c["stage"] == "Contacted" and (c.get("updated") or 0) < cutoff
-               and c.get("email") and c["email"] not in pending_to]
+               and c.get("email") and c["email"] not in pending_to
+               and not C.match_open(store, desk["id"], email=c["email"])]   # their case follows up on its own clock
         started = []
         for c in due[:5]:
             task = (f"Follow-up needed. {c['name']} ({c['email']}, {c.get('company') or 'individual'}) was contacted "
@@ -324,6 +343,10 @@ def _loop(store, start_run, desk_for):
     while not _stop.is_set():
         try:
             now = time.time()
+            try:
+                C.tick(store, now)
+            except Exception:
+                traceback.print_exc()
             for job in store.due_jobs(now):
                 if job["kind"] == "camera_watch":
                     with _busy_lock:
@@ -343,6 +366,9 @@ def _next_wait(store) -> float:
     now = time.time()
     try:
         soon = [float(j.get("next_run") or now) for j in store.due_jobs(now + TICK)]
+        wake = C.next_wake(store, now, TICK)
+        if wake is not None:
+            soon.append(wake)
     except Exception:
         return TICK
     return max(1.0, min([TICK] + [t - now for t in soon]))

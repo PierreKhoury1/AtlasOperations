@@ -135,7 +135,10 @@ def test_blueprint_keeps_role_instructions_and_engine():
     assert a["writer"]["instructions"] == ["be brief", "no prices"] and a["writer"]["engine"] == "atlas"
     conf = D.blueprint_to_desk(bp, "free")
     inv = next(x for x in conf["agents"] if x["id"] == "invoice_check")
-    assert inv["engine"] == "hermes_agent" and "Standing orders" in inv["system_prompt"] and "delivery note" in inv["system_prompt"]
+    assert inv["engine"] == "hermes_agent" and "Rules:" in inv["system_prompt"] and "delivery note" in inv["system_prompt"]
+    assert "About the business" not in inv["system_prompt"]                      # the orchestrator adds the profile once
+    writer = next(x for x in conf["agents"] if x["id"] == "writer")
+    assert {"record_find", "record_get"} <= set(writer["tools"])                  # no text-only agents
 
 
 def test_camera_team_is_wired_and_ids_stay_stable():
