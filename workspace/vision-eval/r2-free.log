@@ -1,0 +1,96 @@
+43 jobs x 3 models -> workspace\vision-eval\r2-free
+resume: keeping 41 successful rows
+[1/88] nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free single   crownshy-prep            2.2s $0.0000 judge=4
+[2/88] nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free single   crownshy-plating         2.2s $0.0000 judge=4
+[3/88] nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free single   kitchen-sink             2.1s $0.0000 judge=2
+[4/88] nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free temporal kitchen-wide             2.4s $0.0000 judge=3
+[5/88] qwen/qwen3.8-27b:free                         single   crownshy-line            0.0s $0.0000 ERR HTTP 429: {"error":{"message":"Provider returned error","cod
+[6/88] qwen/qwen3.8-27b:free                         single   crownshy-line           31.9s $0.0000 judge=3
+[7/88] qwen/qwen3.8-27b:free                         single   crownshy-line           21.8s $0.0000 judge=3
+[8/88] qwen/qwen3.8-27b:free                         single   crownshy-dining         23.5s $0.0000 judge=4
+[9/88] qwen/qwen3.8-27b:free                         single   crownshy-dining          0.0s $0.0000 ERR HTTP 429: {"error":{"message":"Provider returned error","cod
+[10/88] qwen/qwen3.8-27b:free                         single   crownshy-prep            0.0s $0.0000 ERR HTTP 429: {"error":{"message":"Provider returned error","cod
+[11/88] qwen/qwen3.8-27b:free                         single   crownshy-prep            0.0s $0.0000 ERR HTTP 429: {"error":{"message":"Provider returned error","cod
+[12/88] qwen/qwen3.8-27b:free                         single   crownshy-prep            0.0s $0.0000 ERR HTTP 429: {"error":{"message":"Provider returned error","cod
+[13/88] qwen/qwen3.8-27b:free                         single   crownshy-grill          14.3s $0.0000 judge=4
+[14/88] qwen/qwen3.8-27b:free                         single   crownshy-grill           0.0s $0.0000 ERR HTTP 429: {"error":{"message":"Provider returned error","cod
+[15/88] qwen/qwen3.8-27b:free                         single   crownshy-grill           6.3s $0.0000 judge=4
+[16/88] qwen/qwen3.8-27b:free                         single   crownshy-plancha         0.0s $0.0000 ERR HTTP 429: {"error":{"message":"Provider returned error","cod
+[17/88] qwen/qwen3.8-27b:free                         single   crownshy-plancha         0.0s $0.0000 ERR HTTP 429: {"error":{"message":"Provider returned error","cod
+[18/88] qwen/qwen3.8-27b:free                         single   crownshy-plancha        13.4s $0.0000 judge=4
+[19/88] qwen/qwen3.8-27b:free                         single   crownshy-salamander      0.0s $0.0000 ERR HTTP 429: {"error":{"message":"Provider returned error","cod
+[20/88] qwen/qwen3.8-27b:free                         single   crownshy-salamander      0.0s $0.0000 ERR HTTP 429: {"error":{"message":"Provider returned error","cod
+[21/88] qwen/qwen3.8-27b:free                         single   crownshy-salamander     31.8s $0.0000 judge=3
+[22/88] qwen/qwen3.8-27b:free                         single   crownshy-plating         0.0s $0.0000 ERR HTTP 429: {"error":{"message":"Provider returned error","cod
+[23/88] qwen/qwen3.8-27b:free                         single   crownshy-plating         0.0s $0.0000 ERR HTTP 429: {"error":{"message":"Provider returned error","cod
+[24/88] qwen/qwen3.8-27b:free                         single   crownshy-plating        21.4s $0.0000 judge=3
+[25/88] qwen/qwen3.8-27b:free                         multicam crownshy                 0.0s $0.0000 ERR HTTP 429: {"error":{"message":"Provider returned error","cod
+[26/88] qwen/qwen3.8-27b:free                         single   kitchen-overview         0.0s $0.0000 ERR HTTP 429: {"error":{"message":"Provider returned error","cod
+[27/88] qwen/qwen3.8-27b:free                         single   kitchen-overview         0.0s $0.0000 ERR HTTP 429: {"error":{"message":"Provider returned error","cod
+[28/88] qwen/qwen3.8-27b:free                         single   kitchen-overview         0.0s $0.0000 ERR HTTP 429: {"error":{"message":"Provider returned error","cod
+[29/88] qwen/qwen3.8-27b:free                         single   kitchen-wide             0.0s $0.0000 ERR HTTP 429: {"error":{"message":"Provider returned error","cod
+[30/88] qwen/qwen3.8-27b:free                         single   kitchen-wide            18.1s $0.0000 judge=2
+[31/88] qwen/qwen3.8-27b:free                         single   kitchen-wide             0.0s $0.0000 ERR HTTP 429: {"error":{"message":"Provider returned error","cod
+[32/88] qwen/qwen3.8-27b:free                         single   kitchen-stove            0.0s $0.0000 ERR HTTP 429: {"error":{"message":"Provider returned error","cod
+[33/88] qwen/qwen3.8-27b:free                         single   kitchen-stove            0.0s $0.0000 ERR HTTP 429: {"error":{"message":"Provider returned error","cod
+[34/88] qwen/qwen3.8-27b:free                         single   kitchen-stove           13.6s $0.0000 judge=4
+[35/88] qwen/qwen3.8-27b:free                         single   kitchen-prep             0.0s $0.0000 ERR HTTP 429: {"error":{"message":"Provider returned error","cod
+[36/88] qwen/qwen3.8-27b:free                         single   kitchen-prep             9.8s $0.0000 judge=4
+[37/88] qwen/qwen3.8-27b:free                         single   kitchen-prep             0.0s $0.0000 ERR HTTP 429: {"error":{"message":"Provider returned error","cod
+[38/88] qwen/qwen3.8-27b:free                         single   kitchen-sink             9.0s $0.0000 judge=4
+[39/88] qwen/qwen3.8-27b:free                         single   kitchen-sink            42.4s $0.0000 judge=3
+[40/88] qwen/qwen3.8-27b:free                         single   kitchen-sink             0.0s $0.0000 ERR HTTP 429: {"error":{"message":"Provider returned error","cod
+[41/88] qwen/qwen3.8-27b:free                         multicam kitchen                  0.0s $0.0000 ERR HTTP 429: {"error":{"message":"Provider returned error","cod
+[42/88] qwen/qwen3.8-27b:free                         temporal kitchen-overview         0.0s $0.0000 ERR HTTP 429: {"error":{"message":"Provider returned error","cod
+[43/88] qwen/qwen3.8-27b:free                         temporal kitchen-wide             0.0s $0.0000 ERR HTTP 429: {"error":{"message":"Provider returned error","cod
+[44/88] qwen/qwen3.8-27b:free                         temporal kitchen-prep             0.0s $0.0000 ERR HTTP 429: {"error":{"message":"Provider returned error","cod
+[45/88] qwen/qwen3.8-27b:free                         temporal kitchen-sink             0.0s $0.0000 ERR HTTP 429: {"error":{"message":"Provider returned error","cod
+[46/88] google/gemma-4-31b-it:free                    single   crownshy-line            0.0s $0.0000 ERR HTTP 429: {"error":{"message":"Provider returned error","cod
+[47/88] google/gemma-4-31b-it:free                    single   crownshy-line            0.0s $0.0000 ERR HTTP 429: {"error":{"message":"Provider returned error","cod
+[48/88] google/gemma-4-31b-it:free                    single   crownshy-line            0.0s $0.0000 ERR HTTP 429: {"error":{"message":"Provider returned error","cod
+[49/88] google/gemma-4-31b-it:free                    single   crownshy-dining          0.0s $0.0000 ERR HTTP 429: {"error":{"message":"Provider returned error","cod
+[50/88] google/gemma-4-31b-it:free                    single   crownshy-dining          0.0s $0.0000 ERR HTTP 429: {"error":{"message":"Provider returned error","cod
+[51/88] google/gemma-4-31b-it:free                    single   crownshy-dining          0.0s $0.0000 ERR HTTP 429: {"error":{"message":"Provider returned error","cod
+[52/88] google/gemma-4-31b-it:free                    single   crownshy-prep            0.0s $0.0000 ERR HTTP 429: {"error":{"message":"Provider returned error","cod
+[53/88] google/gemma-4-31b-it:free                    single   crownshy-prep            0.0s $0.0000 ERR HTTP 429: {"error":{"message":"Provider returned error","cod
+[54/88] google/gemma-4-31b-it:free                    single   crownshy-prep            0.0s $0.0000 ERR HTTP 429: {"error":{"message":"Provider returned error","cod
+[55/88] google/gemma-4-31b-it:free                    single   crownshy-grill           0.0s $0.0000 ERR HTTP 429: {"error":{"message":"Provider returned error","cod
+[56/88] google/gemma-4-31b-it:free                    single   crownshy-grill           0.0s $0.0000 ERR HTTP 429: {"error":{"message":"Provider returned error","cod
+[57/88] google/gemma-4-31b-it:free                    single   crownshy-grill           0.0s $0.0000 ERR HTTP 429: {"error":{"message":"Provider returned error","cod
+[58/88] google/gemma-4-31b-it:free                    single   crownshy-plancha         0.0s $0.0000 ERR HTTP 429: {"error":{"message":"Provider returned error","cod
+[59/88] google/gemma-4-31b-it:free                    single   crownshy-plancha         0.0s $0.0000 ERR HTTP 429: {"error":{"message":"Provider returned error","cod
+[60/88] google/gemma-4-31b-it:free                    single   crownshy-plancha         0.0s $0.0000 ERR HTTP 429: {"error":{"message":"Provider returned error","cod
+[61/88] google/gemma-4-31b-it:free                    single   crownshy-salamander      0.0s $0.0000 ERR HTTP 429: {"error":{"message":"Provider returned error","cod
+[62/88] google/gemma-4-31b-it:free                    single   crownshy-salamander      0.0s $0.0000 ERR HTTP 429: {"error":{"message":"Provider returned error","cod
+[63/88] google/gemma-4-31b-it:free                    single   crownshy-salamander      0.0s $0.0000 ERR HTTP 429: {"error":{"message":"Provider returned error","cod
+[64/88] google/gemma-4-31b-it:free                    single   crownshy-plating         0.0s $0.0000 ERR HTTP 429: {"error":{"message":"Provider returned error","cod
+[65/88] google/gemma-4-31b-it:free                    single   crownshy-plating         0.0s $0.0000 ERR HTTP 429: {"error":{"message":"Provider returned error","cod
+[66/88] google/gemma-4-31b-it:free                    single   crownshy-plating         0.0s $0.0000 ERR HTTP 429: {"error":{"message":"Provider returned error","cod
+[67/88] google/gemma-4-31b-it:free                    multicam crownshy                 0.0s $0.0000 ERR HTTP 429: {"error":{"message":"Provider returned error","cod
+[68/88] google/gemma-4-31b-it:free                    single   kitchen-overview         0.0s $0.0000 ERR HTTP 429: {"error":{"message":"Provider returned error","cod
+[69/88] google/gemma-4-31b-it:free                    single   kitchen-overview        16.2s $0.0000 judge=4
+[70/88] google/gemma-4-31b-it:free                    single   kitchen-overview         0.0s $0.0000 ERR HTTP 429: {"error":{"message":"Provider returned error","cod
+[71/88] google/gemma-4-31b-it:free                    single   kitchen-wide             0.0s $0.0000 ERR HTTP 429: {"error":{"message":"Provider returned error","cod
+[72/88] google/gemma-4-31b-it:free                    single   kitchen-wide            13.7s $0.0000 judge=3
+[73/88] google/gemma-4-31b-it:free                    single   kitchen-wide             0.0s $0.0000 ERR HTTP 429: {"error":{"message":"Provider returned error","cod
+[74/88] google/gemma-4-31b-it:free                    single   kitchen-stove            0.0s $0.0000 ERR HTTP 429: {"error":{"message":"Provider returned error","cod
+[75/88] google/gemma-4-31b-it:free                    single   kitchen-stove            0.0s $0.0000 ERR HTTP 429: {"error":{"message":"Provider returned error","cod
+[76/88] google/gemma-4-31b-it:free                    single   kitchen-stove            0.0s $0.0000 ERR HTTP 429: {"error":{"message":"Provider returned error","cod
+[77/88] google/gemma-4-31b-it:free                    single   kitchen-prep             0.0s $0.0000 ERR HTTP 429: {"error":{"message":"Provider returned error","cod
+[78/88] google/gemma-4-31b-it:free                    single   kitchen-prep            14.5s $0.0000 judge=4
+[79/88] google/gemma-4-31b-it:free                    single   kitchen-prep            12.7s $0.0000 judge=2
+[80/88] google/gemma-4-31b-it:free                    single   kitchen-sink             0.0s $0.0000 ERR HTTP 429: {"error":{"message":"Provider returned error","cod
+[81/88] google/gemma-4-31b-it:free                    single   kitchen-sink             0.0s $0.0000 ERR HTTP 429: {"error":{"message":"Provider returned error","cod
+[82/88] google/gemma-4-31b-it:free                    single   kitchen-sink             0.0s $0.0000 ERR HTTP 429: {"error":{"message":"Provider returned error","cod
+[83/88] google/gemma-4-31b-it:free                    multicam kitchen                  0.0s $0.0000 ERR HTTP 429: {"error":{"message":"Provider returned error","cod
+[84/88] google/gemma-4-31b-it:free                    temporal kitchen-overview        20.1s $0.0000 judge=4
+[85/88] google/gemma-4-31b-it:free                    temporal kitchen-wide            16.2s $0.0000 judge=2
+[86/88] google/gemma-4-31b-it:free                    temporal kitchen-stove            0.0s $0.0000 ERR HTTP 429: {"error":{"message":"Provider returned error","cod
+[87/88] google/gemma-4-31b-it:free                    temporal kitchen-prep             0.0s $0.0000 ERR HTTP 429: {"error":{"message":"Provider returned error","cod
+[88/88] google/gemma-4-31b-it:free                    temporal kitchen-sink            14.4s $0.0000 judge=3
+
+report: workspace\vision-eval\r2-free\report.md
+nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free fail 0/43  count 97%/100%  hazard 56%  judge 3.39  halluc 1.17  multicam 3.5  temporal 2.8  p50 2.2s  $0
+qwen/qwen3.8-27b:free                         fail 28/43  count 64%/86%  hazard 100%  judge 3.43  halluc 2  multicam None  temporal 3  p50 18.1s  $0
+google/gemma-4-31b-it:free                    fail 36/43  count 100%/100%  hazard 50%  judge 3.25  halluc 1.75  multicam None  temporal 3  p50 14.5s  $0
+DONE

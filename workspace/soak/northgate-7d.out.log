@@ -1,0 +1,95 @@
+soak: desk 1 at http://127.0.0.1:8095  out=workspace\soak\northgate-7d
+[0.02h] runs24h=1 fail=0.0 zombies=0 pending=None alerts=[] rss=48.0
+[0.18h] runs24h=1 fail=0.0 zombies=0 pending=None alerts=[] rss=49.2
+[0.35h] runs24h=1 fail=0.0 zombies=0 pending=None alerts=[] rss=50.8
+[0.52h] runs24h=2 fail=0.0 zombies=0 pending=None alerts=['provider'] rss=49.2
+[0.68h] runs24h=2 fail=0.0 zombies=0 pending=None alerts=['provider'] rss=45.3
+[0.85h] runs24h=2 fail=0.0 zombies=0 pending=None alerts=['provider'] rss=45.4
+[1.02h] runs24h=3 fail=0.0 zombies=0 pending=None alerts=['provider'] rss=28.7
+[1.18h] runs24h=3 fail=0.0 zombies=0 pending=None alerts=['provider'] rss=29.6
+[1.35h] runs24h=3 fail=0.0 zombies=0 pending=None alerts=['provider'] rss=29.4
+[1.52h] runs24h=4 fail=0.0 zombies=0 pending=None alerts=['provider'] rss=29.5
+[1.68h] runs24h=4 fail=0.0 zombies=0 pending=None alerts=['provider'] rss=29.3
+[1.85h] runs24h=4 fail=0.0 zombies=0 pending=None alerts=['provider'] rss=29.2
+[2.02h] runs24h=5 fail=0.0 zombies=0 pending=None alerts=[] rss=35.8
+[2.19h] runs24h=5 fail=0.0 zombies=0 pending=None alerts=[] rss=29.5
+[2.35h] runs24h=5 fail=0.0 zombies=0 pending=None alerts=[] rss=28.7
+[2.52h] runs24h=6 fail=0.0 zombies=0 pending=None alerts=[] rss=31.8
+[2.69h] runs24h=6 fail=0.0 zombies=0 pending=None alerts=[] rss=31.5
+[2.85h] runs24h=8 fail=0.0 zombies=0 pending=None alerts=[] rss=29.9
+[3.02h] runs24h=9 fail=0.0 zombies=0 pending=None alerts=[] rss=30.1
+[3.19h] runs24h=9 fail=0.0 zombies=0 pending=None alerts=[] rss=29.8
+[3.35h] runs24h=9 fail=0.0 zombies=0 pending=None alerts=[] rss=31.7
+[3.52h] runs24h=11 fail=0.0 zombies=0 pending=None alerts=[] rss=28.4
+[3.69h] runs24h=12 fail=0.0 zombies=0 pending=None alerts=[] rss=28.7
+[3.85h] runs24h=12 fail=0.0 zombies=0 pending=None alerts=[] rss=32.7
+[4.02h] runs24h=12 fail=0.0 zombies=0 pending=None alerts=[] rss=30.7
+[4.19h] runs24h=13 fail=0.0 zombies=0 pending=None alerts=[] rss=35.2
+[4.35h] runs24h=14 fail=0.0 zombies=0 pending=None alerts=['provider'] rss=29.2
+[4.52h] runs24h=14 fail=0.0 zombies=0 pending=None alerts=['provider'] rss=31.2
+[4.85h] runs24h=16 fail=0.0 zombies=0 pending=None alerts=['provider'] rss=31.5
+[5.01h] runs24h=16 fail=0.0 zombies=0 pending=None alerts=['provider'] rss=32.7
+[5.18h] runs24h=17 fail=0.0 zombies=0 pending=None alerts=['provider'] rss=33.1
+[5.35h] runs24h=17 fail=0.0 zombies=0 pending=None alerts=['provider'] rss=31.1
+[5.51h] runs24h=17 fail=0.0 zombies=0 pending=None alerts=['provider'] rss=31.0
+[5.68h] runs24h=19 fail=0.0 zombies=0 pending=None alerts=['provider'] rss=35.7
+[5.85h] runs24h=21 fail=0.0 zombies=0 pending=None alerts=['provider'] rss=34.1
+[6.01h] runs24h=21 fail=0.0 zombies=0 pending=None alerts=['provider'] rss=34.1
+[6.18h] runs24h=21 fail=0.0 zombies=0 pending=None alerts=['provider'] rss=32.1
+[6.35h] runs24h=23 fail=0.0 zombies=0 pending=None alerts=['provider'] rss=33.3
+[6.51h] runs24h=25 fail=0.0 zombies=0 pending=None alerts=['provider'] rss=33.9
+[6.68h] runs24h=25 fail=0.0 zombies=0 pending=None alerts=['provider'] rss=34.0
+[6.85h] runs24h=25 fail=0.0 zombies=0 pending=None alerts=[] rss=32.2
+[12.88h] runs24h=26 fail=0.0 zombies=0 pending=None alerts=[] rss=32.4
+[13.04h] runs24h=26 fail=0.0 zombies=0 pending=None alerts=[] rss=38.4
+[13.21h] runs24h=26 fail=0.0 zombies=0 pending=None alerts=[] rss=38.4
+[13.38h] runs24h=27 fail=0.0 zombies=0 pending=None alerts=[] rss=34.2
+[13.54h] runs24h=27 fail=0.0 zombies=0 pending=None alerts=[] rss=34.4
+[13.71h] runs24h=27 fail=0.0 zombies=0 pending=None alerts=[] rss=38.6
+[13.88h] runs24h=28 fail=0.0 zombies=0 pending=None alerts=['provider'] rss=32.9
+[14.04h] runs24h=28 fail=0.0 zombies=0 pending=None alerts=['provider'] rss=32.7
+[14.21h] runs24h=28 fail=0.0 zombies=0 pending=None alerts=['provider'] rss=28.4
+[14.38h] runs24h=29 fail=0.0 zombies=0 pending=None alerts=['provider'] rss=30.2
+[14.54h] runs24h=29 fail=0.0 zombies=0 pending=None alerts=['provider'] rss=30.8
+[14.71h] runs24h=29 fail=0.0 zombies=0 pending=None alerts=['provider'] rss=30.8
+[14.88h] runs24h=30 fail=0.0 zombies=0 pending=None alerts=[] rss=31.0
+[15.04h] runs24h=30 fail=0.0 zombies=0 pending=None alerts=[] rss=29.8
+[15.21h] runs24h=30 fail=0.0 zombies=0 pending=None alerts=[] rss=31.6
+[15.38h] runs24h=31 fail=0.0 zombies=0 pending=None alerts=['provider'] rss=30.8
+[15.54h] runs24h=31 fail=0.0 zombies=0 pending=None alerts=['provider'] rss=30.9
+[15.71h] runs24h=31 fail=0.0 zombies=0 pending=None alerts=['provider'] rss=30.2
+[15.88h] runs24h=32 fail=0.0 zombies=0 pending=None alerts=['provider'] rss=30.5
+[16.04h] runs24h=32 fail=0.0 zombies=0 pending=None alerts=['provider'] rss=30.2
+[16.21h] runs24h=32 fail=0.0 zombies=0 pending=None alerts=['provider'] rss=32.4
+[16.38h] runs24h=33 fail=0.0 zombies=0 pending=None alerts=[] rss=30.3
+[16.55h] runs24h=33 fail=0.0 zombies=0 pending=None alerts=[] rss=29.9
+[16.71h] runs24h=33 fail=0.0 zombies=0 pending=None alerts=[] rss=32.1
+[16.88h] runs24h=34 fail=0.0 zombies=0 pending=None alerts=['provider'] rss=32.4
+[17.05h] runs24h=34 fail=0.0 zombies=0 pending=None alerts=['provider'] rss=29.8
+[17.21h] runs24h=34 fail=0.0 zombies=0 pending=None alerts=['provider'] rss=29.9
+snapshot failed: [WinError 10061] No connection could be made because the target machine actively refused it
+owner step failed: [WinError 10061] No connection could be made because the target machine actively refused it
+owner step failed: [WinError 10061] No connection could be made because the target machine actively refused it
+snapshot failed: [WinError 10061] No connection could be made because the target machine actively refused it
+owner step failed: [WinError 10061] No connection could be made because the target machine actively refused it
+owner step failed: [WinError 10061] No connection could be made because the target machine actively refused it
+snapshot failed: [WinError 10061] No connection could be made because the target machine actively refused it
+owner step failed: [WinError 10061] No connection could be made because the target machine actively refused it
+owner step failed: [WinError 10061] No connection could be made because the target machine actively refused it
+snapshot failed: [WinError 10061] No connection could be made because the target machine actively refused it
+owner step failed: [WinError 10061] No connection could be made because the target machine actively refused it
+owner step failed: [WinError 10061] No connection could be made because the target machine actively refused it
+snapshot failed: [WinError 10061] No connection could be made because the target machine actively refused it
+owner step failed: [WinError 10061] No connection could be made because the target machine actively refused it
+owner step failed: [WinError 10061] No connection could be made because the target machine actively refused it
+snapshot failed: [WinError 10061] No connection could be made because the target machine actively refused it
+owner step failed: [WinError 10061] No connection could be made because the target machine actively refused it
+owner step failed: [WinError 10061] No connection could be made because the target machine actively refused it
+snapshot failed: [WinError 10061] No connection could be made because the target machine actively refused it
+owner step failed: [WinError 10061] No connection could be made because the target machine actively refused it
+owner step failed: [WinError 10061] No connection could be made because the target machine actively refused it
+snapshot failed: [WinError 10061] No connection could be made because the target machine actively refused it
+owner step failed: [WinError 10061] No connection could be made because the target machine actively refused it
+owner step failed: [WinError 10061] No connection could be made because the target machine actively refused it
+snapshot failed: [WinError 10061] No connection could be made because the target machine actively refused it
+owner step failed: [WinError 10061] No connection could be made because the target machine actively refused it

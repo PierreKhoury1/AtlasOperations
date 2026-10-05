@@ -1,0 +1,3820 @@
+[
+ {
+  "task": "single",
+  "site": "crownshy",
+  "camera": "crownshy-dining",
+  "frame": 1,
+  "path": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\crownshy-dining_1.jpg",
+  "area": "dining room / chef's counter looking into the open kitchen under heat lamps",
+  "model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+  "text": "\n{\n  \"people\": 8,\n  \"area\": \"open kitchen and dining area\",\n  \"activity\": \"Staff are actively preparing and plating food at the pass while diners sit at the counter watching the service.\",\n  \"issues\": []\n}",
+  "latency": 4.8688318729400635,
+  "prompt_tokens": 2247,
+  "completion_tokens": 53,
+  "cost": 0,
+  "finish": "stop",
+  "raw_len": 205,
+  "parsed": {
+   "people": 8,
+   "area": "open kitchen and dining area",
+   "activity": "Staff are actively preparing and plating food at the pass while diners sit at the counter watching the service.",
+   "issues": []
+  },
+  "score": {
+   "ok": true,
+   "people": 8,
+   "people_ok": true,
+   "people_near": true,
+   "hazard_hit": 0,
+   "hazard_total": 0,
+   "issues_reported": 0,
+   "judge_raw": "{\"accuracy\": 4, \"area_ok\": true, \"hallucinations\": [], \"missed\": [\"man in checked shirt, laughing woman\", \"bearded chef in white jacket\", \"black heat lamps over the pass\"]}",
+   "judge_cost": 0.001878,
+   "accuracy": 4,
+   "area_ok": true,
+   "hallucinations": [],
+   "missed": [
+    "man in checked shirt, laughing woman",
+    "bearded chef in white jacket",
+    "black heat lamps over the pass"
+   ]
+  }
+ },
+ {
+  "task": "single",
+  "site": "crownshy",
+  "camera": "crownshy-line",
+  "frame": 2,
+  "path": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\crownshy-line_2.jpg",
+  "area": "hot line / main kitchen, wide high-angle view down the cooking line, dining room visible through glass at the far end",
+  "model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+  "text": "\n{\n  \"people\": 8,\n  \"area\": \"open kitchen pass-through and cooking line\",\n  \"activity\": \"Chefs are actively cooking and plating dishes while staff move between stations during peak service.\",\n  \"issues\": [\n    \"raw chicken on tray uncovered on stainless steel counter\",\n    \"open flame visible under pan on stove\"\n  ]\n}",
+  "latency": 4.550938367843628,
+  "prompt_tokens": 2247,
+  "completion_tokens": 75,
+  "cost": 0,
+  "finish": "stop",
+  "raw_len": 319,
+  "parsed": {
+   "people": 8,
+   "area": "open kitchen pass-through and cooking line",
+   "activity": "Chefs are actively cooking and plating dishes while staff move between stations during peak service.",
+   "issues": [
+    "raw chicken on tray uncovered on stainless steel counter",
+    "open flame visible under pan on stove"
+   ]
+  },
+  "score": {
+   "ok": true,
+   "people": 8,
+   "people_ok": true,
+   "people_near": true,
+   "hazard_hit": 1,
+   "hazard_total": 1,
+   "issues_reported": 2,
+   "judge_raw": "{\"accuracy\": 4, \"area_ok\": true, \"hallucinations\": [\"exact count of 8 people\", \"open flame visible under pan on stove\"], \"missed\": [\"diners visible through glass at far end\", \"griddle and pots on the range\"]}",
+   "judge_cost": 0.00198,
+   "accuracy": 4,
+   "area_ok": true,
+   "hallucinations": [
+    "exact count of 8 people",
+    "open flame visible under pan on stove"
+   ],
+   "missed": [
+    "diners visible through glass at far end",
+    "griddle and pots on the range"
+   ]
+  }
+ },
+ {
+  "task": "single",
+  "site": "crownshy",
+  "camera": "crownshy-prep",
+  "frame": 1,
+  "path": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\crownshy-prep_1.jpg",
+  "area": "prep kitchen (back of house), eye-level view of a steel prep table with a combi oven behind",
+  "model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+  "text": "\n{\n  \"people\": 3,\n  \"area\": \"kitchen prep station\",\n  \"activity\": \"Three kitchen staff are preparing vegetables at a stainless steel counter; the person on the left is peeling carrots, the person in the center is shredding carrots, and the person on the right is handling green vegetables.\",\n  \"issues\": []\n}",
+  "latency": 4.405066728591919,
+  "prompt_tokens": 2247,
+  "completion_tokens": 76,
+  "cost": 0,
+  "finish": "stop",
+  "raw_len": 308,
+  "parsed": {
+   "people": 3,
+   "area": "kitchen prep station",
+   "activity": "Three kitchen staff are preparing vegetables at a stainless steel counter; the person on the left is peeling carrots, the person in the center is shredding carrots, and the person on the right is handling green vegetables.",
+   "issues": []
+  },
+  "score": {
+   "ok": true,
+   "people": 3,
+   "people_ok": true,
+   "people_near": true,
+   "hazard_hit": 0,
+   "hazard_total": 2,
+   "issues_reported": 0,
+   "judge_raw": "{\"accuracy\": 3, \"area_ok\": true, \"hallucinations\": [\"Right person handling green vegetables (human says peeling carrots)\"], \"missed\": [\"Right cook wears glasses and has tattooed forearm\", \"Blue glove box and combi oven in background\", \"Left cook uses bare hands, others wear gloves\"]}",
+   "judge_cost": 0.002372,
+   "accuracy": 3,
+   "area_ok": true,
+   "hallucinations": [
+    "Right person handling green vegetables (human says peeling carrots)"
+   ],
+   "missed": [
+    "Right cook wears glasses and has tattooed forearm",
+    "Blue glove box and combi oven in background",
+    "Left cook uses bare hands, others wear gloves"
+   ]
+  }
+ },
+ {
+  "task": "single",
+  "site": "crownshy",
+  "camera": "crownshy-line",
+  "frame": 1,
+  "path": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\crownshy-line_1.jpg",
+  "area": "hot line / main kitchen, wide high-angle view down the cooking line, dining room visible through glass at the far end",
+  "model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+  "text": "\n{\n  \"people\": 7,\n  \"area\": \"open kitchen service area\",\n  \"activity\": \"A chef in an apron stands holding a cloth while other staff cook at various stations during evening service.\",\n  \"issues\": [\n    \"raw chicken on a metal tray uncovered on a stainless steel counter\",\n    \"bare hand visible near a pan on the stove\"\n  ]\n}",
+  "latency": 5.23068904876709,
+  "prompt_tokens": 2247,
+  "completion_tokens": 81,
+  "cost": 0,
+  "finish": "stop",
+  "raw_len": 324,
+  "parsed": {
+   "people": 7,
+   "area": "open kitchen service area",
+   "activity": "A chef in an apron stands holding a cloth while other staff cook at various stations during evening service.",
+   "issues": [
+    "raw chicken on a metal tray uncovered on a stainless steel counter",
+    "bare hand visible near a pan on the stove"
+   ]
+  },
+  "score": {
+   "ok": true,
+   "people": 7,
+   "people_ok": true,
+   "people_near": true,
+   "hazard_hit": 1,
+   "hazard_total": 1,
+   "issues_reported": 2,
+   "judge_raw": "{\"accuracy\": 4, \"area_ok\": true, \"hallucinations\": [\"chef holding a cloth\", \"bare hand visible near a pan on the stove\"], \"missed\": [\"dining room visible through glass at far end\", \"flat-top griddle in the middle\"]}",
+   "judge_cost": 0.002146,
+   "accuracy": 4,
+   "area_ok": true,
+   "hallucinations": [
+    "chef holding a cloth",
+    "bare hand visible near a pan on the stove"
+   ],
+   "missed": [
+    "dining room visible through glass at far end",
+    "flat-top griddle in the middle"
+   ]
+  }
+ },
+ {
+  "task": "single",
+  "site": "crownshy",
+  "camera": "crownshy-dining",
+  "frame": 3,
+  "path": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\crownshy-dining_3.jpg",
+  "area": "dining room / chef's counter looking into the open kitchen under heat lamps",
+  "model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+  "text": "\n{\n  \"people\": 10,\n  \"area\": \"open kitchen and dining area\",\n  \"activity\": \"Staff are actively preparing and plating food at the pass while diners eat at tables in the foreground.\",\n  \"issues\": []\n}",
+  "latency": 1.2403769493103027,
+  "prompt_tokens": 2247,
+  "completion_tokens": 53,
+  "cost": 0,
+  "finish": "stop",
+  "raw_len": 198,
+  "parsed": {
+   "people": 10,
+   "area": "open kitchen and dining area",
+   "activity": "Staff are actively preparing and plating food at the pass while diners eat at tables in the foreground.",
+   "issues": []
+  },
+  "score": {
+   "ok": true,
+   "people": 10,
+   "people_ok": true,
+   "people_near": true,
+   "hazard_hit": 0,
+   "hazard_total": 0,
+   "issues_reported": 0,
+   "judge_raw": "{\"accuracy\": 4, \"area_ok\": true, \"hallucinations\": [], \"missed\": [\"bearded chef standing at the pass\", \"cook wearing a cap at the back\", \"framed portrait poster on the right wall\"]}",
+   "judge_cost": 0.00279,
+   "accuracy": 4,
+   "area_ok": true,
+   "hallucinations": [],
+   "missed": [
+    "bearded chef standing at the pass",
+    "cook wearing a cap at the back",
+    "framed portrait poster on the right wall"
+   ]
+  }
+ },
+ {
+  "task": "single",
+  "site": "crownshy",
+  "camera": "crownshy-dining",
+  "frame": 2,
+  "path": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\crownshy-dining_2.jpg",
+  "area": "dining room / chef's counter looking into the open kitchen under heat lamps",
+  "model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+  "text": "\n{\n  \"people\": 9,\n  \"area\": \"open kitchen and dining area\",\n  \"activity\": \"A chef in a white shirt stands near the kitchen pass while a female staff member works at the counter; diners are seated at tables in the foreground and staff are moving in the background.\",\n  \"issues\": []\n}",
+  "latency": 1.3789117336273193,
+  "prompt_tokens": 2247,
+  "completion_tokens": 70,
+  "cost": 0,
+  "finish": "stop",
+  "raw_len": 282,
+  "parsed": {
+   "people": 9,
+   "area": "open kitchen and dining area",
+   "activity": "A chef in a white shirt stands near the kitchen pass while a female staff member works at the counter; diners are seated at tables in the foreground and staff are moving in the background.",
+   "issues": []
+  },
+  "score": {
+   "ok": true,
+   "people": 9,
+   "people_ok": true,
+   "people_near": true,
+   "hazard_hit": 0,
+   "hazard_total": 0,
+   "issues_reported": 0,
+   "judge_raw": "{\"accuracy\": 3, \"area_ok\": true, \"hallucinations\": [\"diners described as seated at tables, not counter seating\", \"female staff member working at counter not mentioned\"], \"missed\": [\"heat lamps over the pass\", \"framed poster on the wall\", \"specific counter seating arrangement\", \"bearded chef at the pass\"]}",
+   "judge_cost": 0.005558,
+   "accuracy": 3,
+   "area_ok": true,
+   "hallucinations": [
+    "diners described as seated at tables, not counter seating",
+    "female staff member working at counter not mentioned"
+   ],
+   "missed": [
+    "heat lamps over the pass",
+    "framed poster on the wall",
+    "specific counter seating arrangement",
+    "bearded chef at the pass"
+   ]
+  }
+ },
+ {
+  "task": "single",
+  "site": "crownshy",
+  "camera": "crownshy-grill",
+  "frame": 1,
+  "path": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\crownshy-grill_1.jpg",
+  "area": "charcoal grill station",
+  "model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+  "text": "\n{\n  \"people\": 3,\n  \"area\": \"open kitchen grill station\",\n  \"activity\": \"A chef is grilling meat over an open flame on a grill, causing a flare-up.\",\n  \"issues\": [\n    \"open flame/flare-up on grill with raw meat\",\n    \"bare hands handling food near open flame\"\n  ]\n}",
+  "latency": 2.261913299560547,
+  "prompt_tokens": 2247,
+  "completion_tokens": 75,
+  "cost": 0,
+  "finish": "stop",
+  "raw_len": 266,
+  "parsed": {
+   "people": 3,
+   "area": "open kitchen grill station",
+   "activity": "A chef is grilling meat over an open flame on a grill, causing a flare-up.",
+   "issues": [
+    "open flame/flare-up on grill with raw meat",
+    "bare hands handling food near open flame"
+   ]
+  },
+  "score": {
+   "ok": true,
+   "people": 3,
+   "people_ok": true,
+   "people_near": true,
+   "hazard_hit": 1,
+   "hazard_total": 1,
+   "issues_reported": 2,
+   "judge_raw": "{\"accuracy\": 3, \"area_ok\": true, \"hallucinations\": [\"bare hands handling food near open flame (human says chef uses tongs)\"], \"missed\": [\"chef holding tongs\", \"foil-lined tray beside grill\", \"second person in dark apron walking past\"]}",
+   "judge_cost": 0.003828,
+   "accuracy": 3,
+   "area_ok": true,
+   "hallucinations": [
+    "bare hands handling food near open flame (human says chef uses tongs)"
+   ],
+   "missed": [
+    "chef holding tongs",
+    "foil-lined tray beside grill",
+    "second person in dark apron walking past"
+   ]
+  }
+ },
+ {
+  "task": "single",
+  "site": "crownshy",
+  "camera": "crownshy-grill",
+  "frame": 2,
+  "path": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\crownshy-grill_2.jpg",
+  "area": "charcoal grill station",
+  "model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+  "text": "\n{\n  \"people\": 2,\n  \"area\": \"open kitchen cooking station\",\n  \"activity\": \"A chef in a white uniform is using a torch to sear food on a pan, creating a visible flame.\",\n  \"issues\": [\n    \"open flame/flare-up near food\"\n  ]\n}",
+  "latency": 2.5750386714935303,
+  "prompt_tokens": 2247,
+  "completion_tokens": 66,
+  "cost": 0,
+  "finish": "stop",
+  "raw_len": 224,
+  "parsed": {
+   "people": 2,
+   "area": "open kitchen cooking station",
+   "activity": "A chef in a white uniform is using a torch to sear food on a pan, creating a visible flame.",
+   "issues": [
+    "open flame/flare-up near food"
+   ]
+  },
+  "score": {
+   "ok": true,
+   "people": 2,
+   "people_ok": true,
+   "people_near": true,
+   "hazard_hit": 1,
+   "hazard_total": 1,
+   "issues_reported": 1,
+   "judge_raw": "{\"accuracy\": 3, \"area_ok\": true, \"hallucinations\": [\"using a torch to sear food (human described flame flaring from pan, not a torch)\"], \"missed\": [\"chef has a beard and apron\", \"pots and pans visible around station\", \"side view framing of the scene\"]}",
+   "judge_cost": 0.003798,
+   "accuracy": 3,
+   "area_ok": true,
+   "hallucinations": [
+    "using a torch to sear food (human described flame flaring from pan, not a torch)"
+   ],
+   "missed": [
+    "chef has a beard and apron",
+    "pots and pans visible around station",
+    "side view framing of the scene"
+   ]
+  }
+ },
+ {
+  "task": "single",
+  "site": "crownshy",
+  "camera": "crownshy-prep",
+  "frame": 3,
+  "path": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\crownshy-prep_3.jpg",
+  "area": "prep kitchen (back of house), eye-level view of a steel prep table with a combi oven behind",
+  "model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+  "text": "\n{\n  \"people\": 3,\n  \"area\": \"kitchen prep station\",\n  \"activity\": \"Three kitchen staff are preparing vegetables, with one peeling carrots, another shredding carrots, and the third working with greens.\",\n  \"issues\": []\n}",
+  "latency": 1.4630405902862549,
+  "prompt_tokens": 2247,
+  "completion_tokens": 59,
+  "cost": 0,
+  "finish": "stop",
+  "raw_len": 219,
+  "parsed": {
+   "people": 3,
+   "area": "kitchen prep station",
+   "activity": "Three kitchen staff are preparing vegetables, with one peeling carrots, another shredding carrots, and the third working with greens.",
+   "issues": []
+  },
+  "score": {
+   "ok": true,
+   "people": 3,
+   "people_ok": true,
+   "people_near": true,
+   "hazard_hit": 0,
+   "hazard_total": 2,
+   "issues_reported": 0,
+   "judge_raw": "{\"accuracy\": 3, \"area_ok\": true, \"hallucinations\": [\"one cook working with greens (human only mentions carrots)\", \"specific actions of peeling and shredding not confirmed\"], \"missed\": [\"middle cook talking while working\", \"knife on the board\", \"tray of carrots\", \"combi oven behind\"]}",
+   "judge_cost": 0.003272,
+   "accuracy": 3,
+   "area_ok": true,
+   "hallucinations": [
+    "one cook working with greens (human only mentions carrots)",
+    "specific actions of peeling and shredding not confirmed"
+   ],
+   "missed": [
+    "middle cook talking while working",
+    "knife on the board",
+    "tray of carrots",
+    "combi oven behind"
+   ]
+  }
+ },
+ {
+  "task": "single",
+  "site": "crownshy",
+  "camera": "crownshy-line",
+  "frame": 3,
+  "path": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\crownshy-line_3.jpg",
+  "area": "hot line / main kitchen, wide high-angle view down the cooking line, dining room visible through glass at the far end",
+  "model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+  "text": "\n{\n  \"people\": 6,\n  \"area\": \"open kitchen service area\",\n  \"activity\": \"A chef in a grey apron is preparing food at the central cooking station while another chef works at the grill station nearby.\",\n  \"issues\": [\n    \"raw chicken on a metal tray is uncovered on the prep counter\",\n    \"open flame visible under a pot on the stove\"\n  ]\n}",
+  "latency": 3.2587032318115234,
+  "prompt_tokens": 2247,
+  "completion_tokens": 85,
+  "cost": 0,
+  "finish": "stop",
+  "raw_len": 337,
+  "parsed": {
+   "people": 6,
+   "area": "open kitchen service area",
+   "activity": "A chef in a grey apron is preparing food at the central cooking station while another chef works at the grill station nearby.",
+   "issues": [
+    "raw chicken on a metal tray is uncovered on the prep counter",
+    "open flame visible under a pot on the stove"
+   ]
+  },
+  "score": {
+   "ok": true,
+   "people": 6,
+   "people_ok": true,
+   "people_near": true,
+   "hazard_hit": 1,
+   "hazard_total": 1,
+   "issues_reported": 2,
+   "judge_raw": "{\"accuracy\": 4, \"area_ok\": true, \"hallucinations\": [], \"missed\": [\"dining room visible through glass at far end\", \"diners visible beyond the glass\"]}",
+   "judge_cost": 0.002946,
+   "accuracy": 4,
+   "area_ok": true,
+   "hallucinations": [],
+   "missed": [
+    "dining room visible through glass at far end",
+    "diners visible beyond the glass"
+   ]
+  }
+ },
+ {
+  "task": "single",
+  "site": "crownshy",
+  "camera": "crownshy-salamander",
+  "frame": 2,
+  "path": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\crownshy-salamander_2.jpg",
+  "area": "salamander / finishing station, overhead camera looking down on a cook's head",
+  "model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+  "text": "\n{\n  \"people\": 2,\n  \"area\": \"kitchen prep station\",\n  \"activity\": \"A staff member is standing at a stainless steel prep station, facing away from the camera, with their back to the viewer, appearing to prepare food or organize ingredients. Another staff member is partially visible on the right side of the frame, standing near the prep area.\",\n  \"issues\": []\n}",
+  "latency": 1.4725773334503174,
+  "prompt_tokens": 2247,
+  "completion_tokens": 84,
+  "cost": 0,
+  "finish": "stop",
+  "raw_len": 361,
+  "parsed": {
+   "people": 2,
+   "area": "kitchen prep station",
+   "activity": "A staff member is standing at a stainless steel prep station, facing away from the camera, with their back to the viewer, appearing to prepare food or organize ingredients. Another staff member is partially visible on the right side of the frame, standing near the prep area.",
+   "issues": []
+  },
+  "score": {
+   "ok": true,
+   "people": 2,
+   "people_ok": true,
+   "people_near": true,
+   "hazard_hit": 0,
+   "hazard_total": 0,
+   "issues_reported": 0,
+   "judge_raw": "{\"accuracy\": 4, \"area_ok\": true, \"hallucinations\": [], \"missed\": [\"sauces and bowls laid out at the station\"]}",
+   "judge_cost": 0.001586,
+   "accuracy": 4,
+   "area_ok": true,
+   "hallucinations": [],
+   "missed": [
+    "sauces and bowls laid out at the station"
+   ]
+  }
+ },
+ {
+  "task": "single",
+  "site": "crownshy",
+  "camera": "crownshy-grill",
+  "frame": 3,
+  "path": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\crownshy-grill_3.jpg",
+  "area": "charcoal grill station",
+  "model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+  "text": "\n{\n  \"people\": 1,\n  \"area\": \"kitchen cooking station\",\n  \"activity\": \"A chef is cooking meat on a grill with a large flare-up occurring.\",\n  \"issues\": [\n    \"open flame/flare-up\"\n  ]\n}",
+  "latency": 1.9903151988983154,
+  "prompt_tokens": 2247,
+  "completion_tokens": 56,
+  "cost": 0,
+  "finish": "stop",
+  "raw_len": 184,
+  "parsed": {
+   "people": 1,
+   "area": "kitchen cooking station",
+   "activity": "A chef is cooking meat on a grill with a large flare-up occurring.",
+   "issues": [
+    "open flame/flare-up"
+   ]
+  },
+  "score": {
+   "ok": true,
+   "people": 1,
+   "people_ok": true,
+   "people_near": true,
+   "hazard_hit": 1,
+   "hazard_total": 1,
+   "issues_reported": 1,
+   "judge_raw": "{\"accuracy\": 4, \"area_ok\": true, \"hallucinations\": [\"cooking meat (not confirmed by human description)\"], \"missed\": [\"chef holding tongs\", \"foil tray beside grill\"]}",
+   "judge_cost": 0.002196,
+   "accuracy": 4,
+   "area_ok": true,
+   "hallucinations": [
+    "cooking meat (not confirmed by human description)"
+   ],
+   "missed": [
+    "chef holding tongs",
+    "foil tray beside grill"
+   ]
+  }
+ },
+ {
+  "task": "single",
+  "site": "crownshy",
+  "camera": "crownshy-plancha",
+  "frame": 2,
+  "path": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\crownshy-plancha_2.jpg",
+  "area": "plancha / flat-top griddle station, overhead camera",
+  "model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+  "text": "\n{\n  \"people\": 3,\n  \"area\": \"open kitchen grill station\",\n  \"activity\": \"A chef wearing a white glove is cooking various ingredients, including octopus, meat, and vegetables, on a flat-top grill.\",\n  \"issues\": []\n}",
+  "latency": 2.2547264099121094,
+  "prompt_tokens": 2247,
+  "completion_tokens": 57,
+  "cost": 0,
+  "finish": "stop",
+  "raw_len": 214,
+  "parsed": {
+   "people": 3,
+   "area": "open kitchen grill station",
+   "activity": "A chef wearing a white glove is cooking various ingredients, including octopus, meat, and vegetables, on a flat-top grill.",
+   "issues": []
+  },
+  "score": {
+   "ok": true,
+   "people": 3,
+   "people_ok": true,
+   "people_near": true,
+   "hazard_hit": 0,
+   "hazard_total": 0,
+   "issues_reported": 0,
+   "judge_raw": "{\"accuracy\": 3, \"area_ok\": true, \"hallucinations\": [\"claims 3 people, human only indicates one cook visible\"], \"missed\": [\"specific ingredients: pork cubes and squash\", \"meat being placed next to already-present octopus\"]}",
+   "judge_cost": 0.0028,
+   "accuracy": 3,
+   "area_ok": true,
+   "hallucinations": [
+    "claims 3 people, human only indicates one cook visible"
+   ],
+   "missed": [
+    "specific ingredients: pork cubes and squash",
+    "meat being placed next to already-present octopus"
+   ]
+  }
+ },
+ {
+  "task": "single",
+  "site": "crownshy",
+  "camera": "crownshy-plancha",
+  "frame": 1,
+  "path": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\crownshy-plancha_1.jpg",
+  "area": "plancha / flat-top griddle station, overhead camera",
+  "model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+  "text": "\n{\n  \"people\": 3,\n  \"area\": \"griddle station\",\n  \"activity\": \"A chef is cooking octopus, ham, and cheese cubes on a hot griddle while another staff member works in the background.\",\n  \"issues\": [\n    \"bare hands on ready food\"\n  ]\n}",
+  "latency": 2.6390328407287598,
+  "prompt_tokens": 2247,
+  "completion_tokens": 66,
+  "cost": 0,
+  "finish": "stop",
+  "raw_len": 232,
+  "parsed": {
+   "people": 3,
+   "area": "griddle station",
+   "activity": "A chef is cooking octopus, ham, and cheese cubes on a hot griddle while another staff member works in the background.",
+   "issues": [
+    "bare hands on ready food"
+   ]
+  },
+  "score": {
+   "ok": true,
+   "people": 3,
+   "people_ok": true,
+   "people_near": true,
+   "hazard_hit": 0,
+   "hazard_total": 0,
+   "issues_reported": 1,
+   "judge_raw": "{\"accuracy\": 3, \"area_ok\": true, \"hallucinations\": [\"cheese cubes (human saw squash cubes)\", \"bare hands on ready food\"], \"missed\": [\"pink pork/ham cubes described as ham/cheese, missing squash\", \"blurred hand at left not mentioned\"]}",
+   "judge_cost": 0.003762,
+   "accuracy": 3,
+   "area_ok": true,
+   "hallucinations": [
+    "cheese cubes (human saw squash cubes)",
+    "bare hands on ready food"
+   ],
+   "missed": [
+    "pink pork/ham cubes described as ham/cheese, missing squash",
+    "blurred hand at left not mentioned"
+   ]
+  }
+ },
+ {
+  "task": "single",
+  "site": "crownshy",
+  "camera": "crownshy-plating",
+  "frame": 2,
+  "path": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\crownshy-plating_2.jpg",
+  "area": "the pass, overhead camera over a dark marble counter with heat lamps",
+  "model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+  "text": "\n{\n  \"people\": 3,\n  \"area\": \"kitchen pass\",\n  \"activity\": \"Chefs are plating and garnishing dishes at the pass.\",\n  \"issues\": [\n    \"bare hands on ready food\"\n  ]\n}",
+  "latency": 2.0085055828094482,
+  "prompt_tokens": 2247,
+  "completion_tokens": 52,
+  "cost": 0,
+  "finish": "stop",
+  "raw_len": 164,
+  "parsed": {
+   "people": 3,
+   "area": "kitchen pass",
+   "activity": "Chefs are plating and garnishing dishes at the pass.",
+   "issues": [
+    "bare hands on ready food"
+   ]
+  },
+  "score": {
+   "ok": true,
+   "people": 3,
+   "people_ok": true,
+   "people_near": true,
+   "hazard_hit": 1,
+   "hazard_total": 1,
+   "issues_reported": 1,
+   "judge_raw": "{\"accuracy\": 3, \"area_ok\": true, \"hallucinations\": [\"3 people (human states two)\"], \"missed\": [\"gloves on one person handling meat\", \"bracelets on the other person\", \"tickets at the bottom\", \"heat lamps and marble counter\"]}",
+   "judge_cost": 0.001914,
+   "accuracy": 3,
+   "area_ok": true,
+   "hallucinations": [
+    "3 people (human states two)"
+   ],
+   "missed": [
+    "gloves on one person handling meat",
+    "bracelets on the other person",
+    "tickets at the bottom",
+    "heat lamps and marble counter"
+   ]
+  }
+ },
+ {
+  "task": "single",
+  "site": "crownshy",
+  "camera": "crownshy-salamander",
+  "frame": 3,
+  "path": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\crownshy-salamander_3.jpg",
+  "area": "salamander / finishing station, overhead camera looking down on a cook's head",
+  "model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+  "text": "\n{\n  \"people\": 2,\n  \"area\": \"kitchen prep station\",\n  \"activity\": \"A chef in a black shirt and apron stands near the ovens holding a white cloth, while another person wearing gloves reaches toward the stainless steel counter.\",\n  \"issues\": []\n}",
+  "latency": 2.412771463394165,
+  "prompt_tokens": 2247,
+  "completion_tokens": 62,
+  "cost": 0,
+  "finish": "stop",
+  "raw_len": 244,
+  "parsed": {
+   "people": 2,
+   "area": "kitchen prep station",
+   "activity": "A chef in a black shirt and apron stands near the ovens holding a white cloth, while another person wearing gloves reaches toward the stainless steel counter.",
+   "issues": []
+  },
+  "score": {
+   "ok": true,
+   "people": 2,
+   "people_ok": true,
+   "people_near": true,
+   "hazard_hit": 0,
+   "hazard_total": 0,
+   "issues_reported": 0,
+   "judge_raw": "{\"accuracy\": 3, \"area_ok\": true, \"hallucinations\": [\"ovens mentioned\", \"second person wearing gloves reaching toward counter\"], \"missed\": [\"overhead camera angle looking down\", \"main cook stepped out of centre\", \"trays, bowls and sauces on counter\"]}",
+   "judge_cost": 0.002046,
+   "accuracy": 3,
+   "area_ok": true,
+   "hallucinations": [
+    "ovens mentioned",
+    "second person wearing gloves reaching toward counter"
+   ],
+   "missed": [
+    "overhead camera angle looking down",
+    "main cook stepped out of centre",
+    "trays, bowls and sauces on counter"
+   ]
+  }
+ },
+ {
+  "task": "single",
+  "site": "crownshy",
+  "camera": "crownshy-plancha",
+  "frame": 3,
+  "path": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\crownshy-plancha_3.jpg",
+  "area": "plancha / flat-top griddle station, overhead camera",
+  "model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+  "text": "\n{\n  \"people\": 3,\n  \"area\": \"griddle station\",\n  \"activity\": \"A chef wearing gloves is cooking various ingredients including steak, octopus, ham, and cheese cubes on a flat-top grill.\",\n  \"issues\": []\n}",
+  "latency": 2.599064350128174,
+  "prompt_tokens": 2247,
+  "completion_tokens": 56,
+  "cost": 0,
+  "finish": "stop",
+  "raw_len": 202,
+  "parsed": {
+   "people": 3,
+   "area": "griddle station",
+   "activity": "A chef wearing gloves is cooking various ingredients including steak, octopus, ham, and cheese cubes on a flat-top grill.",
+   "issues": []
+  },
+  "score": {
+   "ok": true,
+   "people": 3,
+   "people_ok": true,
+   "people_near": true,
+   "hazard_hit": 0,
+   "hazard_total": 0,
+   "issues_reported": 0,
+   "judge_raw": "{\"accuracy\": 2, \"area_ok\": true, \"hallucinations\": [\"claims 3 people, human indicates about 2\", \"ham cubes not mentioned, human said pork cubes\", \"cheese cubes not mentioned, human said squash cubes\"], \"missed\": [\"gloved hand setting down short rib specifically\", \"cook at far station in background\"]}",
+   "judge_cost": 0.004088,
+   "accuracy": 2,
+   "area_ok": true,
+   "hallucinations": [
+    "claims 3 people, human indicates about 2",
+    "ham cubes not mentioned, human said pork cubes",
+    "cheese cubes not mentioned, human said squash cubes"
+   ],
+   "missed": [
+    "gloved hand setting down short rib specifically",
+    "cook at far station in background"
+   ]
+  }
+ },
+ {
+  "task": "single",
+  "site": "crownshy",
+  "camera": "crownshy-salamander",
+  "frame": 1,
+  "path": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\crownshy-salamander_1.jpg",
+  "area": "salamander / finishing station, overhead camera looking down on a cook's head",
+  "model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+  "text": "\n{\n  \"people\": 3,\n  \"area\": \"kitchen pass and grill station\",\n  \"activity\": \"A chef stands at the pass preparing food while another staff member holds a cloth nearby.\",\n  \"issues\": []\n}",
+  "latency": 3.9630484580993652,
+  "prompt_tokens": 2247,
+  "completion_tokens": 50,
+  "cost": 0,
+  "finish": "stop",
+  "raw_len": 185,
+  "parsed": {
+   "people": 3,
+   "area": "kitchen pass and grill station",
+   "activity": "A chef stands at the pass preparing food while another staff member holds a cloth nearby.",
+   "issues": []
+  },
+  "score": {
+   "ok": true,
+   "people": 3,
+   "people_ok": false,
+   "people_near": true,
+   "hazard_hit": 0,
+   "hazard_total": 0,
+   "issues_reported": 0,
+   "judge_raw": "{\"accuracy\": 3, \"area_ok\": true, \"hallucinations\": [\"claims 3 people, human only describes one cook and a hand/cloth\"], \"missed\": [\"overhead camera angle looking down on cook's head\", \"salamander broilers above station\", \"trays of sauces, plates, bowls, squeeze bottle\"]}",
+   "judge_cost": 0.00354,
+   "accuracy": 3,
+   "area_ok": true,
+   "hallucinations": [
+    "claims 3 people, human only describes one cook and a hand/cloth"
+   ],
+   "missed": [
+    "overhead camera angle looking down on cook's head",
+    "salamander broilers above station",
+    "trays of sauces, plates, bowls, squeeze bottle"
+   ]
+  }
+ },
+ {
+  "task": "single",
+  "site": "kitchen",
+  "camera": "kitchen-overview",
+  "frame": 1,
+  "path": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\kitchen-overview_1.jpg",
+  "area": "whole room from a high corner by the door",
+  "model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+  "text": "\n{\n  \"people\": 1,\n  \"area\": \"kitchen prep area\",\n  \"activity\": \"A person is standing at a counter preparing food, handling items on the surface.\",\n  \"issues\": []\n}",
+  "latency": 1.956712245941162,
+  "prompt_tokens": 725,
+  "completion_tokens": 47,
+  "cost": 0,
+  "finish": "stop",
+  "raw_len": 163,
+  "parsed": {
+   "people": 1,
+   "area": "kitchen prep area",
+   "activity": "A person is standing at a counter preparing food, handling items on the surface.",
+   "issues": []
+  },
+  "score": {
+   "ok": true,
+   "people": 1,
+   "people_ok": true,
+   "people_near": true,
+   "hazard_hit": 0,
+   "hazard_total": 0,
+   "issues_reported": 0,
+   "judge_raw": "{\"accuracy\": 3, \"area_ok\": true, \"hallucinations\": [\"Person is actively preparing food/handling items (human says person stands with back to camera, not shown handling items)\"], \"missed\": [\"Person's appearance: grey t-shirt, dark skirt, dark hair\", \"Cucumber and orange near the sink\", \"High corner view by the door\"]}",
+   "judge_cost": 0.002218,
+   "accuracy": 3,
+   "area_ok": true,
+   "hallucinations": [
+    "Person is actively preparing food/handling items (human says person stands with back to camera, not shown handling items)"
+   ],
+   "missed": [
+    "Person's appearance: grey t-shirt, dark skirt, dark hair",
+    "Cucumber and orange near the sink",
+    "High corner view by the door"
+   ]
+  }
+ },
+ {
+  "task": "single",
+  "site": "crownshy",
+  "camera": "crownshy-plating",
+  "frame": 3,
+  "path": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\crownshy-plating_3.jpg",
+  "area": "the pass, overhead camera over a dark marble counter with heat lamps",
+  "model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+  "text": "\n{\n  \"people\": 3,\n  \"area\": \"open kitchen pass\",\n  \"activity\": \"Chefs are plating dishes and adding final garnishes at the pass.\",\n  \"issues\": []\n}",
+  "latency": 1.890312910079956,
+  "prompt_tokens": 2247,
+  "completion_tokens": 44,
+  "cost": 0,
+  "finish": "stop",
+  "raw_len": 147,
+  "parsed": {
+   "people": 3,
+   "area": "open kitchen pass",
+   "activity": "Chefs are plating dishes and adding final garnishes at the pass.",
+   "issues": []
+  },
+  "score": {
+   "ok": true,
+   "people": 3,
+   "people_ok": true,
+   "people_near": true,
+   "hazard_hit": 0,
+   "hazard_total": 0,
+   "issues_reported": 0,
+   "judge_raw": "{\"accuracy\": 4, \"area_ok\": true, \"hallucinations\": [\"Specifies exactly 3 people, unconfirmed by description\"], \"missed\": [\"Gloved person wrapping/handling meat on a board\", \"Heat lamps at the pass\", \"Papers present at the pass\", \"Dark marble counter detail\", \"Plated dishes with lettuce and orange sauce\"]}",
+   "judge_cost": 0.004028,
+   "accuracy": 4,
+   "area_ok": true,
+   "hallucinations": [
+    "Specifies exactly 3 people, unconfirmed by description"
+   ],
+   "missed": [
+    "Gloved person wrapping/handling meat on a board",
+    "Heat lamps at the pass",
+    "Papers present at the pass",
+    "Dark marble counter detail",
+    "Plated dishes with lettuce and orange sauce"
+   ]
+  }
+ },
+ {
+  "task": "single",
+  "site": "kitchen",
+  "camera": "kitchen-overview",
+  "frame": 2,
+  "path": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\kitchen-overview_2.jpg",
+  "area": "whole room from a high corner by the door",
+  "model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+  "text": "\n{\n  \"people\": 1,\n  \"area\": \"kitchen prep station\",\n  \"activity\": \"A person stands at a counter facing away from the camera, appearing to prepare food or organize ingredients. The scene is static with no visible movement of cooking equipment.\",\n  \"issues\": []\n}",
+  "latency": 1.9381945133209229,
+  "prompt_tokens": 725,
+  "completion_tokens": 63,
+  "cost": 0,
+  "finish": "stop",
+  "raw_len": 261,
+  "parsed": {
+   "people": 1,
+   "area": "kitchen prep station",
+   "activity": "A person stands at a counter facing away from the camera, appearing to prepare food or organize ingredients. The scene is static with no visible movement of cooking equipment.",
+   "issues": []
+  },
+  "score": {
+   "ok": true,
+   "people": 1,
+   "people_ok": true,
+   "people_near": true,
+   "hazard_hit": 0,
+   "hazard_total": 0,
+   "issues_reported": 0,
+   "judge_raw": "{\"accuracy\": 4, \"area_ok\": true, \"hallucinations\": [], \"missed\": [\"Foreground counter is empty\", \"High corner view by the door\"]}",
+   "judge_cost": 0.001524,
+   "accuracy": 4,
+   "area_ok": true,
+   "hallucinations": [],
+   "missed": [
+    "Foreground counter is empty",
+    "High corner view by the door"
+   ]
+  }
+ },
+ {
+  "task": "single",
+  "site": "kitchen",
+  "camera": "kitchen-overview",
+  "frame": 3,
+  "path": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\kitchen-overview_3.jpg",
+  "area": "whole room from a high corner by the door",
+  "model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+  "text": "\n{\n  \"people\": 1,\n  \"area\": \"kitchen prep station\",\n  \"activity\": \"A cook is chopping vegetables on a cutting board at the prep station.\",\n  \"issues\": []\n}",
+  "latency": 1.8322422504425049,
+  "prompt_tokens": 725,
+  "completion_tokens": 46,
+  "cost": 0,
+  "finish": "stop",
+  "raw_len": 155,
+  "parsed": {
+   "people": 1,
+   "area": "kitchen prep station",
+   "activity": "A cook is chopping vegetables on a cutting board at the prep station.",
+   "issues": []
+  },
+  "score": {
+   "ok": true,
+   "people": 1,
+   "people_ok": true,
+   "people_near": true,
+   "hazard_hit": 0,
+   "hazard_total": 0,
+   "issues_reported": 0,
+   "judge_raw": "{\"accuracy\": 2, \"area_ok\": false, \"hallucinations\": [\"chopping vegetables on a cutting board\", \"prep station with cutting board\"], \"missed\": [\"person is bending over at counter/sink\", \"person is holding a pan or bowl\"]}",
+   "judge_cost": 0.002616,
+   "accuracy": 2,
+   "area_ok": false,
+   "hallucinations": [
+    "chopping vegetables on a cutting board",
+    "prep station with cutting board"
+   ],
+   "missed": [
+    "person is bending over at counter/sink",
+    "person is holding a pan or bowl"
+   ]
+  }
+ },
+ {
+  "task": "single",
+  "site": "kitchen",
+  "camera": "kitchen-wide",
+  "frame": 1,
+  "path": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\kitchen-wide_1.jpg",
+  "area": "long view down the counters from the far end toward the door",
+  "model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+  "text": "\n{\n  \"people\": 1,\n  \"area\": \"prep station\",\n  \"activity\": \"A woman is standing at the prep station, handling a blue container and other items on the counter.\",\n  \"issues\": []\n}",
+  "latency": 1.6585369110107422,
+  "prompt_tokens": 725,
+  "completion_tokens": 50,
+  "cost": 0,
+  "finish": "stop",
+  "raw_len": 176,
+  "parsed": {
+   "people": 1,
+   "area": "prep station",
+   "activity": "A woman is standing at the prep station, handling a blue container and other items on the counter.",
+   "issues": []
+  },
+  "score": {
+   "ok": true,
+   "people": 1,
+   "people_ok": true,
+   "people_near": true,
+   "hazard_hit": 0,
+   "hazard_total": 0,
+   "issues_reported": 0,
+   "judge_raw": "{\"accuracy\": 4, \"area_ok\": true, \"hallucinations\": [\"blue container color specified\"], \"missed\": [\"glass door in view\", \"bin by the wall\", \"grey t-shirt and dark skirt clothing\"]}",
+   "judge_cost": 0.001772,
+   "accuracy": 4,
+   "area_ok": true,
+   "hallucinations": [
+    "blue container color specified"
+   ],
+   "missed": [
+    "glass door in view",
+    "bin by the wall",
+    "grey t-shirt and dark skirt clothing"
+   ]
+  }
+ },
+ {
+  "task": "single",
+  "site": "kitchen",
+  "camera": "kitchen-stove",
+  "frame": 1,
+  "path": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\kitchen-stove_1.jpg",
+  "area": "induction hob and the corner counter, high angle",
+  "model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+  "text": "\n{\n  \"people\": 1,\n  \"area\": \"kitchen prep station\",\n  \"activity\": \"A cook is opening a small box and handling its contents while standing at a counter with a saucepan on an induction cooktop.\",\n  \"issues\": []\n}",
+  "latency": 1.7883288860321045,
+  "prompt_tokens": 725,
+  "completion_tokens": 57,
+  "cost": 0,
+  "finish": "stop",
+  "raw_len": 210,
+  "parsed": {
+   "people": 1,
+   "area": "kitchen prep station",
+   "activity": "A cook is opening a small box and handling its contents while standing at a counter with a saucepan on an induction cooktop.",
+   "issues": []
+  },
+  "score": {
+   "ok": true,
+   "people": 1,
+   "people_ok": true,
+   "people_near": true,
+   "hazard_hit": 0,
+   "hazard_total": 0,
+   "issues_reported": 0,
+   "judge_raw": "{\"accuracy\": 4, \"area_ok\": true, \"hallucinations\": [\"opening a small box and handling its contents\"], \"missed\": [\"oil bottles and knife block on counter\"]}",
+   "judge_cost": 0.001632,
+   "accuracy": 4,
+   "area_ok": true,
+   "hallucinations": [
+    "opening a small box and handling its contents"
+   ],
+   "missed": [
+    "oil bottles and knife block on counter"
+   ]
+  }
+ },
+ {
+  "task": "single",
+  "site": "kitchen",
+  "camera": "kitchen-stove",
+  "frame": 2,
+  "path": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\kitchen-stove_2.jpg",
+  "area": "induction hob and the corner counter, high angle",
+  "model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+  "text": "\n{\n  \"people\": 1,\n  \"area\": \"kitchen prep area\",\n  \"activity\": \"A person is standing at the counter handling a plastic bag while a pot of water sits on the induction cooktop.\",\n  \"issues\": []\n}",
+  "latency": 1.9382078647613525,
+  "prompt_tokens": 725,
+  "completion_tokens": 54,
+  "cost": 0,
+  "finish": "stop",
+  "raw_len": 193,
+  "parsed": {
+   "people": 1,
+   "area": "kitchen prep area",
+   "activity": "A person is standing at the counter handling a plastic bag while a pot of water sits on the induction cooktop.",
+   "issues": []
+  },
+  "score": {
+   "ok": true,
+   "people": 1,
+   "people_ok": true,
+   "people_near": true,
+   "hazard_hit": 0,
+   "hazard_total": 0,
+   "issues_reported": 0,
+   "judge_raw": "{\"accuracy\": 3, \"area_ok\": true, \"hallucinations\": [\"describes pot with water while human says pan is empty\", \"claims person is handling a plastic bag not confirmed\"], \"missed\": [\"only torso visible at top edge\", \"bottles on counter\"]}",
+   "judge_cost": 0.003808,
+   "accuracy": 3,
+   "area_ok": true,
+   "hallucinations": [
+    "describes pot with water while human says pan is empty",
+    "claims person is handling a plastic bag not confirmed"
+   ],
+   "missed": [
+    "only torso visible at top edge",
+    "bottles on counter"
+   ]
+  }
+ },
+ {
+  "task": "single",
+  "site": "kitchen",
+  "camera": "kitchen-prep",
+  "frame": 2,
+  "path": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\kitchen-prep_2.jpg",
+  "area": "chopping board and sink from directly above",
+  "model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+  "text": "\n{\n  \"people\": 1,\n  \"area\": \"prep station\",\n  \"activity\": \"A person is standing at the counter, likely preparing to chop the vegetables laid out on the cutting board.\",\n  \"issues\": [\n    \"knife left out on the cutting board\"\n  ]\n}",
+  "latency": 2.1705806255340576,
+  "prompt_tokens": 725,
+  "completion_tokens": 63,
+  "cost": 0,
+  "finish": "stop",
+  "raw_len": 230,
+  "parsed": {
+   "people": 1,
+   "area": "prep station",
+   "activity": "A person is standing at the counter, likely preparing to chop the vegetables laid out on the cutting board.",
+   "issues": [
+    "knife left out on the cutting board"
+   ]
+  },
+  "score": {
+   "ok": true,
+   "people": 1,
+   "people_ok": true,
+   "people_near": true,
+   "hazard_hit": 1,
+   "hazard_total": 1,
+   "issues_reported": 1,
+   "judge_raw": "{\"accuracy\": 4, \"area_ok\": true, \"hallucinations\": [], \"missed\": [\"cucumber, aubergine and orange on the board\", \"white cloth or paper added\"]}",
+   "judge_cost": 0.001612,
+   "accuracy": 4,
+   "area_ok": true,
+   "hallucinations": [],
+   "missed": [
+    "cucumber, aubergine and orange on the board",
+    "white cloth or paper added"
+   ]
+  }
+ },
+ {
+  "task": "multicam",
+  "site": "crownshy",
+  "paths": {
+   "crownshy-line": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\crownshy-line_2.jpg",
+   "crownshy-dining": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\crownshy-dining_2.jpg",
+   "crownshy-prep": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\crownshy-prep_2.jpg",
+   "crownshy-grill": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\crownshy-grill_2.jpg",
+   "crownshy-plancha": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\crownshy-plancha_2.jpg",
+   "crownshy-salamander": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\crownshy-salamander_2.jpg",
+   "crownshy-plating": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\crownshy-plating_2.jpg"
+  },
+  "model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+  "text": "\n{\n  \"distinct_people\": 15,\n  \"busiest\": \"open kitchen pass\",\n  \"service_in_progress\": true,\n  \"per_camera\": {\n    \"crownshy-line\": \"Kitchen staff preparing raw chicken and cooking at the stove with a busy open kitchen.\",\n    \"crownshy-dining\": \"Diners seated at tables with staff attending to them in an open kitchen setting.\",\n    \"crownshy-prep\": \"Three staff members peeling carrots and preparing vegetables at a prep station.\",\n    \"crownshy-grill\": \"Chef searing food with a visible flame in a professional kitchen.\",\n    \"crownshy-plancha\": \"Hand placing octopus and other ingredients on a hot plancha surface.\",\n    \"crownshy-salamander\": \"Staff member standing near large salamander broilers with ingredients ready for cooking.\",\n    \"crownshy-plating\": \"Staff plating multiple dishes on a marble countertop with various garnishes and sauces.\"\n  },\n  \"summary\": \"The restaurant is in full evening service with active cooking and plating operations. The open kitchen allows diners to observe food preparation while staff work efficiently across multiple stations. Multiple dishes are being prepared simultaneously, indicating a high volume of service.\",\n  \"top_issue\": \"none\"\n}",
+  "latency": 9.70524549484253,
+  "prompt_tokens": 14656,
+  "completion_tokens": 284,
+  "cost": 0,
+  "finish": "stop",
+  "raw_len": 1185,
+  "parsed": {
+   "distinct_people": 15,
+   "busiest": "open kitchen pass",
+   "service_in_progress": true,
+   "per_camera": {
+    "crownshy-line": "Kitchen staff preparing raw chicken and cooking at the stove with a busy open kitchen.",
+    "crownshy-dining": "Diners seated at tables with staff attending to them in an open kitchen setting.",
+    "crownshy-prep": "Three staff members peeling carrots and preparing vegetables at a prep station.",
+    "crownshy-grill": "Chef searing food with a visible flame in a professional kitchen.",
+    "crownshy-plancha": "Hand placing octopus and other ingredients on a hot plancha surface.",
+    "crownshy-salamander": "Staff member standing near large salamander broilers with ingredients ready for cooking.",
+    "crownshy-plating": "Staff plating multiple dishes on a marble countertop with various garnishes and sauces."
+   },
+   "summary": "The restaurant is in full evening service with active cooking and plating operations. The open kitchen allows diners to observe food preparation while staff work efficiently across multiple stations. Multiple dishes are being prepared simultaneously, indicating a high volume of service.",
+   "top_issue": "none"
+  },
+  "score": {
+   "ok": true,
+   "service_ok": true,
+   "distinct_people": 15,
+   "judge_raw": "{\"accuracy\": 4, \"busiest_ok\": true, \"hallucinations\": [], \"missed\": [\"Did not flag raw chicken uncovered as issue\", \"Did not mention grill flare-ups\", \"Did not mention bare-hand food contact\", \"top_issue listed as none despite issues present\"]}",
+   "judge_cost": 0.006118,
+   "accuracy": 4,
+   "busiest_ok": true,
+   "hallucinations": [],
+   "missed": [
+    "Did not flag raw chicken uncovered as issue",
+    "Did not mention grill flare-ups",
+    "Did not mention bare-hand food contact",
+    "top_issue listed as none despite issues present"
+   ]
+  }
+ },
+ {
+  "task": "single",
+  "site": "kitchen",
+  "camera": "kitchen-stove",
+  "frame": 3,
+  "path": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\kitchen-stove_3.jpg",
+  "area": "induction hob and the corner counter, high angle",
+  "model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+  "text": "\n{\n  \"people\": 1,\n  \"area\": \"kitchen prep area\",\n  \"activity\": \"A cook is standing at the counter, handling food items.\",\n  \"issues\": []\n}",
+  "latency": 1.743030071258545,
+  "prompt_tokens": 725,
+  "completion_tokens": 43,
+  "cost": 0,
+  "finish": "stop",
+  "raw_len": 138,
+  "parsed": {
+   "people": 1,
+   "area": "kitchen prep area",
+   "activity": "A cook is standing at the counter, handling food items.",
+   "issues": []
+  },
+  "score": {
+   "ok": true,
+   "people": 1,
+   "people_ok": true,
+   "people_near": true,
+   "hazard_hit": 0,
+   "hazard_total": 0,
+   "issues_reported": 0,
+   "judge_raw": "{\"accuracy\": 3, \"area_ok\": true, \"hallucinations\": [\"Cook described as handling food items, not confirmed by human\"], \"missed\": [\"Person specifically at the sink, not general counter\", \"Pan still on the hob\", \"Corner counter detail\"]}",
+   "judge_cost": 0.003436,
+   "accuracy": 3,
+   "area_ok": true,
+   "hallucinations": [
+    "Cook described as handling food items, not confirmed by human"
+   ],
+   "missed": [
+    "Person specifically at the sink, not general counter",
+    "Pan still on the hob",
+    "Corner counter detail"
+   ]
+  }
+ },
+ {
+  "task": "single",
+  "site": "kitchen",
+  "camera": "kitchen-wide",
+  "frame": 2,
+  "path": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\kitchen-wide_2.jpg",
+  "area": "long view down the counters from the far end toward the door",
+  "model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+  "text": "\n{\n  \"people\": 1,\n  \"area\": \"kitchen prep area\",\n  \"activity\": \"A person is standing at the counter, appearing to prepare food or organize ingredients.\",\n  \"issues\": []\n}",
+  "latency": 1.783888578414917,
+  "prompt_tokens": 725,
+  "completion_tokens": 47,
+  "cost": 0,
+  "finish": "stop",
+  "raw_len": 170,
+  "parsed": {
+   "people": 1,
+   "area": "kitchen prep area",
+   "activity": "A person is standing at the counter, appearing to prepare food or organize ingredients.",
+   "issues": []
+  },
+  "score": {
+   "ok": true,
+   "people": 1,
+   "people_ok": true,
+   "people_near": true,
+   "hazard_hit": 0,
+   "hazard_total": 0,
+   "issues_reported": 0,
+   "judge_raw": "{\"accuracy\": 4, \"area_ok\": true, \"hallucinations\": [\"food or organize ingredients activity detail\"], \"missed\": [\"view is long down counters toward door\", \"person seen from behind, head and shoulders\"]}",
+   "judge_cost": 0.001714,
+   "accuracy": 4,
+   "area_ok": true,
+   "hallucinations": [
+    "food or organize ingredients activity detail"
+   ],
+   "missed": [
+    "view is long down counters toward door",
+    "person seen from behind, head and shoulders"
+   ]
+  }
+ },
+ {
+  "task": "single",
+  "site": "kitchen",
+  "camera": "kitchen-wide",
+  "frame": 3,
+  "path": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\kitchen-wide_3.jpg",
+  "area": "long view down the counters from the far end toward the door",
+  "model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+  "text": "\n{\n  \"people\": 1,\n  \"area\": \"kitchen prep area\",\n  \"activity\": \"A person is standing at the sink, washing or preparing a yellow vegetable.\",\n  \"issues\": []\n}",
+  "latency": 1.9861321449279785,
+  "prompt_tokens": 725,
+  "completion_tokens": 46,
+  "cost": 0,
+  "finish": "stop",
+  "raw_len": 157,
+  "parsed": {
+   "people": 1,
+   "area": "kitchen prep area",
+   "activity": "A person is standing at the sink, washing or preparing a yellow vegetable.",
+   "issues": []
+  },
+  "score": {
+   "ok": true,
+   "people": 1,
+   "people_ok": true,
+   "people_near": true,
+   "hazard_hit": 0,
+   "hazard_total": 0,
+   "issues_reported": 0,
+   "judge_raw": "{\"accuracy\": 4, \"area_ok\": true, \"hallucinations\": [\"yellow vegetable detail\"], \"missed\": [\"long view down counters from far end toward door\"]}",
+   "judge_cost": 0.00151,
+   "accuracy": 4,
+   "area_ok": true,
+   "hallucinations": [
+    "yellow vegetable detail"
+   ],
+   "missed": [
+    "long view down counters from far end toward door"
+   ]
+  }
+ },
+ {
+  "task": "single",
+  "site": "kitchen",
+  "camera": "kitchen-sink",
+  "frame": 2,
+  "path": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\kitchen-sink_2.jpg",
+  "area": "sink and back counter from the side",
+  "model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+  "text": "\n{\n  \"people\": 1,\n  \"area\": \"kitchen prep area\",\n  \"activity\": \"A person is standing at a counter handling a plastic bag while preparing food.\",\n  \"issues\": []\n}",
+  "latency": 1.4949116706848145,
+  "prompt_tokens": 725,
+  "completion_tokens": 46,
+  "cost": 0,
+  "finish": "stop",
+  "raw_len": 161,
+  "parsed": {
+   "people": 1,
+   "area": "kitchen prep area",
+   "activity": "A person is standing at a counter handling a plastic bag while preparing food.",
+   "issues": []
+  },
+  "score": {
+   "ok": true,
+   "people": 1,
+   "people_ok": true,
+   "people_near": true,
+   "hazard_hit": 0,
+   "hazard_total": 0,
+   "issues_reported": 0,
+   "judge_raw": "{\"accuracy\": 3, \"area_ok\": true, \"hallucinations\": [\"plastic bag\"], \"missed\": [\"arm outstretched toward the sink\", \"dish rack\", \"bottles\"]}",
+   "judge_cost": 0.001588,
+   "accuracy": 3,
+   "area_ok": true,
+   "hallucinations": [
+    "plastic bag"
+   ],
+   "missed": [
+    "arm outstretched toward the sink",
+    "dish rack",
+    "bottles"
+   ]
+  }
+ },
+ {
+  "task": "single",
+  "site": "kitchen",
+  "camera": "kitchen-prep",
+  "frame": 3,
+  "path": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\kitchen-prep_3.jpg",
+  "area": "chopping board and sink from directly above",
+  "model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+  "text": "\n{\n  \"people\": 1,\n  \"area\": \"kitchen prep station\",\n  \"activity\": \"A cook is chopping vegetables on a white cutting board near the sink.\",\n  \"issues\": [\n    \"knife being held while cutting vegetables\"\n  ]\n}",
+  "latency": 1.9368760585784912,
+  "prompt_tokens": 725,
+  "completion_tokens": 57,
+  "cost": 0,
+  "finish": "stop",
+  "raw_len": 206,
+  "parsed": {
+   "people": 1,
+   "area": "kitchen prep station",
+   "activity": "A cook is chopping vegetables on a white cutting board near the sink.",
+   "issues": [
+    "knife being held while cutting vegetables"
+   ]
+  },
+  "score": {
+   "ok": true,
+   "people": 1,
+   "people_ok": true,
+   "people_near": true,
+   "hazard_hit": 1,
+   "hazard_total": 1,
+   "issues_reported": 1,
+   "judge_raw": "{\"accuracy\": 2, \"area_ok\": true, \"hallucinations\": [\"cook actively chopping vegetables with knife\", \"knife being held while cutting\"], \"missed\": [\"cook holding a pan over the sink\", \"cut yellow pepper on the board\", \"knife and cucumber moved on board\"]}",
+   "judge_cost": 0.00369,
+   "accuracy": 2,
+   "area_ok": true,
+   "hallucinations": [
+    "cook actively chopping vegetables with knife",
+    "knife being held while cutting"
+   ],
+   "missed": [
+    "cook holding a pan over the sink",
+    "cut yellow pepper on the board",
+    "knife and cucumber moved on board"
+   ]
+  }
+ },
+ {
+  "task": "single",
+  "site": "kitchen",
+  "camera": "kitchen-prep",
+  "frame": 1,
+  "path": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\kitchen-prep_1.jpg",
+  "area": "chopping board and sink from directly above",
+  "model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+  "text": "\n{\n  \"people\": 1,\n  \"area\": \"prep station\",\n  \"activity\": \"A person is standing at the counter, preparing vegetables for cooking.\",\n  \"issues\": []\n}",
+  "latency": 1.4390943050384521,
+  "prompt_tokens": 725,
+  "completion_tokens": 43,
+  "cost": 0,
+  "finish": "stop",
+  "raw_len": 148,
+  "parsed": {
+   "people": 1,
+   "area": "prep station",
+   "activity": "A person is standing at the counter, preparing vegetables for cooking.",
+   "issues": []
+  },
+  "score": {
+   "ok": true,
+   "people": 1,
+   "people_ok": true,
+   "people_near": true,
+   "hazard_hit": 0,
+   "hazard_total": 1,
+   "issues_reported": 0,
+   "judge_raw": "{\"accuracy\": 3, \"area_ok\": true, \"hallucinations\": [\"Person is actively preparing/cutting vegetables, contradicting 'no cutting happening'\"], \"missed\": [\"Knife, cucumber, aubergine, orange on board\", \"Green container present\", \"Sink visible\", \"Person only seen as legs in doorway, not at counter\"]}",
+   "judge_cost": 0.003422,
+   "accuracy": 3,
+   "area_ok": true,
+   "hallucinations": [
+    "Person is actively preparing/cutting vegetables, contradicting 'no cutting happening'"
+   ],
+   "missed": [
+    "Knife, cucumber, aubergine, orange on board",
+    "Green container present",
+    "Sink visible",
+    "Person only seen as legs in doorway, not at counter"
+   ]
+  }
+ },
+ {
+  "task": "single",
+  "site": "kitchen",
+  "camera": "kitchen-sink",
+  "frame": 3,
+  "path": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\kitchen-sink_3.jpg",
+  "area": "sink and back counter from the side",
+  "model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+  "text": "\n{\n  \"people\": 1,\n  \"area\": \"kitchen prep area\",\n  \"activity\": \"A person is standing at a sink, washing dishes or cleaning kitchenware. The same person appears to be handling items on the counter near the sink.\",\n  \"issues\": []\n}",
+  "latency": 1.9899470806121826,
+  "prompt_tokens": 725,
+  "completion_tokens": 61,
+  "cost": 0,
+  "finish": "stop",
+  "raw_len": 229,
+  "parsed": {
+   "people": 1,
+   "area": "kitchen prep area",
+   "activity": "A person is standing at a sink, washing dishes or cleaning kitchenware. The same person appears to be handling items on the counter near the sink.",
+   "issues": []
+  },
+  "score": {
+   "ok": true,
+   "people": 1,
+   "people_ok": true,
+   "people_near": true,
+   "hazard_hit": 0,
+   "hazard_total": 0,
+   "issues_reported": 0,
+   "judge_raw": "{\"accuracy\": 5, \"area_ok\": true, \"hallucinations\": [], \"missed\": [\"dish rack, bottles, and a bowl in front\"]}",
+   "judge_cost": 0.001496,
+   "accuracy": 5,
+   "area_ok": true,
+   "hallucinations": [],
+   "missed": [
+    "dish rack, bottles, and a bowl in front"
+   ]
+  }
+ },
+ {
+  "task": "temporal",
+  "site": "kitchen",
+  "camera": "kitchen-stove",
+  "paths": [
+   "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\kitchen-stove_1.jpg",
+   "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\kitchen-stove_2.jpg",
+   "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\kitchen-stove_3.jpg"
+  ],
+  "model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+  "text": "\n```json\n{\"what_changed\": \"In the first frame, a person is standing at the counter opening a box. In the second frame, the person is standing at the counter with a bag of items and a blue package on the counter, and the box is open. In the third frame, the person is standing at the sink, and the blue package is on the counter.\", \"people_per_frame\": [1, 1, 1]}\n```",
+  "latency": 2.8017990589141846,
+  "prompt_tokens": 1699,
+  "completion_tokens": 94,
+  "cost": 0,
+  "finish": "stop",
+  "raw_len": 365,
+  "parsed": {
+   "what_changed": "In the first frame, a person is standing at the counter opening a box. In the second frame, the person is standing at the counter with a bag of items and a blue package on the counter, and the box is open. In the third frame, the person is standing at the sink, and the blue package is on the counter.",
+   "people_per_frame": [
+    1,
+    1,
+    1
+   ]
+  },
+  "score": {
+   "ok": true,
+   "people_frames_ok": 3,
+   "people_frames_total": 3,
+   "judge_raw": "{\"accuracy\": 4, \"hallucinations\": [], \"missed\": [\"pan stays empty on the hob throughout\", \"cook only shows torso in middle frame\"]}",
+   "judge_cost": 0.003328,
+   "accuracy": 4,
+   "hallucinations": [],
+   "missed": [
+    "pan stays empty on the hob throughout",
+    "cook only shows torso in middle frame"
+   ]
+  }
+ },
+ {
+  "task": "temporal",
+  "site": "kitchen",
+  "camera": "kitchen-overview",
+  "paths": [
+   "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\kitchen-overview_1.jpg",
+   "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\kitchen-overview_2.jpg",
+   "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\kitchen-overview_3.jpg"
+  ],
+  "model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+  "text": "\n```json\n{\"what_changed\": \"In frame 1, the person is standing at the counter facing away, handling items. In frame 2, the person is still at the counter but has turned slightly and is facing more towards the camera, with a pot now visible on the stove. In frame 3, the person has moved to the foreground counter and is actively chopping vegetables.\", \"people_per_frame\": [1, 1, 1]}\n```",
+  "latency": 3.549837827682495,
+  "prompt_tokens": 1699,
+  "completion_tokens": 96,
+  "cost": 0,
+  "finish": "stop",
+  "raw_len": 385,
+  "parsed": {
+   "what_changed": "In frame 1, the person is standing at the counter facing away, handling items. In frame 2, the person is still at the counter but has turned slightly and is facing more towards the camera, with a pot now visible on the stove. In frame 3, the person has moved to the foreground counter and is actively chopping vegetables.",
+   "people_per_frame": [
+    1,
+    1,
+    1
+   ]
+  },
+  "score": {
+   "ok": true,
+   "people_frames_ok": 3,
+   "people_frames_total": 3,
+   "judge_raw": "{\"accuracy\": 4, \"hallucinations\": [], \"missed\": [\"Sink area location not explicitly named\"]}",
+   "judge_cost": 0.00126,
+   "accuracy": 4,
+   "hallucinations": [],
+   "missed": [
+    "Sink area location not explicitly named"
+   ]
+  }
+ },
+ {
+  "task": "temporal",
+  "site": "kitchen",
+  "camera": "kitchen-sink",
+  "paths": [
+   "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\kitchen-sink_1.jpg",
+   "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\kitchen-sink_2.jpg",
+   "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\kitchen-sink_3.jpg"
+  ],
+  "model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+  "text": "\n```json\n{\n  \"what_changed\": \"In the first frame, the person is standing at a table opening a box. In the second frame, the person is standing at the same table holding a plastic bag. In the third frame, the person is standing at the sink area. The box is no longer in the person's hands, and the plastic bag is now on the table.\",\n  \"people_per_frame\": [1, 1, 1]\n}\n```",
+  "latency": 6.197221040725708,
+  "prompt_tokens": 1699,
+  "completion_tokens": 98,
+  "cost": 0,
+  "finish": "stop",
+  "raw_len": 369,
+  "parsed": {
+   "what_changed": "In the first frame, the person is standing at a table opening a box. In the second frame, the person is standing at the same table holding a plastic bag. In the third frame, the person is standing at the sink area. The box is no longer in the person's hands, and the plastic bag is now on the table.",
+   "people_per_frame": [
+    1,
+    1,
+    1
+   ]
+  },
+  "score": {
+   "ok": true,
+   "people_frames_ok": 3,
+   "people_frames_total": 3,
+   "judge_raw": "{\"accuracy\": 2, \"hallucinations\": [\"Describes person at a table, not the sink counter\", \"Introduces a plastic bag not mentioned\", \"Says box is no longer in hands, contradicting holding box detail\"], \"missed\": [\"Person reaching toward the sink\", \"Person holding a box at the right\"]}",
+   "judge_cost": 0.003764,
+   "accuracy": 2,
+   "hallucinations": [
+    "Describes person at a table, not the sink counter",
+    "Introduces a plastic bag not mentioned",
+    "Says box is no longer in hands, contradicting holding box detail"
+   ],
+   "missed": [
+    "Person reaching toward the sink",
+    "Person holding a box at the right"
+   ]
+  }
+ },
+ {
+  "task": "temporal",
+  "site": "kitchen",
+  "camera": "kitchen-prep",
+  "paths": [
+   "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\kitchen-prep_1.jpg",
+   "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\kitchen-prep_2.jpg",
+   "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\kitchen-prep_3.jpg"
+  ],
+  "model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+  "text": "\n```json\n{\n  \"what_changed\": \"In the first frame, a person is standing near the back cabinets. In the second frame, the person has moved slightly to the left. In the third frame, a person is actively chopping vegetables on a cutting board. The vegetables on the counter have been rearranged, with the knife and spatula moved, and the zucchini, eggplant, and pepper are no longer in their original positions.\",\n  \"people_per_frame\": [1, 1, 1]\n}\n```",
+  "latency": 5.238987922668457,
+  "prompt_tokens": 1699,
+  "completion_tokens": 111,
+  "cost": 0,
+  "finish": "stop",
+  "raw_len": 447,
+  "parsed": {
+   "what_changed": "In the first frame, a person is standing near the back cabinets. In the second frame, the person has moved slightly to the left. In the third frame, a person is actively chopping vegetables on a cutting board. The vegetables on the counter have been rearranged, with the knife and spatula moved, and the zucchini, eggplant, and pepper are no longer in their original positions.",
+   "people_per_frame": [
+    1,
+    1,
+    1
+   ]
+  },
+  "score": {
+   "ok": true,
+   "people_frames_ok": 3,
+   "people_frames_total": 3,
+   "judge_raw": "{\"accuracy\": 1, \"hallucinations\": [\"mentions spatula, not in description\", \"says zucchini instead of cucumber\", \"no mention of sink or pan matches\", \"claims active chopping not stated\"], \"missed\": [\"cloth appears in second frame\", \"cut yellow pepper detail\", \"orange on board\", \"cook's arm with pan over sink\"]}",
+   "judge_cost": 0.00471,
+   "accuracy": 1,
+   "hallucinations": [
+    "mentions spatula, not in description",
+    "says zucchini instead of cucumber",
+    "no mention of sink or pan matches",
+    "claims active chopping not stated"
+   ],
+   "missed": [
+    "cloth appears in second frame",
+    "cut yellow pepper detail",
+    "orange on board",
+    "cook's arm with pan over sink"
+   ]
+  }
+ },
+ {
+  "task": "single",
+  "site": "crownshy",
+  "camera": "crownshy-dining",
+  "frame": 3,
+  "path": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\crownshy-dining_3.jpg",
+  "area": "dining room / chef's counter looking into the open kitchen under heat lamps",
+  "model": "qwen/qwen3.8-27b:free",
+  "text": "{\n  \"people\": 13,\n  \"area\": \"Open kitchen and chef's counter/pass, with a dining table in the foreground\",\n  \"activity\": \"Several chefs and kitchen staff are working at the counter and pass, preparing and plating dishes during service. A group of seated diners occupies the table in the foreground, talking and waiting.\",\n  \"issues\": []\n}",
+  "latency": 27.310460090637207,
+  "prompt_tokens": 2287,
+  "completion_tokens": 952,
+  "cost": 0,
+  "finish": "stop",
+  "raw_len": 338,
+  "parsed": {
+   "people": 13,
+   "area": "Open kitchen and chef's counter/pass, with a dining table in the foreground",
+   "activity": "Several chefs and kitchen staff are working at the counter and pass, preparing and plating dishes during service. A group of seated diners occupies the table in the foreground, talking and waiting.",
+   "issues": []
+  },
+  "score": {
+   "ok": true,
+   "people": 13,
+   "people_ok": false,
+   "people_near": false,
+   "hazard_hit": 0,
+   "hazard_total": 0,
+   "issues_reported": 0,
+   "judge_raw": "{\"accuracy\": 3, \"area_ok\": true, \"hallucinations\": [\"Claims 13 people, far exceeding the described 8-9\"], \"missed\": [\"Bearded chef standing at the pass\", \"Cook wearing a cap at the back\", \"Framed portrait poster on the right wall\"]}",
+   "judge_cost": 0.00342,
+   "accuracy": 3,
+   "area_ok": true,
+   "hallucinations": [
+    "Claims 13 people, far exceeding the described 8-9"
+   ],
+   "missed": [
+    "Bearded chef standing at the pass",
+    "Cook wearing a cap at the back",
+    "Framed portrait poster on the right wall"
+   ]
+  }
+ },
+ {
+  "task": "multicam",
+  "site": "kitchen",
+  "paths": {
+   "kitchen-overview": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\kitchen-overview_2.jpg",
+   "kitchen-wide": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\kitchen-wide_2.jpg",
+   "kitchen-stove": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\kitchen-stove_2.jpg",
+   "kitchen-prep": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\kitchen-prep_2.jpg",
+   "kitchen-sink": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\kitchen-sink_2.jpg"
+  },
+  "model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+  "text": "\n{\n  \"distinct_people\": 1,\n  \"busiest\": \"kitchen-prep\",\n  \"service_in_progress\": false,\n  \"per_camera\": {\n    \"kitchen-overview\": \"A person in a grey shirt and dark skirt stands at a counter in a kitchen, facing away from the camera.\",\n    \"kitchen-wide\": \"The same person is visible near the counter, with kitchen equipment and a sink area in view.\",\n    \"kitchen-stove\": \"A pot sits on a stovetop with various bottles and a bag of ingredients on the counter nearby.\",\n    \"kitchen-prep\": \"The person is handling a plastic bag on a counter with bottles and a package of food items.\",\n    \"kitchen-sink\": \"A sink area with a knife, zucchini, eggplant, and a yellow pepper on a drying rack; a person's legs are visible in the background.\"\n  },\n  \"summary\": \"The kitchen is occupied by a single person preparing food. No customers are visible, indicating service is not currently in progress. The environment appears organized with ingredients and tools ready for use.\",\n  \"top_issue\": \"none\"\n}",
+  "latency": 59.1411292552948,
+  "prompt_tokens": 2866,
+  "completion_tokens": 247,
+  "cost": 0,
+  "finish": "stop",
+  "raw_len": 992,
+  "parsed": {
+   "distinct_people": 1,
+   "busiest": "kitchen-prep",
+   "service_in_progress": false,
+   "per_camera": {
+    "kitchen-overview": "A person in a grey shirt and dark skirt stands at a counter in a kitchen, facing away from the camera.",
+    "kitchen-wide": "The same person is visible near the counter, with kitchen equipment and a sink area in view.",
+    "kitchen-stove": "A pot sits on a stovetop with various bottles and a bag of ingredients on the counter nearby.",
+    "kitchen-prep": "The person is handling a plastic bag on a counter with bottles and a package of food items.",
+    "kitchen-sink": "A sink area with a knife, zucchini, eggplant, and a yellow pepper on a drying rack; a person's legs are visible in the background."
+   },
+   "summary": "The kitchen is occupied by a single person preparing food. No customers are visible, indicating service is not currently in progress. The environment appears organized with ingredients and tools ready for use.",
+   "top_issue": "none"
+  },
+  "score": {
+   "ok": true,
+   "service_ok": true,
+   "distinct_people": 1,
+   "distinct_ok": true,
+   "judge_raw": "{\"accuracy\": 3, \"busiest_ok\": true, \"hallucinations\": [\"Orange described as yellow pepper\", \"Person handling plastic bag not in description\"], \"missed\": [\"Pan on hob is empty\", \"Cucumber and aubergine specifically noted\"]}",
+   "judge_cost": 0.008244,
+   "accuracy": 3,
+   "busiest_ok": true,
+   "hallucinations": [
+    "Orange described as yellow pepper",
+    "Person handling plastic bag not in description"
+   ],
+   "missed": [
+    "Pan on hob is empty",
+    "Cucumber and aubergine specifically noted"
+   ]
+  }
+ },
+ {
+  "task": "temporal",
+  "site": "kitchen",
+  "camera": "kitchen-stove",
+  "paths": [
+   "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\kitchen-stove_1.jpg",
+   "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\kitchen-stove_2.jpg",
+   "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\kitchen-stove_3.jpg"
+  ],
+  "model": "qwen/qwen3.8-27b:free",
+  "text": "{\"what_changed\": \"In the first frame the cook stands at the right counter holding a small box while a pot of water sits on the induction cooktop. In the second frame the cook has stepped back toward the refrigerator, and a blue packet now lies flat on the right counter beside the opened box. In the third frame the cook is bent over the left sink counter, with the blue packet and opened box still on the right counter and the pot of water unchanged.\", \"people_per_frame\": [1, 1, 1]}",
+  "latency": 8.596444845199585,
+  "prompt_tokens": 1721,
+  "completion_tokens": 522,
+  "cost": 0,
+  "finish": "stop",
+  "raw_len": 484,
+  "parsed": {
+   "what_changed": "In the first frame the cook stands at the right counter holding a small box while a pot of water sits on the induction cooktop. In the second frame the cook has stepped back toward the refrigerator, and a blue packet now lies flat on the right counter beside the opened box. In the third frame the cook is bent over the left sink counter, with the blue packet and opened box still on the right counter and the pot of water unchanged.",
+   "people_per_frame": [
+    1,
+    1,
+    1
+   ]
+  },
+  "score": {
+   "ok": true,
+   "people_frames_ok": 3,
+   "people_frames_total": 3,
+   "judge_raw": "{\"accuracy\": 3, \"hallucinations\": [\"Describes a pot of water on cooktop, but pan stays empty\"], \"missed\": [\"Cook's torso only visible at top counter, not fridge\", \"Sink location specified as top-left\"]}",
+   "judge_cost": 0.005916,
+   "accuracy": 3,
+   "hallucinations": [
+    "Describes a pot of water on cooktop, but pan stays empty"
+   ],
+   "missed": [
+    "Cook's torso only visible at top counter, not fridge",
+    "Sink location specified as top-left"
+   ]
+  }
+ },
+ {
+  "task": "single",
+  "site": "crownshy",
+  "camera": "crownshy-prep",
+  "frame": 2,
+  "path": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\crownshy-prep_2.jpg",
+  "area": "prep kitchen (back of house), eye-level view of a steel prep table with a combi oven behind",
+  "model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+  "text": "\n{\n  \"people\": 3,\n  \"area\": \"prep station\",\n  \"activity\": \"Three staff members are peeling and preparing vegetables, specifically carrots and celery, at a stainless steel counter.\",\n  \"issues\": []\n}",
+  "latency": 2.183367967605591,
+  "prompt_tokens": 2247,
+  "completion_tokens": 53,
+  "cost": 0,
+  "finish": "stop",
+  "raw_len": 198,
+  "parsed": {
+   "people": 3,
+   "area": "prep station",
+   "activity": "Three staff members are peeling and preparing vegetables, specifically carrots and celery, at a stainless steel counter.",
+   "issues": []
+  },
+  "score": {
+   "ok": true,
+   "people": 3,
+   "people_ok": true,
+   "people_near": true,
+   "hazard_hit": 0,
+   "hazard_total": 2,
+   "issues_reported": 0,
+   "judge_raw": "{\"accuracy\": 4, \"area_ok\": true, \"hallucinations\": [\"celery\"], \"missed\": [\"knife and cutting board\", \"gloves on some hands but not all\"]}",
+   "judge_cost": 0.001656,
+   "accuracy": 4,
+   "area_ok": true,
+   "hallucinations": [
+    "celery"
+   ],
+   "missed": [
+    "knife and cutting board",
+    "gloves on some hands but not all"
+   ]
+  }
+ },
+ {
+  "task": "single",
+  "site": "crownshy",
+  "camera": "crownshy-plating",
+  "frame": 1,
+  "path": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\crownshy-plating_1.jpg",
+  "area": "the pass, overhead camera over a dark marble counter with heat lamps",
+  "model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+  "text": "\n{\n  \"people\": 3,\n  \"area\": \"open kitchen pass station\",\n  \"activity\": \"Chefs are plating and garnishing multiple dishes on a marble countertop under bright lamps.\",\n  \"issues\": [\"bare hands on ready food\"]\n}",
+  "latency": 2.1741485595703125,
+  "prompt_tokens": 2247,
+  "completion_tokens": 55,
+  "cost": 0,
+  "finish": "stop",
+  "raw_len": 208,
+  "parsed": {
+   "people": 3,
+   "area": "open kitchen pass station",
+   "activity": "Chefs are plating and garnishing multiple dishes on a marble countertop under bright lamps.",
+   "issues": [
+    "bare hands on ready food"
+   ]
+  },
+  "score": {
+   "ok": true,
+   "people": 3,
+   "people_ok": true,
+   "people_near": true,
+   "hazard_hit": 0,
+   "hazard_total": 0,
+   "issues_reported": 1,
+   "judge_raw": "{\"accuracy\": 4, \"area_ok\": true, \"hallucinations\": [\"bare hands on ready food\"], \"missed\": [\"cut meat boards\", \"tickets/papers\", \"timer\"]}",
+   "judge_cost": 0.001744,
+   "accuracy": 4,
+   "area_ok": true,
+   "hallucinations": [
+    "bare hands on ready food"
+   ],
+   "missed": [
+    "cut meat boards",
+    "tickets/papers",
+    "timer"
+   ]
+  }
+ },
+ {
+  "task": "single",
+  "site": "kitchen",
+  "camera": "kitchen-sink",
+  "frame": 1,
+  "path": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\kitchen-sink_1.jpg",
+  "area": "sink and back counter from the side",
+  "model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+  "text": "\n{\n  \"people\": 1,\n  \"area\": \"kitchen prep area\",\n  \"activity\": \"A cook wearing a headset is opening a blue container at a prep table while a metal bowl sits nearby.\",\n  \"issues\": []\n}",
+  "latency": 2.0885751247406006,
+  "prompt_tokens": 725,
+  "completion_tokens": 53,
+  "cost": 0,
+  "finish": "stop",
+  "raw_len": 183,
+  "parsed": {
+   "people": 1,
+   "area": "kitchen prep area",
+   "activity": "A cook wearing a headset is opening a blue container at a prep table while a metal bowl sits nearby.",
+   "issues": []
+  },
+  "score": {
+   "ok": true,
+   "people": 1,
+   "people_ok": true,
+   "people_near": true,
+   "hazard_hit": 0,
+   "hazard_total": 0,
+   "issues_reported": 0,
+   "judge_raw": "{\"accuracy\": 2, \"area_ok\": true, \"hallucinations\": [\"headset\", \"blue container\", \"prep table\"], \"missed\": [\"grey t-shirt\", \"white box\", \"dish rack with plates and bottles\"]}",
+   "judge_cost": 0.001742,
+   "accuracy": 2,
+   "area_ok": true,
+   "hallucinations": [
+    "headset",
+    "blue container",
+    "prep table"
+   ],
+   "missed": [
+    "grey t-shirt",
+    "white box",
+    "dish rack with plates and bottles"
+   ]
+  }
+ },
+ {
+  "task": "temporal",
+  "site": "kitchen",
+  "camera": "kitchen-wide",
+  "paths": [
+   "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\kitchen-wide_1.jpg",
+   "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\kitchen-wide_2.jpg",
+   "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\kitchen-wide_3.jpg"
+  ],
+  "model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+  "text": "\n```json\n{\n  \"what_changed\": \"In the first frame, a woman is standing at the left counter preparing food. In the second frame, she has moved to the foreground, partially out of view, with a pot now on the stove. In the third frame, she is standing at the right counter peeling a yellow vegetable, and the yellow vegetable is no longer on the counter.\",\n  \"people_per_frame\": [1, 1, 1]\n}\n```",
+  "latency": 2.404100179672241,
+  "prompt_tokens": 1699,
+  "completion_tokens": 99,
+  "cost": 0,
+  "finish": "stop",
+  "raw_len": 390,
+  "parsed": {
+   "what_changed": "In the first frame, a woman is standing at the left counter preparing food. In the second frame, she has moved to the foreground, partially out of view, with a pot now on the stove. In the third frame, she is standing at the right counter peeling a yellow vegetable, and the yellow vegetable is no longer on the counter.",
+   "people_per_frame": [
+    1,
+    1,
+    1
+   ]
+  },
+  "score": {
+   "ok": true,
+   "people_frames_ok": 3,
+   "people_frames_total": 3,
+   "judge_raw": "{\"accuracy\": 3, \"hallucinations\": [\"Says third frame at right counter peeling vegetable, contradicts sink location\"], \"missed\": [\"Cook holding a box in frame 1\", \"Cook at sink centre in frame 3\"]}",
+   "judge_cost": 0.00169,
+   "accuracy": 3,
+   "hallucinations": [
+    "Says third frame at right counter peeling vegetable, contradicts sink location"
+   ],
+   "missed": [
+    "Cook holding a box in frame 1",
+    "Cook at sink centre in frame 3"
+   ]
+  }
+ },
+ {
+  "task": "single",
+  "site": "crownshy",
+  "camera": "crownshy-line",
+  "frame": 1,
+  "path": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\crownshy-line_1.jpg",
+  "area": "hot line / main kitchen, wide high-angle view down the cooking line, dining room visible through glass at the far end",
+  "model": "qwen/qwen3.8-27b:free",
+  "error": "HTTP 429: {\"error\":{\"message\":\"Provider returned error\",\"code\":429,\"metadata\":{\"raw\":\"qwen/qwen3.8-27b:free is temporarily rate-limited upstream. Please retry shortly, or",
+  "latency": 0.0,
+  "parsed": null,
+  "score": {
+   "ok": false
+  }
+ },
+ {
+  "task": "single",
+  "site": "crownshy",
+  "camera": "crownshy-line",
+  "frame": 2,
+  "path": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\crownshy-line_2.jpg",
+  "area": "hot line / main kitchen, wide high-angle view down the cooking line, dining room visible through glass at the far end",
+  "model": "qwen/qwen3.8-27b:free",
+  "text": "{\n  \"people\": 13,\n  \"area\": \"Open kitchen main line and pass, with a prep/holding counter in the foreground and the dining room visible in the background\",\n  \"activity\": \"Multiple chefs are working the line and pass during evening service, with one chef standing in the central aisle handling items and others cooking on the griddle and range. A tray of raw protein sits on the foreground prep counter while service plates and pots are staged along the line.\",\n  \"issues\": [\n    \"Raw meat (cut protein pieces) sitting uncovered on an open tray on the prep counter\",\n    \"Knife left out on the pass/clipboard in the foreground\"\n  ]\n}",
+  "latency": 31.933927059173584,
+  "prompt_tokens": 2275,
+  "completion_tokens": 912,
+  "cost": 0,
+  "finish": "stop",
+  "raw_len": 632,
+  "parsed": {
+   "people": 13,
+   "area": "Open kitchen main line and pass, with a prep/holding counter in the foreground and the dining room visible in the background",
+   "activity": "Multiple chefs are working the line and pass during evening service, with one chef standing in the central aisle handling items and others cooking on the griddle and range. A tray of raw protein sits on the foreground prep counter while service plates and pots are staged along the line.",
+   "issues": [
+    "Raw meat (cut protein pieces) sitting uncovered on an open tray on the prep counter",
+    "Knife left out on the pass/clipboard in the foreground"
+   ]
+  },
+  "score": {
+   "ok": true,
+   "people": 13,
+   "people_ok": false,
+   "people_near": false,
+   "hazard_hit": 1,
+   "hazard_total": 1,
+   "issues_reported": 2,
+   "judge_raw": "{\"accuracy\": 3, \"area_ok\": true, \"hallucinations\": [\"13 people (human describes only a few staff)\", \"Knife left out on pass/clipboard\"], \"missed\": [\"Cook in dark shirt and apron walking along left side\", \"Diners visible behind glass\"]}",
+   "judge_cost": 0.002308,
+   "accuracy": 3,
+   "area_ok": true,
+   "hallucinations": [
+    "13 people (human describes only a few staff)",
+    "Knife left out on pass/clipboard"
+   ],
+   "missed": [
+    "Cook in dark shirt and apron walking along left side",
+    "Diners visible behind glass"
+   ]
+  }
+ },
+ {
+  "task": "single",
+  "site": "crownshy",
+  "camera": "crownshy-line",
+  "frame": 3,
+  "path": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\crownshy-line_3.jpg",
+  "area": "hot line / main kitchen, wide high-angle view down the cooking line, dining room visible through glass at the far end",
+  "model": "qwen/qwen3.8-27b:free",
+  "text": "{\n  \"people\": 9,\n  \"area\": \"Open kitchen hot line and prep/pass counter\",\n  \"activity\": \"Several cooks are working the line during evening service, with one cook in a gray apron at the center line and others at the grill and right-side stations. A tray of raw protein sits on the pass counter in the foreground while staff plate and prep dishes.\",\n  \"issues\": [\n    \"Raw meat (cut pieces) sitting uncovered on an open tray on the pass counter\",\n    \"Knife left out on the pass counter near the raw meat tray\"\n  ]\n}",
+  "latency": 21.78434467315674,
+  "prompt_tokens": 2275,
+  "completion_tokens": 754,
+  "cost": 0,
+  "finish": "stop",
+  "raw_len": 514,
+  "parsed": {
+   "people": 9,
+   "area": "Open kitchen hot line and prep/pass counter",
+   "activity": "Several cooks are working the line during evening service, with one cook in a gray apron at the center line and others at the grill and right-side stations. A tray of raw protein sits on the pass counter in the foreground while staff plate and prep dishes.",
+   "issues": [
+    "Raw meat (cut pieces) sitting uncovered on an open tray on the pass counter",
+    "Knife left out on the pass counter near the raw meat tray"
+   ]
+  },
+  "score": {
+   "ok": true,
+   "people": 9,
+   "people_ok": false,
+   "people_near": true,
+   "hazard_hit": 1,
+   "hazard_total": 1,
+   "issues_reported": 2,
+   "judge_raw": "{\"accuracy\": 3, \"area_ok\": true, \"hallucinations\": [\"9 people count unverified/likely too specific\", \"Knife left out on pass counter\"], \"missed\": [\"Diners visible through glass at far end\", \"Cook stands over a pot\"]}",
+   "judge_cost": 0.002112,
+   "accuracy": 3,
+   "area_ok": true,
+   "hallucinations": [
+    "9 people count unverified/likely too specific",
+    "Knife left out on pass counter"
+   ],
+   "missed": [
+    "Diners visible through glass at far end",
+    "Cook stands over a pot"
+   ]
+  }
+ },
+ {
+  "task": "single",
+  "site": "crownshy",
+  "camera": "crownshy-dining",
+  "frame": 1,
+  "path": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\crownshy-dining_1.jpg",
+  "area": "dining room / chef's counter looking into the open kitchen under heat lamps",
+  "model": "qwen/qwen3.8-27b:free",
+  "text": "{\"people\": 10, \"area\": \"Open kitchen / chef's counter (pass) with front-of-house guest seating at the counter\", \"activity\": \"Kitchen staff in aprons and white coats are working at the counter and pass during evening service while a chef in a white shirt stands with his back to the camera. Several guests are seated at the counter in the foreground, conversing and waiting.\", \"issues\": []}",
+  "latency": 23.539483547210693,
+  "prompt_tokens": 2275,
+  "completion_tokens": 792,
+  "cost": 0,
+  "finish": "stop",
+  "raw_len": 389,
+  "parsed": {
+   "people": 10,
+   "area": "Open kitchen / chef's counter (pass) with front-of-house guest seating at the counter",
+   "activity": "Kitchen staff in aprons and white coats are working at the counter and pass during evening service while a chef in a white shirt stands with his back to the camera. Several guests are seated at the counter in the foreground, conversing and waiting.",
+   "issues": []
+  },
+  "score": {
+   "ok": true,
+   "people": 10,
+   "people_ok": false,
+   "people_near": true,
+   "hazard_hit": 0,
+   "hazard_total": 0,
+   "issues_reported": 0,
+   "judge_raw": "{\"accuracy\": 4, \"area_ok\": true, \"hallucinations\": [\"chef standing with back to camera (human says facing pass)\"], \"missed\": [\"bearded chef in white jacket/apron\", \"black heat lamps over pass\", \"man in checked shirt, woman laughing\"]}",
+   "judge_cost": 0.002214,
+   "accuracy": 4,
+   "area_ok": true,
+   "hallucinations": [
+    "chef standing with back to camera (human says facing pass)"
+   ],
+   "missed": [
+    "bearded chef in white jacket/apron",
+    "black heat lamps over pass",
+    "man in checked shirt, woman laughing"
+   ]
+  }
+ },
+ {
+  "task": "single",
+  "site": "crownshy",
+  "camera": "crownshy-dining",
+  "frame": 2,
+  "path": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\crownshy-dining_2.jpg",
+  "area": "dining room / chef's counter looking into the open kitchen under heat lamps",
+  "model": "qwen/qwen3.8-27b:free",
+  "error": "HTTP 429: {\"error\":{\"message\":\"Provider returned error\",\"code\":429,\"metadata\":{\"raw\":\"qwen/qwen3.8-27b:free is temporarily rate-limited upstream. Please retry shortly, or",
+  "latency": 0.0,
+  "parsed": null,
+  "score": {
+   "ok": false
+  }
+ },
+ {
+  "task": "single",
+  "site": "crownshy",
+  "camera": "crownshy-prep",
+  "frame": 1,
+  "path": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\crownshy-prep_1.jpg",
+  "area": "prep kitchen (back of house), eye-level view of a steel prep table with a combi oven behind",
+  "model": "qwen/qwen3.8-27b:free",
+  "error": "HTTP 429: {\"error\":{\"message\":\"Provider returned error\",\"code\":429,\"metadata\":{\"raw\":\"qwen/qwen3.8-27b:free is temporarily rate-limited upstream. Please retry shortly, or",
+  "latency": 0.0,
+  "parsed": null,
+  "score": {
+   "ok": false
+  }
+ },
+ {
+  "task": "single",
+  "site": "crownshy",
+  "camera": "crownshy-prep",
+  "frame": 2,
+  "path": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\crownshy-prep_2.jpg",
+  "area": "prep kitchen (back of house), eye-level view of a steel prep table with a combi oven behind",
+  "model": "qwen/qwen3.8-27b:free",
+  "error": "HTTP 429: {\"error\":{\"message\":\"Provider returned error\",\"code\":429,\"metadata\":{\"raw\":\"qwen/qwen3.8-27b:free is temporarily rate-limited upstream. Please retry shortly, or",
+  "latency": 0.0,
+  "parsed": null,
+  "score": {
+   "ok": false
+  }
+ },
+ {
+  "task": "single",
+  "site": "crownshy",
+  "camera": "crownshy-prep",
+  "frame": 3,
+  "path": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\crownshy-prep_3.jpg",
+  "area": "prep kitchen (back of house), eye-level view of a steel prep table with a combi oven behind",
+  "model": "qwen/qwen3.8-27b:free",
+  "error": "HTTP 429: {\"error\":{\"message\":\"Provider returned error\",\"code\":429,\"metadata\":{\"raw\":\"qwen/qwen3.8-27b:free is temporarily rate-limited upstream. Please retry shortly, or",
+  "latency": 0.0,
+  "parsed": null,
+  "score": {
+   "ok": false
+  }
+ },
+ {
+  "task": "single",
+  "site": "crownshy",
+  "camera": "crownshy-grill",
+  "frame": 1,
+  "path": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\crownshy-grill_1.jpg",
+  "area": "charcoal grill station",
+  "model": "qwen/qwen3.8-27b:free",
+  "text": "{\n  \"people\": 3,\n  \"area\": \"Open-kitchen grill/roasting station (flat-top grill with adjacent burner and prep trays)\",\n  \"activity\": \"A piece of meat is cooking on the flat-top grill with active flames flaring up around it. A chef in a white coat and apron stands at the right of the grill holding an item in their hands, while another staff member in a dark top and apron moves past on the right and a third person's arm is visible at the lower left.\",\n  \"issues\": [\n    \"open flame/flare-up on the grill around the cooking meat\"\n  ]\n}",
+  "latency": 14.339848518371582,
+  "prompt_tokens": 2275,
+  "completion_tokens": 404,
+  "cost": 0,
+  "finish": "stop",
+  "raw_len": 536,
+  "parsed": {
+   "people": 3,
+   "area": "Open-kitchen grill/roasting station (flat-top grill with adjacent burner and prep trays)",
+   "activity": "A piece of meat is cooking on the flat-top grill with active flames flaring up around it. A chef in a white coat and apron stands at the right of the grill holding an item in their hands, while another staff member in a dark top and apron moves past on the right and a third person's arm is visible at the lower left.",
+   "issues": [
+    "open flame/flare-up on the grill around the cooking meat"
+   ]
+  },
+  "score": {
+   "ok": true,
+   "people": 3,
+   "people_ok": true,
+   "people_near": true,
+   "hazard_hit": 1,
+   "hazard_total": 1,
+   "issues_reported": 1,
+   "judge_raw": "{\"accuracy\": 4, \"area_ok\": true, \"hallucinations\": [\"flat-top grill (human said charcoal grill)\"], \"missed\": [\"foil-lined tray beside the grill\"]}",
+   "judge_cost": 0.001942,
+   "accuracy": 4,
+   "area_ok": true,
+   "hallucinations": [
+    "flat-top grill (human said charcoal grill)"
+   ],
+   "missed": [
+    "foil-lined tray beside the grill"
+   ]
+  }
+ },
+ {
+  "task": "single",
+  "site": "crownshy",
+  "camera": "crownshy-grill",
+  "frame": 2,
+  "path": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\crownshy-grill_2.jpg",
+  "area": "charcoal grill station",
+  "model": "qwen/qwen3.8-27b:free",
+  "error": "HTTP 429: {\"error\":{\"message\":\"Provider returned error\",\"code\":429,\"metadata\":{\"raw\":\"qwen/qwen3.8-27b:free is temporarily rate-limited upstream. Please retry shortly, or",
+  "latency": 0.0,
+  "parsed": null,
+  "score": {
+   "ok": false
+  }
+ },
+ {
+  "task": "single",
+  "site": "crownshy",
+  "camera": "crownshy-grill",
+  "frame": 3,
+  "path": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\crownshy-grill_3.jpg",
+  "area": "charcoal grill station",
+  "model": "qwen/qwen3.8-27b:free",
+  "text": "{\n  \"people\": 1,\n  \"area\": \"Grill station in the open kitchen\",\n  \"activity\": \"A chef in a white uniform and apron is tending to pieces of meat on a flat-top grill using a utensil. A large flare-up of open flame is erupting from the grill over the cooking meat.\",\n  \"issues\": [\n    \"Open flame / flare-up on the grill\"\n  ]\n}",
+  "latency": 6.260089159011841,
+  "prompt_tokens": 2275,
+  "completion_tokens": 270,
+  "cost": 0,
+  "finish": "stop",
+  "raw_len": 324,
+  "parsed": {
+   "people": 1,
+   "area": "Grill station in the open kitchen",
+   "activity": "A chef in a white uniform and apron is tending to pieces of meat on a flat-top grill using a utensil. A large flare-up of open flame is erupting from the grill over the cooking meat.",
+   "issues": [
+    "Open flame / flare-up on the grill"
+   ]
+  },
+  "score": {
+   "ok": true,
+   "people": 1,
+   "people_ok": true,
+   "people_near": true,
+   "hazard_hit": 1,
+   "hazard_total": 1,
+   "issues_reported": 1,
+   "judge_raw": "{\"accuracy\": 4, \"area_ok\": true, \"hallucinations\": [\"flat-top grill (human said charcoal grill)\"], \"missed\": [\"Foil tray beside the grill\"]}",
+   "judge_cost": 0.001728,
+   "accuracy": 4,
+   "area_ok": true,
+   "hallucinations": [
+    "flat-top grill (human said charcoal grill)"
+   ],
+   "missed": [
+    "Foil tray beside the grill"
+   ]
+  }
+ },
+ {
+  "task": "single",
+  "site": "crownshy",
+  "camera": "crownshy-plancha",
+  "frame": 1,
+  "path": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\crownshy-plancha_1.jpg",
+  "area": "plancha / flat-top griddle station, overhead camera",
+  "model": "qwen/qwen3.8-27b:free",
+  "error": "HTTP 429: {\"error\":{\"message\":\"Provider returned error\",\"code\":429,\"metadata\":{\"raw\":\"qwen/qwen3.8-27b:free is temporarily rate-limited upstream. Please retry shortly, or",
+  "latency": 0.0,
+  "parsed": null,
+  "score": {
+   "ok": false
+  }
+ },
+ {
+  "task": "single",
+  "site": "crownshy",
+  "camera": "crownshy-plancha",
+  "frame": 2,
+  "path": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\crownshy-plancha_2.jpg",
+  "area": "plancha / flat-top griddle station, overhead camera",
+  "model": "qwen/qwen3.8-27b:free",
+  "error": "HTTP 429: {\"error\":{\"message\":\"Provider returned error\",\"code\":429,\"metadata\":{\"raw\":\"qwen/qwen3.8-27b:free is temporarily rate-limited upstream. Please retry shortly, or",
+  "latency": 0.0,
+  "parsed": null,
+  "score": {
+   "ok": false
+  }
+ },
+ {
+  "task": "single",
+  "site": "crownshy",
+  "camera": "crownshy-plancha",
+  "frame": 3,
+  "path": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\crownshy-plancha_3.jpg",
+  "area": "plancha / flat-top griddle station, overhead camera",
+  "model": "qwen/qwen3.8-27b:free",
+  "text": "{\"people\": 3, \"area\": \"Open-kitchen grill / flat-top (plancha) station\", \"activity\": \"A gloved hand in the foreground is tending to items cooking on the flat-top grill, which include a steak, octopus tentacles, pink meat pieces and yellow cubes. In the background, kitchen staff are working at the prep/counter area behind the grill.\", \"issues\": []}",
+  "latency": 13.386317014694214,
+  "prompt_tokens": 2275,
+  "completion_tokens": 433,
+  "cost": 0,
+  "finish": "stop",
+  "raw_len": 349,
+  "parsed": {
+   "people": 3,
+   "area": "Open-kitchen grill / flat-top (plancha) station",
+   "activity": "A gloved hand in the foreground is tending to items cooking on the flat-top grill, which include a steak, octopus tentacles, pink meat pieces and yellow cubes. In the background, kitchen staff are working at the prep/counter area behind the grill.",
+   "issues": []
+  },
+  "score": {
+   "ok": true,
+   "people": 3,
+   "people_ok": true,
+   "people_near": true,
+   "hazard_hit": 0,
+   "hazard_total": 0,
+   "issues_reported": 0,
+   "judge_raw": "{\"accuracy\": 4, \"area_ok\": true, \"hallucinations\": [\"3 people (human only implies 2)\"], \"missed\": [\"short rib being placed by hand\"]}",
+   "judge_cost": 0.001716,
+   "accuracy": 4,
+   "area_ok": true,
+   "hallucinations": [
+    "3 people (human only implies 2)"
+   ],
+   "missed": [
+    "short rib being placed by hand"
+   ]
+  }
+ },
+ {
+  "task": "single",
+  "site": "crownshy",
+  "camera": "crownshy-salamander",
+  "frame": 1,
+  "path": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\crownshy-salamander_1.jpg",
+  "area": "salamander / finishing station, overhead camera looking down on a cook's head",
+  "model": "qwen/qwen3.8-27b:free",
+  "error": "HTTP 429: {\"error\":{\"message\":\"Provider returned error\",\"code\":429,\"metadata\":{\"raw\":\"qwen/qwen3.8-27b:free is temporarily rate-limited upstream. Please retry shortly, or",
+  "latency": 0.0,
+  "parsed": null,
+  "score": {
+   "ok": false
+  }
+ },
+ {
+  "task": "single",
+  "site": "crownshy",
+  "camera": "crownshy-salamander",
+  "frame": 2,
+  "path": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\crownshy-salamander_2.jpg",
+  "area": "salamander / finishing station, overhead camera looking down on a cook's head",
+  "model": "qwen/qwen3.8-27b:free",
+  "error": "HTTP 429: {\"error\":{\"message\":\"Provider returned error\",\"code\":429,\"metadata\":{\"raw\":\"qwen/qwen3.8-27b:free is temporarily rate-limited upstream. Please retry shortly, or",
+  "latency": 0.0,
+  "parsed": null,
+  "score": {
+   "ok": false
+  }
+ },
+ {
+  "task": "single",
+  "site": "crownshy",
+  "camera": "crownshy-salamander",
+  "frame": 3,
+  "path": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\crownshy-salamander_3.jpg",
+  "area": "salamander / finishing station, overhead camera looking down on a cook's head",
+  "model": "qwen/qwen3.8-27b:free",
+  "text": "{\n  \"people\": 2,\n  \"area\": \"Oven/baking station with the front prep counter holding mise en place containers, sauces, plates and utensils\",\n  \"activity\": \"A staff member in a black shirt and grey apron stands at the right of the open ovens holding a white cloth, while a second person's hands and forearm are working at the prep counter on the right. The two large ovens have their doors open with racks and a foil-lined tray visible inside, and the counter in front is laid out with lidded sauce containers, stacked plates and cooking utensils.\",\n  \"issues\": [\n    \"Minor liquid drips visible on the black mat on the prep counter (possible small spill)\"\n  ]\n}",
+  "latency": 31.834038734436035,
+  "prompt_tokens": 2275,
+  "completion_tokens": 953,
+  "cost": 0,
+  "finish": "stop",
+  "raw_len": 660,
+  "parsed": {
+   "people": 2,
+   "area": "Oven/baking station with the front prep counter holding mise en place containers, sauces, plates and utensils",
+   "activity": "A staff member in a black shirt and grey apron stands at the right of the open ovens holding a white cloth, while a second person's hands and forearm are working at the prep counter on the right. The two large ovens have their doors open with racks and a foil-lined tray visible inside, and the counter in front is laid out with lidded sauce containers, stacked plates and cooking utensils.",
+   "issues": [
+    "Minor liquid drips visible on the black mat on the prep counter (possible small spill)"
+   ]
+  },
+  "score": {
+   "ok": true,
+   "people": 2,
+   "people_ok": true,
+   "people_near": true,
+   "hazard_hit": 0,
+   "hazard_total": 0,
+   "issues_reported": 1,
+   "judge_raw": "{\"accuracy\": 3, \"area_ok\": true, \"hallucinations\": [\"Open ovens with racks and foil-lined tray\", \"Second person's hands working at prep counter\", \"Liquid drips on black mat\"], \"missed\": [\"Overhead camera looking down on a cook's head\", \"Main cook stepped out of centre\"]}",
+   "judge_cost": 0.002386,
+   "accuracy": 3,
+   "area_ok": true,
+   "hallucinations": [
+    "Open ovens with racks and foil-lined tray",
+    "Second person's hands working at prep counter",
+    "Liquid drips on black mat"
+   ],
+   "missed": [
+    "Overhead camera looking down on a cook's head",
+    "Main cook stepped out of centre"
+   ]
+  }
+ },
+ {
+  "task": "single",
+  "site": "crownshy",
+  "camera": "crownshy-plating",
+  "frame": 1,
+  "path": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\crownshy-plating_1.jpg",
+  "area": "the pass, overhead camera over a dark marble counter with heat lamps",
+  "model": "qwen/qwen3.8-27b:free",
+  "error": "HTTP 429: {\"error\":{\"message\":\"Provider returned error\",\"code\":429,\"metadata\":{\"raw\":\"qwen/qwen3.8-27b:free is temporarily rate-limited upstream. Please retry shortly, or",
+  "latency": 0.0,
+  "parsed": null,
+  "score": {
+   "ok": false
+  }
+ },
+ {
+  "task": "single",
+  "site": "crownshy",
+  "camera": "crownshy-plating",
+  "frame": 2,
+  "path": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\crownshy-plating_2.jpg",
+  "area": "the pass, overhead camera over a dark marble counter with heat lamps",
+  "model": "qwen/qwen3.8-27b:free",
+  "error": "HTTP 429: {\"error\":{\"message\":\"Provider returned error\",\"code\":429,\"metadata\":{\"raw\":\"qwen/qwen3.8-27b:free is temporarily rate-limited upstream. Please retry shortly, or",
+  "latency": 0.0,
+  "parsed": null,
+  "score": {
+   "ok": false
+  }
+ },
+ {
+  "task": "single",
+  "site": "crownshy",
+  "camera": "crownshy-plating",
+  "frame": 3,
+  "path": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\crownshy-plating_3.jpg",
+  "area": "the pass, overhead camera over a dark marble counter with heat lamps",
+  "model": "qwen/qwen3.8-27b:free",
+  "text": "{\n  \"people\": 4,\n  \"area\": \"Open-kitchen pass / finishing and plating station\",\n  \"activity\": \"Multiple chefs are simultaneously plating and garnishing finished dishes on the marble pass. One chef is squeezing sauce from a bottle onto a plated dish, another is arranging components on a wooden board, and others are working over metal trays and plates.\",\n  \"issues\": [\n    \"Bare-hand contact with ready-to-serve food by several staff (top-center, top-right and bottom-right hands are ungloved while handling plated dishes/components)\",\n    \"A knife/utensil with a black handle is left resting on the wooden prep board\"\n  ]\n}",
+  "latency": 21.356391191482544,
+  "prompt_tokens": 2275,
+  "completion_tokens": 741,
+  "cost": 0,
+  "finish": "stop",
+  "raw_len": 624,
+  "parsed": {
+   "people": 4,
+   "area": "Open-kitchen pass / finishing and plating station",
+   "activity": "Multiple chefs are simultaneously plating and garnishing finished dishes on the marble pass. One chef is squeezing sauce from a bottle onto a plated dish, another is arranging components on a wooden board, and others are working over metal trays and plates.",
+   "issues": [
+    "Bare-hand contact with ready-to-serve food by several staff (top-center, top-right and bottom-right hands are ungloved while handling plated dishes/components)",
+    "A knife/utensil with a black handle is left resting on the wooden prep board"
+   ]
+  },
+  "score": {
+   "ok": true,
+   "people": 4,
+   "people_ok": false,
+   "people_near": true,
+   "hazard_hit": 0,
+   "hazard_total": 0,
+   "issues_reported": 2,
+   "judge_raw": "{\"accuracy\": 3, \"area_ok\": true, \"hallucinations\": [\"4 people count unverified, human implies fewer\", \"bare-hand contact claim contradicts gloved handling noted by human\", \"knife with black handle detail not mentioned\"], \"missed\": [\"lettuce and orange sauce on plated dishes\", \"papers on counter\"]}",
+   "judge_cost": 0.00246,
+   "accuracy": 3,
+   "area_ok": true,
+   "hallucinations": [
+    "4 people count unverified, human implies fewer",
+    "bare-hand contact claim contradicts gloved handling noted by human",
+    "knife with black handle detail not mentioned"
+   ],
+   "missed": [
+    "lettuce and orange sauce on plated dishes",
+    "papers on counter"
+   ]
+  }
+ },
+ {
+  "task": "multicam",
+  "site": "crownshy",
+  "paths": {
+   "crownshy-line": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\crownshy-line_2.jpg",
+   "crownshy-dining": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\crownshy-dining_2.jpg",
+   "crownshy-prep": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\crownshy-prep_2.jpg",
+   "crownshy-grill": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\crownshy-grill_2.jpg",
+   "crownshy-plancha": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\crownshy-plancha_2.jpg",
+   "crownshy-salamander": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\crownshy-salamander_2.jpg",
+   "crownshy-plating": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\crownshy-plating_2.jpg"
+  },
+  "model": "qwen/qwen3.8-27b:free",
+  "error": "HTTP 429: {\"error\":{\"message\":\"Provider returned error\",\"code\":429,\"metadata\":{\"raw\":\"qwen/qwen3.8-27b:free is temporarily rate-limited upstream. Please retry shortly, or",
+  "latency": 0.0,
+  "parsed": null,
+  "score": {
+   "ok": false
+  }
+ },
+ {
+  "task": "single",
+  "site": "kitchen",
+  "camera": "kitchen-overview",
+  "frame": 1,
+  "path": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\kitchen-overview_1.jpg",
+  "area": "whole room from a high corner by the door",
+  "model": "qwen/qwen3.8-27b:free",
+  "error": "HTTP 429: {\"error\":{\"message\":\"Provider returned error\",\"code\":429,\"metadata\":{\"raw\":\"qwen/qwen3.8-27b:free is temporarily rate-limited upstream. Please retry shortly, or",
+  "latency": 0.0,
+  "parsed": null,
+  "score": {
+   "ok": false
+  }
+ },
+ {
+  "task": "single",
+  "site": "kitchen",
+  "camera": "kitchen-overview",
+  "frame": 2,
+  "path": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\kitchen-overview_2.jpg",
+  "area": "whole room from a high corner by the door",
+  "model": "qwen/qwen3.8-27b:free",
+  "error": "HTTP 429: {\"error\":{\"message\":\"Provider returned error\",\"code\":429,\"metadata\":{\"raw\":\"qwen/qwen3.8-27b:free is temporarily rate-limited upstream. Please retry shortly, or",
+  "latency": 0.0,
+  "parsed": null,
+  "score": {
+   "ok": false
+  }
+ },
+ {
+  "task": "single",
+  "site": "kitchen",
+  "camera": "kitchen-overview",
+  "frame": 3,
+  "path": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\kitchen-overview_3.jpg",
+  "area": "whole room from a high corner by the door",
+  "model": "qwen/qwen3.8-27b:free",
+  "error": "HTTP 429: {\"error\":{\"message\":\"Provider returned error\",\"code\":429,\"metadata\":{\"raw\":\"qwen/qwen3.8-27b:free is temporarily rate-limited upstream. Please retry shortly, or",
+  "latency": 0.0,
+  "parsed": null,
+  "score": {
+   "ok": false
+  }
+ },
+ {
+  "task": "single",
+  "site": "kitchen",
+  "camera": "kitchen-wide",
+  "frame": 1,
+  "path": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\kitchen-wide_1.jpg",
+  "area": "long view down the counters from the far end toward the door",
+  "model": "qwen/qwen3.8-27b:free",
+  "error": "HTTP 429: {\"error\":{\"message\":\"Provider returned error\",\"code\":429,\"metadata\":{\"raw\":\"qwen/qwen3.8-27b:free is temporarily rate-limited upstream. Please retry shortly, or",
+  "latency": 0.0,
+  "parsed": null,
+  "score": {
+   "ok": false
+  }
+ },
+ {
+  "task": "single",
+  "site": "kitchen",
+  "camera": "kitchen-wide",
+  "frame": 2,
+  "path": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\kitchen-wide_2.jpg",
+  "area": "long view down the counters from the far end toward the door",
+  "model": "qwen/qwen3.8-27b:free",
+  "text": "{\n  \"people\": 1,\n  \"area\": \"Prep and sink/wash station (right counter with sink, drying rack and produce; left counter with hob)\",\n  \"activity\": \"A single cook stands at the left counter near the hob, working with items on the surface. On the right prep counter, vegetables (eggplant, zucchini, an orange/pepper) and a brush are laid out, indicating food preparation is in progress.\",\n  \"issues\": [\n    \"Knife left out on the prep counter near the vegetables\",\n    \"Produce left uncovered on the open counter\"\n  ]\n}",
+  "latency": 18.13457226753235,
+  "prompt_tokens": 753,
+  "completion_tokens": 674,
+  "cost": 0,
+  "finish": "stop",
+  "raw_len": 515,
+  "parsed": {
+   "people": 1,
+   "area": "Prep and sink/wash station (right counter with sink, drying rack and produce; left counter with hob)",
+   "activity": "A single cook stands at the left counter near the hob, working with items on the surface. On the right prep counter, vegetables (eggplant, zucchini, an orange/pepper) and a brush are laid out, indicating food preparation is in progress.",
+   "issues": [
+    "Knife left out on the prep counter near the vegetables",
+    "Produce left uncovered on the open counter"
+   ]
+  },
+  "score": {
+   "ok": true,
+   "people": 1,
+   "people_ok": true,
+   "people_near": true,
+   "hazard_hit": 0,
+   "hazard_total": 0,
+   "issues_reported": 2,
+   "judge_raw": "{\"accuracy\": 2, \"hallucinations\": [\"Cook at left counter near hob\", \"vegetables laid out with a brush\", \"knife left out\", \"produce left uncovered\"], \"missed\": [\"Person is near camera at near counter, back turned, not at hob\"]}",
+   "judge_cost": 0.002066,
+   "accuracy": 2,
+   "hallucinations": [
+    "Cook at left counter near hob",
+    "vegetables laid out with a brush",
+    "knife left out",
+    "produce left uncovered"
+   ],
+   "missed": [
+    "Person is near camera at near counter, back turned, not at hob"
+   ]
+  }
+ },
+ {
+  "task": "single",
+  "site": "kitchen",
+  "camera": "kitchen-wide",
+  "frame": 3,
+  "path": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\kitchen-wide_3.jpg",
+  "area": "long view down the counters from the far end toward the door",
+  "model": "qwen/qwen3.8-27b:free",
+  "error": "HTTP 429: {\"error\":{\"message\":\"Provider returned error\",\"code\":429,\"metadata\":{\"raw\":\"qwen/qwen3.8-27b:free is temporarily rate-limited upstream. Please retry shortly, or",
+  "latency": 0.0,
+  "parsed": null,
+  "score": {
+   "ok": false
+  }
+ },
+ {
+  "task": "single",
+  "site": "kitchen",
+  "camera": "kitchen-stove",
+  "frame": 1,
+  "path": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\kitchen-stove_1.jpg",
+  "area": "induction hob and the corner counter, high angle",
+  "model": "qwen/qwen3.8-27b:free",
+  "error": "HTTP 429: {\"error\":{\"message\":\"Provider returned error\",\"code\":429,\"metadata\":{\"raw\":\"qwen/qwen3.8-27b:free is temporarily rate-limited upstream. Please retry shortly, or",
+  "latency": 0.0,
+  "parsed": null,
+  "score": {
+   "ok": false
+  }
+ },
+ {
+  "task": "single",
+  "site": "kitchen",
+  "camera": "kitchen-stove",
+  "frame": 2,
+  "path": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\kitchen-stove_2.jpg",
+  "area": "induction hob and the corner counter, high angle",
+  "model": "qwen/qwen3.8-27b:free",
+  "error": "HTTP 429: {\"error\":{\"message\":\"Provider returned error\",\"code\":429,\"metadata\":{\"raw\":\"qwen/qwen3.8-27b:free is temporarily rate-limited upstream. Please retry shortly, or",
+  "latency": 0.0,
+  "parsed": null,
+  "score": {
+   "ok": false
+  }
+ },
+ {
+  "task": "single",
+  "site": "kitchen",
+  "camera": "kitchen-stove",
+  "frame": 3,
+  "path": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\kitchen-stove_3.jpg",
+  "area": "induction hob and the corner counter, high angle",
+  "model": "qwen/qwen3.8-27b:free",
+  "text": "{\n  \"people\": 1,\n  \"area\": \"Cooking/prep station (left prep counter and right induction cooktop counter)\",\n  \"activity\": \"A single cook in a grey top and dark apron is standing at the left counter, hands working over a tray/food item. On the right counter a metal pan containing liquid sits on an induction cooktop, with bottles, a cardboard box and packaging arranged nearby.\",\n  \"issues\": [\n    \"Counter surface cluttered with bottles, a cardboard box, a plastic bag and a blue package, reducing usable prep space\",\n    \"Black bag/item resting on the floor beside the prep counter leg, potential trip/clutter hazard\"\n  ]\n}",
+  "latency": 13.555891752243042,
+  "prompt_tokens": 753,
+  "completion_tokens": 577,
+  "cost": 0,
+  "finish": "stop",
+  "raw_len": 624,
+  "parsed": {
+   "people": 1,
+   "area": "Cooking/prep station (left prep counter and right induction cooktop counter)",
+   "activity": "A single cook in a grey top and dark apron is standing at the left counter, hands working over a tray/food item. On the right counter a metal pan containing liquid sits on an induction cooktop, with bottles, a cardboard box and packaging arranged nearby.",
+   "issues": [
+    "Counter surface cluttered with bottles, a cardboard box, a plastic bag and a blue package, reducing usable prep space",
+    "Black bag/item resting on the floor beside the prep counter leg, potential trip/clutter hazard"
+   ]
+  },
+  "score": {
+   "ok": true,
+   "people": 1,
+   "people_ok": true,
+   "people_near": true,
+   "hazard_hit": 0,
+   "hazard_total": 0,
+   "issues_reported": 2,
+   "judge_raw": "{\"accuracy\": 4, \"area_ok\": true, \"hallucinations\": [], \"missed\": []}",
+   "judge_cost": 0.001582,
+   "accuracy": 4,
+   "area_ok": true,
+   "hallucinations": [],
+   "missed": []
+  }
+ },
+ {
+  "task": "single",
+  "site": "kitchen",
+  "camera": "kitchen-prep",
+  "frame": 1,
+  "path": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\kitchen-prep_1.jpg",
+  "area": "chopping board and sink from directly above",
+  "model": "qwen/qwen3.8-27b:free",
+  "error": "HTTP 429: {\"error\":{\"message\":\"Provider returned error\",\"code\":429,\"metadata\":{\"raw\":\"qwen/qwen3.8-27b:free is temporarily rate-limited upstream. Please retry shortly, or",
+  "latency": 0.0,
+  "parsed": null,
+  "score": {
+   "ok": false
+  }
+ },
+ {
+  "task": "single",
+  "site": "kitchen",
+  "camera": "kitchen-prep",
+  "frame": 2,
+  "path": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\kitchen-prep_2.jpg",
+  "area": "chopping board and sink from directly above",
+  "model": "qwen/qwen3.8-27b:free",
+  "text": "{\n  \"people\": 1,\n  \"area\": \"Prep and wash station (stainless steel counter with sink, dish rack, and cutting surface)\",\n  \"activity\": \"A single person is standing at the far side of the prep counter, with only their lower legs and feet visible. Vegetables (zucchini, eggplant, orange pepper) are laid out on the counter next to a knife and wooden spatula, indicating food preparation is set up or paused.\",\n  \"issues\": [\n    \"Knife left out on the prep counter\",\n    \"Person wearing open-toe footwear (sandals) in the kitchen\"\n  ]\n}",
+  "latency": 9.774411678314209,
+  "prompt_tokens": 753,
+  "completion_tokens": 464,
+  "cost": 0,
+  "finish": "stop",
+  "raw_len": 532,
+  "parsed": {
+   "people": 1,
+   "area": "Prep and wash station (stainless steel counter with sink, dish rack, and cutting surface)",
+   "activity": "A single person is standing at the far side of the prep counter, with only their lower legs and feet visible. Vegetables (zucchini, eggplant, orange pepper) are laid out on the counter next to a knife and wooden spatula, indicating food preparation is set up or paused.",
+   "issues": [
+    "Knife left out on the prep counter",
+    "Person wearing open-toe footwear (sandals) in the kitchen"
+   ]
+  },
+  "score": {
+   "ok": true,
+   "people": 1,
+   "people_ok": true,
+   "people_near": true,
+   "hazard_hit": 1,
+   "hazard_total": 1,
+   "issues_reported": 2,
+   "judge_raw": "{\"accuracy\": 4, \"area_ok\": true, \"hallucinations\": [\"wooden spatula\", \"open-toe footwear/sandals detail\", \"dish rack\"], \"missed\": [\"cucumber\", \"white cloth or paper on board\"]}",
+   "judge_cost": 0.002018,
+   "accuracy": 4,
+   "area_ok": true,
+   "hallucinations": [
+    "wooden spatula",
+    "open-toe footwear/sandals detail",
+    "dish rack"
+   ],
+   "missed": [
+    "cucumber",
+    "white cloth or paper on board"
+   ]
+  }
+ },
+ {
+  "task": "single",
+  "site": "kitchen",
+  "camera": "kitchen-prep",
+  "frame": 3,
+  "path": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\kitchen-prep_3.jpg",
+  "area": "chopping board and sink from directly above",
+  "model": "qwen/qwen3.8-27b:free",
+  "error": "HTTP 429: {\"error\":{\"message\":\"Provider returned error\",\"code\":429,\"metadata\":{\"raw\":\"qwen/qwen3.8-27b:free is temporarily rate-limited upstream. Please retry shortly, or",
+  "latency": 0.0,
+  "parsed": null,
+  "score": {
+   "ok": false
+  }
+ },
+ {
+  "task": "single",
+  "site": "kitchen",
+  "camera": "kitchen-sink",
+  "frame": 1,
+  "path": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\kitchen-sink_1.jpg",
+  "area": "sink and back counter from the side",
+  "model": "qwen/qwen3.8-27b:free",
+  "text": "{\n  \"people\": 1,\n  \"area\": \"Prep/cooking station in a small institutional kitchen (sink and dish-rack area in background, prep counter in foreground)\",\n  \"activity\": \"A single cook with a ponytail stands at the right-hand prep counter, opening or handling a small carton/box with both hands. A metal pot sits on the front counter while several condiment bottles and plastic bags are arranged to the right.\",\n  \"issues\": []\n}",
+  "latency": 9.03434419631958,
+  "prompt_tokens": 753,
+  "completion_tokens": 570,
+  "cost": 0,
+  "finish": "stop",
+  "raw_len": 424,
+  "parsed": {
+   "people": 1,
+   "area": "Prep/cooking station in a small institutional kitchen (sink and dish-rack area in background, prep counter in foreground)",
+   "activity": "A single cook with a ponytail stands at the right-hand prep counter, opening or handling a small carton/box with both hands. A metal pot sits on the front counter while several condiment bottles and plastic bags are arranged to the right.",
+   "issues": []
+  },
+  "score": {
+   "ok": true,
+   "people": 1,
+   "people_ok": true,
+   "people_near": true,
+   "hazard_hit": 0,
+   "hazard_total": 0,
+   "issues_reported": 0,
+   "judge_raw": "{\"accuracy\": 4, \"area_ok\": true, \"hallucinations\": [\"ponytail\", \"metal pot\", \"plastic bags\"], \"missed\": [\"grey t-shirt\", \"dish rack with plates and bowl\"]}",
+   "judge_cost": 0.001896,
+   "accuracy": 4,
+   "area_ok": true,
+   "hallucinations": [
+    "ponytail",
+    "metal pot",
+    "plastic bags"
+   ],
+   "missed": [
+    "grey t-shirt",
+    "dish rack with plates and bowl"
+   ]
+  }
+ },
+ {
+  "task": "single",
+  "site": "kitchen",
+  "camera": "kitchen-sink",
+  "frame": 2,
+  "path": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\kitchen-sink_2.jpg",
+  "area": "sink and back counter from the side",
+  "model": "qwen/qwen3.8-27b:free",
+  "text": "{\n  \"people\": 1,\n  \"area\": \"Prep and sink/wash area of a small institutional kitchen\",\n  \"activity\": \"A single cook in a grey top and dark apron stands at the right-hand counter, holding and handling a clear plastic bag or sheet. In the foreground a metal pot sits on a portable hob, while the counter holds a roll of foil, several condiment bottles and loose food items.\",\n  \"issues\": []\n}",
+  "latency": 42.35486364364624,
+  "prompt_tokens": 753,
+  "completion_tokens": 1139,
+  "cost": 0,
+  "finish": "stop",
+  "raw_len": 390,
+  "parsed": {
+   "people": 1,
+   "area": "Prep and sink/wash area of a small institutional kitchen",
+   "activity": "A single cook in a grey top and dark apron stands at the right-hand counter, holding and handling a clear plastic bag or sheet. In the foreground a metal pot sits on a portable hob, while the counter holds a roll of foil, several condiment bottles and loose food items.",
+   "issues": []
+  },
+  "score": {
+   "ok": true,
+   "people": 1,
+   "people_ok": true,
+   "people_near": true,
+   "hazard_hit": 0,
+   "hazard_total": 0,
+   "issues_reported": 0,
+   "judge_raw": "{\"accuracy\": 3, \"area_ok\": true, \"hallucinations\": [\"holding a clear plastic bag or sheet\", \"metal pot on portable hob\", \"roll of foil\"], \"missed\": [\"arm outstretched toward the sink\", \"dish rack\"]}",
+   "judge_cost": 0.001964,
+   "accuracy": 3,
+   "area_ok": true,
+   "hallucinations": [
+    "holding a clear plastic bag or sheet",
+    "metal pot on portable hob",
+    "roll of foil"
+   ],
+   "missed": [
+    "arm outstretched toward the sink",
+    "dish rack"
+   ]
+  }
+ },
+ {
+  "task": "single",
+  "site": "kitchen",
+  "camera": "kitchen-sink",
+  "frame": 3,
+  "path": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\kitchen-sink_3.jpg",
+  "area": "sink and back counter from the side",
+  "model": "qwen/qwen3.8-27b:free",
+  "error": "HTTP 429: {\"error\":{\"message\":\"Provider returned error\",\"code\":429,\"metadata\":{\"raw\":\"qwen/qwen3.8-27b:free is temporarily rate-limited upstream. Please retry shortly, or",
+  "latency": 0.0,
+  "parsed": null,
+  "score": {
+   "ok": false
+  }
+ },
+ {
+  "task": "multicam",
+  "site": "kitchen",
+  "paths": {
+   "kitchen-overview": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\kitchen-overview_2.jpg",
+   "kitchen-wide": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\kitchen-wide_2.jpg",
+   "kitchen-stove": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\kitchen-stove_2.jpg",
+   "kitchen-prep": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\kitchen-prep_2.jpg",
+   "kitchen-sink": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\kitchen-sink_2.jpg"
+  },
+  "model": "qwen/qwen3.8-27b:free",
+  "error": "HTTP 429: {\"error\":{\"message\":\"Provider returned error\",\"code\":429,\"metadata\":{\"raw\":\"qwen/qwen3.8-27b:free is temporarily rate-limited upstream. Please retry shortly, or",
+  "latency": 0.0,
+  "parsed": null,
+  "score": {
+   "ok": false
+  }
+ },
+ {
+  "task": "temporal",
+  "site": "kitchen",
+  "camera": "kitchen-overview",
+  "paths": [
+   "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\kitchen-overview_1.jpg",
+   "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\kitchen-overview_2.jpg",
+   "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\kitchen-overview_3.jpg"
+  ],
+  "model": "qwen/qwen3.8-27b:free",
+  "error": "HTTP 429: {\"error\":{\"message\":\"Provider returned error\",\"code\":429,\"metadata\":{\"raw\":\"qwen/qwen3.8-27b:free is temporarily rate-limited upstream. Please retry shortly, or",
+  "latency": 0.0,
+  "parsed": null,
+  "score": {
+   "ok": false
+  }
+ },
+ {
+  "task": "temporal",
+  "site": "kitchen",
+  "camera": "kitchen-wide",
+  "paths": [
+   "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\kitchen-wide_1.jpg",
+   "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\kitchen-wide_2.jpg",
+   "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\kitchen-wide_3.jpg"
+  ],
+  "model": "qwen/qwen3.8-27b:free",
+  "error": "HTTP 429: {\"error\":{\"message\":\"Provider returned error\",\"code\":429,\"metadata\":{\"raw\":\"qwen/qwen3.8-27b:free is temporarily rate-limited upstream. Please retry shortly, or",
+  "latency": 0.0,
+  "parsed": null,
+  "score": {
+   "ok": false
+  }
+ },
+ {
+  "task": "temporal",
+  "site": "kitchen",
+  "camera": "kitchen-prep",
+  "paths": [
+   "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\kitchen-prep_1.jpg",
+   "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\kitchen-prep_2.jpg",
+   "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\kitchen-prep_3.jpg"
+  ],
+  "model": "qwen/qwen3.8-27b:free",
+  "error": "HTTP 429: {\"error\":{\"message\":\"Provider returned error\",\"code\":429,\"metadata\":{\"raw\":\"qwen/qwen3.8-27b:free is temporarily rate-limited upstream. Please retry shortly, or",
+  "latency": 0.0,
+  "parsed": null,
+  "score": {
+   "ok": false
+  }
+ },
+ {
+  "task": "temporal",
+  "site": "kitchen",
+  "camera": "kitchen-sink",
+  "paths": [
+   "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\kitchen-sink_1.jpg",
+   "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\kitchen-sink_2.jpg",
+   "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\kitchen-sink_3.jpg"
+  ],
+  "model": "qwen/qwen3.8-27b:free",
+  "error": "HTTP 429: {\"error\":{\"message\":\"Provider returned error\",\"code\":429,\"metadata\":{\"raw\":\"qwen/qwen3.8-27b:free is temporarily rate-limited upstream. Please retry shortly, or",
+  "latency": 0.0,
+  "parsed": null,
+  "score": {
+   "ok": false
+  }
+ },
+ {
+  "task": "single",
+  "site": "crownshy",
+  "camera": "crownshy-line",
+  "frame": 1,
+  "path": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\crownshy-line_1.jpg",
+  "area": "hot line / main kitchen, wide high-angle view down the cooking line, dining room visible through glass at the far end",
+  "model": "google/gemma-4-31b-it:free",
+  "error": "HTTP 429: {\"error\":{\"message\":\"Provider returned error\",\"code\":429,\"metadata\":{\"raw\":\"google/gemma-4-31b-it:free is temporarily rate-limited upstream. Please retry shortl",
+  "latency": 0.0,
+  "parsed": null,
+  "score": {
+   "ok": false
+  }
+ },
+ {
+  "task": "single",
+  "site": "crownshy",
+  "camera": "crownshy-line",
+  "frame": 2,
+  "path": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\crownshy-line_2.jpg",
+  "area": "hot line / main kitchen, wide high-angle view down the cooking line, dining room visible through glass at the far end",
+  "model": "google/gemma-4-31b-it:free",
+  "error": "HTTP 429: {\"error\":{\"message\":\"Provider returned error\",\"code\":429,\"metadata\":{\"raw\":\"google/gemma-4-31b-it:free is temporarily rate-limited upstream. Please retry shortl",
+  "latency": 0.0,
+  "parsed": null,
+  "score": {
+   "ok": false
+  }
+ },
+ {
+  "task": "single",
+  "site": "crownshy",
+  "camera": "crownshy-line",
+  "frame": 3,
+  "path": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\crownshy-line_3.jpg",
+  "area": "hot line / main kitchen, wide high-angle view down the cooking line, dining room visible through glass at the far end",
+  "model": "google/gemma-4-31b-it:free",
+  "error": "HTTP 429: {\"error\":{\"message\":\"Provider returned error\",\"code\":429,\"metadata\":{\"raw\":\"google/gemma-4-31b-it:free is temporarily rate-limited upstream. Please retry shortl",
+  "latency": 0.0,
+  "parsed": null,
+  "score": {
+   "ok": false
+  }
+ },
+ {
+  "task": "single",
+  "site": "crownshy",
+  "camera": "crownshy-dining",
+  "frame": 1,
+  "path": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\crownshy-dining_1.jpg",
+  "area": "dining room / chef's counter looking into the open kitchen under heat lamps",
+  "model": "google/gemma-4-31b-it:free",
+  "error": "HTTP 429: {\"error\":{\"message\":\"Provider returned error\",\"code\":429,\"metadata\":{\"raw\":\"google/gemma-4-31b-it:free is temporarily rate-limited upstream. Please retry shortl",
+  "latency": 0.0,
+  "parsed": null,
+  "score": {
+   "ok": false
+  }
+ },
+ {
+  "task": "single",
+  "site": "crownshy",
+  "camera": "crownshy-dining",
+  "frame": 2,
+  "path": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\crownshy-dining_2.jpg",
+  "area": "dining room / chef's counter looking into the open kitchen under heat lamps",
+  "model": "google/gemma-4-31b-it:free",
+  "error": "HTTP 429: {\"error\":{\"message\":\"Provider returned error\",\"code\":429,\"metadata\":{\"raw\":\"google/gemma-4-31b-it:free is temporarily rate-limited upstream. Please retry shortl",
+  "latency": 0.0,
+  "parsed": null,
+  "score": {
+   "ok": false
+  }
+ },
+ {
+  "task": "single",
+  "site": "crownshy",
+  "camera": "crownshy-dining",
+  "frame": 3,
+  "path": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\crownshy-dining_3.jpg",
+  "area": "dining room / chef's counter looking into the open kitchen under heat lamps",
+  "model": "google/gemma-4-31b-it:free",
+  "error": "HTTP 429: {\"error\":{\"message\":\"Provider returned error\",\"code\":429,\"metadata\":{\"raw\":\"google/gemma-4-31b-it:free is temporarily rate-limited upstream. Please retry shortl",
+  "latency": 0.0,
+  "parsed": null,
+  "score": {
+   "ok": false
+  }
+ },
+ {
+  "task": "single",
+  "site": "crownshy",
+  "camera": "crownshy-prep",
+  "frame": 1,
+  "path": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\crownshy-prep_1.jpg",
+  "area": "prep kitchen (back of house), eye-level view of a steel prep table with a combi oven behind",
+  "model": "google/gemma-4-31b-it:free",
+  "error": "HTTP 429: {\"error\":{\"message\":\"Provider returned error\",\"code\":429,\"metadata\":{\"raw\":\"google/gemma-4-31b-it:free is temporarily rate-limited upstream. Please retry shortl",
+  "latency": 0.0,
+  "parsed": null,
+  "score": {
+   "ok": false
+  }
+ },
+ {
+  "task": "single",
+  "site": "crownshy",
+  "camera": "crownshy-prep",
+  "frame": 2,
+  "path": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\crownshy-prep_2.jpg",
+  "area": "prep kitchen (back of house), eye-level view of a steel prep table with a combi oven behind",
+  "model": "google/gemma-4-31b-it:free",
+  "error": "HTTP 429: {\"error\":{\"message\":\"Provider returned error\",\"code\":429,\"metadata\":{\"raw\":\"google/gemma-4-31b-it:free is temporarily rate-limited upstream. Please retry shortl",
+  "latency": 0.0,
+  "parsed": null,
+  "score": {
+   "ok": false
+  }
+ },
+ {
+  "task": "single",
+  "site": "crownshy",
+  "camera": "crownshy-prep",
+  "frame": 3,
+  "path": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\crownshy-prep_3.jpg",
+  "area": "prep kitchen (back of house), eye-level view of a steel prep table with a combi oven behind",
+  "model": "google/gemma-4-31b-it:free",
+  "error": "HTTP 429: {\"error\":{\"message\":\"Provider returned error\",\"code\":429,\"metadata\":{\"raw\":\"google/gemma-4-31b-it:free is temporarily rate-limited upstream. Please retry shortl",
+  "latency": 0.0,
+  "parsed": null,
+  "score": {
+   "ok": false
+  }
+ },
+ {
+  "task": "single",
+  "site": "crownshy",
+  "camera": "crownshy-grill",
+  "frame": 1,
+  "path": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\crownshy-grill_1.jpg",
+  "area": "charcoal grill station",
+  "model": "google/gemma-4-31b-it:free",
+  "error": "HTTP 429: {\"error\":{\"message\":\"Provider returned error\",\"code\":429,\"metadata\":{\"raw\":\"google/gemma-4-31b-it:free is temporarily rate-limited upstream. Please retry shortl",
+  "latency": 0.0,
+  "parsed": null,
+  "score": {
+   "ok": false
+  }
+ },
+ {
+  "task": "single",
+  "site": "crownshy",
+  "camera": "crownshy-grill",
+  "frame": 2,
+  "path": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\crownshy-grill_2.jpg",
+  "area": "charcoal grill station",
+  "model": "google/gemma-4-31b-it:free",
+  "error": "HTTP 429: {\"error\":{\"message\":\"Provider returned error\",\"code\":429,\"metadata\":{\"raw\":\"google/gemma-4-31b-it:free is temporarily rate-limited upstream. Please retry shortl",
+  "latency": 0.0,
+  "parsed": null,
+  "score": {
+   "ok": false
+  }
+ },
+ {
+  "task": "single",
+  "site": "crownshy",
+  "camera": "crownshy-grill",
+  "frame": 3,
+  "path": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\crownshy-grill_3.jpg",
+  "area": "charcoal grill station",
+  "model": "google/gemma-4-31b-it:free",
+  "error": "HTTP 429: {\"error\":{\"message\":\"Provider returned error\",\"code\":429,\"metadata\":{\"raw\":\"google/gemma-4-31b-it:free is temporarily rate-limited upstream. Please retry shortl",
+  "latency": 0.0,
+  "parsed": null,
+  "score": {
+   "ok": false
+  }
+ },
+ {
+  "task": "single",
+  "site": "crownshy",
+  "camera": "crownshy-plancha",
+  "frame": 1,
+  "path": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\crownshy-plancha_1.jpg",
+  "area": "plancha / flat-top griddle station, overhead camera",
+  "model": "google/gemma-4-31b-it:free",
+  "error": "HTTP 429: {\"error\":{\"message\":\"Provider returned error\",\"code\":429,\"metadata\":{\"raw\":\"google/gemma-4-31b-it:free is temporarily rate-limited upstream. Please retry shortl",
+  "latency": 0.0,
+  "parsed": null,
+  "score": {
+   "ok": false
+  }
+ },
+ {
+  "task": "single",
+  "site": "crownshy",
+  "camera": "crownshy-plancha",
+  "frame": 2,
+  "path": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\crownshy-plancha_2.jpg",
+  "area": "plancha / flat-top griddle station, overhead camera",
+  "model": "google/gemma-4-31b-it:free",
+  "error": "HTTP 429: {\"error\":{\"message\":\"Provider returned error\",\"code\":429,\"metadata\":{\"raw\":\"google/gemma-4-31b-it:free is temporarily rate-limited upstream. Please retry shortl",
+  "latency": 0.0,
+  "parsed": null,
+  "score": {
+   "ok": false
+  }
+ },
+ {
+  "task": "single",
+  "site": "crownshy",
+  "camera": "crownshy-plancha",
+  "frame": 3,
+  "path": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\crownshy-plancha_3.jpg",
+  "area": "plancha / flat-top griddle station, overhead camera",
+  "model": "google/gemma-4-31b-it:free",
+  "error": "HTTP 429: {\"error\":{\"message\":\"Provider returned error\",\"code\":429,\"metadata\":{\"raw\":\"google/gemma-4-31b-it:free is temporarily rate-limited upstream. Please retry shortl",
+  "latency": 0.0,
+  "parsed": null,
+  "score": {
+   "ok": false
+  }
+ },
+ {
+  "task": "single",
+  "site": "crownshy",
+  "camera": "crownshy-salamander",
+  "frame": 1,
+  "path": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\crownshy-salamander_1.jpg",
+  "area": "salamander / finishing station, overhead camera looking down on a cook's head",
+  "model": "google/gemma-4-31b-it:free",
+  "error": "HTTP 429: {\"error\":{\"message\":\"Provider returned error\",\"code\":429,\"metadata\":{\"raw\":\"google/gemma-4-31b-it:free is temporarily rate-limited upstream. Please retry shortl",
+  "latency": 0.0,
+  "parsed": null,
+  "score": {
+   "ok": false
+  }
+ },
+ {
+  "task": "single",
+  "site": "crownshy",
+  "camera": "crownshy-salamander",
+  "frame": 2,
+  "path": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\crownshy-salamander_2.jpg",
+  "area": "salamander / finishing station, overhead camera looking down on a cook's head",
+  "model": "google/gemma-4-31b-it:free",
+  "error": "HTTP 429: {\"error\":{\"message\":\"Provider returned error\",\"code\":429,\"metadata\":{\"raw\":\"google/gemma-4-31b-it:free is temporarily rate-limited upstream. Please retry shortl",
+  "latency": 0.0,
+  "parsed": null,
+  "score": {
+   "ok": false
+  }
+ },
+ {
+  "task": "single",
+  "site": "crownshy",
+  "camera": "crownshy-salamander",
+  "frame": 3,
+  "path": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\crownshy-salamander_3.jpg",
+  "area": "salamander / finishing station, overhead camera looking down on a cook's head",
+  "model": "google/gemma-4-31b-it:free",
+  "error": "HTTP 429: {\"error\":{\"message\":\"Provider returned error\",\"code\":429,\"metadata\":{\"raw\":\"google/gemma-4-31b-it:free is temporarily rate-limited upstream. Please retry shortl",
+  "latency": 0.0,
+  "parsed": null,
+  "score": {
+   "ok": false
+  }
+ },
+ {
+  "task": "single",
+  "site": "crownshy",
+  "camera": "crownshy-plating",
+  "frame": 1,
+  "path": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\crownshy-plating_1.jpg",
+  "area": "the pass, overhead camera over a dark marble counter with heat lamps",
+  "model": "google/gemma-4-31b-it:free",
+  "error": "HTTP 429: {\"error\":{\"message\":\"Provider returned error\",\"code\":429,\"metadata\":{\"raw\":\"google/gemma-4-31b-it:free is temporarily rate-limited upstream. Please retry shortl",
+  "latency": 0.0,
+  "parsed": null,
+  "score": {
+   "ok": false
+  }
+ },
+ {
+  "task": "single",
+  "site": "crownshy",
+  "camera": "crownshy-plating",
+  "frame": 2,
+  "path": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\crownshy-plating_2.jpg",
+  "area": "the pass, overhead camera over a dark marble counter with heat lamps",
+  "model": "google/gemma-4-31b-it:free",
+  "error": "HTTP 429: {\"error\":{\"message\":\"Provider returned error\",\"code\":429,\"metadata\":{\"raw\":\"google/gemma-4-31b-it:free is temporarily rate-limited upstream. Please retry shortl",
+  "latency": 0.0,
+  "parsed": null,
+  "score": {
+   "ok": false
+  }
+ },
+ {
+  "task": "single",
+  "site": "crownshy",
+  "camera": "crownshy-plating",
+  "frame": 3,
+  "path": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\crownshy-plating_3.jpg",
+  "area": "the pass, overhead camera over a dark marble counter with heat lamps",
+  "model": "google/gemma-4-31b-it:free",
+  "error": "HTTP 429: {\"error\":{\"message\":\"Provider returned error\",\"code\":429,\"metadata\":{\"raw\":\"google/gemma-4-31b-it:free is temporarily rate-limited upstream. Please retry shortl",
+  "latency": 0.0,
+  "parsed": null,
+  "score": {
+   "ok": false
+  }
+ },
+ {
+  "task": "multicam",
+  "site": "crownshy",
+  "paths": {
+   "crownshy-line": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\crownshy-line_2.jpg",
+   "crownshy-dining": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\crownshy-dining_2.jpg",
+   "crownshy-prep": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\crownshy-prep_2.jpg",
+   "crownshy-grill": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\crownshy-grill_2.jpg",
+   "crownshy-plancha": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\crownshy-plancha_2.jpg",
+   "crownshy-salamander": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\crownshy-salamander_2.jpg",
+   "crownshy-plating": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\crownshy-plating_2.jpg"
+  },
+  "model": "google/gemma-4-31b-it:free",
+  "error": "HTTP 429: {\"error\":{\"message\":\"Provider returned error\",\"code\":429,\"metadata\":{\"raw\":\"google/gemma-4-31b-it:free is temporarily rate-limited upstream. Please retry shortl",
+  "latency": 0.0,
+  "parsed": null,
+  "score": {
+   "ok": false
+  }
+ },
+ {
+  "task": "single",
+  "site": "kitchen",
+  "camera": "kitchen-overview",
+  "frame": 1,
+  "path": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\kitchen-overview_1.jpg",
+  "area": "whole room from a high corner by the door",
+  "model": "google/gemma-4-31b-it:free",
+  "error": "HTTP 429: {\"error\":{\"message\":\"Provider returned error\",\"code\":429,\"metadata\":{\"raw\":\"google/gemma-4-31b-it:free is temporarily rate-limited upstream. Please retry shortl",
+  "latency": 0.0,
+  "parsed": null,
+  "score": {
+   "ok": false
+  }
+ },
+ {
+  "task": "single",
+  "site": "kitchen",
+  "camera": "kitchen-overview",
+  "frame": 2,
+  "path": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\kitchen-overview_2.jpg",
+  "area": "whole room from a high corner by the door",
+  "model": "google/gemma-4-31b-it:free",
+  "text": "{\"people\": 1, \"area\": \"kitchen prep area\", \"activity\": \"A person is standing at the counter preparing a meal. They are surrounded by various bottles and ingredients.\", \"issues\": [\"open-toed shoes in kitchen\", \"lack of hair restraint for long hair\"]}",
+  "latency": 16.197515964508057,
+  "prompt_tokens": 459,
+  "completion_tokens": 495,
+  "cost": 0,
+  "finish": "stop",
+  "raw_len": 249,
+  "parsed": {
+   "people": 1,
+   "area": "kitchen prep area",
+   "activity": "A person is standing at the counter preparing a meal. They are surrounded by various bottles and ingredients.",
+   "issues": [
+    "open-toed shoes in kitchen",
+    "lack of hair restraint for long hair"
+   ]
+  },
+  "score": {
+   "ok": true,
+   "people": 1,
+   "people_ok": true,
+   "people_near": true,
+   "hazard_hit": 0,
+   "hazard_total": 0,
+   "issues_reported": 2,
+   "judge_raw": "{\"accuracy\": 4, \"area_ok\": true, \"hallucinations\": [\"open-toed shoes\", \"lack of hair restraint for long hair\"], \"missed\": [\"empty foreground counter\"]}",
+   "judge_cost": 0.001666,
+   "accuracy": 4,
+   "area_ok": true,
+   "hallucinations": [
+    "open-toed shoes",
+    "lack of hair restraint for long hair"
+   ],
+   "missed": [
+    "empty foreground counter"
+   ]
+  }
+ },
+ {
+  "task": "single",
+  "site": "kitchen",
+  "camera": "kitchen-overview",
+  "frame": 3,
+  "path": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\kitchen-overview_3.jpg",
+  "area": "whole room from a high corner by the door",
+  "model": "google/gemma-4-31b-it:free",
+  "error": "HTTP 429: {\"error\":{\"message\":\"Provider returned error\",\"code\":429,\"metadata\":{\"raw\":\"google/gemma-4-31b-it:free is temporarily rate-limited upstream. Please retry shortl",
+  "latency": 0.0,
+  "parsed": null,
+  "score": {
+   "ok": false
+  }
+ },
+ {
+  "task": "single",
+  "site": "kitchen",
+  "camera": "kitchen-wide",
+  "frame": 1,
+  "path": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\kitchen-wide_1.jpg",
+  "area": "long view down the counters from the far end toward the door",
+  "model": "google/gemma-4-31b-it:free",
+  "error": "HTTP 429: {\"error\":{\"message\":\"Provider returned error\",\"code\":429,\"metadata\":{\"raw\":\"google/gemma-4-31b-it:free is temporarily rate-limited upstream. Please retry shortl",
+  "latency": 0.0,
+  "parsed": null,
+  "score": {
+   "ok": false
+  }
+ },
+ {
+  "task": "single",
+  "site": "kitchen",
+  "camera": "kitchen-wide",
+  "frame": 2,
+  "path": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\kitchen-wide_2.jpg",
+  "area": "long view down the counters from the far end toward the door",
+  "model": "google/gemma-4-31b-it:free",
+  "text": "{\"people\": 1, \"area\": \"kitchen food preparation area\", \"activity\": \"A person is standing at the left counter. They are engaged in food preparation activities.\", \"issues\": [\"knife left out on counter\"]}",
+  "latency": 13.661186456680298,
+  "prompt_tokens": 459,
+  "completion_tokens": 373,
+  "cost": 0,
+  "finish": "stop",
+  "raw_len": 201,
+  "parsed": {
+   "people": 1,
+   "area": "kitchen food preparation area",
+   "activity": "A person is standing at the left counter. They are engaged in food preparation activities.",
+   "issues": [
+    "knife left out on counter"
+   ]
+  },
+  "score": {
+   "ok": true,
+   "people": 1,
+   "people_ok": true,
+   "people_near": true,
+   "hazard_hit": 0,
+   "hazard_total": 0,
+   "issues_reported": 1,
+   "judge_raw": "{\"accuracy\": 3, \"area_ok\": true, \"hallucinations\": [\"knife left out on counter\", \"person at left counter (position differs from near counter below camera)\"], \"missed\": [\"person's back is turned, viewed from behind near camera\"]}",
+   "judge_cost": 0.001794,
+   "accuracy": 3,
+   "area_ok": true,
+   "hallucinations": [
+    "knife left out on counter",
+    "person at left counter (position differs from near counter below camera)"
+   ],
+   "missed": [
+    "person's back is turned, viewed from behind near camera"
+   ]
+  }
+ },
+ {
+  "task": "single",
+  "site": "kitchen",
+  "camera": "kitchen-wide",
+  "frame": 3,
+  "path": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\kitchen-wide_3.jpg",
+  "area": "long view down the counters from the far end toward the door",
+  "model": "google/gemma-4-31b-it:free",
+  "error": "HTTP 429: {\"error\":{\"message\":\"Provider returned error\",\"code\":429,\"metadata\":{\"raw\":\"google/gemma-4-31b-it:free is temporarily rate-limited upstream. Please retry shortl",
+  "latency": 0.0,
+  "parsed": null,
+  "score": {
+   "ok": false
+  }
+ },
+ {
+  "task": "single",
+  "site": "kitchen",
+  "camera": "kitchen-stove",
+  "frame": 1,
+  "path": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\kitchen-stove_1.jpg",
+  "area": "induction hob and the corner counter, high angle",
+  "model": "google/gemma-4-31b-it:free",
+  "error": "HTTP 429: {\"error\":{\"message\":\"Provider returned error\",\"code\":429,\"metadata\":{\"raw\":\"google/gemma-4-31b-it:free is temporarily rate-limited upstream. Please retry shortl",
+  "latency": 0.0,
+  "parsed": null,
+  "score": {
+   "ok": false
+  }
+ },
+ {
+  "task": "single",
+  "site": "kitchen",
+  "camera": "kitchen-stove",
+  "frame": 2,
+  "path": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\kitchen-stove_2.jpg",
+  "area": "induction hob and the corner counter, high angle",
+  "model": "google/gemma-4-31b-it:free",
+  "error": "HTTP 429: {\"error\":{\"message\":\"Provider returned error\",\"code\":429,\"metadata\":{\"raw\":\"google/gemma-4-31b-it:free is temporarily rate-limited upstream. Please retry shortl",
+  "latency": 0.0,
+  "parsed": null,
+  "score": {
+   "ok": false
+  }
+ },
+ {
+  "task": "single",
+  "site": "kitchen",
+  "camera": "kitchen-stove",
+  "frame": 3,
+  "path": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\kitchen-stove_3.jpg",
+  "area": "induction hob and the corner counter, high angle",
+  "model": "google/gemma-4-31b-it:free",
+  "error": "HTTP 429: {\"error\":{\"message\":\"Provider returned error\",\"code\":429,\"metadata\":{\"raw\":\"google/gemma-4-31b-it:free is temporarily rate-limited upstream. Please retry shortl",
+  "latency": 0.0,
+  "parsed": null,
+  "score": {
+   "ok": false
+  }
+ },
+ {
+  "task": "single",
+  "site": "kitchen",
+  "camera": "kitchen-prep",
+  "frame": 1,
+  "path": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\kitchen-prep_1.jpg",
+  "area": "chopping board and sink from directly above",
+  "model": "google/gemma-4-31b-it:free",
+  "error": "HTTP 429: {\"error\":{\"message\":\"Provider returned error\",\"code\":429,\"metadata\":{\"raw\":\"google/gemma-4-31b-it:free is temporarily rate-limited upstream. Please retry shortl",
+  "latency": 0.0,
+  "parsed": null,
+  "score": {
+   "ok": false
+  }
+ },
+ {
+  "task": "single",
+  "site": "kitchen",
+  "camera": "kitchen-prep",
+  "frame": 2,
+  "path": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\kitchen-prep_2.jpg",
+  "area": "chopping board and sink from directly above",
+  "model": "google/gemma-4-31b-it:free",
+  "text": "{\"people\": 1, \"area\": \"food preparation area\", \"activity\": \"A person is standing in the background of the kitchen. Vegetables and a knife are laid out on the counter for meal preparation.\", \"issues\": [\"knife left out on counter\"]}",
+  "latency": 14.500067949295044,
+  "prompt_tokens": 459,
+  "completion_tokens": 423,
+  "cost": 0,
+  "finish": "stop",
+  "raw_len": 230,
+  "parsed": {
+   "people": 1,
+   "area": "food preparation area",
+   "activity": "A person is standing in the background of the kitchen. Vegetables and a knife are laid out on the counter for meal preparation.",
+   "issues": [
+    "knife left out on counter"
+   ]
+  },
+  "score": {
+   "ok": true,
+   "people": 1,
+   "people_ok": true,
+   "people_near": true,
+   "hazard_hit": 1,
+   "hazard_total": 1,
+   "issues_reported": 1,
+   "judge_raw": "{\"accuracy\": 4, \"area_ok\": true, \"hallucinations\": [], \"missed\": [\"cucumber, aubergine, orange on board\", \"white cloth or paper\"]}",
+   "judge_cost": 0.001602,
+   "accuracy": 4,
+   "area_ok": true,
+   "hallucinations": [],
+   "missed": [
+    "cucumber, aubergine, orange on board",
+    "white cloth or paper"
+   ]
+  }
+ },
+ {
+  "task": "single",
+  "site": "kitchen",
+  "camera": "kitchen-prep",
+  "frame": 3,
+  "path": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\kitchen-prep_3.jpg",
+  "area": "chopping board and sink from directly above",
+  "model": "google/gemma-4-31b-it:free",
+  "text": "{\"people\": 1, \"area\": \"prep station\", \"activity\": \"A person is chopping vegetables on a cutting board. They are preparing eggplant, zucchini, and yellow peppers.\", \"issues\": [\"bare hands on ready food\", \"no hair restraint\", \"no apron\"]}",
+  "latency": 12.702682971954346,
+  "prompt_tokens": 459,
+  "completion_tokens": 390,
+  "cost": 0,
+  "finish": "stop",
+  "raw_len": 236,
+  "parsed": {
+   "people": 1,
+   "area": "prep station",
+   "activity": "A person is chopping vegetables on a cutting board. They are preparing eggplant, zucchini, and yellow peppers.",
+   "issues": [
+    "bare hands on ready food",
+    "no hair restraint",
+    "no apron"
+   ]
+  },
+  "score": {
+   "ok": true,
+   "people": 1,
+   "people_ok": true,
+   "people_near": true,
+   "hazard_hit": 0,
+   "hazard_total": 1,
+   "issues_reported": 3,
+   "judge_raw": "{\"accuracy\": 2, \"area_ok\": true, \"hallucinations\": [\"chopping activity (human says knife moved but arm holding pan, not chopping)\", \"eggplant and zucchini\", \"hygiene issues about hair restraint and apron\"], \"missed\": [\"arm/torso reaching over sink holding a pan\", \"cucumber present\"]}",
+   "judge_cost": 0.002204,
+   "accuracy": 2,
+   "area_ok": true,
+   "hallucinations": [
+    "chopping activity (human says knife moved but arm holding pan, not chopping)",
+    "eggplant and zucchini",
+    "hygiene issues about hair restraint and apron"
+   ],
+   "missed": [
+    "arm/torso reaching over sink holding a pan",
+    "cucumber present"
+   ]
+  }
+ },
+ {
+  "task": "single",
+  "site": "kitchen",
+  "camera": "kitchen-sink",
+  "frame": 1,
+  "path": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\kitchen-sink_1.jpg",
+  "area": "sink and back counter from the side",
+  "model": "google/gemma-4-31b-it:free",
+  "error": "HTTP 429: {\"error\":{\"message\":\"Provider returned error\",\"code\":429,\"metadata\":{\"raw\":\"google/gemma-4-31b-it:free is temporarily rate-limited upstream. Please retry shortl",
+  "latency": 0.0,
+  "parsed": null,
+  "score": {
+   "ok": false
+  }
+ },
+ {
+  "task": "single",
+  "site": "kitchen",
+  "camera": "kitchen-sink",
+  "frame": 2,
+  "path": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\kitchen-sink_2.jpg",
+  "area": "sink and back counter from the side",
+  "model": "google/gemma-4-31b-it:free",
+  "error": "HTTP 429: {\"error\":{\"message\":\"Provider returned error\",\"code\":429,\"metadata\":{\"raw\":\"google/gemma-4-31b-it:free is temporarily rate-limited upstream. Please retry shortl",
+  "latency": 0.0,
+  "parsed": null,
+  "score": {
+   "ok": false
+  }
+ },
+ {
+  "task": "single",
+  "site": "kitchen",
+  "camera": "kitchen-sink",
+  "frame": 3,
+  "path": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\kitchen-sink_3.jpg",
+  "area": "sink and back counter from the side",
+  "model": "google/gemma-4-31b-it:free",
+  "error": "HTTP 429: {\"error\":{\"message\":\"Provider returned error\",\"code\":429,\"metadata\":{\"raw\":\"google/gemma-4-31b-it:free is temporarily rate-limited upstream. Please retry shortl",
+  "latency": 0.0,
+  "parsed": null,
+  "score": {
+   "ok": false
+  }
+ },
+ {
+  "task": "multicam",
+  "site": "kitchen",
+  "paths": {
+   "kitchen-overview": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\kitchen-overview_2.jpg",
+   "kitchen-wide": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\kitchen-wide_2.jpg",
+   "kitchen-stove": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\kitchen-stove_2.jpg",
+   "kitchen-prep": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\kitchen-prep_2.jpg",
+   "kitchen-sink": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\kitchen-sink_2.jpg"
+  },
+  "model": "google/gemma-4-31b-it:free",
+  "error": "HTTP 429: {\"error\":{\"message\":\"Provider returned error\",\"code\":429,\"metadata\":{\"raw\":\"google/gemma-4-31b-it:free is temporarily rate-limited upstream. Please retry shortl",
+  "latency": 0.0,
+  "parsed": null,
+  "score": {
+   "ok": false
+  }
+ },
+ {
+  "task": "temporal",
+  "site": "kitchen",
+  "camera": "kitchen-overview",
+  "paths": [
+   "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\kitchen-overview_1.jpg",
+   "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\kitchen-overview_2.jpg",
+   "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\kitchen-overview_3.jpg"
+  ],
+  "model": "google/gemma-4-31b-it:free",
+  "text": "```json\n{\"what_changed\": \"A person stands at the back counter in the first frame, moves slightly left in the second, and then moves to the front counter to chop vegetables in the third. On the back counter, a pot on a portable stove and blue packaging appear between the first and second frames. On the front counter, the vegetables are moved onto a cutting board in the third frame.\", \"people_per_frame\": [1, 1, 1]}\n```",
+  "latency": 20.07496953010559,
+  "prompt_tokens": 914,
+  "completion_tokens": 594,
+  "cost": 0,
+  "finish": "stop",
+  "raw_len": 420,
+  "parsed": {
+   "what_changed": "A person stands at the back counter in the first frame, moves slightly left in the second, and then moves to the front counter to chop vegetables in the third. On the back counter, a pot on a portable stove and blue packaging appear between the first and second frames. On the front counter, the vegetables are moved onto a cutting board in the third frame.",
+   "people_per_frame": [
+    1,
+    1,
+    1
+   ]
+  },
+  "score": {
+   "ok": true,
+   "people_frames_ok": 3,
+   "people_frames_total": 3,
+   "judge_raw": "{\"accuracy\": 4, \"hallucinations\": [\"Pot on portable stove and blue packaging appearing not confirmed\"], \"missed\": [\"Near sink area detail not mentioned\"]}",
+   "judge_cost": 0.001522,
+   "accuracy": 4,
+   "hallucinations": [
+    "Pot on portable stove and blue packaging appearing not confirmed"
+   ],
+   "missed": [
+    "Near sink area detail not mentioned"
+   ]
+  }
+ },
+ {
+  "task": "temporal",
+  "site": "kitchen",
+  "camera": "kitchen-wide",
+  "paths": [
+   "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\kitchen-wide_1.jpg",
+   "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\kitchen-wide_2.jpg",
+   "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\kitchen-wide_3.jpg"
+  ],
+  "model": "google/gemma-4-31b-it:free",
+  "text": "```json\n{\"what_changed\": \"The person started at the left counter, moved closer to the camera, and then moved to the right counter to prepare vegetables. On the left counter, blue packaging was unfolded. On the right counter, vegetables were moved and a white cloth appeared.\", \"people_per_frame\": [1, 1, 1]}\n```",
+  "latency": 16.223227500915527,
+  "prompt_tokens": 914,
+  "completion_tokens": 474,
+  "cost": 0,
+  "finish": "stop",
+  "raw_len": 311,
+  "parsed": {
+   "what_changed": "The person started at the left counter, moved closer to the camera, and then moved to the right counter to prepare vegetables. On the left counter, blue packaging was unfolded. On the right counter, vegetables were moved and a white cloth appeared.",
+   "people_per_frame": [
+    1,
+    1,
+    1
+   ]
+  },
+  "score": {
+   "ok": true,
+   "people_frames_ok": 3,
+   "people_frames_total": 3,
+   "judge_raw": "{\"accuracy\": 2, \"hallucinations\": [\"Moved to right counter to prepare vegetables (should be sink)\", \"Vegetables moved and white cloth appeared not in description\"], \"missed\": [\"Cook ends at sink in centre, not right counter\"]}",
+   "judge_cost": 0.001704,
+   "accuracy": 2,
+   "hallucinations": [
+    "Moved to right counter to prepare vegetables (should be sink)",
+    "Vegetables moved and white cloth appeared not in description"
+   ],
+   "missed": [
+    "Cook ends at sink in centre, not right counter"
+   ]
+  }
+ },
+ {
+  "task": "temporal",
+  "site": "kitchen",
+  "camera": "kitchen-stove",
+  "paths": [
+   "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\kitchen-stove_1.jpg",
+   "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\kitchen-stove_2.jpg",
+   "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\kitchen-stove_3.jpg"
+  ],
+  "model": "google/gemma-4-31b-it:free",
+  "error": "HTTP 429: {\"error\":{\"message\":\"Provider returned error\",\"code\":429,\"metadata\":{\"raw\":\"google/gemma-4-31b-it:free is temporarily rate-limited upstream. Please retry shortl",
+  "latency": 0.0,
+  "parsed": null,
+  "score": {
+   "ok": false
+  }
+ },
+ {
+  "task": "temporal",
+  "site": "kitchen",
+  "camera": "kitchen-prep",
+  "paths": [
+   "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\kitchen-prep_1.jpg",
+   "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\kitchen-prep_2.jpg",
+   "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\kitchen-prep_3.jpg"
+  ],
+  "model": "google/gemma-4-31b-it:free",
+  "error": "HTTP 429: {\"error\":{\"message\":\"Provider returned error\",\"code\":429,\"metadata\":{\"raw\":\"google/gemma-4-31b-it:free is temporarily rate-limited upstream. Please retry shortl",
+  "latency": 0.0,
+  "parsed": null,
+  "score": {
+   "ok": false
+  }
+ },
+ {
+  "task": "temporal",
+  "site": "kitchen",
+  "camera": "kitchen-sink",
+  "paths": [
+   "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\kitchen-sink_1.jpg",
+   "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\kitchen-sink_2.jpg",
+   "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\kitchen-sink_3.jpg"
+  ],
+  "model": "google/gemma-4-31b-it:free",
+  "text": "```json\n{\"what_changed\": \"A person starts at the right counter opening a blue box. They then hold a piece of packaging at the same counter. Finally, the person moves to the left counter and leans over it, leaving the open blue box on the right counter.\", \"people_per_frame\": [1, 1, 1]}\n```",
+  "latency": 14.351736068725586,
+  "prompt_tokens": 914,
+  "completion_tokens": 415,
+  "cost": 0,
+  "finish": "stop",
+  "raw_len": 289,
+  "parsed": {
+   "what_changed": "A person starts at the right counter opening a blue box. They then hold a piece of packaging at the same counter. Finally, the person moves to the left counter and leans over it, leaving the open blue box on the right counter.",
+   "people_per_frame": [
+    1,
+    1,
+    1
+   ]
+  },
+  "score": {
+   "ok": true,
+   "people_frames_ok": 3,
+   "people_frames_total": 3,
+   "judge_raw": "{\"accuracy\": 3, \"hallucinations\": [\"Person moves to left counter, contradicts staying at sink\"], \"missed\": [\"Reaching to the sink action\", \"Standing at sink at end\"]}",
+   "judge_cost": 0.001484,
+   "accuracy": 3,
+   "hallucinations": [
+    "Person moves to left counter, contradicts staying at sink"
+   ],
+   "missed": [
+    "Reaching to the sink action",
+    "Standing at sink at end"
+   ]
+  }
+ }
+]

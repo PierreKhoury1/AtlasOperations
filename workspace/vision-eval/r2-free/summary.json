@@ -1,0 +1,83 @@
+{
+ "models": [
+  {
+   "model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+   "calls": 43,
+   "failed": 0,
+   "count_exact": 97,
+   "count_near": 100,
+   "hazard_recall": 56,
+   "area_ok": 97,
+   "judge_single": 3.39,
+   "halluc_per_answer": 1.17,
+   "issues_per_frame": 0.42,
+   "multicam_judge": 3.5,
+   "multicam_service_ok": 2,
+   "multicam_busiest_ok": 2,
+   "temporal_judge": 2.8,
+   "temporal_counts": [
+    15,
+    15
+   ],
+   "latency_p50": 2.2,
+   "latency_max": 59.1,
+   "cost_usd": 0,
+   "prompt_tokens": 84079
+  },
+  {
+   "model": "qwen/qwen3.8-27b:free",
+   "calls": 43,
+   "failed": 28,
+   "count_exact": 64,
+   "count_near": 86,
+   "hazard_recall": 100,
+   "area_ok": 93,
+   "judge_single": 3.43,
+   "halluc_per_answer": 2,
+   "issues_per_frame": 1.07,
+   "multicam_judge": null,
+   "multicam_service_ok": 0,
+   "multicam_busiest_ok": 0,
+   "temporal_judge": 3,
+   "temporal_counts": [
+    3,
+    3
+   ],
+   "latency_p50": 18.1,
+   "latency_max": 42.4,
+   "cost_usd": 0,
+   "prompt_tokens": 25973
+  },
+  {
+   "model": "google/gemma-4-31b-it:free",
+   "calls": 43,
+   "failed": 36,
+   "count_exact": 100,
+   "count_near": 100,
+   "hazard_recall": 50,
+   "area_ok": 100,
+   "judge_single": 3.25,
+   "halluc_per_answer": 1.75,
+   "issues_per_frame": 1.75,
+   "multicam_judge": null,
+   "multicam_service_ok": 0,
+   "multicam_busiest_ok": 0,
+   "temporal_judge": 3,
+   "temporal_counts": [
+    9,
+    9
+   ],
+   "latency_p50": 14.5,
+   "latency_max": 20.1,
+   "cost_usd": 0,
+   "prompt_tokens": 4578
+  }
+ ],
+ "judge": "anthropic/claude-sonnet-5",
+ "sites": [
+  "crownshy",
+  "kitchen"
+ ],
+ "frames": 3,
+ "judge_cost": 0.17052599999999998
+}

@@ -1,0 +1,59 @@
+{
+ "models": [
+  {
+   "model": "google/gemini-3.1-flash-lite",
+   "calls": 14,
+   "failed": 0,
+   "count_exact": 100,
+   "count_near": 100,
+   "hazard_recall": 60,
+   "area_ok": 92,
+   "judge_single": 2.83,
+   "halluc_per_answer": 1.5,
+   "issues_per_frame": 0.42,
+   "multicam_judge": 3,
+   "multicam_service_ok": 2,
+   "multicam_busiest_ok": 1,
+   "temporal_judge": null,
+   "temporal_counts": [
+    0,
+    0
+   ],
+   "latency_p50": 2.8,
+   "latency_max": 4.9,
+   "cost_usd": 0.0093,
+   "prompt_tokens": 29318
+  },
+  {
+   "model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+   "calls": 14,
+   "failed": 0,
+   "count_exact": 92,
+   "count_near": 100,
+   "hazard_recall": 60,
+   "area_ok": 83,
+   "judge_single": 2.64,
+   "halluc_per_answer": 1.82,
+   "issues_per_frame": 0.58,
+   "multicam_judge": 4,
+   "multicam_service_ok": 2,
+   "multicam_busiest_ok": 1,
+   "temporal_judge": null,
+   "temporal_counts": [
+    0,
+    0
+   ],
+   "latency_p50": 2.3,
+   "latency_max": 10.0,
+   "cost_usd": 0,
+   "prompt_tokens": 36876
+  }
+ ],
+ "judge": "anthropic/claude-sonnet-5",
+ "sites": [
+  "crownshy",
+  "kitchen"
+ ],
+ "frames": 1,
+ "judge_cost": 0.115992
+}

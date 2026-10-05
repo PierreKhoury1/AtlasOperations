@@ -1,0 +1,488 @@
+43 jobs x 11 models -> workspace\vision-eval\full-20260927
+[1/473] nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free single   crownshy-dining          4.9s $0.0000 judge=4
+[2/473] nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free single   crownshy-line            4.6s $0.0000 judge=4
+[3/473] nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free single   crownshy-prep            4.4s $0.0000 judge=3
+[4/473] nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free single   crownshy-line            5.2s $0.0000 judge=4
+[5/473] nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free single   crownshy-dining          1.2s $0.0000 judge=4
+[6/473] nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free single   crownshy-dining          1.4s $0.0000 judge=3
+[7/473] nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free single   crownshy-grill           2.3s $0.0000 judge=3
+[8/473] nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free single   crownshy-grill           2.6s $0.0000 judge=3
+[9/473] nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free single   crownshy-prep            1.5s $0.0000 judge=3
+[10/473] nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free single   crownshy-line            3.3s $0.0000 judge=4
+[11/473] nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free single   crownshy-salamander      1.5s $0.0000 judge=4
+[12/473] nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free single   crownshy-grill           2.0s $0.0000 judge=4
+[13/473] nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free single   crownshy-plancha         2.3s $0.0000 judge=3
+[14/473] nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free single   crownshy-plancha         2.6s $0.0000 judge=3
+[15/473] nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free single   crownshy-plating         2.0s $0.0000 judge=3
+[16/473] nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free single   crownshy-salamander      2.4s $0.0000 judge=3
+[17/473] nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free single   crownshy-plancha         2.6s $0.0000 judge=2
+[18/473] nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free single   crownshy-salamander      4.0s $0.0000 judge=3
+[19/473] nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free single   kitchen-overview         2.0s $0.0000 judge=3
+[20/473] nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free single   crownshy-prep            0.0s $0.0000 ERR api: {"message": "Upstream error from Nvidia: ResourceExhaus
+[21/473] nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free single   crownshy-plating         1.9s $0.0000 judge=4
+[22/473] nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free single   kitchen-overview         1.9s $0.0000 judge=4
+[23/473] nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free single   kitchen-overview         1.8s $0.0000 judge=2
+[24/473] nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free single   kitchen-wide             1.7s $0.0000 judge=4
+[25/473] nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free single   kitchen-stove            1.8s $0.0000 judge=4
+[26/473] nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free single   kitchen-stove            1.9s $0.0000 judge=3
+[27/473] nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free single   kitchen-prep             2.2s $0.0000 judge=4
+[28/473] nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free multicam crownshy                 9.7s $0.0000 judge=4
+[29/473] nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free single   kitchen-stove            1.7s $0.0000 judge=3
+[30/473] nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free single   kitchen-wide             1.8s $0.0000 judge=4
+[31/473] nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free single   kitchen-wide             2.0s $0.0000 judge=4
+[32/473] nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free single   kitchen-sink             1.5s $0.0000 judge=3
+[33/473] nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free single   kitchen-prep             1.9s $0.0000 judge=2
+[34/473] nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free single   kitchen-prep             1.4s $0.0000 judge=3
+[35/473] nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free single   crownshy-plating         0.0s $0.0000 ERR api: {"message": "Upstream error from Nvidia: ResourceExhaus
+[36/473] nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free single   kitchen-sink             2.0s $0.0000 judge=5
+[37/473] nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free temporal kitchen-stove            2.8s $0.0000 judge=4
+[38/473] nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free temporal kitchen-overview         3.5s $0.0000 judge=4
+[39/473] nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free single   kitchen-sink             0.0s $0.0000 ERR api: {"message": "Upstream error from Nvidia: ResourceExhaus
+[40/473] nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free temporal kitchen-sink             6.2s $0.0000 judge=2
+[41/473] nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free temporal kitchen-wide             0.0s $0.0000 ERR HTTP 429: {"error":{"message":"Rate limit exceeded: free-mod
+[42/473] nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free temporal kitchen-prep             5.2s $0.0000 judge=1
+[43/473] qwen/qwen3.8-27b:free                         single   crownshy-line            0.0s $0.0000 ERR HTTP 429: {"error":{"message":"Provider returned error","cod
+[44/473] qwen/qwen3.8-27b:free                         single   crownshy-line            0.0s $0.0000 ERR HTTP 429: {"error":{"message":"Provider returned error","cod
+[45/473] qwen/qwen3.8-27b:free                         single   crownshy-line            0.0s $0.0000 ERR HTTP 429: {"error":{"message":"Provider returned error","cod
+[46/473] qwen/qwen3.8-27b:free                         single   crownshy-dining          0.0s $0.0000 ERR HTTP 429: {"error":{"message":"Provider returned error","cod
+[47/473] qwen/qwen3.8-27b:free                         single   crownshy-dining          0.0s $0.0000 ERR HTTP 429: {"error":{"message":"Rate limit exceeded: free-mod
+[48/473] qwen/qwen3.8-27b:free                         single   crownshy-prep            0.0s $0.0000 ERR HTTP 429: {"error":{"message":"Provider returned error","cod
+[49/473] qwen/qwen3.8-27b:free                         single   crownshy-dining         27.3s $0.0000 judge=3
+[50/473] qwen/qwen3.8-27b:free                         single   crownshy-prep            0.0s $0.0000 ERR HTTP 429: {"error":{"message":"Provider returned error","cod
+[51/473] qwen/qwen3.8-27b:free                         single   crownshy-prep            0.0s $0.0000 ERR HTTP 429: {"error":{"message":"Rate limit exceeded: free-mod
+[52/473] qwen/qwen3.8-27b:free                         single   crownshy-grill           0.0s $0.0000 ERR HTTP 429: {"error":{"message":"Provider returned error","cod
+[53/473] nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free multicam kitchen                 59.1s $0.0000 judge=3
+[54/473] qwen/qwen3.8-27b:free                         single   crownshy-grill           0.0s $0.0000 ERR HTTP 429: {"error":{"message":"Provider returned error","cod
+[55/473] qwen/qwen3.8-27b:free                         single   crownshy-grill           0.0s $0.0000 ERR HTTP 429: {"error":{"message":"Rate limit exceeded: free-mod
+[56/473] qwen/qwen3.8-27b:free                         single   crownshy-plancha         0.0s $0.0000 ERR HTTP 429: {"error":{"message":"Rate limit exceeded: free-mod
+[57/473] qwen/qwen3.8-27b:free                         single   crownshy-salamander     24.8s $0.0000 judge=None
+[58/473] qwen/qwen3.8-27b:free                         single   crownshy-plancha         0.0s $0.0000 ERR HTTP 429: {"error":{"message":"Rate limit exceeded: free-mod
+[59/473] qwen/qwen3.8-27b:free                         single   crownshy-salamander      0.0s $0.0000 ERR HTTP 429: {"error":{"message":"Provider returned error","cod
+[60/473] qwen/qwen3.8-27b:free                         single   crownshy-plancha         0.0s $0.0000 ERR HTTP 429: {"error":{"message":"Rate limit exceeded: free-mod
+[61/473] qwen/qwen3.8-27b:free                         single   crownshy-salamander      0.0s $0.0000 ERR HTTP 429: {"error":{"message":"Provider returned error","cod
+[62/473] qwen/qwen3.8-27b:free                         single   crownshy-plating         0.0s $0.0000 ERR HTTP 429: {"error":{"message":"Rate limit exceeded: free-mod
+[63/473] qwen/qwen3.8-27b:free                         single   crownshy-plating         0.0s $0.0000 ERR HTTP 429: {"error":{"message":"Provider returned error","cod
+[64/473] qwen/qwen3.8-27b:free                         single   crownshy-plating         0.0s $0.0000 ERR HTTP 429: {"error":{"message":"Rate limit exceeded: free-mod
+[65/473] qwen/qwen3.8-27b:free                         single   kitchen-overview         0.0s $0.0000 ERR HTTP 429: {"error":{"message":"Provider returned error","cod
+[66/473] qwen/qwen3.8-27b:free                         single   kitchen-overview         0.0s $0.0000 ERR HTTP 429: {"error":{"message":"Provider returned error","cod
+[67/473] qwen/qwen3.8-27b:free                         single   kitchen-overview         0.0s $0.0000 ERR HTTP 429: {"error":{"message":"Provider returned error","cod
+[68/473] qwen/qwen3.8-27b:free                         multicam crownshy                 0.0s $0.0000 ERR HTTP 429: {"error":{"message":"Provider returned error","cod
+[69/473] qwen/qwen3.8-27b:free                         single   kitchen-wide            34.0s $0.0000 judge=None
+[70/473] qwen/qwen3.8-27b:free                         single   kitchen-wide             0.0s $0.0000 ERR HTTP 429: {"error":{"message":"Provider returned error","cod
+[71/473] qwen/qwen3.8-27b:free                         single   kitchen-wide             0.0s $0.0000 ERR HTTP 429: {"error":{"message":"Rate limit exceeded: free-mod
+[72/473] qwen/qwen3.8-27b:free                         single   kitchen-stove            0.0s $0.0000 ERR HTTP 429: {"error":{"message":"Provider returned error","cod
+[73/473] qwen/qwen3.8-27b:free                         single   kitchen-stove            0.0s $0.0000 ERR HTTP 429: {"error":{"message":"Rate limit exceeded: free-mod
+[74/473] qwen/qwen3.8-27b:free                         single   kitchen-stove            0.0s $0.0000 ERR HTTP 429: {"error":{"message":"Rate limit exceeded: free-mod
+[75/473] qwen/qwen3.8-27b:free                         single   kitchen-prep             0.0s $0.0000 ERR HTTP 429: {"error":{"message":"Rate limit exceeded: free-mod
+[76/473] qwen/qwen3.8-27b:free                         single   kitchen-prep             0.0s $0.0000 ERR HTTP 429: {"error":{"message":"Rate limit exceeded: free-mod
+[77/473] qwen/qwen3.8-27b:free                         single   kitchen-prep             0.0s $0.0000 ERR HTTP 429: {"error":{"message":"Rate limit exceeded: free-mod
+[78/473] qwen/qwen3.8-27b:free                         single   kitchen-sink             0.0s $0.0000 ERR HTTP 429: {"error":{"message":"Rate limit exceeded: free-mod
+[79/473] qwen/qwen3.8-27b:free                         temporal kitchen-stove            8.6s $0.0000 judge=3
+[80/473] qwen/qwen3.8-27b:free                         single   kitchen-sink            20.4s $0.0000 judge=None
+[81/473] qwen/qwen3.8-27b:free                         multicam kitchen                  0.0s $0.0000 ERR HTTP 429: {"error":{"message":"Provider returned error","cod
+[82/473] qwen/qwen3.8-27b:free                         temporal kitchen-wide             0.0s $0.0000 ERR HTTP 429: {"error":{"message":"Provider returned error","cod
+[83/473] qwen/qwen3.8-27b:free                         temporal kitchen-overview         0.0s $0.0000 ERR HTTP 429: {"error":{"message":"Provider returned error","cod
+[84/473] qwen/qwen3.8-27b:free                         single   kitchen-sink            20.8s $0.0000 judge=None
+[85/473] qwen/qwen3.8-27b:free                         temporal kitchen-prep             0.0s $0.0000 ERR HTTP 429: {"error":{"message":"Provider returned error","cod
+[86/473] qwen/qwen3.8-27b:free                         temporal kitchen-sink             0.0s $0.0000 ERR HTTP 429: {"error":{"message":"Rate limit exceeded: free-mod
+[87/473] google/gemma-4-31b-it:free                    single   crownshy-line            0.0s $0.0000 ERR HTTP 429: {"error":{"message":"Provider returned error","cod
+[88/473] google/gemma-4-31b-it:free                    single   crownshy-line            0.0s $0.0000 ERR HTTP 429: {"error":{"message":"Rate limit exceeded: free-mod
+[89/473] google/gemma-4-31b-it:free                    single   crownshy-line            0.0s $0.0000 ERR HTTP 429: {"error":{"message":"Provider returned error","cod
+[90/473] google/gemma-4-31b-it:free                    single   crownshy-dining          0.0s $0.0000 ERR HTTP 429: {"error":{"message":"Rate limit exceeded: free-mod
+[91/473] google/gemma-4-31b-it:free                    single   crownshy-dining          0.0s $0.0000 ERR HTTP 429: {"error":{"message":"Rate limit exceeded: free-mod
+[92/473] google/gemma-4-31b-it:free                    single   crownshy-dining          0.0s $0.0000 ERR HTTP 429: {"error":{"message":"Rate limit exceeded: free-mod
+[93/473] google/gemma-4-31b-it:free                    single   crownshy-prep            0.0s $0.0000 ERR HTTP 429: {"error":{"message":"Rate limit exceeded: free-mod
+[94/473] google/gemma-4-31b-it:free                    single   crownshy-prep            0.0s $0.0000 ERR HTTP 429: {"error":{"message":"Rate limit exceeded: free-mod
+[95/473] google/gemma-4-31b-it:free                    single   crownshy-prep            0.0s $0.0000 ERR HTTP 429: {"error":{"message":"Provider returned error","cod
+[96/473] google/gemma-4-31b-it:free                    single   crownshy-grill           0.0s $0.0000 ERR HTTP 429: {"error":{"message":"Rate limit exceeded: free-mod
+[97/473] google/gemma-4-31b-it:free                    single   crownshy-grill           0.0s $0.0000 ERR HTTP 429: {"error":{"message":"Rate limit exceeded: free-mod
+[98/473] google/gemma-4-31b-it:free                    single   crownshy-grill           0.0s $0.0000 ERR HTTP 429: {"error":{"message":"Rate limit exceeded: free-mod
+[99/473] google/gemma-4-31b-it:free                    single   crownshy-plancha         0.0s $0.0000 ERR HTTP 429: {"error":{"message":"Provider returned error","cod
+[100/473] google/gemma-4-31b-it:free                    single   crownshy-plancha         0.0s $0.0000 ERR HTTP 429: {"error":{"message":"Provider returned error","cod
+[101/473] google/gemma-4-31b-it:free                    single   crownshy-plancha         0.0s $0.0000 ERR HTTP 429: {"error":{"message":"Provider returned error","cod
+[102/473] google/gemma-4-31b-it:free                    single   crownshy-salamander      0.0s $0.0000 ERR HTTP 429: {"error":{"message":"Rate limit exceeded: free-mod
+[103/473] google/gemma-4-31b-it:free                    single   crownshy-salamander      0.0s $0.0000 ERR HTTP 429: {"error":{"message":"Provider returned error","cod
+[104/473] google/gemma-4-31b-it:free                    single   crownshy-salamander      0.0s $0.0000 ERR HTTP 429: {"error":{"message":"Rate limit exceeded: free-mod
+[105/473] google/gemma-4-31b-it:free                    single   crownshy-plating         0.0s $0.0000 ERR HTTP 429: {"error":{"message":"Rate limit exceeded: free-mod
+[106/473] google/gemma-4-31b-it:free                    single   crownshy-plating         0.0s $0.0000 ERR HTTP 429: {"error":{"message":"Rate limit exceeded: free-mod
+[107/473] google/gemma-4-31b-it:free                    single   crownshy-plating         0.0s $0.0000 ERR HTTP 429: {"error":{"message":"Rate limit exceeded: free-mod
+[108/473] google/gemma-4-31b-it:free                    single   kitchen-overview         0.0s $0.0000 ERR HTTP 429: {"error":{"message":"Rate limit exceeded: free-mod
+[109/473] google/gemma-4-31b-it:free                    multicam crownshy                 0.0s $0.0000 ERR HTTP 429: {"error":{"message":"Provider returned error","cod
+[110/473] google/gemma-4-31b-it:free                    single   kitchen-overview         0.0s $0.0000 ERR HTTP 429: {"error":{"message":"Provider returned error","cod
+[111/473] google/gemma-4-31b-it:free                    single   kitchen-overview         0.0s $0.0000 ERR HTTP 429: {"error":{"message":"Rate limit exceeded: free-mod
+[112/473] google/gemma-4-31b-it:free                    single   kitchen-wide             0.0s $0.0000 ERR HTTP 429: {"error":{"message":"Provider returned error","cod
+[113/473] google/gemma-4-31b-it:free                    single   kitchen-wide             0.0s $0.0000 ERR HTTP 429: {"error":{"message":"Provider returned error","cod
+[114/473] google/gemma-4-31b-it:free                    single   kitchen-wide             0.0s $0.0000 ERR HTTP 429: {"error":{"message":"Rate limit exceeded: free-mod
+[115/473] google/gemma-4-31b-it:free                    single   kitchen-stove            0.0s $0.0000 ERR HTTP 429: {"error":{"message":"Provider returned error","cod
+[116/473] google/gemma-4-31b-it:free                    single   kitchen-stove            0.0s $0.0000 ERR HTTP 429: {"error":{"message":"Rate limit exceeded: free-mod
+[117/473] google/gemma-4-31b-it:free                    single   kitchen-stove            0.0s $0.0000 ERR HTTP 429: {"error":{"message":"Provider returned error","cod
+[118/473] google/gemma-4-31b-it:free                    single   kitchen-prep             0.0s $0.0000 ERR HTTP 429: {"error":{"message":"Rate limit exceeded: free-mod
+[119/473] google/gemma-4-31b-it:free                    single   kitchen-prep             0.0s $0.0000 ERR HTTP 429: {"error":{"message":"Rate limit exceeded: free-mod
+[120/473] google/gemma-4-31b-it:free                    single   kitchen-prep             0.0s $0.0000 ERR HTTP 429: {"error":{"message":"Provider returned error","cod
+[121/473] google/gemma-4-31b-it:free                    single   kitchen-sink             0.0s $0.0000 ERR HTTP 429: {"error":{"message":"Rate limit exceeded: free-mod
+[122/473] google/gemma-4-31b-it:free                    single   kitchen-sink             0.0s $0.0000 ERR HTTP 429: {"error":{"message":"Rate limit exceeded: free-mod
+[123/473] google/gemma-4-31b-it:free                    single   kitchen-sink             0.0s $0.0000 ERR HTTP 429: {"error":{"message":"Rate limit exceeded: free-mod
+[124/473] google/gemma-4-31b-it:free                    multicam kitchen                  0.0s $0.0000 ERR HTTP 429: {"error":{"message":"Rate limit exceeded: free-mod
+[125/473] google/gemma-4-31b-it:free                    temporal kitchen-overview         0.0s $0.0000 ERR HTTP 429: {"error":{"message":"Provider returned error","cod
+[126/473] google/gemma-4-31b-it:free                    temporal kitchen-wide             0.0s $0.0000 ERR HTTP 429: {"error":{"message":"Provider returned error","cod
+[127/473] z-ai/glm-5.3-flash                            single   crownshy-line            6.8s $0.0013 judge=3
+[128/473] z-ai/glm-5.3-flash                            single   crownshy-line           16.2s $0.0007 judge=None
+[129/473] google/gemma-4-31b-it:free                    temporal kitchen-stove            0.0s $0.0000 ERR HTTP 429: {"error":{"message":"Provider returned error","cod
+[130/473] google/gemma-4-31b-it:free                    temporal kitchen-prep             0.0s $0.0000 ERR HTTP 429: {"error":{"message":"Provider returned error","cod
+[131/473] z-ai/glm-5.3-flash                            single   crownshy-line           22.4s $0.0007 judge=None
+[132/473] z-ai/glm-5.3-flash                            single   crownshy-dining         17.1s $0.0008 judge=4
+[133/473] google/gemma-4-31b-it:free                    temporal kitchen-sink             0.0s $0.0000 ERR HTTP 429: {"error":{"message":"Provider returned error","cod
+[134/473] z-ai/glm-5.3-flash                            single   crownshy-dining         12.5s $0.0006 judge=4
+[135/473] z-ai/glm-5.3-flash                            single   crownshy-dining         16.0s $0.0013 judge=3
+[136/473] z-ai/glm-5.3-flash                            single   crownshy-prep            9.8s $0.0012 judge=3
+[137/473] z-ai/glm-5.3-flash                            single   crownshy-grill          12.0s $0.0005 judge=4
+[138/473] z-ai/glm-5.3-flash                            single   crownshy-prep           15.4s $0.0007 judge=3
+[139/473] z-ai/glm-5.3-flash                            single   crownshy-plancha        10.6s $0.0012 judge=3
+[140/473] z-ai/glm-5.3-flash                            single   crownshy-prep           15.6s $0.0007 judge=3
+[141/473] z-ai/glm-5.3-flash                            single   crownshy-grill          13.3s $0.0005 judge=3
+[142/473] z-ai/glm-5.3-flash                            single   crownshy-plancha         6.9s $0.0012 judge=4
+[143/473] z-ai/glm-5.3-flash                            single   crownshy-salamander     10.9s $0.0012 judge=5
+[144/473] z-ai/glm-5.3-flash                            single   crownshy-plancha        11.7s $0.0013 judge=3
+[145/473] z-ai/glm-5.3-flash                            single   crownshy-plating         6.9s $0.0012 judge=4
+[146/473] z-ai/glm-5.3-flash                            single   crownshy-grill          27.7s $0.0005 judge=3
+[147/473] z-ai/glm-5.3-flash                            single   crownshy-salamander     17.5s $0.0007 judge=None
+[148/473] z-ai/glm-5.3-flash                            single   crownshy-plating        11.6s $0.0013 judge=4
+[149/473] z-ai/glm-5.3-flash                            single   crownshy-salamander     15.0s $0.0013 judge=3
+[150/473] z-ai/glm-5.3-flash                            single   kitchen-overview         6.5s $0.0004 judge=3
+[151/473] z-ai/glm-5.3-flash                            single   crownshy-plating        10.7s $0.0013 judge=3
+[152/473] z-ai/glm-5.3-flash                            single   kitchen-wide            10.1s $0.0004 judge=3
+[153/473] z-ai/glm-5.3-flash                            single   kitchen-wide             8.4s $0.0004 judge=4
+[154/473] z-ai/glm-5.3-flash                            single   kitchen-overview        13.5s $0.0005 judge=2
+[155/473] z-ai/glm-5.3-flash                            single   kitchen-overview        19.3s $0.0007 judge=None
+[156/473] z-ai/glm-5.3-flash                            single   kitchen-stove           10.9s $0.0004 judge=4
+[157/473] z-ai/glm-5.3-flash                            single   kitchen-wide            18.0s $0.0007 judge=3
+[158/473] z-ai/glm-5.3-flash                            single   kitchen-prep             7.4s $0.0004 judge=3
+[159/473] z-ai/glm-5.3-flash                            single   kitchen-stove           13.7s $0.0005 judge=2
+[160/473] z-ai/glm-5.3-flash                            single   kitchen-stove           12.9s $0.0005 judge=4
+[161/473] z-ai/glm-5.3-flash                            single   kitchen-prep             9.3s $0.0004 judge=3
+[162/473] z-ai/glm-5.3-flash                            single   kitchen-sink            13.2s $0.0004 judge=3
+[163/473] z-ai/glm-5.3-flash                            single   kitchen-sink            10.1s $0.0004 judge=3
+[164/473] z-ai/glm-5.3-flash                            single   kitchen-prep            20.7s $0.0007 judge=None
+[165/473] z-ai/glm-5.3-flash                            single   kitchen-sink            15.3s $0.0006 judge=2
+[166/473] z-ai/glm-5.3-flash                            temporal kitchen-stove            6.4s $0.0010 judge=3
+[167/473] z-ai/glm-5.3-flash                            temporal kitchen-overview         8.3s $0.0006 judge=4
+[168/473] google/gemini-3.1-flash-lite                  single   crownshy-line            1.8s $0.0004 judge=3
+[169/473] google/gemini-3.1-flash-lite                  single   crownshy-line            1.7s $0.0004 judge=4
+[170/473] google/gemini-3.1-flash-lite                  single   crownshy-line            1.9s $0.0004 judge=3
+[171/473] google/gemini-3.1-flash-lite                  single   crownshy-dining          2.2s $0.0004 judge=4
+[172/473] z-ai/glm-5.3-flash                            multicam crownshy                55.2s $0.0014 judge=4
+[173/473] z-ai/glm-5.3-flash                            temporal kitchen-prep            10.1s $0.0003 judge=2
+[174/473] z-ai/glm-5.3-flash                            temporal kitchen-sink             9.5s $0.0003 judge=2
+[175/473] google/gemini-3.1-flash-lite                  single   crownshy-dining          1.9s $0.0004 judge=3
+[176/473] z-ai/glm-5.3-flash                            temporal kitchen-wide            19.5s $0.0005 judge=3
+[177/473] google/gemini-3.1-flash-lite                  single   crownshy-dining          2.1s $0.0004 judge=4
+[178/473] z-ai/glm-5.3-flash                            multicam kitchen                 25.8s $0.0008 judge=2
+[179/473] google/gemini-3.1-flash-lite                  single   crownshy-prep            2.0s $0.0004 judge=5
+[180/473] google/gemini-3.1-flash-lite                  single   crownshy-grill           1.8s $0.0004 judge=5
+[181/473] google/gemini-3.1-flash-lite                  single   crownshy-prep            1.6s $0.0004 judge=3
+[182/473] google/gemini-3.1-flash-lite                  single   crownshy-grill           1.8s $0.0004 judge=5
+[183/473] google/gemini-3.1-flash-lite                  single   crownshy-plancha         1.7s $0.0004 judge=5
+[184/473] google/gemini-3.1-flash-lite                  single   crownshy-prep            2.1s $0.0004 judge=4
+[185/473] google/gemini-3.1-flash-lite                  single   crownshy-grill           2.1s $0.0004 judge=3
+[186/473] google/gemini-3.1-flash-lite                  single   crownshy-salamander      1.9s $0.0004 judge=4
+[187/473] google/gemini-3.1-flash-lite                  single   crownshy-plancha         2.1s $0.0004 judge=3
+[188/473] google/gemini-3.1-flash-lite                  single   crownshy-salamander      1.9s $0.0004 judge=4
+[189/473] google/gemini-3.1-flash-lite                  single   crownshy-plating         1.8s $0.0004 judge=4
+[190/473] google/gemini-3.1-flash-lite                  single   crownshy-plancha         2.3s $0.0004 judge=3
+[191/473] google/gemini-3.1-flash-lite                  single   crownshy-plating         2.3s $0.0004 judge=5
+[192/473] google/gemini-3.1-flash-lite                  single   crownshy-salamander      1.6s $0.0004 judge=4
+[193/473] google/gemini-3.1-flash-lite                  single   kitchen-overview         1.8s $0.0004 judge=4
+[194/473] google/gemini-3.1-flash-lite                  single   kitchen-overview         1.8s $0.0004 judge=4
+[195/473] google/gemini-3.1-flash-lite                  single   kitchen-overview         1.7s $0.0004 judge=2
+[196/473] google/gemini-3.1-flash-lite                  single   kitchen-wide             1.7s $0.0004 judge=3
+[197/473] google/gemini-3.1-flash-lite                  multicam crownshy                 5.1s $0.0024 judge=3
+[198/473] google/gemini-3.1-flash-lite                  single   crownshy-plating         1.8s $0.0004 judge=3
+[199/473] google/gemini-3.1-flash-lite                  single   kitchen-stove            1.4s $0.0004 judge=5
+[200/473] google/gemini-3.1-flash-lite                  single   kitchen-wide             1.2s $0.0004 judge=3
+[201/473] google/gemini-3.1-flash-lite                  single   kitchen-stove            1.8s $0.0004 judge=4
+[202/473] google/gemini-3.1-flash-lite                  single   kitchen-prep             1.3s $0.0005 judge=3
+[203/473] google/gemini-3.1-flash-lite                  single   kitchen-wide             1.7s $0.0004 judge=3
+[204/473] google/gemini-3.1-flash-lite                  single   kitchen-sink             1.4s $0.0004 judge=3
+[205/473] google/gemini-3.1-flash-lite                  single   kitchen-stove            1.5s $0.0004 judge=4
+[206/473] google/gemini-3.1-flash-lite                  single   kitchen-sink             1.7s $0.0004 judge=2
+[207/473] google/gemini-3.1-flash-lite                  single   kitchen-sink             1.8s $0.0004 judge=3
+[208/473] google/gemini-3.1-flash-lite                  single   kitchen-prep             1.7s $0.0004 judge=3
+[209/473] google/gemini-3.1-flash-lite                  single   kitchen-prep             1.6s $0.0004 judge=2
+[210/473] google/gemini-3.1-flash-lite                  temporal kitchen-stove            2.2s $0.0010 judge=3
+[211/473] google/gemini-3.1-flash-lite                  temporal kitchen-overview         2.2s $0.0010 judge=4
+[212/473] google/gemini-3.1-flash-lite                  multicam kitchen                  2.6s $0.0018 judge=2
+[213/473] google/gemini-3.1-flash-lite                  temporal kitchen-prep             2.8s $0.0010 judge=1
+[214/473] google/gemini-3.1-flash-lite                  temporal kitchen-wide             2.0s $0.0010 judge=2
+[215/473] google/gemini-3.1-flash-lite                  temporal kitchen-sink             1.8s $0.0010 judge=2
+[216/473] qwen/qwen3.6-flash                            single   crownshy-line           12.9s $0.0018 judge=None
+[217/473] qwen/qwen3.6-flash                            single   crownshy-prep           23.3s $0.0015 judge=4
+[218/473] qwen/qwen3.6-flash                            single   crownshy-dining         29.6s $0.0018 judge=None
+[219/473] qwen/qwen3.6-flash                            single   crownshy-dining         28.6s $0.0018 judge=None
+[220/473] qwen/qwen3.6-flash                            single   crownshy-line           34.0s $0.0018 judge=None
+[221/473] qwen/qwen3.6-flash                            single   crownshy-dining         30.2s $0.0018 judge=None
+[222/473] qwen/qwen3.6-flash                            single   crownshy-prep           30.9s $0.0018 judge=None
+[223/473] qwen/qwen3.6-flash                            single   crownshy-line           37.4s $0.0018 judge=None
+[224/473] qwen/qwen3.6-flash                            single   crownshy-prep           30.1s $0.0018 judge=None
+[225/473] qwen/qwen3.6-flash                            single   crownshy-plancha        12.6s $0.0018 judge=None
+[226/473] qwen/qwen3.6-flash                            single   crownshy-grill          13.1s $0.0017 judge=5
+[227/473] qwen/qwen3.6-flash                            single   crownshy-grill          23.8s $0.0013 judge=5
+[228/473] qwen/qwen3.6-flash                            single   crownshy-grill          30.3s $0.0018 judge=None
+[229/473] qwen/qwen3.6-flash                            single   crownshy-salamander     24.9s $0.0000 judge=None
+[230/473] qwen/qwen3.6-flash                            single   crownshy-plancha        31.3s $0.0018 judge=None
+[231/473] qwen/qwen3.6-flash                            single   crownshy-plancha        30.6s $0.0018 judge=None
+[232/473] qwen/qwen3.6-flash                            single   crownshy-salamander     28.7s $0.0018 judge=None
+[233/473] qwen/qwen3.6-flash                            single   crownshy-plating        26.9s $0.0000 judge=None
+[234/473] qwen/qwen3.6-flash                            single   crownshy-salamander     29.9s $0.0018 judge=None
+[235/473] qwen/qwen3.6-flash                            single   crownshy-plating        30.2s $0.0018 judge=None
+[236/473] qwen/qwen3.6-flash                            single   crownshy-plating        30.7s $0.0018 judge=None
+[237/473] qwen/qwen3.6-flash                            single   kitchen-overview        28.7s $0.0015 judge=None
+[238/473] qwen/qwen3.6-flash                            single   kitchen-overview        29.6s $0.0014 judge=3
+[239/473] qwen/qwen3.6-flash                            single   kitchen-overview        31.1s $0.0015 judge=None
+[240/473] qwen/qwen3.6-flash                            single   kitchen-wide            28.8s $0.0015 judge=None
+[241/473] qwen/qwen3.6-flash                            single   kitchen-wide            28.6s $0.0015 judge=None
+[242/473] qwen/qwen3.6-flash                            multicam crownshy                40.2s $0.0045 judge=None
+[243/473] qwen/qwen3.6-flash                            single   kitchen-wide            29.3s $0.0015 judge=None
+[244/473] qwen/qwen3.6-flash                            single   kitchen-stove           23.9s $0.0012 judge=3
+[245/473] qwen/qwen3.6-flash                            single   kitchen-stove           30.0s $0.0015 judge=None
+[246/473] qwen/qwen3.6-flash                            single   kitchen-prep            20.7s $0.0011 judge=2
+[247/473] qwen/qwen3.6-flash                            single   kitchen-stove           29.1s $0.0015 judge=4
+[248/473] qwen/qwen3.6-flash                            single   kitchen-sink            12.2s $0.0015 judge=None
+[249/473] qwen/qwen3.6-flash                            single   kitchen-prep            23.4s $0.0012 judge=3
+[250/473] qwen/qwen3.6-flash                            single   kitchen-prep            27.0s $0.0013 judge=2
+[251/473] qwen/qwen3.6-flash                            single   kitchen-sink            29.1s $0.0015 judge=None
+[252/473] google/gemini-3.8-flash                       single   crownshy-line            9.1s $0.0040 judge=3
+[253/473] qwen/qwen3.6-flash                            single   kitchen-sink            29.8s $0.0015 judge=None
+[254/473] qwen/qwen3.6-flash                            temporal kitchen-overview        30.3s $0.0017 judge=None
+[255/473] google/gemini-3.8-flash                       single   crownshy-line           11.6s $0.0055 judge=None
+[256/473] google/gemini-3.8-flash                       single   crownshy-line            7.6s $0.0036 judge=3
+[257/473] qwen/qwen3.6-flash                            temporal kitchen-stove           29.5s $0.0017 judge=None
+[258/473] qwen/qwen3.6-flash                            multicam kitchen                 37.7s $0.0023 judge=None
+[259/473] qwen/qwen3.6-flash                            temporal kitchen-prep            29.5s $0.0017 judge=None
+[260/473] qwen/qwen3.6-flash                            temporal kitchen-sink            29.7s $0.0017 judge=None
+[261/473] qwen/qwen3.6-flash                            temporal kitchen-wide            27.4s $0.0016 judge=2
+[262/473] google/gemini-3.8-flash                       single   crownshy-dining         11.3s $0.0055 judge=None
+[263/473] google/gemini-3.8-flash                       single   crownshy-dining         11.7s $0.0045 judge=4
+[264/473] google/gemini-3.8-flash                       single   crownshy-prep            4.4s $0.0021 judge=4
+[265/473] google/gemini-3.8-flash                       single   crownshy-prep            6.7s $0.0030 judge=3
+[266/473] google/gemini-3.8-flash                       single   crownshy-grill           6.1s $0.0027 judge=5
+[267/473] google/gemini-3.8-flash                       single   crownshy-dining         10.2s $0.0044 judge=3
+[268/473] google/gemini-3.8-flash                       single   crownshy-prep            6.3s $0.0033 judge=3
+[269/473] google/gemini-3.8-flash                       single   crownshy-grill           5.5s $0.0025 judge=4
+[270/473] google/gemini-3.8-flash                       single   crownshy-plancha         5.6s $0.0022 judge=3
+[271/473] google/gemini-3.8-flash                       single   crownshy-plancha         6.8s $0.0026 judge=4
+[272/473] google/gemini-3.8-flash                       single   crownshy-plancha         7.7s $0.0031 judge=4
+[273/473] google/gemini-3.8-flash                       single   crownshy-salamander      5.7s $0.0025 judge=3
+[274/473] google/gemini-3.8-flash                       single   crownshy-grill          10.6s $0.0049 judge=4
+[275/473] google/gemini-3.8-flash                       single   crownshy-salamander      8.2s $0.0031 judge=2
+[276/473] google/gemini-3.8-flash                       single   crownshy-salamander     11.0s $0.0055 judge=None
+[277/473] google/gemini-3.8-flash                       single   kitchen-overview         3.6s $0.0017 judge=3
+[278/473] google/gemini-3.8-flash                       single   crownshy-plating        12.0s $0.0055 judge=None
+[279/473] google/gemini-3.8-flash                       single   crownshy-plating         8.2s $0.0040 judge=5
+[280/473] google/gemini-3.8-flash                       single   kitchen-overview         5.3s $0.0027 judge=2
+[281/473] google/gemini-3.8-flash                       single   kitchen-overview         6.3s $0.0025 judge=4
+[282/473] google/gemini-3.8-flash                       single   kitchen-stove            4.5s $0.0023 judge=5
+[283/473] google/gemini-3.8-flash                       single   kitchen-wide             4.0s $0.0018 judge=2
+[284/473] google/gemini-3.8-flash                       single   crownshy-plating        12.3s $0.0054 judge=3
+[285/473] google/gemini-3.8-flash                       single   kitchen-wide             6.3s $0.0024 judge=3
+[286/473] google/gemini-3.8-flash                       single   kitchen-stove            4.6s $0.0020 judge=2
+[287/473] google/gemini-3.8-flash                       single   kitchen-wide             3.9s $0.0018 judge=3
+[288/473] google/gemini-3.8-flash                       single   kitchen-stove            4.2s $0.0017 judge=4
+[289/473] google/gemini-3.8-flash                       single   kitchen-prep             3.3s $0.0016 judge=3
+[290/473] google/gemini-3.8-flash                       single   kitchen-sink             5.9s $0.0030 judge=2
+[291/473] google/gemini-3.8-flash                       single   kitchen-sink             5.5s $0.0022 judge=1
+[292/473] google/gemini-3.8-flash                       single   kitchen-sink             5.6s $0.0024 judge=3
+[293/473] google/gemini-3.8-flash                       multicam crownshy                16.0s $0.0111 judge=3
+[294/473] google/gemini-3.8-flash                       single   kitchen-prep             5.3s $0.0030 judge=2
+[295/473] google/gemini-3.8-flash                       single   kitchen-prep             5.9s $0.0024 judge=2
+[296/473] google/gemini-3.8-flash                       temporal kitchen-overview         6.8s $0.0053 judge=4
+[297/473] google/gemini-3.8-flash                       temporal kitchen-stove            5.4s $0.0035 judge=3
+[298/473] anthropic/claude-haiku-4.5                    single   crownshy-line            3.7s $0.0024 judge=3
+[299/473] anthropic/claude-haiku-4.5                    single   crownshy-line            3.9s $0.0025 judge=3
+[300/473] google/gemini-3.8-flash                       temporal kitchen-wide             6.4s $0.0043 judge=2
+[301/473] anthropic/claude-haiku-4.5                    single   crownshy-line            3.8s $0.0025 judge=3
+[302/473] google/gemini-3.8-flash                       multicam kitchen                  9.5s $0.0075 judge=3
+[303/473] anthropic/claude-haiku-4.5                    single   crownshy-dining          2.8s $0.0021 judge=4
+[304/473] google/gemini-3.8-flash                       temporal kitchen-sink             9.4s $0.0059 judge=1
+[305/473] anthropic/claude-haiku-4.5                    single   crownshy-dining          2.8s $0.0022 judge=4
+[306/473] anthropic/claude-haiku-4.5                    single   crownshy-dining          2.7s $0.0022 judge=3
+[307/473] anthropic/claude-haiku-4.5                    single   crownshy-prep            2.9s $0.0022 judge=4
+[308/473] anthropic/claude-haiku-4.5                    single   crownshy-prep            2.9s $0.0023 judge=2
+[309/473] google/gemini-3.8-flash                       temporal kitchen-prep             7.1s $0.0054 judge=3
+[310/473] anthropic/claude-haiku-4.5                    single   crownshy-prep            4.4s $0.0022 judge=3
+[311/473] anthropic/claude-haiku-4.5                    single   crownshy-grill           4.1s $0.0024 judge=4
+[312/473] anthropic/claude-haiku-4.5                    single   crownshy-grill           2.6s $0.0022 judge=4
+[313/473] anthropic/claude-haiku-4.5                    single   crownshy-grill           4.1s $0.0025 judge=3
+[314/473] anthropic/claude-haiku-4.5                    single   crownshy-plancha         3.8s $0.0023 judge=3
+[315/473] anthropic/claude-haiku-4.5                    single   crownshy-salamander      3.0s $0.0022 judge=5
+[316/473] anthropic/claude-haiku-4.5                    single   crownshy-plancha         3.9s $0.0022 judge=2
+[317/473] anthropic/claude-haiku-4.5                    single   crownshy-salamander      3.3s $0.0023 judge=4
+[318/473] anthropic/claude-haiku-4.5                    single   crownshy-plating         3.8s $0.0023 judge=4
+[319/473] anthropic/claude-haiku-4.5                    single   crownshy-salamander      3.5s $0.0022 judge=2
+[320/473] anthropic/claude-haiku-4.5                    single   crownshy-plating         3.3s $0.0023 judge=3
+[321/473] anthropic/claude-haiku-4.5                    single   crownshy-plancha         3.7s $0.0023 judge=3
+[322/473] anthropic/claude-haiku-4.5                    single   kitchen-overview         2.8s $0.0013 judge=3
+[323/473] anthropic/claude-haiku-4.5                    single   crownshy-plating         3.1s $0.0022 judge=4
+[324/473] anthropic/claude-haiku-4.5                    single   kitchen-overview         3.2s $0.0016 judge=4
+[325/473] anthropic/claude-haiku-4.5                    single   kitchen-overview         2.5s $0.0014 judge=2
+[326/473] anthropic/claude-haiku-4.5                    single   kitchen-wide             3.1s $0.0016 judge=2
+[327/473] anthropic/claude-haiku-4.5                    single   kitchen-wide             3.2s $0.0016 judge=3
+[328/473] anthropic/claude-haiku-4.5                    single   kitchen-wide             3.0s $0.0016 judge=4
+[329/473] anthropic/claude-haiku-4.5                    single   kitchen-stove            2.6s $0.0014 judge=4
+[330/473] anthropic/claude-haiku-4.5                    single   kitchen-stove            2.9s $0.0016 judge=4
+[331/473] anthropic/claude-haiku-4.5                    single   kitchen-sink             2.4s $0.0013 judge=3
+[332/473] anthropic/claude-haiku-4.5                    single   kitchen-prep             3.2s $0.0017 judge=3
+[333/473] anthropic/claude-haiku-4.5                    single   kitchen-sink             2.9s $0.0016 judge=2
+[334/473] anthropic/claude-haiku-4.5                    single   kitchen-prep             3.3s $0.0016 judge=3
+[335/473] anthropic/claude-haiku-4.5                    single   kitchen-prep             2.7s $0.0015 judge=3
+[336/473] anthropic/claude-haiku-4.5                    single   kitchen-stove            3.4s $0.0015 judge=3
+[337/473] anthropic/claude-haiku-4.5                    single   kitchen-sink             3.2s $0.0016 judge=1
+[338/473] anthropic/claude-haiku-4.5                    multicam crownshy                 9.0s $0.0132 judge=3
+[339/473] anthropic/claude-haiku-4.5                    temporal kitchen-overview         3.8s $0.0030 judge=4
+[340/473] anthropic/claude-haiku-4.5                    temporal kitchen-stove            3.6s $0.0029 judge=3
+[341/473] anthropic/claude-haiku-4.5                    temporal kitchen-wide             3.6s $0.0031 judge=2
+[342/473] openai/gpt-5.4-mini                           single   crownshy-line            2.4s $0.0025 judge=3
+[343/473] openai/gpt-5.4-mini                           single   crownshy-line            2.1s $0.0024 judge=3
+[344/473] anthropic/claude-haiku-4.5                    temporal kitchen-prep             4.2s $0.0031 judge=2
+[345/473] anthropic/claude-haiku-4.5                    multicam kitchen                  5.3s $0.0052 judge=3
+[346/473] anthropic/claude-haiku-4.5                    temporal kitchen-sink             3.4s $0.0029 judge=1
+[347/473] openai/gpt-5.4-mini                           single   crownshy-dining          1.8s $0.0022 judge=4
+[348/473] openai/gpt-5.4-mini                           single   crownshy-dining          1.7s $0.0023 judge=3
+[349/473] openai/gpt-5.4-mini                           single   crownshy-line            2.6s $0.0024 judge=3
+[350/473] openai/gpt-5.4-mini                           single   crownshy-prep            2.7s $0.0023 judge=5
+[351/473] openai/gpt-5.4-mini                           single   crownshy-grill           2.9s $0.0023 judge=5
+[352/473] openai/gpt-5.4-mini                           single   crownshy-prep            2.0s $0.0023 judge=3
+[353/473] openai/gpt-5.4-mini                           single   crownshy-dining          3.8s $0.0022 judge=3
+[354/473] openai/gpt-5.4-mini                           single   crownshy-grill           2.3s $0.0023 judge=5
+[355/473] openai/gpt-5.4-mini                           single   crownshy-prep            1.6s $0.0024 judge=3
+[356/473] openai/gpt-5.4-mini                           single   crownshy-grill           2.2s $0.0024 judge=3
+[357/473] openai/gpt-5.4-mini                           single   crownshy-plancha         2.3s $0.0025 judge=2
+[358/473] openai/gpt-5.4-mini                           single   crownshy-salamander      2.0s $0.0024 judge=4
+[359/473] openai/gpt-5.4-mini                           single   crownshy-plancha         2.0s $0.0024 judge=3
+[360/473] openai/gpt-5.4-mini                           single   crownshy-plating         2.3s $0.0024 judge=3
+[361/473] openai/gpt-5.4-mini                           single   crownshy-salamander      2.8s $0.0024 judge=1
+[362/473] openai/gpt-5.4-mini                           single   crownshy-plancha         2.4s $0.0024 judge=2
+[363/473] openai/gpt-5.4-mini                           single   crownshy-plating         1.9s $0.0024 judge=3
+[364/473] openai/gpt-5.4-mini                           single   crownshy-plating         2.0s $0.0023 judge=3
+[365/473] openai/gpt-5.4-mini                           single   kitchen-overview         2.2s $0.0010 judge=4
+[366/473] openai/gpt-5.4-mini                           single   kitchen-overview         2.3s $0.0009 judge=4
+[367/473] openai/gpt-5.4-mini                           single   kitchen-wide             1.7s $0.0010 judge=3
+[368/473] openai/gpt-5.4-mini                           single   crownshy-salamander      3.2s $0.0024 judge=2
+[369/473] openai/gpt-5.4-mini                           multicam crownshy                 5.3s $0.0143 judge=4
+[370/473] openai/gpt-5.4-mini                           single   kitchen-overview         1.9s $0.0011 judge=2
+[371/473] openai/gpt-5.4-mini                           single   kitchen-wide             1.7s $0.0010 judge=3
+[372/473] openai/gpt-5.4-mini                           single   kitchen-wide             2.0s $0.0011 judge=4
+[373/473] openai/gpt-5.4-mini                           single   kitchen-stove            2.1s $0.0011 judge=4
+[374/473] openai/gpt-5.4-mini                           single   kitchen-stove            2.6s $0.0011 judge=4
+[375/473] openai/gpt-5.4-mini                           single   kitchen-prep             1.5s $0.0010 judge=4
+[376/473] openai/gpt-5.4-mini                           single   kitchen-stove            3.0s $0.0010 judge=4
+[377/473] openai/gpt-5.4-mini                           single   kitchen-prep             1.6s $0.0010 judge=4
+[378/473] openai/gpt-5.4-mini                           single   kitchen-sink             1.3s $0.0009 judge=4
+[379/473] openai/gpt-5.4-mini                           single   kitchen-sink             2.0s $0.0010 judge=3
+[380/473] openai/gpt-5.4-mini                           temporal kitchen-overview         2.8s $0.0020 judge=3
+[381/473] openai/gpt-5.4-mini                           multicam kitchen                  2.8s $0.0036 judge=2
+[382/473] openai/gpt-5.4-mini                           temporal kitchen-stove            2.9s $0.0020 judge=4
+[383/473] openai/gpt-5.4-mini                           single   kitchen-prep             1.5s $0.0009 judge=2
+[384/473] openai/gpt-5.4-mini                           single   kitchen-sink             4.0s $0.0011 judge=1
+[385/473] openai/gpt-5.4-mini                           temporal kitchen-sink             2.9s $0.0021 judge=4
+[386/473] openai/gpt-5.4-mini                           temporal kitchen-wide             2.8s $0.0020 judge=2
+[387/473] openai/gpt-5.4-mini                           temporal kitchen-prep             2.6s $0.0022 judge=2
+[388/473] anthropic/claude-sonnet-5                     single   crownshy-line            4.5s $0.0085 judge=3
+[389/473] anthropic/claude-sonnet-5                     single   crownshy-line            5.1s $0.0087 judge=3
+[390/473] anthropic/claude-sonnet-5                     single   crownshy-dining          4.3s $0.0080 judge=4
+[391/473] anthropic/claude-sonnet-5                     single   crownshy-dining          4.2s $0.0079 judge=3
+[392/473] anthropic/claude-sonnet-5                     single   crownshy-dining          5.0s $0.0083 judge=3
+[393/473] anthropic/claude-sonnet-5                     single   crownshy-line            4.9s $0.0082 judge=3
+[394/473] anthropic/claude-sonnet-5                     single   crownshy-prep            4.7s $0.0080 judge=4
+[395/473] anthropic/claude-sonnet-5                     single   crownshy-grill           4.5s $0.0083 judge=5
+[396/473] anthropic/claude-sonnet-5                     single   crownshy-prep            4.9s $0.0078 judge=3
+[397/473] anthropic/claude-sonnet-5                     single   crownshy-prep            4.1s $0.0079 judge=4
+[398/473] anthropic/claude-sonnet-5                     single   crownshy-grill           5.8s $0.0088 judge=4
+[399/473] anthropic/claude-sonnet-5                     single   crownshy-grill           5.2s $0.0082 judge=2
+[400/473] anthropic/claude-sonnet-5                     single   crownshy-plancha         5.1s $0.0085 judge=4
+[401/473] anthropic/claude-sonnet-5                     single   crownshy-plancha         5.4s $0.0087 judge=3
+[402/473] anthropic/claude-sonnet-5                     single   crownshy-plancha         4.3s $0.0084 judge=3
+[403/473] anthropic/claude-sonnet-5                     single   crownshy-salamander      4.6s $0.0080 judge=2
+[404/473] anthropic/claude-sonnet-5                     single   crownshy-salamander      5.5s $0.0086 judge=3
+[405/473] anthropic/claude-sonnet-5                     single   crownshy-salamander      4.9s $0.0083 judge=3
+[406/473] anthropic/claude-sonnet-5                     single   crownshy-plating         5.1s $0.0085 judge=4
+[407/473] anthropic/claude-sonnet-5                     single   crownshy-plating         4.6s $0.0079 judge=3
+[408/473] anthropic/claude-sonnet-5                     single   kitchen-overview         4.4s $0.0043 judge=3
+[409/473] anthropic/claude-sonnet-5                     single   kitchen-overview         5.0s $0.0046 judge=4
+[410/473] anthropic/claude-sonnet-5                     single   crownshy-plating         5.4s $0.0087 judge=2
+[411/473] anthropic/claude-sonnet-5                     single   kitchen-wide             4.5s $0.0041 judge=2
+[412/473] anthropic/claude-sonnet-5                     single   kitchen-wide             4.4s $0.0041 judge=4
+[413/473] anthropic/claude-sonnet-5                     single   kitchen-overview         4.1s $0.0041 judge=2
+[414/473] anthropic/claude-sonnet-5                     single   kitchen-wide             4.8s $0.0043 judge=3
+[415/473] anthropic/claude-sonnet-5                     single   kitchen-stove            3.9s $0.0039 judge=4
+[416/473] anthropic/claude-sonnet-5                     multicam crownshy                10.5s $0.0442 judge=4
+[417/473] anthropic/claude-sonnet-5                     single   kitchen-stove            4.8s $0.0044 judge=4
+[418/473] anthropic/claude-sonnet-5                     single   kitchen-prep             3.6s $0.0039 judge=3
+[419/473] anthropic/claude-sonnet-5                     single   kitchen-sink             4.9s $0.0045 judge=3
+[420/473] anthropic/claude-sonnet-5                     single   kitchen-stove            4.7s $0.0042 judge=2
+[421/473] anthropic/claude-sonnet-5                     single   kitchen-prep             3.9s $0.0040 judge=3
+[422/473] anthropic/claude-sonnet-5                     single   kitchen-prep             4.1s $0.0039 judge=2
+[423/473] anthropic/claude-sonnet-5                     single   kitchen-sink             5.2s $0.0044 judge=3
+[424/473] anthropic/claude-sonnet-5                     temporal kitchen-overview         4.2s $0.0066 judge=4
+[425/473] anthropic/claude-sonnet-5                     single   kitchen-sink             8.0s $0.0042 judge=3
+[426/473] anthropic/claude-sonnet-5                     temporal kitchen-stove            4.4s $0.0065 judge=4
+[427/473] anthropic/claude-sonnet-5                     temporal kitchen-wide             4.1s $0.0066 judge=2
+[428/473] anthropic/claude-sonnet-5                     temporal kitchen-sink             4.1s $0.0065 judge=3
+[429/473] anthropic/claude-sonnet-5                     multicam kitchen                  6.8s $0.0120 judge=2
+[430/473] anthropic/claude-sonnet-5                     temporal kitchen-prep             4.3s $0.0069 judge=2
+[431/473] google/gemini-3.1-pro-preview                 single   crownshy-line           11.7s $0.0169 judge=None
+[432/473] google/gemini-3.1-pro-preview                 single   crownshy-line           12.7s $0.0169 judge=None
+[433/473] google/gemini-3.1-pro-preview                 single   crownshy-line           13.2s $0.0169 judge=None
+[434/473] google/gemini-3.1-pro-preview                 single   crownshy-dining         12.4s $0.0169 judge=None
+[435/473] google/gemini-3.1-pro-preview                 single   crownshy-dining         12.0s $0.0169 judge=4
+[436/473] google/gemini-3.1-pro-preview                 single   crownshy-dining         14.4s $0.0169 judge=None
+[437/473] google/gemini-3.1-pro-preview                 single   crownshy-prep           10.4s $0.0140 judge=4
+[438/473] google/gemini-3.1-pro-preview                 single   crownshy-prep           11.4s $0.0169 judge=None
+[439/473] google/gemini-3.1-pro-preview                 single   crownshy-prep           11.9s $0.0169 judge=None
+[440/473] google/gemini-3.1-pro-preview                 single   crownshy-grill          10.6s $0.0155 judge=5
+[441/473] google/gemini-3.1-pro-preview                 single   crownshy-grill           8.9s $0.0136 judge=5
+[442/473] google/gemini-3.1-pro-preview                 single   crownshy-grill           8.7s $0.0138 judge=3
+[443/473] google/gemini-3.1-pro-preview                 single   crownshy-plancha        13.6s $0.0169 judge=None
+[444/473] google/gemini-3.1-pro-preview                 single   crownshy-plancha        11.2s $0.0162 judge=3
+[445/473] google/gemini-3.1-pro-preview                 single   crownshy-salamander     12.2s $0.0169 judge=None
+[446/473] google/gemini-3.1-pro-preview                 single   crownshy-plancha        10.9s $0.0167 judge=3
+[447/473] google/gemini-3.1-pro-preview                 single   crownshy-salamander     12.0s $0.0169 judge=None
+[448/473] google/gemini-3.1-pro-preview                 single   crownshy-plating        12.8s $0.0169 judge=None
+[449/473] google/gemini-3.1-pro-preview                 single   crownshy-plating         9.3s $0.0144 judge=4
+[450/473] google/gemini-3.1-pro-preview                 single   crownshy-salamander     12.5s $0.0157 judge=3
+[451/473] google/gemini-3.1-pro-preview                 single   kitchen-overview         9.4s $0.0145 judge=2
+[452/473] google/gemini-3.1-pro-preview                 single   kitchen-overview        12.7s $0.0154 judge=3
+[453/473] google/gemini-3.1-pro-preview                 single   crownshy-plating        11.2s $0.0155 judge=3
+[454/473] google/gemini-3.1-pro-preview                 multicam crownshy                17.0s $0.0352 judge=None
+[455/473] google/gemini-3.1-pro-preview                 single   kitchen-overview        11.3s $0.0165 judge=2
+[456/473] google/gemini-3.1-pro-preview                 single   kitchen-wide             9.2s $0.0141 judge=3
+[457/473] google/gemini-3.1-pro-preview                 single   kitchen-wide             9.7s $0.0133 judge=3
+[458/473] google/gemini-3.1-pro-preview                 single   kitchen-wide            11.1s $0.0158 judge=2
+[459/473] google/gemini-3.1-pro-preview                 single   kitchen-prep             7.9s $0.0134 judge=4
+[460/473] google/gemini-3.1-pro-preview                 single   kitchen-prep             7.6s $0.0121 judge=4
+[461/473] google/gemini-3.1-pro-preview                 single   kitchen-stove           12.4s $0.0169 judge=None
+[462/473] google/gemini-3.1-pro-preview                 single   kitchen-stove           10.1s $0.0158 judge=4
+[463/473] google/gemini-3.1-pro-preview                 single   kitchen-stove           10.4s $0.0147 judge=3
+[464/473] google/gemini-3.1-pro-preview                 single   kitchen-prep            10.8s $0.0169 judge=None
+[465/473] google/gemini-3.1-pro-preview                 single   kitchen-sink             9.0s $0.0133 judge=2
+[466/473] google/gemini-3.1-pro-preview                 single   kitchen-sink            11.4s $0.0161 judge=1
+[467/473] google/gemini-3.1-pro-preview                 single   kitchen-sink             9.2s $0.0146 judge=2
+[468/473] google/gemini-3.1-pro-preview                 temporal kitchen-stove           11.3s $0.0212 judge=None
+[469/473] google/gemini-3.1-pro-preview                 temporal kitchen-overview        11.3s $0.0208 judge=4
+[470/473] google/gemini-3.1-pro-preview                 temporal kitchen-wide             8.8s $0.0173 judge=1
+[471/473] google/gemini-3.1-pro-preview                 multicam kitchen                 14.8s $0.0307 judge=None
+[472/473] google/gemini-3.1-pro-preview                 temporal kitchen-prep            11.4s $0.0212 judge=None
+[473/473] google/gemini-3.1-pro-preview                 temporal kitchen-sink            12.0s $0.0212 judge=None
+
+report: workspace\vision-eval\full-20260927\report.md
+nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free fail 4/43  count 97%/100%  hazard 64%  judge 3.39  halluc 1.12  multicam 3.5  temporal 2.75  p50 2.0s  $0
+qwen/qwen3.8-27b:free                         fail 41/43  count 0%/0%  hazard None%  judge 3  halluc 1  multicam None  temporal 3  p50 22.8s  $0
+google/gemma-4-31b-it:free                    fail 43/43  count None%/None%  hazard None%  judge None  halluc None  multicam None  temporal None  p50 Nones  $0
+z-ai/glm-5.3-flash                            fail 5/43  count 94%/97%  hazard 69%  judge 3.26  halluc 2.42  multicam 3  temporal 2.8  p50 12.5s  $0.0326
+google/gemini-3.1-flash-lite                  fail 0/43  count 92%/97%  hazard 62%  judge 3.58  halluc 1.14  multicam 2.5  temporal 2.4  p50 1.8s  $0.0246
+qwen/qwen3.6-flash                            fail 33/43  count 100%/100%  hazard 86%  judge 3.44  halluc 2  multicam None  temporal 2  p50 29.5s  $0.0691
+google/gemini-3.8-flash                       fail 4/43  count 81%/97%  hazard 67%  judge 3.16  halluc 2.09  multicam 3  temporal 2.6  p50 6.3s  $0.1565
+anthropic/claude-haiku-4.5                    fail 0/43  count 92%/94%  hazard 50%  judge 3.17  halluc 1.78  multicam 3  temporal 2.4  p50 3.3s  $0.1045
+openai/gpt-5.4-mini                           fail 0/43  count 72%/89%  hazard 69%  judge 3.22  halluc 1.78  multicam 3  temporal 3  p50 2.3s  $0.0932
+anthropic/claude-sonnet-5                     fail 0/43  count 81%/92%  hazard 75%  judge 3.14  halluc 2.75  multicam 3  temporal 3  p50 4.7s  $0.3266
+google/gemini-3.1-pro-preview                 fail 18/43  count 87%/100%  hazard 88%  judge 3.13  halluc 2.09  multicam None  temporal 2.5  p50 11.3s  $0.7295
+EXIT 0

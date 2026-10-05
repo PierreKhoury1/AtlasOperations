@@ -1,0 +1,1282 @@
+[
+ {
+  "task": "single",
+  "site": "crownshy",
+  "camera": "crownshy-prep",
+  "frame": 1,
+  "path": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\crownshy-prep_1.jpg",
+  "area": "prep kitchen (back of house), eye-level view of a steel prep table with a combi oven behind",
+  "model": "google/gemini-3.1-flash-lite",
+  "text": "{\n \"people\": 3,\n \"area\": \"Kitchen prep station\",\n \"activity\": \"Three kitchen staff members are actively preparing vegetables. They are peeling and slicing carrots and celery at a shared prep table.\",\n \"issues\": [\n  \"knife left out\"\n ]\n}",
+  "latency": 2.9870173931121826,
+  "prompt_tokens": 1291,
+  "completion_tokens": 61,
+  "cost": 0.00041425,
+  "finish": "stop",
+  "raw_len": 236,
+  "parsed": {
+   "people": 3,
+   "area": "Kitchen prep station",
+   "activity": "Three kitchen staff members are actively preparing vegetables. They are peeling and slicing carrots and celery at a shared prep table.",
+   "issues": [
+    "knife left out"
+   ]
+  },
+  "score": {
+   "ok": true,
+   "people": 3,
+   "people_ok": true,
+   "people_near": true,
+   "hazard_hit": 1,
+   "hazard_total": 2,
+   "issues_reported": 1,
+   "judge_raw": "{\"accuracy\": 3, \"area_ok\": true, \"hallucinations\": [\"celery being prepared\"], \"missed\": [\"specific tools: red peeler, gloves, knife on board\", \"physical details: blond middle cook, tattooed forearm on right cook, glasses\", \"combi oven in background\", \"tray of whole carrots\", \"blue glove box\", \"bare hands on left cook\"]}",
+   "judge_cost": 0.00336,
+   "accuracy": 3,
+   "area_ok": true,
+   "hallucinations": [
+    "celery being prepared"
+   ],
+   "missed": [
+    "specific tools: red peeler, gloves, knife on board",
+    "physical details: blond middle cook, tattooed forearm on right cook, glasses",
+    "combi oven in background",
+    "tray of whole carrots",
+    "blue glove box",
+    "bare hands on left cook"
+   ]
+  }
+ },
+ {
+  "task": "single",
+  "site": "crownshy",
+  "camera": "crownshy-dining",
+  "frame": 1,
+  "path": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\crownshy-dining_1.jpg",
+  "area": "dining room / chef's counter looking into the open kitchen under heat lamps",
+  "model": "google/gemini-3.1-flash-lite",
+  "text": "{\n  \"people\": 9,\n  \"area\": \"Open kitchen pass and counter seating\",\n  \"activity\": \"Kitchen staff are preparing and plating dishes at the service pass. Guests are seated at the counter observing the kitchen operations.\",\n  \"issues\": []\n}",
+  "latency": 4.038641929626465,
+  "prompt_tokens": 1291,
+  "completion_tokens": 59,
+  "cost": 0.00041125,
+  "finish": "stop",
+  "raw_len": 236,
+  "parsed": {
+   "people": 9,
+   "area": "Open kitchen pass and counter seating",
+   "activity": "Kitchen staff are preparing and plating dishes at the service pass. Guests are seated at the counter observing the kitchen operations.",
+   "issues": []
+  },
+  "score": {
+   "ok": true,
+   "people": 9,
+   "people_ok": true,
+   "people_near": true,
+   "hazard_hit": 0,
+   "hazard_total": 0,
+   "issues_reported": 0,
+   "judge_raw": "{\"accuracy\": 4, \"area_ok\": true, \"hallucinations\": [\"Specific headcount of 9 people not confirmed by human description\"], \"missed\": [\"Man in checked shirt\", \"Woman with long hair laughing\", \"Tall bearded chef in white jacket and dark apron at the pass\", \"Two more cooks working at the back\", \"Black heat lamps hanging over the pass\", \"Relaxed mood detail\"]}",
+   "judge_cost": 0.00355,
+   "accuracy": 4,
+   "area_ok": true,
+   "hallucinations": [
+    "Specific headcount of 9 people not confirmed by human description"
+   ],
+   "missed": [
+    "Man in checked shirt",
+    "Woman with long hair laughing",
+    "Tall bearded chef in white jacket and dark apron at the pass",
+    "Two more cooks working at the back",
+    "Black heat lamps hanging over the pass",
+    "Relaxed mood detail"
+   ]
+  }
+ },
+ {
+  "task": "single",
+  "site": "crownshy",
+  "camera": "crownshy-line",
+  "frame": 1,
+  "path": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\crownshy-line_1.jpg",
+  "area": "hot line / main kitchen, wide high-angle view down the cooking line, dining room visible through glass at the far end",
+  "model": "google/gemini-3.1-flash-lite",
+  "text": "{\n  \"people\": 8,\n  \"area\": \"Main kitchen line\",\n  \"activity\": \"Kitchen staff are actively preparing and cooking food at various stations. One staff member is walking through the center of the kitchen while others are focused on tasks at the stoves and prep counters.\",\n  \"issues\": [\n    \"knife left out\"\n  ]\n}",
+  "latency": 3.2029807567596436,
+  "prompt_tokens": 1291,
+  "completion_tokens": 79,
+  "cost": 0.00044125,
+  "finish": "stop",
+  "raw_len": 309,
+  "parsed": {
+   "people": 8,
+   "area": "Main kitchen line",
+   "activity": "Kitchen staff are actively preparing and cooking food at various stations. One staff member is walking through the center of the kitchen while others are focused on tasks at the stoves and prep counters.",
+   "issues": [
+    "knife left out"
+   ]
+  },
+  "score": {
+   "ok": true,
+   "people": 8,
+   "people_ok": true,
+   "people_near": true,
+   "hazard_hit": 0,
+   "hazard_total": 1,
+   "issues_reported": 1,
+   "judge_raw": "{\"accuracy\": 2, \"area_ok\": true, \"hallucinations\": [\"8 people (human indicates about 4-5)\", \"one staff member walking through the center of the kitchen\", \"knife left out\"], \"missed\": [\"cook in dark shirt and grey apron at left counter\", \"staff member in white chef jacket\", \"dining room and diners visible through glass wall\", \"trays of raw chicken pieces uncovered on near-left counter\", \"pots on the stove and flat-top griddle in the middle\", \"no customers inside the kitchen\"]}",
+   "judge_cost": 0.004292,
+   "accuracy": 2,
+   "area_ok": true,
+   "hallucinations": [
+    "8 people (human indicates about 4-5)",
+    "one staff member walking through the center of the kitchen",
+    "knife left out"
+   ],
+   "missed": [
+    "cook in dark shirt and grey apron at left counter",
+    "staff member in white chef jacket",
+    "dining room and diners visible through glass wall",
+    "trays of raw chicken pieces uncovered on near-left counter",
+    "pots on the stove and flat-top griddle in the middle",
+    "no customers inside the kitchen"
+   ]
+  }
+ },
+ {
+  "task": "single",
+  "site": "crownshy",
+  "camera": "crownshy-grill",
+  "frame": 1,
+  "path": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\crownshy-grill_1.jpg",
+  "area": "charcoal grill station",
+  "model": "google/gemini-3.1-flash-lite",
+  "text": "{\n  \"people\": 3,\n  \"area\": \"Grill station in the kitchen\",\n  \"activity\": \"A chef is monitoring meat cooking on the grill while flames flare up from the heat. Two other staff members are moving through the kitchen area nearby.\",\n  \"issues\": [\n    \"open flame/flare-up\"\n  ]\n}",
+  "latency": 3.6029999256134033,
+  "prompt_tokens": 1291,
+  "completion_tokens": 78,
+  "cost": 0.00043975,
+  "finish": "stop",
+  "raw_len": 273,
+  "parsed": {
+   "people": 3,
+   "area": "Grill station in the kitchen",
+   "activity": "A chef is monitoring meat cooking on the grill while flames flare up from the heat. Two other staff members are moving through the kitchen area nearby.",
+   "issues": [
+    "open flame/flare-up"
+   ]
+  },
+  "score": {
+   "ok": true,
+   "people": 3,
+   "people_ok": true,
+   "people_near": true,
+   "hazard_hit": 1,
+   "hazard_total": 1,
+   "issues_reported": 1,
+   "judge_raw": "{\"accuracy\": 4, \"area_ok\": true, \"hallucinations\": [], \"missed\": [\"chef wearing white jacket and holding tongs\", \"second person wearing dark apron\", \"foil-lined tray beside the grill\"]}",
+   "judge_cost": 0.002792,
+   "accuracy": 4,
+   "area_ok": true,
+   "hallucinations": [],
+   "missed": [
+    "chef wearing white jacket and holding tongs",
+    "second person wearing dark apron",
+    "foil-lined tray beside the grill"
+   ]
+  }
+ },
+ {
+  "task": "single",
+  "site": "crownshy",
+  "camera": "crownshy-salamander",
+  "frame": 1,
+  "path": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\crownshy-salamander_1.jpg",
+  "area": "salamander / finishing station, overhead camera looking down on a cook's head",
+  "model": "google/gemini-3.1-flash-lite",
+  "text": "{\n  \"people\": 2,\n  \"area\": \"Hot line / Grill station\",\n  \"activity\": \"A chef is working at the station, wiping down the counter with a cloth. Another person is visible on the right side of the frame, partially out of view.\",\n  \"issues\": []\n}",
+  "latency": 3.119133710861206,
+  "prompt_tokens": 1291,
+  "completion_tokens": 68,
+  "cost": 0.00042475,
+  "finish": "stop",
+  "raw_len": 241,
+  "parsed": {
+   "people": 2,
+   "area": "Hot line / Grill station",
+   "activity": "A chef is working at the station, wiping down the counter with a cloth. Another person is visible on the right side of the frame, partially out of view.",
+   "issues": []
+  },
+  "score": {
+   "ok": true,
+   "people": 2,
+   "people_ok": true,
+   "people_near": true,
+   "hazard_hit": 0,
+   "hazard_total": 0,
+   "issues_reported": 0,
+   "judge_raw": "{\"accuracy\": 2, \"area_ok\": true, \"hallucinations\": [\"A chef is wiping down the counter with a cloth (activity not observed)\", \"Another person is visible on the right side of the frame (human only saw a hand or cloth, not a second person)\", \"2 people\"], \"missed\": [\"salamander broilers overhead\", \"trays of sauces, plates, bowls, squeeze bottle on counter\", \"cook wearing black shirt with dark hair\", \"overhead camera perspective looking down on cook's head\"]}",
+   "judge_cost": 0.004168,
+   "accuracy": 2,
+   "area_ok": true,
+   "hallucinations": [
+    "A chef is wiping down the counter with a cloth (activity not observed)",
+    "Another person is visible on the right side of the frame (human only saw a hand or cloth, not a second person)",
+    "2 people"
+   ],
+   "missed": [
+    "salamander broilers overhead",
+    "trays of sauces, plates, bowls, squeeze bottle on counter",
+    "cook wearing black shirt with dark hair",
+    "overhead camera perspective looking down on cook's head"
+   ]
+  }
+ },
+ {
+  "task": "single",
+  "site": "crownshy",
+  "camera": "crownshy-plancha",
+  "frame": 1,
+  "path": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\crownshy-plancha_1.jpg",
+  "area": "plancha / flat-top griddle station, overhead camera",
+  "model": "google/gemini-3.1-flash-lite",
+  "text": "{\n  \"people\": 2,\n  \"area\": \"Hot line / Grill station\",\n  \"activity\": \"A chef is actively searing octopus and cubed food items on a flat-top grill. Another staff member is visible in the background working at a separate station.\",\n  \"issues\": []\n}",
+  "latency": 3.0523080825805664,
+  "prompt_tokens": 1291,
+  "completion_tokens": 66,
+  "cost": 0.00042175,
+  "finish": "stop",
+  "raw_len": 246,
+  "parsed": {
+   "people": 2,
+   "area": "Hot line / Grill station",
+   "activity": "A chef is actively searing octopus and cubed food items on a flat-top grill. Another staff member is visible in the background working at a separate station.",
+   "issues": []
+  },
+  "score": {
+   "ok": true,
+   "people": 2,
+   "people_ok": true,
+   "people_near": true,
+   "hazard_hit": 0,
+   "hazard_total": 0,
+   "issues_reported": 0,
+   "judge_raw": "{\"accuracy\": 3, \"area_ok\": true, \"hallucinations\": [\"Specifies only 2 people, while human description implies a hand plus multiple background cooks (likely more than 2)\"], \"missed\": [\"Pink pork or ham cubes cooking\", \"Yellow squash cubes cooking\", \"Octopus tentacles specifically mentioned as one of the cooking items\"]}",
+   "judge_cost": 0.005042,
+   "accuracy": 3,
+   "area_ok": true,
+   "hallucinations": [
+    "Specifies only 2 people, while human description implies a hand plus multiple background cooks (likely more than 2)"
+   ],
+   "missed": [
+    "Pink pork or ham cubes cooking",
+    "Yellow squash cubes cooking",
+    "Octopus tentacles specifically mentioned as one of the cooking items"
+   ]
+  }
+ },
+ {
+  "task": "single",
+  "site": "crownshy",
+  "camera": "crownshy-plating",
+  "frame": 1,
+  "path": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\crownshy-plating_1.jpg",
+  "area": "the pass, overhead camera over a dark marble counter with heat lamps",
+  "model": "google/gemini-3.1-flash-lite",
+  "text": "{\n  \"people\": 3,\n  \"area\": \"Kitchen plating station\",\n  \"activity\": \"Chefs are actively plating and garnishing multiple dishes on the marble counter. One chef is using a squeeze bottle to finish a dish while another adjusts components on a plate.\",\n  \"issues\": []\n}",
+  "latency": 1.8104619979858398,
+  "prompt_tokens": 1291,
+  "completion_tokens": 67,
+  "cost": 0.00042325,
+  "finish": "stop",
+  "raw_len": 265,
+  "parsed": {
+   "people": 3,
+   "area": "Kitchen plating station",
+   "activity": "Chefs are actively plating and garnishing multiple dishes on the marble counter. One chef is using a squeeze bottle to finish a dish while another adjusts components on a plate.",
+   "issues": []
+  },
+  "score": {
+   "ok": true,
+   "people": 3,
+   "people_ok": true,
+   "people_near": true,
+   "hazard_hit": 0,
+   "hazard_total": 0,
+   "issues_reported": 0,
+   "judge_raw": "{\"accuracy\": 3, \"area_ok\": true, \"hallucinations\": [\"One chef is using a squeeze bottle to finish a dish\"], \"missed\": [\"heat lamps present\", \"boards with cut meat\", \"tickets/papers on counter\", \"timer visible\", \"specific dish details (tostada with lettuce and orange sauce)\"]}",
+   "judge_cost": 0.002964,
+   "accuracy": 3,
+   "area_ok": true,
+   "hallucinations": [
+    "One chef is using a squeeze bottle to finish a dish"
+   ],
+   "missed": [
+    "heat lamps present",
+    "boards with cut meat",
+    "tickets/papers on counter",
+    "timer visible",
+    "specific dish details (tostada with lettuce and orange sauce)"
+   ]
+  }
+ },
+ {
+  "task": "single",
+  "site": "kitchen",
+  "camera": "kitchen-stove",
+  "frame": 1,
+  "path": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\kitchen-stove_1.jpg",
+  "area": "induction hob and the corner counter, high angle",
+  "model": "google/gemini-3.1-flash-lite",
+  "text": "{\n  \"people\": 1,\n  \"area\": \"Kitchen prep and cooking station\",\n  \"activity\": \"A cook is standing at the counter handling a small box or package. An empty saucepan is placed on the induction cooktop nearby.\",\n  \"issues\": []\n}",
+  "latency": 1.5239109992980957,
+  "prompt_tokens": 1299,
+  "completion_tokens": 61,
+  "cost": 0.00041625,
+  "finish": "stop",
+  "raw_len": 224,
+  "parsed": {
+   "people": 1,
+   "area": "Kitchen prep and cooking station",
+   "activity": "A cook is standing at the counter handling a small box or package. An empty saucepan is placed on the induction cooktop nearby.",
+   "issues": []
+  },
+  "score": {
+   "ok": true,
+   "people": 1,
+   "people_ok": true,
+   "people_near": true,
+   "hazard_hit": 0,
+   "hazard_total": 0,
+   "issues_reported": 0,
+   "judge_raw": "{\"accuracy\": 4, \"area_ok\": true, \"hallucinations\": [], \"missed\": [\"grey t-shirt description\", \"white box color\", \"oil bottles and knife block on counter\", \"high angle viewpoint\"]}",
+   "judge_cost": 0.002338,
+   "accuracy": 4,
+   "area_ok": true,
+   "hallucinations": [],
+   "missed": [
+    "grey t-shirt description",
+    "white box color",
+    "oil bottles and knife block on counter",
+    "high angle viewpoint"
+   ]
+  }
+ },
+ {
+  "task": "single",
+  "site": "kitchen",
+  "camera": "kitchen-overview",
+  "frame": 1,
+  "path": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\kitchen-overview_1.jpg",
+  "area": "whole room from a high corner by the door",
+  "model": "google/gemini-3.1-flash-lite",
+  "text": "{\n  \"people\": 1,\n  \"area\": \"Kitchen prep station\",\n  \"activity\": \"A cook is standing at the counter preparing ingredients. They appear to be organizing items or working with food products on the workspace.\",\n  \"issues\": []\n}",
+  "latency": 1.4834372997283936,
+  "prompt_tokens": 1299,
+  "completion_tokens": 58,
+  "cost": 0.00041175,
+  "finish": "stop",
+  "raw_len": 224,
+  "parsed": {
+   "people": 1,
+   "area": "Kitchen prep station",
+   "activity": "A cook is standing at the counter preparing ingredients. They appear to be organizing items or working with food products on the workspace.",
+   "issues": []
+  },
+  "score": {
+   "ok": true,
+   "people": 1,
+   "people_ok": true,
+   "people_near": true,
+   "hazard_hit": 0,
+   "hazard_total": 0,
+   "issues_reported": 0,
+   "judge_raw": "{\"accuracy\": 2, \"area_ok\": true, \"hallucinations\": [\"Cook is preparing ingredients or organizing items on the workspace - human only saw person standing with back to camera, no activity specified\"], \"missed\": [\"Person's appearance (grey t-shirt, dark skirt, dark hair)\", \"Empty prep counter and sink in foreground\", \"Cucumber and orange near the sink\", \"High corner vantage point by the door\"]}",
+   "judge_cost": 0.003852,
+   "accuracy": 2,
+   "area_ok": true,
+   "hallucinations": [
+    "Cook is preparing ingredients or organizing items on the workspace - human only saw person standing with back to camera, no activity specified"
+   ],
+   "missed": [
+    "Person's appearance (grey t-shirt, dark skirt, dark hair)",
+    "Empty prep counter and sink in foreground",
+    "Cucumber and orange near the sink",
+    "High corner vantage point by the door"
+   ]
+  }
+ },
+ {
+  "task": "single",
+  "site": "kitchen",
+  "camera": "kitchen-wide",
+  "frame": 1,
+  "path": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\kitchen-wide_1.jpg",
+  "area": "long view down the counters from the far end toward the door",
+  "model": "google/gemini-3.1-flash-lite",
+  "text": "{\n  \"people\": 1,\n  \"area\": \"Kitchen food preparation station\",\n  \"activity\": \"A person is standing at the counter handling small items or packaging. The kitchen appears to be in a state of preparation with various vegetables laid out on the sink-side counter.\",\n  \"issues\": [\n    \"knife left out\"\n  ]\n}",
+  "latency": 1.6123878955841064,
+  "prompt_tokens": 1299,
+  "completion_tokens": 79,
+  "cost": 0.00044325,
+  "finish": "stop",
+  "raw_len": 302,
+  "parsed": {
+   "people": 1,
+   "area": "Kitchen food preparation station",
+   "activity": "A person is standing at the counter handling small items or packaging. The kitchen appears to be in a state of preparation with various vegetables laid out on the sink-side counter.",
+   "issues": [
+    "knife left out"
+   ]
+  },
+  "score": {
+   "ok": true,
+   "people": 1,
+   "people_ok": true,
+   "people_near": true,
+   "hazard_hit": 0,
+   "hazard_total": 0,
+   "issues_reported": 1,
+   "judge_raw": "{\"accuracy\": 2, \"area_ok\": false, \"hallucinations\": [\"vegetables laid out on the counter\", \"knife left out\"], \"missed\": [\"view down the counters toward the glass door\", \"person's grey t-shirt and dark skirt\", \"boxes, bottles, and plastic bag on the counter\", \"bin by the wall\"]}",
+   "judge_cost": 0.004262,
+   "accuracy": 2,
+   "area_ok": false,
+   "hallucinations": [
+    "vegetables laid out on the counter",
+    "knife left out"
+   ],
+   "missed": [
+    "view down the counters toward the glass door",
+    "person's grey t-shirt and dark skirt",
+    "boxes, bottles, and plastic bag on the counter",
+    "bin by the wall"
+   ]
+  }
+ },
+ {
+  "task": "single",
+  "site": "kitchen",
+  "camera": "kitchen-prep",
+  "frame": 1,
+  "path": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\kitchen-prep_1.jpg",
+  "area": "chopping board and sink from directly above",
+  "model": "google/gemini-3.1-flash-lite",
+  "text": "{\n  \"people\": 1,\n  \"area\": \"Kitchen prep and sink station\",\n  \"activity\": \"A person is standing near the kitchen appliances in the background. The foreground prep area contains a knife, a wooden spatula, and fresh produce laid out on the counter.\",\n  \"issues\": [\n    \"knife left out\"\n  ]\n}",
+  "latency": 1.7444982528686523,
+  "prompt_tokens": 1299,
+  "completion_tokens": 78,
+  "cost": 0.00044175,
+  "finish": "stop",
+  "raw_len": 289,
+  "parsed": {
+   "people": 1,
+   "area": "Kitchen prep and sink station",
+   "activity": "A person is standing near the kitchen appliances in the background. The foreground prep area contains a knife, a wooden spatula, and fresh produce laid out on the counter.",
+   "issues": [
+    "knife left out"
+   ]
+  },
+  "score": {
+   "ok": true,
+   "people": 1,
+   "people_ok": true,
+   "people_near": true,
+   "hazard_hit": 1,
+   "hazard_total": 1,
+   "issues_reported": 1,
+   "judge_raw": "{\"accuracy\": 3, \"area_ok\": true, \"hallucinations\": [\"wooden spatula on counter\", \"person standing near kitchen appliances (human only saw legs in doorway, not appliances)\", \"flagged knife as an issue/left out\"], \"missed\": [\"cucumber\", \"aubergine/eggplant\", \"orange\", \"green container\", \"chopping board explicitly\", \"sink\"]}",
+   "judge_cost": 0.004834,
+   "accuracy": 3,
+   "area_ok": true,
+   "hallucinations": [
+    "wooden spatula on counter",
+    "person standing near kitchen appliances (human only saw legs in doorway, not appliances)",
+    "flagged knife as an issue/left out"
+   ],
+   "missed": [
+    "cucumber",
+    "aubergine/eggplant",
+    "orange",
+    "green container",
+    "chopping board explicitly",
+    "sink"
+   ]
+  }
+ },
+ {
+  "task": "multicam",
+  "site": "crownshy",
+  "paths": {
+   "crownshy-line": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\crownshy-line_1.jpg",
+   "crownshy-dining": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\crownshy-dining_1.jpg",
+   "crownshy-prep": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\crownshy-prep_1.jpg",
+   "crownshy-grill": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\crownshy-grill_1.jpg",
+   "crownshy-plancha": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\crownshy-plancha_1.jpg",
+   "crownshy-salamander": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\crownshy-salamander_1.jpg",
+   "crownshy-plating": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\crownshy-plating_1.jpg"
+  },
+  "model": "google/gemini-3.1-flash-lite",
+  "text": "{\n  \"distinct_people\": 16,\n  \"busiest\": \"plating\",\n  \"service_in_progress\": true,\n  \"per_camera\": {\n    \"crownshy-line\": \"Staff member moving through the kitchen line with active cooking stations.\",\n    \"crownshy-dining\": \"Staff interacting with guests at the counter while service is underway.\",\n    \"crownshy-prep\": \"Three staff members in white aprons are actively prepping vegetables.\",\n    \"crownshy-grill\": \"A staff member is monitoring meat cooking over an open flame.\",\n    \"crownshy-plancha\": \"Octopus and other items are being seared on the flat-top grill.\",\n    \"crownshy-salamander\": \"A staff member is working at the station with the salamander ovens.\",\n    \"crownshy-plating\": \"Multiple staff members are carefully plating dishes for service.\"\n  },\n  \"summary\": \"The restaurant is in the middle of a busy evening service with all kitchen stations fully operational. Staff are actively prepping, cooking, and plating dishes to meet customer demand. The kitchen environment appears organized and focused on maintaining high-volume output.\",\n  \"top_issue\": \"none\"\n}",
+  "latency": 4.934945821762085,
+  "prompt_tokens": 8011,
+  "completion_tokens": 264,
+  "cost": 0.00239875,
+  "finish": "stop",
+  "raw_len": 1076,
+  "parsed": {
+   "distinct_people": 16,
+   "busiest": "plating",
+   "service_in_progress": true,
+   "per_camera": {
+    "crownshy-line": "Staff member moving through the kitchen line with active cooking stations.",
+    "crownshy-dining": "Staff interacting with guests at the counter while service is underway.",
+    "crownshy-prep": "Three staff members in white aprons are actively prepping vegetables.",
+    "crownshy-grill": "A staff member is monitoring meat cooking over an open flame.",
+    "crownshy-plancha": "Octopus and other items are being seared on the flat-top grill.",
+    "crownshy-salamander": "A staff member is working at the station with the salamander ovens.",
+    "crownshy-plating": "Multiple staff members are carefully plating dishes for service."
+   },
+   "summary": "The restaurant is in the middle of a busy evening service with all kitchen stations fully operational. Staff are actively prepping, cooking, and plating dishes to meet customer demand. The kitchen environment appears organized and focused on maintaining high-volume output.",
+   "top_issue": "none"
+  },
+  "score": {
+   "ok": true,
+   "service_ok": true,
+   "distinct_people": 16,
+   "judge_raw": "{\"accuracy\": 3, \"busiest_ok\": true, \"hallucinations\": [], \"missed\": [\"open-flame flare-ups at the grill\", \"raw chicken uncovered on the line\", \"bare-hand food contact in prep and plating\", \"explicit mention of hot line/pass being busiest area\"]}",
+   "judge_cost": 0.00464,
+   "accuracy": 3,
+   "busiest_ok": true,
+   "hallucinations": [],
+   "missed": [
+    "open-flame flare-ups at the grill",
+    "raw chicken uncovered on the line",
+    "bare-hand food contact in prep and plating",
+    "explicit mention of hot line/pass being busiest area"
+   ]
+  }
+ },
+ {
+  "task": "single",
+  "site": "kitchen",
+  "camera": "kitchen-sink",
+  "frame": 1,
+  "path": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\kitchen-sink_1.jpg",
+  "area": "sink and back counter from the side",
+  "model": "google/gemini-3.1-flash-lite",
+  "text": "{\n  \"people\": 1,\n  \"area\": \"Kitchen preparation station\",\n  \"activity\": \"A person is standing at a counter opening a cardboard package. They are preparing to use the contents in a metal pot placed on the counter.\",\n  \"issues\": []\n}",
+  "latency": 1.628235101699829,
+  "prompt_tokens": 1299,
+  "completion_tokens": 61,
+  "cost": 0.00041625,
+  "finish": "stop",
+  "raw_len": 231,
+  "parsed": {
+   "people": 1,
+   "area": "Kitchen preparation station",
+   "activity": "A person is standing at a counter opening a cardboard package. They are preparing to use the contents in a metal pot placed on the counter.",
+   "issues": []
+  },
+  "score": {
+   "ok": true,
+   "people": 1,
+   "people_ok": true,
+   "people_near": true,
+   "hazard_hit": 0,
+   "hazard_total": 0,
+   "issues_reported": 0,
+   "judge_raw": "{\"accuracy\": 2, \"area_ok\": true, \"hallucinations\": [\"opening a cardboard package (human only says holding a white box)\", \"metal pot placed on the counter\"], \"missed\": [\"grey t-shirt description\", \"white box detail\", \"dish rack with plates, bottles, and a bowl in foreground\"]}",
+   "judge_cost": 0.00304,
+   "accuracy": 2,
+   "area_ok": true,
+   "hallucinations": [
+    "opening a cardboard package (human only says holding a white box)",
+    "metal pot placed on the counter"
+   ],
+   "missed": [
+    "grey t-shirt description",
+    "white box detail",
+    "dish rack with plates, bottles, and a bowl in foreground"
+   ]
+  }
+ },
+ {
+  "task": "single",
+  "site": "crownshy",
+  "camera": "crownshy-prep",
+  "frame": 1,
+  "path": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\crownshy-prep_1.jpg",
+  "area": "prep kitchen (back of house), eye-level view of a steel prep table with a combi oven behind",
+  "model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+  "text": "\n{\n  \"people\": 3,\n  \"area\": \"kitchen prep station\",\n  \"activity\": \"Three staff members are preparing vegetables at a stainless steel counter; the person in the center is shredding carrots while the person on the left peels a carrot and the person on the right handles green vegetables.\",\n  \"issues\": []\n}",
+  "latency": 2.563971519470215,
+  "prompt_tokens": 2247,
+  "completion_tokens": 74,
+  "cost": 0,
+  "finish": "stop",
+  "raw_len": 304,
+  "parsed": {
+   "people": 3,
+   "area": "kitchen prep station",
+   "activity": "Three staff members are preparing vegetables at a stainless steel counter; the person in the center is shredding carrots while the person on the left peels a carrot and the person on the right handles green vegetables.",
+   "issues": []
+  },
+  "score": {
+   "ok": true,
+   "people": 3,
+   "people_ok": true,
+   "people_near": true,
+   "hazard_hit": 0,
+   "hazard_total": 2,
+   "issues_reported": 0,
+   "judge_raw": "{\"accuracy\": 3, \"area_ok\": true, \"hallucinations\": [\"person on the right handles green vegetables\"], \"missed\": [\"red peeler used by left cook\", \"gloves worn by right cook, glasses, tattooed forearm\", \"bare hands on left cook\", \"whole carrots in a tray\", \"knife on the board\", \"blue glove box\", \"combi oven behind\", \"caps and white aprons\"]}",
+   "judge_cost": 0.00233,
+   "accuracy": 3,
+   "area_ok": true,
+   "hallucinations": [
+    "person on the right handles green vegetables"
+   ],
+   "missed": [
+    "red peeler used by left cook",
+    "gloves worn by right cook, glasses, tattooed forearm",
+    "bare hands on left cook",
+    "whole carrots in a tray",
+    "knife on the board",
+    "blue glove box",
+    "combi oven behind",
+    "caps and white aprons"
+   ]
+  }
+ },
+ {
+  "task": "multicam",
+  "site": "kitchen",
+  "paths": {
+   "kitchen-overview": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\kitchen-overview_1.jpg",
+   "kitchen-wide": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\kitchen-wide_1.jpg",
+   "kitchen-stove": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\kitchen-stove_1.jpg",
+   "kitchen-prep": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\kitchen-prep_1.jpg",
+   "kitchen-sink": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\kitchen-sink_1.jpg"
+  },
+  "model": "google/gemini-3.1-flash-lite",
+  "text": "{\n  \"distinct_people\": 1,\n  \"busiest\": \"kitchen-stove\",\n  \"service_in_progress\": false,\n  \"per_camera\": {\n    \"kitchen-overview\": \"A cook is standing at the counter near the refrigerator.\",\n    \"kitchen-wide\": \"The cook is working at the counter with various ingredients and a sink area visible.\",\n    \"kitchen-stove\": \"The cook is actively handling a small box near a pot on the stove.\",\n    \"kitchen-prep\": \"A view of the sink area with fresh produce including a zucchini, eggplant, and bell pepper.\",\n    \"kitchen-sink\": \"The cook is focused on preparing items at the stove station.\"\n  },\n  \"summary\": \"A single cook is currently engaged in food preparation within a small institutional kitchen. The individual is focused on tasks at the stove and counter area. No other staff or customers are present in the facility.\",\n  \"top_issue\": \"none\"\n}",
+  "latency": 2.6224005222320557,
+  "prompt_tokens": 5775,
+  "completion_tokens": 215,
+  "cost": 0.00176625,
+  "finish": "stop",
+  "raw_len": 847,
+  "parsed": {
+   "distinct_people": 1,
+   "busiest": "kitchen-stove",
+   "service_in_progress": false,
+   "per_camera": {
+    "kitchen-overview": "A cook is standing at the counter near the refrigerator.",
+    "kitchen-wide": "The cook is working at the counter with various ingredients and a sink area visible.",
+    "kitchen-stove": "The cook is actively handling a small box near a pot on the stove.",
+    "kitchen-prep": "A view of the sink area with fresh produce including a zucchini, eggplant, and bell pepper.",
+    "kitchen-sink": "The cook is focused on preparing items at the stove station."
+   },
+   "summary": "A single cook is currently engaged in food preparation within a small institutional kitchen. The individual is focused on tasks at the stove and counter area. No other staff or customers are present in the facility.",
+   "top_issue": "none"
+  },
+  "score": {
+   "ok": true,
+   "service_ok": true,
+   "distinct_people": 1,
+   "distinct_ok": true,
+   "judge_raw": "{\"accuracy\": 2, \"busiest_ok\": false, \"hallucinations\": [\"mentions a 'small box' near the pot on the stove, not in human description\", \"describes produce as zucchini and bell pepper instead of cucumber and orange\", \"mentions a refrigerator near the counter, not noted by human\", \"claims cook is 'actively handling' items at stove though human notes pan is empty (no active cooking implied",
+   "judge_cost": 0.006152
+  }
+ },
+ {
+  "task": "single",
+  "site": "crownshy",
+  "camera": "crownshy-dining",
+  "frame": 1,
+  "path": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\crownshy-dining_1.jpg",
+  "area": "dining room / chef's counter looking into the open kitchen under heat lamps",
+  "model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+  "text": "\n{\n  \"people\": 8,\n  \"area\": \"open kitchen and dining area\",\n  \"activity\": \"Staff are actively preparing and plating food at the pass while diners sit at the counter and tables.\",\n  \"issues\": []\n}",
+  "latency": 1.7756931781768799,
+  "prompt_tokens": 2247,
+  "completion_tokens": 52,
+  "cost": 0,
+  "finish": "stop",
+  "raw_len": 195,
+  "parsed": {
+   "people": 8,
+   "area": "open kitchen and dining area",
+   "activity": "Staff are actively preparing and plating food at the pass while diners sit at the counter and tables.",
+   "issues": []
+  },
+  "score": {
+   "ok": true,
+   "people": 8,
+   "people_ok": true,
+   "people_near": true,
+   "hazard_hit": 0,
+   "hazard_total": 0,
+   "issues_reported": 0,
+   "judge_raw": "{\"accuracy\": 3, \"area_ok\": true, \"hallucinations\": [\"Specific count of 8 people (not verifiable from human description)\"], \"missed\": [\"Man in checked shirt\", \"Woman with long hair laughing\", \"Tall bearded chef in white jacket and dark apron at the pass\", \"Two more cooks working at the back\", \"Black heat lamps hanging over the pass\", \"Relaxed mood of service\"]}",
+   "judge_cost": 0.004286,
+   "accuracy": 3,
+   "area_ok": true,
+   "hallucinations": [
+    "Specific count of 8 people (not verifiable from human description)"
+   ],
+   "missed": [
+    "Man in checked shirt",
+    "Woman with long hair laughing",
+    "Tall bearded chef in white jacket and dark apron at the pass",
+    "Two more cooks working at the back",
+    "Black heat lamps hanging over the pass",
+    "Relaxed mood of service"
+   ]
+  }
+ },
+ {
+  "task": "single",
+  "site": "crownshy",
+  "camera": "crownshy-grill",
+  "frame": 1,
+  "path": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\crownshy-grill_1.jpg",
+  "area": "charcoal grill station",
+  "model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+  "text": "\n{\n  \"people\": 3,\n  \"area\": \"open kitchen grill station\",\n  \"activity\": \"A chef is grilling meat over an open flame, causing a flare-up, while another staff member stands nearby and a third person is partially visible on the left.\",\n  \"issues\": [\n    \"open flame/flare-up on grill\",\n    \"raw meat uncovered on grill\"\n  ]\n}",
+  "latency": 2.607468843460083,
+  "prompt_tokens": 2247,
+  "completion_tokens": 84,
+  "cost": 0,
+  "finish": "stop",
+  "raw_len": 322,
+  "parsed": {
+   "people": 3,
+   "area": "open kitchen grill station",
+   "activity": "A chef is grilling meat over an open flame, causing a flare-up, while another staff member stands nearby and a third person is partially visible on the left.",
+   "issues": [
+    "open flame/flare-up on grill",
+    "raw meat uncovered on grill"
+   ]
+  },
+  "score": {
+   "ok": true,
+   "people": 3,
+   "people_ok": true,
+   "people_near": true,
+   "hazard_hit": 1,
+   "hazard_total": 1,
+   "issues_reported": 2,
+   "judge_raw": "{\"accuracy\": 3, \"area_ok\": true, \"hallucinations\": [\"flare-up on grill\", \"raw meat uncovered as a safety issue\"], \"missed\": [\"chef holding tongs\", \"second person wearing dark apron\", \"foil-lined tray beside the grill\"]}",
+   "judge_cost": 0.004626,
+   "accuracy": 3,
+   "area_ok": true,
+   "hallucinations": [
+    "flare-up on grill",
+    "raw meat uncovered as a safety issue"
+   ],
+   "missed": [
+    "chef holding tongs",
+    "second person wearing dark apron",
+    "foil-lined tray beside the grill"
+   ]
+  }
+ },
+ {
+  "task": "single",
+  "site": "crownshy",
+  "camera": "crownshy-salamander",
+  "frame": 1,
+  "path": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\crownshy-salamander_1.jpg",
+  "area": "salamander / finishing station, overhead camera looking down on a cook's head",
+  "model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+  "text": "\n{\n  \"people\": 3,\n  \"area\": \"kitchen pass and grill station\",\n  \"activity\": \"A chef stands at the pass preparing food while another staff member is partially visible on the right side of the frame.\",\n  \"issues\": []\n}",
+  "latency": 2.3710718154907227,
+  "prompt_tokens": 2247,
+  "completion_tokens": 56,
+  "cost": 0,
+  "finish": "stop",
+  "raw_len": 216,
+  "parsed": {
+   "people": 3,
+   "area": "kitchen pass and grill station",
+   "activity": "A chef stands at the pass preparing food while another staff member is partially visible on the right side of the frame.",
+   "issues": []
+  },
+  "score": {
+   "ok": true,
+   "people": 3,
+   "people_ok": false,
+   "people_near": true,
+   "hazard_hit": 0,
+   "hazard_total": 0,
+   "issues_reported": 0,
+   "judge_raw": "{\"accuracy\": 2, \"area_ok\": true, \"hallucinations\": [\"3 people present\", \"another staff member partially visible on the right side\"], \"missed\": [\"overhead camera angle looking down on cook's head\", \"cook wearing black shirt with dark hair\", \"two salamander broilers above station\", \"trays of sauces, plates, bowls, and squeeze bottle in front of cook\", \"hand or cloth at right edge (misinterpreted as a person)\"]}",
+   "judge_cost": 0.003988,
+   "accuracy": 2,
+   "area_ok": true,
+   "hallucinations": [
+    "3 people present",
+    "another staff member partially visible on the right side"
+   ],
+   "missed": [
+    "overhead camera angle looking down on cook's head",
+    "cook wearing black shirt with dark hair",
+    "two salamander broilers above station",
+    "trays of sauces, plates, bowls, and squeeze bottle in front of cook",
+    "hand or cloth at right edge (misinterpreted as a person)"
+   ]
+  }
+ },
+ {
+  "task": "single",
+  "site": "crownshy",
+  "camera": "crownshy-plating",
+  "frame": 1,
+  "path": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\crownshy-plating_1.jpg",
+  "area": "the pass, overhead camera over a dark marble counter with heat lamps",
+  "model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+  "text": "\n{\n  \"people\": 3,\n  \"area\": \"open kitchen pass\",\n  \"activity\": \"Chefs are plating and garnishing multiple dishes at a high-end restaurant pass.\",\n  \"issues\": [\"bare hands on ready food\"]\n}",
+  "latency": 1.9506347179412842,
+  "prompt_tokens": 2247,
+  "completion_tokens": 52,
+  "cost": 0,
+  "finish": "stop",
+  "raw_len": 188,
+  "parsed": {
+   "people": 3,
+   "area": "open kitchen pass",
+   "activity": "Chefs are plating and garnishing multiple dishes at a high-end restaurant pass.",
+   "issues": [
+    "bare hands on ready food"
+   ]
+  },
+  "score": {
+   "ok": true,
+   "people": 3,
+   "people_ok": true,
+   "people_near": true,
+   "hazard_hit": 0,
+   "hazard_total": 0,
+   "issues_reported": 1,
+   "judge_raw": "{\"accuracy\": 3, \"area_ok\": true, \"hallucinations\": [\"bare hands on ready food (issue not mentioned or implied by human description)\"], \"missed\": [\"dark marble counter\", \"black heat lamps\", \"boards with cut meat\", \"tickets/papers on the pass\", \"timer\", \"specific dish details (tostada-like with lettuce and orange sauce)\", \"positions of the three people (top, bottom, right)\"]}",
+   "judge_cost": 0.004168,
+   "accuracy": 3,
+   "area_ok": true,
+   "hallucinations": [
+    "bare hands on ready food (issue not mentioned or implied by human description)"
+   ],
+   "missed": [
+    "dark marble counter",
+    "black heat lamps",
+    "boards with cut meat",
+    "tickets/papers on the pass",
+    "timer",
+    "specific dish details (tostada-like with lettuce and orange sauce)",
+    "positions of the three people (top, bottom, right)"
+   ]
+  }
+ },
+ {
+  "task": "single",
+  "site": "crownshy",
+  "camera": "crownshy-line",
+  "frame": 1,
+  "path": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\crownshy-line_1.jpg",
+  "area": "hot line / main kitchen, wide high-angle view down the cooking line, dining room visible through glass at the far end",
+  "model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+  "text": "\n{\n  \"people\": 7,\n  \"area\": \"open kitchen service area\",\n  \"activity\": \"A chef in an apron stands in the center of the kitchen holding a cloth while other staff work at various stations. In the background, a group of people are gathered near the dining area entrance.\",\n  \"issues\": [\n    \"raw meat uncovered on a tray on the stainless steel counter\",\n    \"bare hand visible near a pot on the stove\"\n  ]\n}",
+  "latency": 3.414828300476074,
+  "prompt_tokens": 2247,
+  "completion_tokens": 99,
+  "cost": 0,
+  "finish": "stop",
+  "raw_len": 404,
+  "parsed": {
+   "people": 7,
+   "area": "open kitchen service area",
+   "activity": "A chef in an apron stands in the center of the kitchen holding a cloth while other staff work at various stations. In the background, a group of people are gathered near the dining area entrance.",
+   "issues": [
+    "raw meat uncovered on a tray on the stainless steel counter",
+    "bare hand visible near a pot on the stove"
+   ]
+  },
+  "score": {
+   "ok": true,
+   "people": 7,
+   "people_ok": true,
+   "people_near": true,
+   "hazard_hit": 1,
+   "hazard_total": 1,
+   "issues_reported": 2,
+   "judge_raw": "The model's count of 7 people doesn't match the human's description of roughly 4-5 people total. I'm also flagging hallucinated details like the chef \"holding a cloth\" and a \"bare hand near a pot\" that the human never mentioned, plus checking whether \"gathered near dining area entrance\" is a fair rephrasing of the human's \"diners visible beyond glass wall.\"\n\nWeighing it all, the model gets some things right, like raw meat sitting uncovered, but has enough wrong details (person count, fabricated hand/cloth) that accuracy lands around a 2. The area classification still holds as kitchen-related, but I'm noting the missed detail about the dark shirt and grey apron.\n\n",
+   "judge_cost": 0.00605
+  }
+ },
+ {
+  "task": "single",
+  "site": "crownshy",
+  "camera": "crownshy-plancha",
+  "frame": 1,
+  "path": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\crownshy-plancha_1.jpg",
+  "area": "plancha / flat-top griddle station, overhead camera",
+  "model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+  "text": "\n{\n  \"people\": 3,\n  \"area\": \"griddle station\",\n  \"activity\": \"A chef is cooking octopus, ham, and cheese cubes on a hot griddle while another staff member works in the background.\",\n  \"issues\": [\n    \"bare hand visible near food preparation area\"\n  ]\n}",
+  "latency": 3.04325270652771,
+  "prompt_tokens": 2247,
+  "completion_tokens": 68,
+  "cost": 0,
+  "finish": "stop",
+  "raw_len": 252,
+  "parsed": {
+   "people": 3,
+   "area": "griddle station",
+   "activity": "A chef is cooking octopus, ham, and cheese cubes on a hot griddle while another staff member works in the background.",
+   "issues": [
+    "bare hand visible near food preparation area"
+   ]
+  },
+  "score": {
+   "ok": true,
+   "people": 3,
+   "people_ok": true,
+   "people_near": true,
+   "hazard_hit": 0,
+   "hazard_total": 0,
+   "issues_reported": 1,
+   "judge_raw": "{\"accuracy\": 3, \"area_ok\": true, \"hallucinations\": [\"cheese cubes (human described yellow squash cubes, not cheese)\", \"specific count of 3 people (human only mentions a blurred hand and tiny background cooks, not an exact count)\"], \"missed\": [\"yellow squash cubes described as vegetable, not cheese\", \"pink pork/ham cubes color detail\", \"overhead camera framing\"]}",
+   "judge_cost": 0.00449,
+   "accuracy": 3,
+   "area_ok": true,
+   "hallucinations": [
+    "cheese cubes (human described yellow squash cubes, not cheese)",
+    "specific count of 3 people (human only mentions a blurred hand and tiny background cooks, not an exact count)"
+   ],
+   "missed": [
+    "yellow squash cubes described as vegetable, not cheese",
+    "pink pork/ham cubes color detail",
+    "overhead camera framing"
+   ]
+  }
+ },
+ {
+  "task": "multicam",
+  "site": "crownshy",
+  "paths": {
+   "crownshy-line": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\crownshy-line_1.jpg",
+   "crownshy-dining": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\crownshy-dining_1.jpg",
+   "crownshy-prep": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\crownshy-prep_1.jpg",
+   "crownshy-grill": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\crownshy-grill_1.jpg",
+   "crownshy-plancha": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\crownshy-plancha_1.jpg",
+   "crownshy-salamander": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\crownshy-salamander_1.jpg",
+   "crownshy-plating": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\crownshy-plating_1.jpg"
+  },
+  "model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+  "text": "\n{\n  \"distinct_people\": 15,\n  \"busiest\": \"plating station\",\n  \"service_in_progress\": true,\n  \"per_camera\": {\n    \"crownshy-line\": \"Kitchen staff preparing food with raw chicken on a tray and multiple cooking stations active.\",\n    \"crownshy-dining\": \"Customers seated at tables with staff attending to them near the open kitchen.\",\n    \"crownshy-prep\": \"Three staff members peeling and chopping vegetables at a prep station.\",\n    \"crownshy-grill\": \"Meat cooking on a grill with visible flames and a chef nearby.\",\n    \"crownshy-plancha\": \"Octopus and other ingredients cooking on a flat-top grill.\",\n    \"crownshy-salamander\": \"Two large ovens with grates visible, no active cooking shown.\",\n    \"crownshy-plating\": \"Multiple plated dishes being garnished and arranged on a marble countertop.\"\n  },\n  \"summary\": \"The restaurant is in full operation with staff actively cooking, prepping, and plating dishes during evening service. The open kitchen allows diners to observe food preparation while being served at tables. Multiple stations are simultaneously active, indicating a high-volume, coordinated service.\",\n  \"top_issue\": \"none\"\n}",
+  "latency": 10.00074291229248,
+  "prompt_tokens": 14656,
+  "completion_tokens": 278,
+  "cost": 0,
+  "finish": "stop",
+  "raw_len": 1138,
+  "parsed": {
+   "distinct_people": 15,
+   "busiest": "plating station",
+   "service_in_progress": true,
+   "per_camera": {
+    "crownshy-line": "Kitchen staff preparing food with raw chicken on a tray and multiple cooking stations active.",
+    "crownshy-dining": "Customers seated at tables with staff attending to them near the open kitchen.",
+    "crownshy-prep": "Three staff members peeling and chopping vegetables at a prep station.",
+    "crownshy-grill": "Meat cooking on a grill with visible flames and a chef nearby.",
+    "crownshy-plancha": "Octopus and other ingredients cooking on a flat-top grill.",
+    "crownshy-salamander": "Two large ovens with grates visible, no active cooking shown.",
+    "crownshy-plating": "Multiple plated dishes being garnished and arranged on a marble countertop."
+   },
+   "summary": "The restaurant is in full operation with staff actively cooking, prepping, and plating dishes during evening service. The open kitchen allows diners to observe food preparation while being served at tables. Multiple stations are simultaneously active, indicating a high-volume, coordinated service.",
+   "top_issue": "none"
+  },
+  "score": {
+   "ok": true,
+   "service_ok": true,
+   "distinct_people": 15,
+   "judge_raw": "{\"accuracy\": 4, \"busiest_ok\": true, \"hallucinations\": [], \"missed\": [\"top_issue listed as 'none' despite raw chicken uncovered being visible in line description\", \"bare-hand food contact in prep/plating not mentioned\", \"flare-ups at grill not explicitly flagged as an issue\"]}",
+   "judge_cost": 0.006248,
+   "accuracy": 4,
+   "busiest_ok": true,
+   "hallucinations": [],
+   "missed": [
+    "top_issue listed as 'none' despite raw chicken uncovered being visible in line description",
+    "bare-hand food contact in prep/plating not mentioned",
+    "flare-ups at grill not explicitly flagged as an issue"
+   ]
+  }
+ },
+ {
+  "task": "single",
+  "site": "kitchen",
+  "camera": "kitchen-wide",
+  "frame": 1,
+  "path": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\kitchen-wide_1.jpg",
+  "area": "long view down the counters from the far end toward the door",
+  "model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+  "text": "\n{\n  \"people\": 1,\n  \"area\": \"prep station\",\n  \"activity\": \"A woman is standing at the prep station, handling a blue container and other items on the counter.\",\n  \"issues\": []\n}",
+  "latency": 1.978095293045044,
+  "prompt_tokens": 725,
+  "completion_tokens": 50,
+  "cost": 0,
+  "finish": "stop",
+  "raw_len": 176,
+  "parsed": {
+   "people": 1,
+   "area": "prep station",
+   "activity": "A woman is standing at the prep station, handling a blue container and other items on the counter.",
+   "issues": []
+  },
+  "score": {
+   "ok": true,
+   "people": 1,
+   "people_ok": true,
+   "people_near": true,
+   "hazard_hit": 0,
+   "hazard_total": 0,
+   "issues_reported": 0,
+   "judge_raw": "{\"accuracy\": 3, \"area_ok\": true, \"hallucinations\": [\"blue container (color not specified by human)\"], \"missed\": [\"glass door at end of view\", \"bottles and plastic bag on counter\", \"bin by the wall\", \"clothing details (grey t-shirt, dark skirt)\"]}",
+   "judge_cost": 0.003402,
+   "accuracy": 3,
+   "area_ok": true,
+   "hallucinations": [
+    "blue container (color not specified by human)"
+   ],
+   "missed": [
+    "glass door at end of view",
+    "bottles and plastic bag on counter",
+    "bin by the wall",
+    "clothing details (grey t-shirt, dark skirt)"
+   ]
+  }
+ },
+ {
+  "task": "single",
+  "site": "kitchen",
+  "camera": "kitchen-stove",
+  "frame": 1,
+  "path": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\kitchen-stove_1.jpg",
+  "area": "induction hob and the corner counter, high angle",
+  "model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+  "text": "\n{\n  \"people\": 1,\n  \"area\": \"kitchen prep station\",\n  \"activity\": \"A cook is opening a small box and handling its contents on the counter. A metal pot sits on the induction cooktop nearby.\",\n  \"issues\": []\n}",
+  "latency": 1.0787341594696045,
+  "prompt_tokens": 725,
+  "completion_tokens": 57,
+  "cost": 0,
+  "finish": "stop",
+  "raw_len": 207,
+  "parsed": {
+   "people": 1,
+   "area": "kitchen prep station",
+   "activity": "A cook is opening a small box and handling its contents on the counter. A metal pot sits on the induction cooktop nearby.",
+   "issues": []
+  },
+  "score": {
+   "ok": true,
+   "people": 1,
+   "people_ok": true,
+   "people_near": true,
+   "hazard_hit": 0,
+   "hazard_total": 0,
+   "issues_reported": 0,
+   "judge_raw": "{\"accuracy\": 3, \"area_ok\": true, \"hallucinations\": [\"opening a small box and handling its contents (human only saw holding a white box, no opening/handling described)\"], \"missed\": [\"grey t-shirt description\", \"oil bottles on counter\", \"knife block on counter\", \"pan is empty\"]}",
+   "judge_cost": 0.003126,
+   "accuracy": 3,
+   "area_ok": true,
+   "hallucinations": [
+    "opening a small box and handling its contents (human only saw holding a white box, no opening/handling described)"
+   ],
+   "missed": [
+    "grey t-shirt description",
+    "oil bottles on counter",
+    "knife block on counter",
+    "pan is empty"
+   ]
+  }
+ },
+ {
+  "task": "single",
+  "site": "kitchen",
+  "camera": "kitchen-prep",
+  "frame": 1,
+  "path": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\kitchen-prep_1.jpg",
+  "area": "chopping board and sink from directly above",
+  "model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+  "text": "\n{\n  \"people\": 1,\n  \"area\": \"prep station\",\n  \"activity\": \"A person is standing at the counter, likely preparing to cook or chop vegetables.\",\n  \"issues\": [\"knife left out\"]\n}",
+  "latency": 2.24815034866333,
+  "prompt_tokens": 725,
+  "completion_tokens": 50,
+  "cost": 0,
+  "finish": "stop",
+  "raw_len": 175,
+  "parsed": {
+   "people": 1,
+   "area": "prep station",
+   "activity": "A person is standing at the counter, likely preparing to cook or chop vegetables.",
+   "issues": [
+    "knife left out"
+   ]
+  },
+  "score": {
+   "ok": true,
+   "people": 1,
+   "people_ok": true,
+   "people_near": true,
+   "hazard_hit": 1,
+   "hazard_total": 1,
+   "issues_reported": 1,
+   "judge_raw": "{\"accuracy\": 2, \"area_ok\": true, \"hallucinations\": [\"Person is standing at the counter (human only saw legs in a doorway, not at the counter)\", \"Person likely preparing to cook or chop vegetables (no activity confirmed, human states no cutting happening)\"], \"missed\": [\"knife, cucumber, aubergine/eggplant, orange on the board\", \"green container\", \"top-down view detail\", \"no cutting/activity happening\"]}",
+   "judge_cost": 0.004064,
+   "accuracy": 2,
+   "area_ok": true,
+   "hallucinations": [
+    "Person is standing at the counter (human only saw legs in a doorway, not at the counter)",
+    "Person likely preparing to cook or chop vegetables (no activity confirmed, human states no cutting happening)"
+   ],
+   "missed": [
+    "knife, cucumber, aubergine/eggplant, orange on the board",
+    "green container",
+    "top-down view detail",
+    "no cutting/activity happening"
+   ]
+  }
+ },
+ {
+  "task": "single",
+  "site": "kitchen",
+  "camera": "kitchen-overview",
+  "frame": 1,
+  "path": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\kitchen-overview_1.jpg",
+  "area": "whole room from a high corner by the door",
+  "model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+  "text": "\n{\n  \"people\": 1,\n  \"area\": \"kitchen prep area\",\n  \"activity\": \"A person is standing at the counter, appearing to organize or prepare ingredients. The scene shows a quiet moment of food preparation in a small institutional kitchen.\",\n  \"issues\": []\n}",
+  "latency": 1.1007871627807617,
+  "prompt_tokens": 725,
+  "completion_tokens": 61,
+  "cost": 0,
+  "finish": "stop",
+  "raw_len": 250,
+  "parsed": {
+   "people": 1,
+   "area": "kitchen prep area",
+   "activity": "A person is standing at the counter, appearing to organize or prepare ingredients. The scene shows a quiet moment of food preparation in a small institutional kitchen.",
+   "issues": []
+  },
+  "score": {
+   "ok": true,
+   "people": 1,
+   "people_ok": true,
+   "people_near": true,
+   "hazard_hit": 0,
+   "hazard_total": 0,
+   "issues_reported": 0,
+   "judge_raw": "{\"accuracy\": 3, \"area_ok\": true, \"hallucinations\": [\"Person is organizing or preparing ingredients (unconfirmed activity)\", \"Described as institutional kitchen (not stated by human)\"], \"missed\": [\"Person's appearance (grey t-shirt, dark skirt, dark hair, back to camera)\", \"Empty prep counter and sink in foreground\", \"Cucumber and orange near the sink\"]}",
+   "judge_cost": 0.003688,
+   "accuracy": 3,
+   "area_ok": true,
+   "hallucinations": [
+    "Person is organizing or preparing ingredients (unconfirmed activity)",
+    "Described as institutional kitchen (not stated by human)"
+   ],
+   "missed": [
+    "Person's appearance (grey t-shirt, dark skirt, dark hair, back to camera)",
+    "Empty prep counter and sink in foreground",
+    "Cucumber and orange near the sink"
+   ]
+  }
+ },
+ {
+  "task": "single",
+  "site": "kitchen",
+  "camera": "kitchen-sink",
+  "frame": 1,
+  "path": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\kitchen-sink_1.jpg",
+  "area": "sink and back counter from the side",
+  "model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+  "text": "\n{\n  \"people\": 1,\n  \"area\": \"prep station\",\n  \"activity\": \"A cook wearing a headset is opening a blue container at a prep table while a metal bowl sits nearby.\",\n  \"issues\": []\n}",
+  "latency": 1.9900310039520264,
+  "prompt_tokens": 725,
+  "completion_tokens": 52,
+  "cost": 0,
+  "finish": "stop",
+  "raw_len": 178,
+  "parsed": {
+   "people": 1,
+   "area": "prep station",
+   "activity": "A cook wearing a headset is opening a blue container at a prep table while a metal bowl sits nearby.",
+   "issues": []
+  },
+  "score": {
+   "ok": true,
+   "people": 1,
+   "people_ok": true,
+   "people_near": true,
+   "hazard_hit": 0,
+   "hazard_total": 0,
+   "issues_reported": 0,
+   "judge_raw": "{\"accuracy\": 1, \"area_ok\": false, \"hallucinations\": [\"headset\", \"blue container (human saw white box)\", \"prep table (human saw sink/counter)\", \"metal bowl material specified\", \"cook clothing/grey t-shirt omitted and replaced with generic cook\"], \"missed\": [\"side view of sink area\", \"person wearing grey t-shirt\", \"white box being held\", \"dish rack with plates and bottles in foreground\"]}",
+   "judge_cost": 0.003914,
+   "accuracy": 1,
+   "area_ok": false,
+   "hallucinations": [
+    "headset",
+    "blue container (human saw white box)",
+    "prep table (human saw sink/counter)",
+    "metal bowl material specified",
+    "cook clothing/grey t-shirt omitted and replaced with generic cook"
+   ],
+   "missed": [
+    "side view of sink area",
+    "person wearing grey t-shirt",
+    "white box being held",
+    "dish rack with plates and bottles in foreground"
+   ]
+  }
+ },
+ {
+  "task": "multicam",
+  "site": "kitchen",
+  "paths": {
+   "kitchen-overview": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\kitchen-overview_1.jpg",
+   "kitchen-wide": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\kitchen-wide_1.jpg",
+   "kitchen-stove": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\kitchen-stove_1.jpg",
+   "kitchen-prep": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\kitchen-prep_1.jpg",
+   "kitchen-sink": "C:\\Users\\pierr\\hermes\\data\\vision-eval\\frames\\kitchen-sink_1.jpg"
+  },
+  "model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+  "text": "\n{\n  \"distinct_people\": 1,\n  \"busiest\": \"kitchen-prep\",\n  \"service_in_progress\": false,\n  \"per_camera\": {\n    \"kitchen-overview\": \"A person in a grey shirt and dark skirt stands at a counter in a kitchen area with a small white refrigerator and various bottles.\",\n    \"kitchen-wide\": \"The same person is seen from a different angle, working at a counter near a sink and glass doors leading to another room.\",\n    \"kitchen-stove\": \"A person is opening a blue box on a counter next to a stovetop with a metal pot on it.\",\n    \"kitchen-prep\": \"A person wearing a head-mounted device is handling a blue box on a counter with various bottles and a metal pot nearby.\",\n    \"kitchen-sink\": \"A view of a kitchen sink area with a knife, zucchini, eggplant, and yellow pepper on a cutting board, and a person's legs visible in the background.\"\n  },\n  \"summary\": \"The kitchen is currently being used for food preparation by a single individual. No customers are visible, indicating service is not currently in progress. The environment appears to be a functional, small-scale kitchen setup.\",\n  \"top_issue\": \"none\"\n}",
+  "latency": 3.786219596862793,
+  "prompt_tokens": 2866,
+  "completion_tokens": 270,
+  "cost": 0,
+  "finish": "stop",
+  "raw_len": 1105,
+  "parsed": {
+   "distinct_people": 1,
+   "busiest": "kitchen-prep",
+   "service_in_progress": false,
+   "per_camera": {
+    "kitchen-overview": "A person in a grey shirt and dark skirt stands at a counter in a kitchen area with a small white refrigerator and various bottles.",
+    "kitchen-wide": "The same person is seen from a different angle, working at a counter near a sink and glass doors leading to another room.",
+    "kitchen-stove": "A person is opening a blue box on a counter next to a stovetop with a metal pot on it.",
+    "kitchen-prep": "A person wearing a head-mounted device is handling a blue box on a counter with various bottles and a metal pot nearby.",
+    "kitchen-sink": "A view of a kitchen sink area with a knife, zucchini, eggplant, and yellow pepper on a cutting board, and a person's legs visible in the background."
+   },
+   "summary": "The kitchen is currently being used for food preparation by a single individual. No customers are visible, indicating service is not currently in progress. The environment appears to be a functional, small-scale kitchen setup.",
+   "top_issue": "none"
+  },
+  "score": {
+   "ok": true,
+   "service_ok": true,
+   "distinct_people": 1,
+   "distinct_ok": true,
+   "judge_raw": "{\"accuracy\": 3, \"busiest_ok\": true, \"hallucinations\": [\"blue box on counter\", \"head-mounted device\", \"yellow pepper (human noted orange)\", \"small white refrigerator\", \"glass doors leading to another room\"], \"missed\": [\"mention of knife, cucumber, aubergine, orange together on the same board\", \"explicit note that hob has an empty pan\"",
+   "judge_cost": 0.006326
+  }
+ }
+]

@@ -20,3 +20,11 @@ workspace/vision-eval/wildtrack/review.json
 workspace/vision-eval/wildtrack/preds-*.json
 workspace/vision-eval/wildtrack/notes.json
 .claude/worktrees/
+# runtime state of local portals, scenario and soak runs: databases, secret keys, camera frames, logs
+workspace/portal-*.log
+workspace/scenarios/*/data/
+workspace/scenarios/*/feeds/
+workspace/scenarios/*/*.log
+workspace/soak/*/data/
+# the 1 Sep corner-store scenario recorded a third-party camera's address and a webcam: local only
+workspace/scenarios/corner-store-20260901-093409/

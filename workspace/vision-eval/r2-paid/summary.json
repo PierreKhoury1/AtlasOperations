@@ -1,0 +1,203 @@
+{
+ "models": [
+  {
+   "model": "z-ai/glm-5.3-flash",
+   "calls": 43,
+   "failed": 0,
+   "count_exact": 92,
+   "count_near": 94,
+   "hazard_recall": 75,
+   "area_ok": 100,
+   "judge_single": 3.28,
+   "halluc_per_answer": 2.47,
+   "issues_per_frame": 1.83,
+   "multicam_judge": 3,
+   "multicam_service_ok": 1,
+   "multicam_busiest_ok": 2,
+   "temporal_judge": 2.8,
+   "temporal_counts": [
+    15,
+    15
+   ],
+   "latency_p50": 11.6,
+   "latency_max": 70.3,
+   "cost_usd": 0.032,
+   "prompt_tokens": 108606
+  },
+  {
+   "model": "google/gemini-3.1-flash-lite",
+   "calls": 43,
+   "failed": 0,
+   "count_exact": 92,
+   "count_near": 97,
+   "hazard_recall": 62,
+   "area_ok": 100,
+   "judge_single": 3.58,
+   "halluc_per_answer": 1.14,
+   "issues_per_frame": 0.47,
+   "multicam_judge": 2.5,
+   "multicam_service_ok": 2,
+   "multicam_busiest_ok": 2,
+   "temporal_judge": 2.4,
+   "temporal_counts": [
+    15,
+    15
+   ],
+   "latency_p50": 1.8,
+   "latency_max": 5.1,
+   "cost_usd": 0.0246,
+   "prompt_tokens": 77567
+  },
+  {
+   "model": "qwen/qwen3.6-flash",
+   "calls": 43,
+   "failed": 6,
+   "count_exact": 97,
+   "count_near": 100,
+   "hazard_recall": 81,
+   "area_ok": 97,
+   "judge_single": 3.23,
+   "halluc_per_answer": 2.17,
+   "issues_per_frame": 1.4,
+   "multicam_judge": 3,
+   "multicam_service_ok": 1,
+   "multicam_busiest_ok": 2,
+   "temporal_judge": 3,
+   "temporal_counts": [
+    15,
+    15
+   ],
+   "latency_p50": 40.8,
+   "latency_max": 95.9,
+   "cost_usd": 0.1108,
+   "prompt_tokens": 83433
+  },
+  {
+   "model": "google/gemini-3.8-flash",
+   "calls": 43,
+   "failed": 0,
+   "count_exact": 81,
+   "count_near": 94,
+   "hazard_recall": 69,
+   "area_ok": 100,
+   "judge_single": 3.19,
+   "halluc_per_answer": 2,
+   "issues_per_frame": 1.19,
+   "multicam_judge": 3,
+   "multicam_service_ok": 2,
+   "multicam_busiest_ok": 2,
+   "temporal_judge": 2.6,
+   "temporal_counts": [
+    15,
+    15
+   ],
+   "latency_p50": 5.9,
+   "latency_max": 16.0,
+   "cost_usd": 0.1396,
+   "prompt_tokens": 77567
+  },
+  {
+   "model": "anthropic/claude-haiku-4.5",
+   "calls": 43,
+   "failed": 0,
+   "count_exact": 92,
+   "count_near": 94,
+   "hazard_recall": 50,
+   "area_ok": 89,
+   "judge_single": 3.17,
+   "halluc_per_answer": 1.78,
+   "issues_per_frame": 1.14,
+   "multicam_judge": 3,
+   "multicam_service_ok": 1,
+   "multicam_busiest_ok": 2,
+   "temporal_judge": 2.4,
+   "temporal_counts": [
+    15,
+    15
+   ],
+   "latency_p50": 3.3,
+   "latency_max": 9.0,
+   "cost_usd": 0.1045,
+   "prompt_tokens": 77523
+  },
+  {
+   "model": "openai/gpt-5.4-mini",
+   "calls": 43,
+   "failed": 0,
+   "count_exact": 72,
+   "count_near": 89,
+   "hazard_recall": 69,
+   "area_ok": 97,
+   "judge_single": 3.22,
+   "halluc_per_answer": 1.78,
+   "issues_per_frame": 1.47,
+   "multicam_judge": 3,
+   "multicam_service_ok": 1,
+   "multicam_busiest_ok": 2,
+   "temporal_judge": 3,
+   "temporal_counts": [
+    15,
+    15
+   ],
+   "latency_p50": 2.3,
+   "latency_max": 5.3,
+   "cost_usd": 0.0932,
+   "prompt_tokens": 98516
+  },
+  {
+   "model": "anthropic/claude-sonnet-5",
+   "calls": 43,
+   "failed": 0,
+   "count_exact": 81,
+   "count_near": 92,
+   "hazard_recall": 75,
+   "area_ok": 97,
+   "judge_single": 3.14,
+   "halluc_per_answer": 2.75,
+   "issues_per_frame": 2.53,
+   "multicam_judge": 3,
+   "multicam_service_ok": 1,
+   "multicam_busiest_ok": 2,
+   "temporal_judge": 3,
+   "temporal_counts": [
+    15,
+    15
+   ],
+   "latency_p50": 4.7,
+   "latency_max": 10.5,
+   "cost_usd": 0.3266,
+   "prompt_tokens": 113235
+  },
+  {
+   "model": "google/gemini-3.1-pro-preview",
+   "calls": 43,
+   "failed": 1,
+   "count_exact": 75,
+   "count_near": 89,
+   "hazard_recall": 81,
+   "area_ok": 94,
+   "judge_single": 3.17,
+   "halluc_per_answer": 2,
+   "issues_per_frame": 1.06,
+   "multicam_judge": 3,
+   "multicam_service_ok": 1,
+   "multicam_busiest_ok": 0,
+   "temporal_judge": 2.8,
+   "temporal_counts": [
+    15,
+    15
+   ],
+   "latency_p50": 8.8,
+   "latency_max": 12.7,
+   "cost_usd": 0.4846,
+   "prompt_tokens": 77567
+  }
+ ],
+ "judge": "anthropic/claude-sonnet-5",
+ "sites": [
+  "crownshy",
+  "kitchen"
+ ],
+ "frames": 3,
+ "judge_cost": 0.9277700000000001
+}

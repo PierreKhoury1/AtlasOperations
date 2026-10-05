@@ -3484,3 +3484,38 @@ Press CTRL+C to quit
 127.0.0.1 - - [01/Sep/2026 05:59:10] "GET /api/actions?status=pending HTTP/1.1" 200 -
 127.0.0.1 - - [01/Sep/2026 06:04:10] "GET /api/actions?status=pending HTTP/1.1" 200 -
 127.0.0.1 - - [01/Sep/2026 06:04:10] "POST /api/actions/31/decide HTTP/1.1" 200 -
+127.0.0.1 - - [01/Sep/2026 06:09:09] "GET /api/health/all?hours=24 HTTP/1.1" 200 -
+127.0.0.1 - - [01/Sep/2026 06:09:09] "GET /api/stats HTTP/1.1" 200 -
+127.0.0.1 - - [01/Sep/2026 06:09:09] "GET /api/metrics HTTP/1.1" 200 -
+127.0.0.1 - - [01/Sep/2026 06:09:10] "GET /api/actions?status=pending HTTP/1.1" 200 -
+127.0.0.1 - - [01/Sep/2026 06:14:10] "GET /api/actions?status=pending HTTP/1.1" 200 -
+127.0.0.1 - - [01/Sep/2026 06:19:10] "GET /api/health/all?hours=24 HTTP/1.1" 200 -
+127.0.0.1 - - [01/Sep/2026 06:19:10] "GET /api/stats HTTP/1.1" 200 -
+127.0.0.1 - - [01/Sep/2026 06:19:10] "GET /api/metrics HTTP/1.1" 200 -
+127.0.0.1 - - [01/Sep/2026 06:19:11] "GET /api/actions?status=pending HTTP/1.1" 200 -
+127.0.0.1 - - [01/Sep/2026 06:24:11] "GET /api/actions?status=pending HTTP/1.1" 200 -
+Atlas Desk  mode=demo  accounts=off  http://localhost:8095/desk
+ * Serving Flask app 'atlas.desk.app'
+ * Debug mode: off
+WARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.
+ * Running on all addresses (0.0.0.0)
+ * Running on http://127.0.0.1:8095
+ * Running on http://192.168.1.24:8095
+Press CTRL+C to quit
+127.0.0.1 - - [01/Sep/2026 16:06:26] "GET /api/health HTTP/1.1" 200 -
+127.0.0.1 - - [01/Sep/2026 16:09:31] "GET /api/health/all?hours=24 HTTP/1.1" 200 -
+127.0.0.1 - - [01/Sep/2026 16:09:31] "GET /api/stats HTTP/1.1" 200 -
+127.0.0.1 - - [01/Sep/2026 16:09:31] "GET /api/metrics HTTP/1.1" 200 -
+127.0.0.1 - - [01/Sep/2026 16:09:49] "GET /api/actions?status=pending HTTP/1.1" 200 -
+127.0.0.1 - - [01/Sep/2026 16:14:49] "GET /api/actions?status=pending HTTP/1.1" 200 -
+127.0.0.1 - - [01/Sep/2026 16:19:31] "GET /api/health/all?hours=24 HTTP/1.1" 200 -
+127.0.0.1 - - [01/Sep/2026 16:19:31] "GET /api/stats HTTP/1.1" 200 -
+127.0.0.1 - - [01/Sep/2026 16:19:31] "GET /api/metrics HTTP/1.1" 200 -
+127.0.0.1 - - [01/Sep/2026 16:19:49] "GET /api/actions?status=pending HTTP/1.1" 200 -
+127.0.0.1 - - [01/Sep/2026 16:20:24] "POST /hook/bXgxuwv0tqtzJXU8Veh-AMCP HTTP/1.1" 200 -
+127.0.0.1 - - [01/Sep/2026 16:24:50] "GET /api/actions?status=pending HTTP/1.1" 200 -
+127.0.0.1 - - [01/Sep/2026 16:24:50] "POST /api/actions/32/decide HTTP/1.1" 200 -
+127.0.0.1 - - [01/Sep/2026 16:29:32] "GET /api/health/all?hours=24 HTTP/1.1" 200 -
+127.0.0.1 - - [01/Sep/2026 16:29:32] "GET /api/stats HTTP/1.1" 200 -
+127.0.0.1 - - [01/Sep/2026 16:29:32] "GET /api/metrics HTTP/1.1" 200 -
+127.0.0.1 - - [01/Sep/2026 16:29:50] "GET /api/actions?status=pending HTTP/1.1" 200 -
