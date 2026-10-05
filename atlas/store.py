@@ -85,6 +85,23 @@ CREATE TABLE IF NOT EXISTS vision_object_notes (
   question TEXT DEFAULT '', text TEXT DEFAULT '', crop TEXT DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS ix_vobjn ON vision_object_notes(object_id, ts);
+CREATE TABLE IF NOT EXISTS sec_events (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, desk_id INTEGER, ts REAL, ingested REAL, source TEXT DEFAULT '',
+  sensor TEXT DEFAULT '', kind TEXT DEFAULT '', src TEXT DEFAULT '', dst TEXT DEFAULT '', username TEXT DEFAULT '',
+  sig TEXT DEFAULT '', severity TEXT DEFAULT 'info', message TEXT DEFAULT '', raw TEXT DEFAULT '',
+  attrs TEXT DEFAULT '{}', origin TEXT DEFAULT '', triggered INTEGER DEFAULT 0, run_id TEXT DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS ix_sec_desk_ts ON sec_events(desk_id, ts);
+CREATE INDEX IF NOT EXISTS ix_sec_desk_src ON sec_events(desk_id, src);
+CREATE INDEX IF NOT EXISTS ix_sec_desk_dst ON sec_events(desk_id, dst);
+CREATE INDEX IF NOT EXISTS ix_sec_desk_sensor ON sec_events(desk_id, sensor, ts);
+CREATE TABLE IF NOT EXISTS sec_detections (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, desk_id INTEGER, det_id TEXT, rule TEXT DEFAULT '', severity TEXT DEFAULT 'low',
+  title TEXT DEFAULT '', first_ts REAL, last_ts REAL, evidence TEXT DEFAULT '[]', evidence_total INTEGER DEFAULT 0,
+  counts TEXT DEFAULT '{}', details TEXT DEFAULT '{}', sources TEXT DEFAULT '[]', sensors TEXT DEFAULT '[]',
+  src TEXT DEFAULT '[]', dst TEXT DEFAULT '[]', users TEXT DEFAULT '[]', run_id TEXT DEFAULT '', created REAL, updated REAL
+);
+CREATE INDEX IF NOT EXISTS ix_secdet_desk ON sec_detections(desk_id, det_id);
 """
 
 # columns added after the first release — applied idempotently on open
@@ -102,10 +119,86 @@ _MIGRATIONS = [
 
 STAGES = ("New", "Contacted", "Qualified", "Proposal", "Won", "Lost")
 
+# security log (sec_events / sec_detections). Copies of atlas.cyber's limits: the store must not import cyber.
+SEC_FIELD_LIMITS = {"source": 20, "sensor": 60, "kind": 24, "src": 64, "dst": 64, "user": 128,
+                    "sig": 200, "message": 300, "raw": 4000, "origin": 80}
+SEC_ATTRS_MAX = 2000
+SEVERITIES = ("info", "low", "medium", "high", "critical")
+_SEV_ORDER = "CASE severity WHEN 'critical' THEN 4 WHEN 'high' THEN 3 WHEN 'medium' THEN 2 WHEN 'low' THEN 1 ELSE 0 END"
+# `user` is a reserved word in PostgreSQL, so the column is `username`; dicts and filters still say `user`
+_SEC_COLS = "id,ts,ingested,source,sensor,kind,src,dst,username,sig,severity,message,attrs,origin,triggered,run_id"
+_SEC_GROUP_COLS = {"src": "src", "dst": "dst", "user": "username", "sig": "sig", "kind": "kind", "sensor": "sensor",
+                   "source": "source", "severity": "severity"}
+_DET_JSON = {"evidence": [], "counts": {}, "details": {}, "sources": [], "sensors": [], "src": [], "dst": [], "users": []}
+_ID_CHUNK = 500
+
 
 def _rows(cur) -> list[dict[str, Any]]:
     cols = [c[0] for c in cur.description]
     return [dict(zip(cols, r)) for r in cur.fetchall()]
+
+
+def _clip(value: Any, limit: int) -> str:
+    """Defensive text for a sec_* column: str, no NUL (PostgreSQL TEXT cannot hold it), no lone surrogate (UTF-8
+    cannot encode it; JSON posted to the hook may carry one), cut to the limit."""
+    s = str(value if value is not None else "").replace("\x00", "")[:limit]
+    return s if s.isascii() else s.encode("utf-8", "replace").decode("utf-8")
+
+
+def _num(value: Any) -> float | None:
+    """A finite float, or None."""
+    try:
+        f = float(value)
+    except (TypeError, ValueError):
+        return None
+    return f if f == f and f not in (float("inf"), float("-inf")) else None
+
+
+def _as_ids(ids) -> list[int]:
+    out: list[int] = []
+    for i in ids or []:
+        try:
+            out.append(int(i))
+        except (TypeError, ValueError):
+            continue
+    return list(dict.fromkeys(out))
+
+
+def _id_chunks(ids):
+    """[None] = no id filter; otherwise the ids in IN-list chunks (an empty list yields no chunk at all)."""
+    if ids is None:
+        return [None]
+    ids = _as_ids(ids)
+    return [ids[i:i + _ID_CHUNK] for i in range(0, len(ids), _ID_CHUNK)]
+
+
+def _json_load(text: Any, default: Any) -> Any:
+    try:
+        v = json.loads(text) if text else default
+    except (TypeError, ValueError):
+        return default
+    return v if isinstance(v, type(default)) else default
+
+
+def _sec_row(r: dict[str, Any]) -> dict[str, Any]:
+    out = {("user" if k == "username" else k): v for k, v in r.items()}
+    out["user"] = out.get("user") or ""
+    out["attrs"] = _json_load(out.get("attrs"), {})
+    out["triggered"] = int(out.get("triggered") or 0)
+    out["run_id"] = out.get("run_id") or ""
+    return out
+
+
+def _det_row(r: dict[str, Any]) -> dict[str, Any]:
+    out = {"id": r["det_id"], "rule": r.get("rule") or "", "severity": r.get("severity") or "low", "title": r.get("title") or ""}
+    for k in ("src", "dst", "users", "sources", "sensors", "evidence"):
+        out[k] = _json_load(r.get(k), [])
+    out["evidence_total"] = int(r.get("evidence_total") or 0)
+    out["counts"] = _json_load(r.get("counts"), {})
+    out["details"] = _json_load(r.get("details"), {})
+    out.update({"first_ts": r.get("first_ts"), "last_ts": r.get("last_ts"), "row_id": int(r["id"]),
+                "run_id": r.get("run_id") or "", "created": r.get("created"), "updated": r.get("updated")})
+    return out
 
 
 class Store:
@@ -276,13 +369,14 @@ class Store:
     # ------------------------------------------------------------------ vision events (cameras / sensors)
     def add_vision_event(self, desk_id: int, camera: str, counts: dict[str, int], motion: float = 0.0, backend: str = "",
                          reason: str = "", question: str = "", answer: str = "", snapshot: str = "", triggered: bool = False,
-                         run_id: str = "", source: str = "camera") -> dict[str, Any]:
+                         run_id: str = "", source: str = "camera", ts: float | None = None) -> dict[str, Any]:
+        """`ts` = when it happened (a replayed or forwarded event keeps its own time); default now."""
         with self._lock:
             cur = self._conn.execute(
                 "INSERT INTO vision_events(desk_id,camera,ts,counts,motion,backend,reason,question,answer,snapshot,triggered,run_id,source) "
                 "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                (desk_id, camera, time.time(), json.dumps(counts or {}), float(motion or 0), backend, reason, question, answer,
-                 snapshot, 1 if triggered else 0, run_id or "", source))
+                (desk_id, camera, float(ts) if ts is not None else time.time(), json.dumps(counts or {}), float(motion or 0),
+                 backend, reason, question, answer, snapshot, 1 if triggered else 0, run_id or "", source))
             self._conn.commit()
             vid = cur.lastrowid
         ev = self.vision_event(vid)
@@ -447,6 +541,245 @@ class Store:
         row = self._conn.execute("SELECT COUNT(*), SUM(triggered) FROM vision_events WHERE desk_id=? AND ts>=?", (desk_id, since)).fetchone()
         return {"events": int(row[0] or 0), "triggered": int(row[1] or 0)}
 
+    # ------------------------------------------------------------------ security log (sec_events, sec_detections)
+    # ts = the ORIGINAL event time (a replay keeps it); ingested = when the row arrived. Every field is log data.
+    @staticmethod
+    def _sec_values(desk_id: int, ev: dict[str, Any], origin: str, now: float) -> tuple:
+        ts = _num(ev.get("ts"))
+        lim = SEC_FIELD_LIMITS
+        attrs = "{}"
+        if isinstance(ev.get("attrs"), dict):
+            try:
+                attrs = json.dumps(ev["attrs"], separators=(",", ":"), default=str)
+            except (TypeError, ValueError):
+                attrs = "{}"
+            if len(attrs) > SEC_ATTRS_MAX:
+                attrs = "{}"
+        return (desk_id, now if ts is None else ts, now, _clip(ev.get("source"), lim["source"]), _clip(ev.get("sensor"), lim["sensor"]),
+                _clip(ev.get("kind"), lim["kind"]), _clip(ev.get("src"), lim["src"]), _clip(ev.get("dst"), lim["dst"]),
+                _clip(ev.get("user"), lim["user"]), _clip(ev.get("sig"), lim["sig"]),
+                ev.get("severity") if ev.get("severity") in SEVERITIES else "info", _clip(ev.get("message"), lim["message"]),
+                _clip(ev.get("raw"), lim["raw"]), attrs, _clip(origin or ev.get("origin"), lim["origin"]), 0, "")
+
+    def add_sec_events(self, desk_id: int, events: list[dict[str, Any]], origin: str = "") -> list[int]:
+        """Insert parsed log events (one lock, one commit). Returns the new ids in input order. An entry that is not
+        a dict is not an event: it is skipped (no row, no id), never stored as an empty event."""
+        now = time.time()
+        rows = [self._sec_values(desk_id, ev, origin, now) for ev in events or [] if isinstance(ev, dict)]
+        ids: list[int] = []
+        if not rows:
+            return ids
+        sql = ("INSERT INTO sec_events(desk_id,ts,ingested,source,sensor,kind,src,dst,username,sig,severity,message,raw,attrs,"
+               "origin,triggered,run_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
+        with self._lock:
+            try:
+                for r in rows:
+                    ids.append(int(self._conn.execute(sql, r).lastrowid))
+            except Exception:
+                if self.backend == "sqlite":           # never leave half a batch for the next writer's commit
+                    self._conn.rollback()
+                raise
+            self._conn.commit()
+        return ids
+
+    def add_sec_event(self, desk_id: int, event: dict[str, Any], origin: str = "") -> int:
+        if not isinstance(event, dict):
+            raise ValueError("a security event must be a dict")
+        return self.add_sec_events(desk_id, [event], origin)[0]
+
+    @staticmethod
+    def _sec_where(desk_id: int, *, since: float | None = None, until: float | None = None, after_id: int = 0,
+                   ids: list[int] | None = None, sensor: str = "", source: str = "", kind: str | list[str] = "",
+                   exclude_kinds: list[str] | tuple = (), src: str = "", dst: str = "", ip: str = "", user: str = "",
+                   sig: str = "", min_severity: str = "", triggered: bool | None = None) -> tuple[str, list[Any]]:
+        w, a = ["desk_id=?"], [desk_id]
+        if since is not None:
+            w.append("ts>=?"); a.append(float(since))
+        if until is not None:
+            w.append("ts<=?"); a.append(float(until))
+        if after_id:
+            w.append("id>?"); a.append(int(after_id))
+        if ids is not None:                           # one chunk (<= 500) from _id_chunks
+            w.append(f"id IN ({','.join('?' * len(ids))})"); a.extend(ids)
+        for col, val in (("sensor", sensor), ("source", source), ("src", src), ("dst", dst), ("username", user)):
+            if val:
+                w.append(f"{col}=?"); a.append(str(val))
+        kinds = [k for k in ([kind] if isinstance(kind, str) else list(kind or [])) if k]
+        if kinds:
+            w.append(f"kind IN ({','.join('?' * len(kinds))})"); a.extend(str(k) for k in kinds)
+        ex = [k for k in (exclude_kinds or ()) if k]
+        if ex:
+            w.append(f"kind NOT IN ({','.join('?' * len(ex))})"); a.extend(str(k) for k in ex)
+        if ip:
+            w.append("(src=? OR dst=?)"); a += [str(ip), str(ip)]
+        if sig:
+            w.append("LOWER(sig) LIKE LOWER(?)"); a.append(f"%{sig}%")
+        if min_severity in SEVERITIES:
+            sevs = SEVERITIES[SEVERITIES.index(min_severity):]
+            w.append(f"severity IN ({','.join('?' * len(sevs))})"); a.extend(sevs)
+        if triggered is not None:
+            w.append("triggered=?"); a.append(1 if triggered else 0)
+        return " AND ".join(w), a
+
+    def sec_events(self, desk_id: int, *, since: float | None = None, until: float | None = None, after_id: int = 0,
+                   ids: list[int] | None = None, sensor: str = "", source: str = "", kind: str | list[str] = "",
+                   exclude_kinds: list[str] | tuple = (), src: str = "", dst: str = "", ip: str = "", user: str = "",
+                   sig: str = "", min_severity: str = "", triggered: bool | None = None, order: str = "asc",
+                   limit: int = 500, with_raw: bool = False) -> list[dict[str, Any]]:
+        """Desk-scoped log rows. order: asc = (ts, id), desc = (ts, id) newest first, id = arrival order."""
+        filters = dict(since=since, until=until, after_id=after_id, sensor=sensor, source=source, kind=kind,
+                       exclude_kinds=exclude_kinds, src=src, dst=dst, ip=ip, user=user, sig=sig,
+                       min_severity=min_severity, triggered=triggered)
+        limit = max(1, min(int(500 if limit is None else limit), 300000))
+        order_sql = {"desc": "ts DESC, id DESC", "id": "id"}.get(order, "ts, id")
+        cols = _SEC_COLS + (",raw" if with_raw else "")
+        chunks = _id_chunks(ids)
+        rows: list[dict[str, Any]] = []
+        for chunk in chunks:
+            w, a = self._sec_where(desk_id, ids=chunk, **filters)
+            rows += _rows(self._conn.execute(f"SELECT {cols} FROM sec_events WHERE {w} ORDER BY {order_sql} LIMIT ?", a + [limit]))
+        if len(chunks) > 1:                           # several IN chunks: merge in the requested order, then cut
+            if order == "id":
+                rows.sort(key=lambda r: r["id"])
+            else:
+                rows.sort(key=lambda r: (r["ts"], r["id"]), reverse=(order == "desc"))
+            rows = rows[:limit]
+        return [_sec_row(r) for r in rows]
+
+    def sec_event_stats(self, desk_id: int, **filters) -> dict[str, Any]:
+        """{"total", "first_ts", "last_ts", "max_id"} over the same filters as sec_events."""
+        for k in ("order", "limit", "with_raw"):
+            filters.pop(k, None)
+        ids = filters.pop("ids", None)
+        total, first, last, max_id = 0, None, None, 0
+        for chunk in _id_chunks(ids):
+            w, a = self._sec_where(desk_id, ids=chunk, **filters)
+            n, lo, hi, mx = self._conn.execute(f"SELECT COUNT(*), MIN(ts), MAX(ts), MAX(id) FROM sec_events WHERE {w}", a).fetchone()
+            if not n:
+                continue
+            total += int(n)
+            first = lo if first is None else min(first, lo)
+            last = hi if last is None else max(last, hi)
+            max_id = max(max_id, int(mx or 0))
+        return {"total": total, "first_ts": first, "last_ts": last, "max_id": max_id}
+
+    def sec_event_counts(self, desk_id: int, field: str, *, limit: int = 20, **filters) -> list[tuple[str, int]]:
+        """Top values of one field with their counts (empty values excluded), most frequent first."""
+        col = _SEC_GROUP_COLS.get(field)
+        if not col:
+            raise ValueError(f"cannot count by {field!r}: use one of {', '.join(_SEC_GROUP_COLS)}")
+        for k in ("order", "with_raw"):
+            filters.pop(k, None)
+        limit = max(1, min(int(limit or 20), 10000))
+        chunks = _id_chunks(filters.pop("ids", None))
+        merged: dict[str, int] = {}
+        for chunk in chunks:
+            w, a = self._sec_where(desk_id, ids=chunk, **filters)
+            sql = f"SELECT {col}, COUNT(*) FROM sec_events WHERE {w} AND {col}<>'' GROUP BY {col}"
+            if len(chunks) == 1:
+                sql += f" ORDER BY COUNT(*) DESC, {col} LIMIT ?"
+                a = a + [limit]
+            for v, n in self._conn.execute(sql, a).fetchall():
+                merged[v] = merged.get(v, 0) + int(n)
+        return sorted(merged.items(), key=lambda kv: (-kv[1], kv[0]))[:limit]
+
+    def sec_event_points(self, desk_id: int, since: float, until: float, *, limit: int = 300000) -> list[tuple]:
+        """(ts, sensor, severity, source) in time order: the timeline's input, nothing else."""
+        rows = self._conn.execute("SELECT ts, sensor, severity, source FROM sec_events WHERE desk_id=? AND ts>=? AND ts<=? "
+                                  "ORDER BY ts, id LIMIT ?", (desk_id, float(since), float(until), max(1, int(limit)))).fetchall()
+        return [tuple(r) for r in rows]
+
+    def sec_sensors(self, desk_id: int) -> list[dict[str, Any]]:
+        rows = _rows(self._conn.execute(
+            "SELECT sensor, source, COUNT(*) AS events, MIN(ts) AS first_ts, MAX(ts) AS last_ts FROM sec_events "
+            "WHERE desk_id=? GROUP BY sensor, source ORDER BY MIN(ts), sensor, source", (desk_id,)))
+        return [{"sensor": r["sensor"] or "", "source": r["source"] or "", "events": int(r["events"] or 0),
+                 "first_ts": r["first_ts"], "last_ts": r["last_ts"]} for r in rows]
+
+    def sec_events_by_ids(self, desk_id: int, ids: list[int], *, with_raw: bool = False) -> list[dict[str, Any]]:
+        """Rows of THIS desk only, in (ts, id) order: an id from another desk simply is not there."""
+        ids = _as_ids(ids)
+        if not ids:
+            return []
+        return self.sec_events(desk_id, ids=ids, order="asc", limit=len(ids), with_raw=with_raw)
+
+    def mark_sec_events(self, desk_id: int, ids: list[int], run_id: str) -> None:
+        chunks = [c for c in _id_chunks(ids) if c]
+        if not chunks:
+            return
+        with self._lock:
+            for chunk in chunks:
+                self._conn.execute(f"UPDATE sec_events SET triggered=1, run_id=? WHERE desk_id=? AND id IN ({','.join('?' * len(chunk))})",
+                                   [str(run_id or ""), desk_id, *chunk])
+            self._conn.commit()
+
+    def sec_detection(self, desk_id: int, det_id: str) -> dict[str, Any] | None:
+        rows = _rows(self._conn.execute("SELECT * FROM sec_detections WHERE desk_id=? AND det_id=? ORDER BY id LIMIT 1",
+                                        (desk_id, str(det_id))))
+        return _det_row(rows[0]) if rows else None
+
+    def upsert_sec_detection(self, desk_id: int, det: dict[str, Any]) -> tuple[dict[str, Any], bool, bool]:
+        """Insert or update one detection (key: desk + det id). Returns (row, is_new, escalated). run_id and created
+        are never touched by an update: a detection that already started a run keeps it."""
+        det_id = str(det.get("id") or "").strip()[:512]
+        if not det_id:
+            raise ValueError("detection has no id")
+        sev = det.get("severity") if det.get("severity") in SEVERITIES else "low"
+        vals: dict[str, Any] = {"rule": _clip(det.get("rule"), 40), "severity": sev, "title": _clip(det.get("title"), 200),
+                                "first_ts": _num(det.get("first_ts")), "last_ts": _num(det.get("last_ts")),
+                                "evidence_total": int(_num(det.get("evidence_total")) or 0)}
+        for k, empty in _DET_JSON.items():
+            v = det.get(k)
+            vals[k] = json.dumps(v if isinstance(v, type(empty)) else empty, separators=(",", ":"), default=str)
+        now = time.time()
+        with self._lock:
+            row = self._conn.execute("SELECT id, severity FROM sec_detections WHERE desk_id=? AND det_id=? ORDER BY id LIMIT 1",
+                                     (desk_id, det_id)).fetchone()
+            if row is None:
+                cols = ["desk_id", "det_id", *vals, "run_id", "created", "updated"]
+                cur = self._conn.execute(f"INSERT INTO sec_detections({','.join(cols)}) VALUES({','.join('?' * len(cols))})",
+                                         [desk_id, det_id, *vals.values(), "", now, now])
+                rid, is_new, escalated = int(cur.lastrowid), True, False
+            else:
+                rid, old = int(row[0]), row[1]
+                self._conn.execute(f"UPDATE sec_detections SET {','.join(k + '=?' for k in vals)}, updated=? WHERE id=?",
+                                   [*vals.values(), now, rid])
+                is_new = False
+                escalated = SEVERITIES.index(sev) > (SEVERITIES.index(old) if old in SEVERITIES else 0)
+            self._conn.commit()
+        return _det_row(_rows(self._conn.execute("SELECT * FROM sec_detections WHERE id=?", (rid,)))[0]), is_new, escalated
+
+    def sec_detections(self, desk_id: int, *, since: float | None = None, until: float | None = None, min_severity: str = "",
+                       rule: str = "", pending_only: bool = False, limit: int = 100) -> list[dict[str, Any]]:
+        """Detections overlapping [since, until], most severe first, then the biggest, then the newest."""
+        w, a = ["desk_id=?"], [desk_id]
+        if since is not None:
+            w.append("last_ts>=?"); a.append(float(since))
+        if until is not None:
+            w.append("first_ts<=?"); a.append(float(until))
+        if min_severity in SEVERITIES:
+            sevs = SEVERITIES[SEVERITIES.index(min_severity):]
+            w.append(f"severity IN ({','.join('?' * len(sevs))})"); a.extend(sevs)
+        if rule:
+            w.append("rule=?"); a.append(str(rule))
+        if pending_only:
+            w.append("run_id=''")
+        rows = _rows(self._conn.execute(
+            f"SELECT * FROM sec_detections WHERE {' AND '.join(w)} ORDER BY {_SEV_ORDER} DESC, evidence_total DESC, "
+            "last_ts DESC, det_id LIMIT ?", a + [max(1, min(int(limit or 100), 5000))]))
+        return [_det_row(r) for r in rows]
+
+    def set_sec_detection_run(self, desk_id: int, det_ids: list[str], run_id: str) -> None:
+        ids = list(dict.fromkeys(str(d) for d in det_ids or [] if str(d or "").strip()))
+        if not ids:
+            return
+        with self._lock:
+            for i in range(0, len(ids), _ID_CHUNK):
+                chunk = ids[i:i + _ID_CHUNK]
+                self._conn.execute(f"UPDATE sec_detections SET run_id=? WHERE desk_id=? AND det_id IN ({','.join('?' * len(chunk))})",
+                                   [str(run_id or ""), desk_id, *chunk])
+            self._conn.commit()
+
     # ------------------------------------------------------------------ jobs (automations)
     def add_job(self, desk_id: int, kind: str, name: str, task: str, every_min: int = 0, next_run: float | None = None) -> dict[str, Any]:
         with self._lock:
@@ -501,7 +834,7 @@ class Store:
             run_ids = [r[0] for r in self._conn.execute("SELECT id FROM runs WHERE desk_id=?", (desk_id,)).fetchall()]
             for rid in run_ids:
                 self._conn.execute("DELETE FROM events WHERE run_id=?", (rid,))
-            for t in ("runs", "actions", "leads", "contacts", "jobs", "memories", "vision_events"):
+            for t in ("runs", "actions", "leads", "contacts", "jobs", "memories", "vision_events", "sec_events", "sec_detections"):
                 self._conn.execute(f"DELETE FROM {t} WHERE desk_id=?", (desk_id,))
             self._conn.commit()
 
@@ -790,3 +1123,17 @@ class DeskStore:
     def add_object_note(self, object_id, kind, text, question="", crop=""): return self.s.add_object_note(object_id, self.desk_id, kind, text, question, crop)
     def object_notes(self, object_id, limit=100): return self.s.object_notes(object_id, limit)
     def vision_stats(self, since): return self.s.vision_stats(self.desk_id, since)
+    # security log
+    def add_sec_events(self, events, origin=""): return self.s.add_sec_events(self.desk_id, events, origin)
+    def add_sec_event(self, event, origin=""): return self.s.add_sec_event(self.desk_id, event, origin)
+    def sec_events(self, **k): return self.s.sec_events(self.desk_id, **k)
+    def sec_event_stats(self, **k): return self.s.sec_event_stats(self.desk_id, **k)
+    def sec_event_counts(self, field, **k): return self.s.sec_event_counts(self.desk_id, field, **k)
+    def sec_event_points(self, since, until, **k): return self.s.sec_event_points(self.desk_id, since, until, **k)
+    def sec_sensors(self): return self.s.sec_sensors(self.desk_id)
+    def sec_events_by_ids(self, ids, **k): return self.s.sec_events_by_ids(self.desk_id, ids, **k)
+    def mark_sec_events(self, ids, run_id): return self.s.mark_sec_events(self.desk_id, ids, run_id)
+    def sec_detection(self, det_id): return self.s.sec_detection(self.desk_id, det_id)
+    def upsert_sec_detection(self, det): return self.s.upsert_sec_detection(self.desk_id, det)
+    def sec_detections(self, **k): return self.s.sec_detections(self.desk_id, **k)
+    def set_sec_detection_run(self, det_ids, run_id): return self.s.set_sec_detection_run(self.desk_id, det_ids, run_id)

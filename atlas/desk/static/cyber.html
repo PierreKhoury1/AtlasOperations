@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Atlas · Cyber desk</title>
+<link rel="stylesheet" href="fonts/plex.css">
+<link rel="stylesheet" href="cyber.css">
+</head>
+<!-- Static markup only. cyber.js fills every data field with textContent. -->
+<body>
+<header id="hdr">
+  <div class="brand"><span class="wordmark">ATLAS</span><span class="micro">CYBER DESK</span></div>
+  <i class="vsep"></i>
+  <div class="hdr-desk">
+    <span id="desk-name"></span>
+    <span id="mode" class="badge"><i class="dot"></i><span id="mode-text"></span></span>
+    <span id="replay-label"></span>
+  </div>
+  <div id="rec-wrap" class="hdr-rec" hidden>
+    <span class="rec"><i class="recdot"></i>REC <span id="rec-name"></span></span>
+    <span id="rec-state" class="mono"></span>
+    <button id="rec-save" class="btn ghost small" type="button">Save recording</button>
+  </div>
+  <div class="hdr-right">
+    <div class="clock"><span class="micro">EVENT TIME (UTC)</span><span id="clock">—</span></div>
+    <i class="vsep"></i>
+    <div class="counters">
+      <span class="micro">EVENTS</span><span id="c-events" class="num">0</span><span class="micro dot-sep">·</span>
+      <span class="micro">HIGH+</span><span id="c-high" class="num">0</span><span class="micro dot-sep">·</span>
+      <span class="micro">DETECTIONS</span><span id="c-dets" class="num">0</span>
+    </div>
+  </div>
+</header>
+
+<main id="stage">
+  <section id="tl" class="panel">
+    <div class="phead">
+      <span class="micro strong">TIMELINE · ORIGINAL EVENT TIME (UTC)</span>
+      <span id="tl-window" class="micro meta"></span>
+      <span class="legend micro">
+        <span><i class="sw sw-ev"></i>EVENTS</span>
+        <span><i class="sw sw-hi"></i>HIGH+</span>
+        <span><i class="sw sw-tick"></i>HIGH+ EVENT</span>
+        <span><i class="sw sw-span"></i>DETECTION</span>
+        <span><i class="sw sw-cur"></i>NEWEST EVENT</span>
+      </span>
+    </div>
+    <div class="pbody">
+      <svg id="tl-svg" role="img" aria-label="Events per sensor over original event time"></svg>
+      <p id="tl-empty" class="empty" hidden>No events in this window yet.</p>
+    </div>
+  </section>
+
+  <div id="bottom">
+    <section id="gr" class="panel">
+      <div class="phead">
+        <span class="micro strong">ENTITY GRAPH</span>
+        <span id="gr-count" class="micro meta"></span>
+      </div>
+      <div class="pbody">
+        <svg id="gr-svg" role="img" aria-label="Addresses, hosts, users, signatures and cameras linked by evidence"></svg>
+        <p id="gr-empty" class="empty" hidden>No entities in this window yet.</p>
+      </div>
+      <div class="legend gl micro">
+        <span><svg viewBox="0 0 12 12"><circle cx="6" cy="6" r="4.5" class="lg-threat"/></svg>THREAT SOURCE</span>
+        <span><svg viewBox="0 0 12 12"><circle cx="6" cy="6" r="4.5" class="lg-internal"/></svg>INTERNAL</span>
+        <span><svg viewBox="0 0 12 12"><circle cx="6" cy="6" r="4.5" class="lg-ext"/></svg>EXTERNAL</span>
+        <span><svg viewBox="0 0 12 12"><path d="M6 1 11 6 6 11 1 6Z" class="lg-sig"/></svg>SIGNATURE</span>
+        <span><svg viewBox="0 0 12 12"><rect x="1.5" y="1.5" width="9" height="9" rx="1" class="lg-cam"/></svg>CAMERA</span>
+        <span><svg viewBox="0 0 18 12"><line x1="1" y1="6" x2="17" y2="6" class="lg-hi"/></svg>HIGH+ EVIDENCE</span>
+        <span><svg viewBox="0 0 18 12"><line x1="1" y1="6" x2="17" y2="6" class="lg-site"/></svg>SITE MAP</span>
+      </div>
+    </section>
+
+    <section id="inc" class="panel">
+      <div class="phead">
+        <span class="micro strong">INCIDENT</span>
+        <span id="inc-status" class="status" hidden></span>
+        <span id="inc-run" class="micro meta"></span>
+      </div>
+      <div class="pbody">
+        <div id="inc-wrap" hidden>
+          <h2 id="inc-title"></h2>
+          <div id="inc-meta" class="micro"></div>
+          <div id="inc-body"></div>
+          <div id="inc-activity"></div>
+          <div id="inc-verified"></div>
+        </div>
+        <div id="inc-empty" class="empty-block" hidden>
+          <p class="e1">No incident run yet.</p>
+          <p class="e2">A run starts when a detection reaches the trigger level.</p>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <aside id="rail">
+    <div id="cards"></div>
+    <section id="dets" class="panel">
+      <div class="phead">
+        <span class="micro strong">DETECTIONS</span>
+        <span id="d-sum" class="micro meta"></span>
+      </div>
+      <ol id="d-list"></ol>
+      <p id="d-empty" class="empty" hidden>No detections in this window.</p>
+      <p id="d-trigger" class="trigger" hidden></p>
+    </section>
+    <footer id="rail-foot">
+      <p class="strongline">Containment runs only after a person approves it.</p>
+      <p id="f-other" hidden></p>
+      <p id="f-nvd"></p>
+      <p id="f-dbip" hidden></p>
+      <p id="f-credit" hidden></p>
+    </footer>
+  </aside>
+</main>
+
+<div id="overlay" hidden><div class="ov-box"><p class="micro">CYBER DESK</p><p id="ov-text"></p><p><a href="/desk">Open the desk</a></p></div></div>
+<div id="tip" hidden></div>
+<div id="flash" hidden></div>
+
+<template id="tpl-card">
+  <article class="card">
+    <div class="card-head"><span class="micro state"></span><span class="micro card-id"></span></div>
+    <p class="card-q"></p>
+    <p class="card-why"></p>
+    <div class="card-ev"></div>
+    <div class="card-policy"></div>
+    <div class="card-conn"></div>
+    <div class="card-btns"><button class="btn approve" type="button"></button><button class="btn ghost reject" type="button"></button></div>
+    <div class="card-log"></div>
+    <div class="card-result"></div>
+  </article>
+</template>
+
+<template id="tpl-none">
+  <div class="card none"><span class="micro"></span></div>
+</template>
+
+<template id="tpl-det">
+  <li class="det"><span class="sev"></span><div class="det-main"><div class="det-title"></div><div class="det-meta"></div></div></li>
+</template>
+
+<script src="cyber.js"></script>
+</body>
+</html>

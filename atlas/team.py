@@ -32,7 +32,8 @@ LEAD_TOOLS = ["delegate", "list_agents", "save_deliverable", "read_file", "list_
 # tools a designed specialist may hold (approvals still gate outbound ones). delegate/list_agents are granted to leads only.
 ALLOWED_TOOLS = ["read_file", "list_files", "web_fetch", "run_python", "save_deliverable", "browse", "crm_lookup",
                  "crm_update", "queue_action", "camera_look", "camera_events", "camera_ask", "video_describe",
-                 "remember", "recall", "http_request", "calendar_free_slots", "calendar_book", "generate_media", "mcp"]
+                 "remember", "recall", "http_request", "calendar_free_slots", "calendar_book", "generate_media", "mcp",
+                 "log_search", "enrich", "correlate"]
 NEVER_TOOLS = {"finish", "assemble_team"}
 
 PALETTE = ["#7c3aed", "#db2777", "#1f9d63", "#b45309", "#0e7490", "#6d28d9", "#ea580c", "#15803d", "#a21caf", "#0369a1"]

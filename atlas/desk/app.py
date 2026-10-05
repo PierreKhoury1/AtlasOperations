@@ -17,12 +17,17 @@ import json
 import queue
 import os
 import base64
+import ipaddress
+import itertools
+import mimetypes
 import re
 import secrets
 import threading
 import time
+from collections import OrderedDict
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlencode
 
 from flask import Flask, Response, abort, jsonify, redirect, request, send_file, send_from_directory, session, stream_with_context
 from werkzeug.security import check_password_hash, generate_password_hash
@@ -44,6 +49,7 @@ ROOT = cfg.ROOT
 SITE_DIR = ROOT / "site"
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 DB_PATH = cfg.DATA_DIR / "desk.db"
+mimetypes.add_type("font/woff2", ".woff2")           # the cyber page's local IBM Plex fonts (Windows maps it oddly)
 
 app = Flask(__name__, static_folder=None)
 # DATABASE_URL (postgres://...) makes accounts, desks and approvals survive deploys; without it SQLite in DATA_DIR.
@@ -196,6 +202,13 @@ def desk_configs(desk: dict[str, Any]) -> dict[str, Any]:
             a["tools"] = list(dict.fromkeys(list(a.get("tools", [])) + ["assemble_team", "video_describe"]))
         if "camera_events" in a.get("tools", []) and "camera_ask" not in a["tools"]:   # desks built before the RAG tool existed
             a["tools"] = list(a["tools"]) + ["camera_ask"]
+    deny = set(business.get("deny_tools") or [])     # e.g. a security desk: log text is attacker-controlled, so no code,
+    if deny:                                          # browser, raw HTTP or MCP tools, whatever a stored roster says
+        for a in agents:
+            a["tools"] = [t for t in a.get("tools", []) if t not in deny]
+            a["granted_tools"] = [t for t in a.get("granted_tools", []) if t not in deny]
+    no_hermes = bool(business.get("no_hermes_engine"))
+    hermes_off = "Hermes Agent runtime is off on this desk (security desk: no shell or browser tools)"
     hconn = next((c for c in _conns if c["kind"] == "hermes_agent"), None)
     if hconn:
         hcfg = hconn["config"]
@@ -210,6 +223,13 @@ def desk_configs(desk: dict[str, Any]) -> dict[str, Any]:
     lead_hermes = mode != "demo" and (lead_ov.get("engine") == "hermes_agent"
                                       or os.environ.get("DESK_LEAD_ENGINE", "").strip().lower() == "hermes_agent")
     for a in agents:
+        if no_hermes:                                  # the Hermes runtime brings its own shell/browser tools: never here
+            if (a["id"] == "atlas" and lead_hermes) or (a["id"] != "atlas" and (
+                    a.get("engine") == "hermes_agent" or (default_hermes and a.get("engine") != "atlas"))):
+                a["engine_note"] = hermes_off
+            if a.get("engine") == "hermes_agent":
+                a["engine"] = "atlas"
+            continue
         if a["id"] == "atlas":
             if lead_hermes and hcfg:
                 tier_cfg = templates.TIERS.get(desk.get("tier") or "free", templates.TIERS["free"])
@@ -241,7 +261,7 @@ def desk_configs(desk: dict[str, Any]) -> dict[str, Any]:
         a["provider"], a["model"], a["tools"], a["engine"] = pname, hmodel, [], "hermes_agent"
     return {"providers": providers, "orchestration": cfg.load("orchestration", cfg.DEFAULT_ORCHESTRATION),
             "business": business, "agents": agents, "workflows": workflows, "ui": {}, "mode": mode,
-            "desk_id": desk["id"]}
+            "desk_id": desk["id"], "cyber": (desk.get("config") or {}).get("cyber") or {}}
 
 
 def ensure_demo_desk() -> dict[str, Any]:
@@ -505,7 +525,8 @@ def _desk_public(d: dict[str, Any]) -> dict[str, Any]:
 # tools a specialist may be given from the Team page. Everything else in ORCHESTRATOR_ONLY stays with Atlas;
 # finish / assemble_team are never assignable. Approvals still gate every outbound tool.
 SPECIALIST_OK = {"crm_lookup", "crm_update", "queue_action", "camera_look", "camera_events", "camera_ask", "remember", "recall",
-                 "browse", "http_request", "calendar_free_slots", "calendar_book", "generate_media", "video_describe"}
+                 "browse", "http_request", "calendar_free_slots", "calendar_book", "generate_media", "video_describe",
+                 "log_search", "enrich", "correlate"}
 NEVER_ASSIGN = {"finish", "assemble_team"}
 _COLOURS = ["#7c3aed", "#1f9d63", "#db2777", "#ea580c", "#b45309", "#0891b2"]
 
@@ -693,7 +714,9 @@ def _team_context(desk: dict[str, Any]) -> tuple[dict[str, Any], list[str], bool
     cams = [c["name"] for c in conns if c["kind"] == "camera"]
     cams += [h["name"] for h in store.hook_cameras(desk["id"], time.time() - 7 * 86400, tuple(cams)) if h.get("name")]
     hermes = configs["mode"] != "demo" and (any(c["kind"] == "hermes_agent" for c in conns) or bool(os.environ.get("HERMES_AGENT_URL", "").strip()))
-    allowed = list(TM.ALLOWED_TOOLS)          # camera tools stay designable before a camera is added (the owner adds one later)
+    hermes = hermes and not configs["business"].get("no_hermes_engine")
+    deny = set(configs["business"].get("deny_tools") or [])
+    allowed = [t for t in TM.ALLOWED_TOOLS if t not in deny]   # camera tools stay designable before a camera is added
     return configs, cams, hermes, allowed
 
 
@@ -1336,6 +1359,8 @@ def api_report():
 def _sample_leads(desk: dict[str, Any]) -> list[dict[str, str]]:
     """Template samples for the stock business; for a customised business ask the (cheap) model to invent
     three realistic enquiries so the demo matches what the client actually does."""
+    if desk.get("template") == "soc_desk":           # a security desk gets no invented leads: its input is real log data
+        return []
     stock = templates.SAMPLE_LEADS.get(desk["template"], templates.SAMPLE_LEADS["sales_desk"])
     c = desk_configs(desk)
     b = c["business"]
@@ -1383,6 +1408,13 @@ def api_reset():
     desk = need_desk()
     if any(r["desk_id"] == desk["id"] and r["thread"].is_alive() for r in _runs.values()):
         return jsonify({"error": "runs in progress"}), 409
+    for j in store.jobs(desk["id"]):                   # the reset deletes the jobs: close any open replay reader
+        scheduler._REPLAYS.pop(j["id"], None)
+    scheduler.cyber_forget(desk["id"])                 # a fresh take: no leftover trigger queue or run cooldown
+    with _GRAPH_MEMO_LOCK:
+        for memo in (_GRAPH_MEMO, _GRAPH_RECENT):
+            for k in [k for k in memo if k[0] == desk["id"]]:
+                memo.pop(k, None)
     store.for_desk(desk["id"]).reset()
     for rid in [k for k, v in _runs.items() if v["desk_id"] == desk["id"]]:
         _runs.pop(rid, None)
@@ -1393,6 +1425,46 @@ def _dispatch(desk: dict[str, Any], row: dict[str, Any]) -> str:
     """Perform an approved action for real when a connector exists; otherwise simulate and say so."""
     dstore = store.for_desk(desk["id"])
     kind = row["kind"]
+    if kind == "containment":
+        from .. import cyber as CY
+        from .. import policy as P
+        try:
+            stored = json.loads(row["body"] or "{}")
+        except ValueError:
+            raise RuntimeError("containment body is not valid JSON")
+        if not isinstance(stored, dict):
+            raise RuntimeError("containment body is not valid JSON")
+        spec, errs = CY.containment_spec(stored)
+        v = errs + P.check_containment(spec["targets"], spec["evidence"], dstore.sec_events_by_ids(spec["evidence"]))
+        if v:                                    # an edited body cannot add a target the evidence does not show
+            raise RuntimeError("containment refused at dispatch: " + "; ".join(v))
+        plan = ", ".join(f"{t['action']} {t['value']}" for t in spec["targets"])
+        name = spec["connector"]
+        conn = dstore.connector_by_name(name) if name else None
+        if not conn:
+            why = f"no connector named {name!r}" if name else "no connector named in the action"
+            return f"[simulated containment — {why}; nothing was blocked: {plan}]"
+        if conn["kind"] != "http":
+            return f"[simulated containment — connector {conn['name']} is {conn['kind']}, not HTTP; nothing was blocked: {plan}]"
+        if conn.get("auto"):
+            return (f"[simulated containment — connector {conn['name']} allows writes without approval, so it is not used "
+                    f"for containment; nothing was blocked: {plan}]")
+        path = str(conn["config"].get("containment_path") or "/contain")
+        results, failed = [], False
+        for t in spec["targets"]:
+            body = {"action": t["action"], "kind": t["kind"], "value": t["value"], "evidence": spec["evidence"],
+                    "approval_id": row["id"]}
+            try:
+                res = I.http_call(conn["config"], "POST", path, None, body, timeout=15)
+                results.append(f"{t['action']} {t['value']} → HTTP {res['status']}")
+                failed = failed or res["status"] >= 400
+            except Exception as exc:
+                results.append(f"{t['action']} {t['value']} → {type(exc).__name__}: {str(exc)[:80]}")
+                failed = True
+        summary = f"containment via {conn['name']}: " + "; ".join(results)
+        if failed:
+            raise RuntimeError(summary)          # api_decide marks the action "failed" with this note
+        return f"[{summary}]"
     if kind in I.CHANNELS:
         conn = I.outbound_connector(dstore.connectors(), kind)
         if not conn:
@@ -1524,7 +1596,19 @@ JOB_KINDS = {
     "followups": "Chase contacts stuck at Contacted for N days",
     "http_poll": "Poll an HTTP API and hand the result to the desk",
     "camera_watch": "Watch the cameras — detect, log, wake the desk when a rule fires",
+    "log_replay": "Replay a log file at N× speed (original timestamps kept)",
+    "log_watch": "Watch a log file and feed new lines to the desk",
 }
+
+
+def _log_job_spec(kind: str, raw: Any) -> tuple[dict[str, Any], str]:
+    """A log_replay / log_watch task: a dict or a JSON string, validated (paths, formats, limits)."""
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw or "{}")
+        except ValueError:
+            return {}, "task must be a JSON object"
+    return scheduler.validate_log_spec(kind, raw if isinstance(raw, dict) else None)
 
 
 @app.get("/api/jobs")
@@ -1542,6 +1626,13 @@ def api_add_job():
     delay = int(d.get("in_min") or 0)
     nxt = time.time() + (delay * 60 if delay else (every * 60 if every and not d.get("run_now") else 0))
     task = d.get("task") or ""
+    if kind in scheduler.LOG_JOB_KINDS:                 # runs every tick until done; validated before it is stored
+        spec, err = _log_job_spec(kind, task)
+        if err:
+            return jsonify({"error": err}), 400
+        j = store.add_job(desk["id"], kind, d.get("name") or JOB_KINDS[kind], json.dumps(spec), 0,
+                          time.time() + (delay * 60 if delay else 0))
+        return jsonify(j)
     if kind == "followups" and not task:
         task = json.dumps({"days": int(d.get("days") or 3)})
     if kind in ("http_poll", "camera_watch") and isinstance(task, dict):
@@ -1558,6 +1649,14 @@ def api_update_job(jid):
         abort(404)
     d = request.get_json(force=True) or {}
     fields = {k: d[k] for k in ("name", "task", "every_min") if k in d}
+    if j["kind"] in scheduler.LOG_JOB_KINDS:
+        fields.pop("every_min", None)
+        if "task" in d:                                # an edited replay/watch is re-validated and starts over
+            spec, err = _log_job_spec(j["kind"], d["task"])
+            if err:
+                return jsonify({"error": err}), 400
+            fields["task"] = json.dumps(spec)
+            scheduler._REPLAYS.pop(jid, None)
     if "enabled" in d:
         fields["enabled"] = 1 if d["enabled"] else 0
         if d["enabled"] and not j.get("next_run"):
@@ -1583,6 +1682,7 @@ def api_delete_job(jid):
     if not j or j["desk_id"] != desk["id"]:
         abort(404)
     store.delete_job(jid)
+    scheduler._REPLAYS.pop(jid, None)                   # close a replay's open files
     return jsonify({"ok": True})
 
 
@@ -2360,7 +2460,8 @@ def api_vision_ask():
 @app.route("/hook/<token>/vision", methods=["GET", "POST"])
 def hook_vision(token):
     """External detectors post here: ESP32-CAM / PIR nodes, Frigate, NVR alarm outputs, Home Assistant.
-    JSON {camera, labels: {"person": 2} | ["person","person"], note, image (base64 JPEG, optional), trigger (default true)}."""
+    JSON {camera, labels: {"person": 2} | ["person","person"], note, image (base64 JPEG, optional), trigger (default true),
+    ts (optional: when it happened, epoch seconds or ISO 8601; an unreadable value means arrival time)}."""
     desk = store.desk_by_token(token)
     if not desk:
         abort(404)
@@ -2397,18 +2498,789 @@ def hook_vision(token):
             snap = ""
     trigger = str(d.get("trigger", "1")).lower() not in ("0", "false", "no")
     backend = "".join(ch for ch in str(d.get("backend") or "external")[:32] if ch.isalnum() or ch in "/-_.") or "external"
+    ts = None
+    if d.get("ts") not in (None, ""):                 # a forwarded or replayed event keeps the time it happened
+        from .. import cyber as CY
+        ts = CY.parse_time(d.get("ts"))
     dstore = store.for_desk(desk["id"])
     ev = dstore.add_vision_event(camera, counts, motion=float(d.get("motion") or 0), backend=backend,
-                                 reason=note or "external event", snapshot=snap, triggered=trigger, source="hook")
+                                 reason=note or "external event", snapshot=snap, triggered=trigger, source="hook", ts=ts)
     rid = ""
     if trigger:
+        when = time.strftime("%A %d %B %H:%M", time.localtime(ts) if ts is not None else time.localtime())
         task = ("Assess this sensor/camera event, log it, and tell the right person only if it matters.\n\n"
-                f"EXTERNAL EVENT — {camera} at {time.strftime('%A %d %B %H:%M')}\n"
+                f"EXTERNAL EVENT — {camera} at {when}\n"
                 f"Reported: {V.counts_text(counts) if counts else 'no object counts'}" + (f"; note: {note}" if note else "") + "\n"
                 f"Event id: {ev['id']}." + (" Snapshot attached." if snap else "") + " Use camera_events for history; camera_look works only for cameras the desk can reach itself.")
         rid = _start_run(desk, task, "auto")
         dstore.set_vision_run(ev["id"], rid)
     return jsonify({"ok": True, "event_id": ev["id"], "run_id": rid})
+
+
+# ---------------------------------------------------------------------------- security desk (cyber)
+# Log lines come in through the logs hook, uploads and the log_replay / log_watch jobs (scheduler.cyber_*), are parsed
+# and checked by deterministic rules (atlas/cyber.py), and runs only PROPOSE containment: a person approves it, then
+# _dispatch carries it out through a named HTTP connector or records a simulated action. Every log-derived string is
+# attacker-controlled data: these routes return it only as JSON fields and the page renders it as text.
+HOOK_LOGS_MAX_BYTES = 2 * 1024 * 1024
+HOOK_LOGS_MAX_ITEMS = 5000
+UPLOAD_MAX_LINES = 500_000
+UPLOAD_MAX_TEXT_BYTES = 1024 * 1024 * 1024           # decompressed: a small .gz cannot expand without bound
+UPLOAD_LINE_MAX = 64 * 1024
+try:                                                 # a long film take (a 60x replay, then the run) passes 20 MB
+    CYBER_REC_MAX_BYTES = int(max(1.0, float(os.environ.get("CYBER_REC_MAX_MB") or 20)) * 1024 * 1024)
+except ValueError:
+    CYBER_REC_MAX_BYTES = 20 * 1024 * 1024
+_REC_NAME = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
+_GRAPH_MEMO: "OrderedDict[tuple, dict[str, Any]]" = OrderedDict()   # exact: same query, same data
+_GRAPH_RECENT: "OrderedDict[tuple, tuple[float, dict[str, Any]]]" = OrderedDict()   # same query, data still arriving
+_GRAPH_MEMO_LOCK = threading.Lock()
+# while a replay or a busy hook keeps adding events, one query's graph is rebuilt at most this often (a rebuild over
+# ~140k events costs about 2 s of CPU); the answer is always a real graph of the events it reports in `window`
+CYBER_GRAPH_MIN_S = float(os.environ.get("CYBER_GRAPH_MIN_S", "10"))
+
+
+def _cy_err(msg: str, code: int = 400):
+    return jsonify({"error": msg}), code
+
+
+def _cyber_conf(desk: dict[str, Any]) -> dict[str, Any]:
+    return (desk.get("config") or {}).get("cyber") or {}
+
+
+def _upload_max_bytes() -> int:
+    try:
+        mb = float(os.environ.get("CYBER_UPLOAD_MAX_MB", "50") or 50)
+    except ValueError:
+        mb = 50.0
+    return int(mb * 1024 * 1024)
+
+
+def _desk_modes(desk: dict[str, Any]) -> set[str]:
+    wfs = (desk.get("config") or {}).get("workflows") or templates.get(desk.get("template") or DEFAULT_TEMPLATE)["workflows"]
+    return {"auto"} | {str(w.get("id")) for w in wfs or [] if isinstance(w, dict)}
+
+
+def _ip_or_text(v: Any, limit: int = 200) -> str:
+    """Stored addresses are in compressed form (2001:db8::1): a typed IP is normalised the same way."""
+    s = str(v or "").strip()[:limit]
+    try:
+        return ipaddress.ip_address(s).compressed
+    except ValueError:
+        return s
+
+
+def _cy_time(args, key: str) -> float | None:
+    from .. import cyber as CY
+    raw = args.get(key)
+    if raw is None or str(raw).strip() == "":
+        return None
+    t = CY.parse_time(raw)
+    if t is None:
+        raise ValueError(f"{key} must be an ISO time or epoch seconds")
+    return t
+
+
+def _cy_filters(args) -> dict[str, Any]:
+    """Query-string filters for /api/cyber/events -> DeskStore.sec_events keyword arguments."""
+    from .. import cyber as CY
+    f: dict[str, Any] = {}
+    for k in ("since", "until"):
+        t = _cy_time(args, k)
+        if t is not None:
+            f[k] = t
+    if args.get("after_id"):
+        try:
+            f["after_id"] = max(0, int(args.get("after_id")))
+        except ValueError:
+            raise ValueError("after_id must be a number")
+    if args.get("ids"):
+        try:
+            ids = [int(x) for x in str(args.get("ids")).split(",") if x.strip()]
+        except ValueError:
+            raise ValueError("ids must be a comma list of event ids")
+        if len(ids) > 200:
+            raise ValueError("at most 200 ids")
+        f["ids"] = ids
+    for k in ("sensor", "source", "sig"):
+        v = str(args.get(k) or "").strip()[:200]
+        if v:
+            f[k] = v
+    if args.get("user"):
+        f["user"] = str(args.get("user"))[:128]           # exactly as logged
+    for k in ("src", "dst", "ip"):
+        v = _ip_or_text(args.get(k))
+        if v:
+            f[k] = v
+    kinds = [k.strip() for k in str(args.get("kind") or "").split(",") if k.strip()]
+    if kinds:
+        f["kind"] = kinds if len(kinds) > 1 else kinds[0]
+    sev = str(args.get("min_severity") or "").strip().lower()
+    if sev:
+        if sev not in CY.SEVERITIES:
+            raise ValueError(f"min_severity must be one of {', '.join(CY.SEVERITIES)}")
+        f["min_severity"] = sev
+    return f
+
+
+def _cy_options(d: dict[str, Any], desk: dict[str, Any], tmin_fallback: str) -> dict[str, Any]:
+    """Shared parse options + trigger options of the hook and the upload. Raises ValueError with the reason."""
+    from .. import cyber as CY
+    out: dict[str, Any] = {"sensor": CY.safe_text(d.get("sensor"), 60)}
+    year = d.get("year")
+    if year in (None, ""):
+        out["year"] = None
+    else:
+        try:
+            out["year"] = int(year)
+        except (TypeError, ValueError):
+            raise ValueError("year must be a number such as 2012")
+        if not 1970 <= out["year"] <= 2100:
+            raise ValueError("year must be between 1970 and 2100")
+    out["tz"] = str(d.get("tz") if d.get("tz") is not None else "UTC").strip()
+    out["zeek_path"] = str(d.get("zeek_path") or "").strip().lower()
+    if out["zeek_path"] not in ("", "notice", "ssh", "conn"):
+        raise ValueError("zeek_path must be notice, ssh or conn")
+    out["trigger"] = scheduler._flag(d.get("trigger"), True)
+    tmin = str(d.get("trigger_min") or "").strip().lower()
+    if tmin and tmin not in CY.SEVERITIES:
+        raise ValueError(f"trigger_min must be one of {', '.join(CY.SEVERITIES)}")
+    out["trigger_min"] = scheduler.cyber_trigger_min(tmin, desk, tmin_fallback)
+    out["mode"] = str(d.get("mode") or "").strip()
+    if out["mode"] and out["mode"] not in _desk_modes(desk):
+        raise ValueError(f"unknown mode '{out['mode'][:40]}' for this desk")
+    return out
+
+
+@app.route("/hook/<token>/logs", methods=["GET", "POST"])
+def hook_logs(token):
+    """Log shippers post here (token-addressed; rate limited like every /hook/ path, so send batches): raw lines in
+    one of the parsed formats, or structured events. At most 5,000 lines or events and 2 MB per POST.
+    JSON {fmt, sensor, lines: [...] | text, year, tz, zeek_path, trigger, trigger_min, mode} or {events: [...]};
+    any other content type is plain text lines with the options in the query string."""
+    desk = store.desk_by_token(token)
+    if not desk:
+        return _cy_err("unknown hook token", 404)
+    from .. import cyber as CY
+    if request.method == "GET":
+        return jsonify({"ok": True, "desk": desk["name"], "formats": list(CY.FORMATS),
+                        "post": "JSON {fmt, sensor, lines:[...]} | JSON {events:[...]} | text/plain lines with ?fmt=&sensor="})
+    if (request.content_length or 0) > HOOK_LOGS_MAX_BYTES:
+        return _cy_err("body too large: at most 2 MB per POST (send smaller batches)", 413)
+    request.max_content_length = HOOK_LOGS_MAX_BYTES      # also bounds a body sent without a Content-Length
+    if request.is_json:
+        d = request.get_json(silent=True)
+        if not isinstance(d, dict):
+            return _cy_err("body must be a JSON object")
+    else:
+        d = {k: request.args.get(k) for k in ("fmt", "sensor", "year", "tz", "zeek_path", "trigger", "trigger_min", "mode")
+             if request.args.get(k) is not None}
+        d["text"] = request.get_data(as_text=True)
+    try:
+        o = _cy_options(d, desk, "high")
+    except ValueError as exc:
+        return _cy_err(str(exc))
+    if d.get("events") is not None:
+        items = d["events"]
+        if not isinstance(items, list):
+            return _cy_err("events must be a list of objects")
+        if len(items) > HOOK_LOGS_MAX_ITEMS:
+            return _cy_err(f"too many events: at most {HOOK_LOGS_MAX_ITEMS:,} per POST (send smaller batches)", 413)
+        events = [e for e in (CY.normalize_event(x, sensor=o["sensor"] or "hook") for x in items) if e]
+        fmt, n_lines, parsed, skipped = "custom", len(items), len(events), len(items) - len(events)
+    else:
+        lines = d.get("lines")
+        if lines is None and isinstance(d.get("text"), str):
+            lines = d["text"].splitlines()
+        if not isinstance(lines, list):
+            return _cy_err("send lines (a list of strings), text, or events")
+        if len(lines) > HOOK_LOGS_MAX_ITEMS:
+            return _cy_err(f"too many lines: at most {HOOK_LOGS_MAX_ITEMS:,} per POST (send smaller batches)", 413)
+        if not all(isinstance(x, str) for x in lines):
+            return _cy_err("lines must be strings")
+        fmt = str(d.get("fmt") or "auto").strip().lower()
+        if fmt == "auto":
+            fmt, opts = CY.detect_format([x for x in lines if x.strip()][:50])
+            if not fmt:
+                return _cy_err(f"could not detect the log format: pass fmt ({', '.join(CY.FORMATS)})")
+            o["zeek_path"] = o["zeek_path"] or (opts or {}).get("zeek_path") or ""
+        elif fmt not in CY.FORMATS:
+            return _cy_err(f"unknown fmt '{fmt[:20]}': use auto or one of {', '.join(CY.FORMATS)}")
+        try:
+            events, st = CY.parse(fmt, lines, sensor=o["sensor"], year=o["year"], tz=o["tz"], zeek_path=o["zeek_path"])
+        except ValueError as exc:
+            return _cy_err(str(exc)[:200])
+        n_lines, parsed, skipped = st.get("lines", len(lines)), st.get("events", len(events)), st.get("skipped", 0)
+    res = scheduler.cyber_ingest(store, desk, events, "hook", _start_run, trigger=o["trigger"],
+                                 trigger_min=o["trigger_min"], mode=o["mode"])
+    return jsonify({"ok": True, "fmt": fmt, "sensor": o["sensor"] or (events[0]["sensor"] if events else ""),
+                    "lines": n_lines, "parsed": parsed, "skipped": skipped, "inserted": res["inserted"],
+                    "first_id": res["first_id"], "last_id": res["last_id"], "first_ts": res["first_ts"],
+                    "last_ts": res["last_ts"], "detect": res["detect"], "new": res["new"][:10], "run_id": res["run_id"]})
+
+
+def _upload_lines(path: Path, info: dict[str, Any]):
+    """Lines of an uploaded log, plain or gzip (by its magic bytes), bounded: UPLOAD_MAX_LINES lines and
+    UPLOAD_MAX_TEXT_BYTES decompressed; a line over 64 KB keeps its start. A bound or a damaged end of file stops the
+    read and is reported in `info` (the lines before it still count)."""
+    import gzip
+    import zlib
+    with open(path, "rb") as raw:
+        magic = raw.read(6)
+        raw.seek(0)
+        if magic.startswith(b"7z\xbc\xaf\x27\x1c") or magic.startswith(b"PK\x03\x04"):
+            raise ValueError("unpack the archive first")
+        fh = gzip.GzipFile(fileobj=raw) if magic[:2] == b"\x1f\x8b" else raw
+        total = n = 0
+        while True:
+            try:
+                line = fh.readline(UPLOAD_LINE_MAX)
+                total += len(line)
+                if len(line) >= UPLOAD_LINE_MAX and not line.endswith(b"\n"):
+                    while total <= UPLOAD_MAX_TEXT_BYTES:      # skip the rest of an overlong line
+                        more = fh.readline(UPLOAD_LINE_MAX)
+                        total += len(more)
+                        if not more or more.endswith(b"\n"):
+                            break
+            except (OSError, EOFError, zlib.error) as exc:
+                if not n:
+                    raise ValueError(f"cannot read the file ({type(exc).__name__}): is it a valid log or .gz?")
+                info["read_error"] = f"the file ends early or is damaged after line {n:,} ({type(exc).__name__})"
+                return
+            if not line:
+                return
+            if n >= UPLOAD_MAX_LINES or total > UPLOAD_MAX_TEXT_BYTES:
+                info["truncated"] = True
+                return
+            n += 1
+            yield line.decode("utf-8", "replace").rstrip("\r\n")
+
+
+@app.post("/api/cyber/upload")
+def api_cyber_upload():
+    """Multipart `file` (plain or .gz; unpack .7z/.zip first) + form fields fmt (auto), sensor, year, tz, zeek_path,
+    trigger (1), trigger_min (medium: an owner who uploads a file wants it assessed), mode. Parsed as a stream,
+    stored with origin upload:<name>, then one detection pass."""
+    desk = need_desk()
+    from .. import cyber as CY
+    cap = _upload_max_bytes()
+    if (request.content_length or 0) > cap:
+        return _cy_err(f"file too large: at most {cap / 1048576:g} MB (CYBER_UPLOAD_MAX_MB)", 413)
+    request.max_content_length = cap
+    f = request.files.get("file")
+    if not f or not f.filename:
+        return _cy_err("attach the log file as 'file'")
+    base = os.path.basename(str(f.filename).replace("\\", "/"))
+    name = re.sub(r"[^\w.\- ]+", "_", base).strip(" .")[-60:] or "upload.log"
+    if name.lower().endswith((".7z", ".zip")):
+        return _cy_err("unpack the archive first")
+    form = request.form.to_dict()
+    try:
+        o = _cy_options(form, desk, "medium")
+    except ValueError as exc:
+        return _cy_err(str(exc))
+    fmt = str(form.get("fmt") or "auto").strip().lower()
+    if fmt != "auto" and fmt not in CY.FORMATS:
+        return _cy_err(f"unknown fmt '{fmt[:20]}': use auto or one of {', '.join(CY.FORMATS)}")
+    updir = cfg.DATA_DIR / "cyber" / "uploads"
+    updir.mkdir(parents=True, exist_ok=True)
+    tmp = updir / f"{secrets.token_hex(8)}.upload"
+    origin = f"upload:{name}"
+    info: dict[str, Any] = {}
+    st: dict[str, Any] = {}
+    tot: dict[str, Any] = {"inserted": 0, "first_ts": None, "last_ts": None, "sensor": ""}
+    it = None
+    try:
+        f.save(str(tmp))
+        it = _upload_lines(tmp, info)
+        head: list[str] = []
+        try:
+            for line in it:
+                head.append(line)
+                if sum(1 for x in head if x.strip()) >= 50:
+                    break
+        except ValueError as exc:
+            return _cy_err(str(exc))
+        if fmt == "auto":
+            fmt, opts = CY.detect_format([x for x in head if x.strip()][:50], name)
+            if not fmt:
+                return _cy_err(f"could not detect the log format of {name}: choose fmt ({', '.join(CY.FORMATS)})")
+            o["zeek_path"] = o["zeek_path"] or (opts or {}).get("zeek_path") or ""
+
+        def flush(chunk: list[dict[str, Any]]) -> None:
+            r = scheduler.cyber_insert(store, desk, chunk, origin)
+            tot["inserted"] += r["inserted"]
+            for k, pick in (("first_ts", min), ("last_ts", max)):
+                if r[k] is not None:
+                    tot[k] = r[k] if tot[k] is None else pick(tot[k], r[k])
+            tot["sensor"] = tot["sensor"] or chunk[0].get("sensor", "")
+
+        chunk: list[dict[str, Any]] = []
+        try:
+            for ev in CY.iter_parse(fmt, itertools.chain(head, it), sensor=o["sensor"], year=o["year"], tz=o["tz"],
+                                    zeek_path=o["zeek_path"], stats=st):
+                chunk.append(ev)
+                if len(chunk) >= 5000:
+                    flush(chunk)
+                    chunk = []
+        except ValueError as exc:                  # a bad tz is refused before the first event
+            if not tot["inserted"] and not chunk:
+                return _cy_err(str(exc)[:200])
+            info["read_error"] = str(exc)[:200]
+        if chunk:
+            flush(chunk)
+    finally:
+        if it is not None:
+            it.close()
+        try:
+            tmp.unlink()
+        except OSError:
+            pass
+    det = scheduler.cyber_detect(store, desk, _start_run, trigger=o["trigger"], trigger_min=o["trigger_min"],
+                                 mode=o["mode"], force=True)
+    out = {"ok": True, "file": name, "fmt": fmt, "sensor": o["sensor"] or tot["sensor"], "lines": st.get("lines", 0),
+           "parsed": st.get("events", 0), "skipped": st.get("skipped", 0), "inserted": tot["inserted"],
+           "first_ts": tot["first_ts"], "last_ts": tot["last_ts"], "detections": det["detections"],
+           "new": det["new"][:50], "run_id": det["run_id"], "errors": list(st.get("errors") or [])[:5]}
+    if info.get("truncated"):
+        out["truncated"] = f"stopped after {UPLOAD_MAX_LINES:,} lines: split the file to load the rest"
+    if info.get("read_error"):
+        out["read_error"] = info["read_error"]
+    return jsonify(out)
+
+
+@app.get("/api/cyber/events")
+def api_cyber_events():
+    desk = need_desk()
+    a = request.args
+    try:
+        f = _cy_filters(a)
+        limit = max(1, min(int(a.get("limit") or 200), 5000))
+    except ValueError as exc:
+        return _cy_err(str(exc))
+    order = str(a.get("order") or ("id" if f.get("after_id") else "desc"))
+    if order not in ("asc", "desc", "id"):
+        return _cy_err("order must be asc, desc or id")
+    dstore = store.for_desk(desk["id"])
+    rows = dstore.sec_events(**f, order=order, limit=limit, with_raw=a.get("raw") == "1")
+    return jsonify({"events": rows, "stats": dstore.sec_event_stats(**f)})
+
+
+def _cy_window(dstore, since: float | None, until: float | None) -> tuple[float, float]:
+    """A missing end comes from the desk's log (first/last event); no events at all: the last hour."""
+    if since is None or until is None:
+        st = dstore.sec_event_stats()
+        if st["total"]:
+            since = st["first_ts"] if since is None else since
+            until = st["last_ts"] if until is None else until
+        else:
+            until = time.time() if until is None else until
+            since = until - 3600 if since is None else since
+    if until <= since:                                  # one event, or an empty range: keep a usable width
+        until = since + 60
+    return float(since), float(until)
+
+
+def _replay_jobs(desk_id: int, n: int = 3) -> list[dict[str, Any]]:
+    out = []
+    jobs = sorted((j for j in store.jobs(desk_id) if j["kind"] == "log_replay"), key=lambda j: j.get("created") or 0, reverse=True)
+    for j in jobs[:n]:
+        try:
+            spec = json.loads(j.get("task") or "{}")
+        except ValueError:
+            spec = {}
+        spec = spec if isinstance(spec, dict) else {}
+        st = spec.get("state") if isinstance(spec.get("state"), dict) else {}
+        out.append({"id": j["id"], "name": j["name"], "speed": spec.get("speed"), "enabled": bool(j.get("enabled")),
+                    "done": bool(st.get("done")), "inserted": int(st.get("inserted") or 0), "last_ts": st.get("last_ts"),
+                    "files": [Path(str(x.get("path") or "")).name for x in spec.get("files") or [] if isinstance(x, dict)]})
+    return out
+
+
+@app.get("/api/cyber/timeline")
+def api_cyber_timeline():
+    desk = need_desk()
+    from .. import cyber as CY
+    a = request.args
+    try:
+        since, until = _cy_time(a, "since"), _cy_time(a, "until")
+        bins = int(a.get("bins") or 120)
+    except ValueError as exc:
+        return _cy_err(str(exc))
+    dstore = store.for_desk(desk["id"])
+    since, until = _cy_window(dstore, since, until)
+    tl = CY.timeline(dstore.sec_event_points(since, until), since, until, bins)
+    year_assumed = False
+    for lane in tl["lanes"]:                            # a lane whose first event has no year: show times without one
+        first = dstore.sec_events(since=since, until=until, sensor=lane["sensor"], source=lane["source"], order="asc", limit=1)
+        if first and (first[0].get("attrs") or {}).get("year_assumed"):
+            year_assumed = True
+            break
+    hi = dstore.sec_events(since=since, until=until, min_severity="high", order="desc", limit=300)
+    hi.reverse()
+    marks = [{**CY.compact_event(e, msg_len=120), "ts": e["ts"]} for e in hi]
+    spans = [{"id": d["id"], "rule": d["rule"], "severity": d["severity"], "first_ts": d["first_ts"],
+              "last_ts": d["last_ts"], "title": d["title"]}
+             for d in dstore.sec_detections(since=since, until=until, min_severity="medium", limit=50)]
+    vev = [e for e in store.vision_events(desk["id"], "", since, "", 20000) if (e.get("ts") or 0) <= until]
+    cams = []
+    if vev:
+        ctl = CY.timeline([(e["ts"], e["camera"], "high" if e.get("triggered") else "info", "camera") for e in vev],
+                          since, until, tl["bins"])
+        for lane in ctl["lanes"]:
+            trig = sorted((e for e in vev if e["camera"] == lane["sensor"] and e.get("triggered")), key=lambda e: e["ts"])
+            cams.append({"camera": lane["sensor"], "total": lane["total"], "counts": lane["counts"], "alerts": lane["alerts"],
+                         "marks": [{"id": e["id"], "ts": e["ts"], "reason": (e.get("reason") or "")[:120]} for e in trig[-100:]]})
+    return jsonify({"since": tl["since"], "until": tl["until"], "bins": tl["bins"], "bin_s": tl["bin_s"],
+                    "year_assumed": year_assumed, "lanes": tl["lanes"], "marks": marks, "spans": spans, "cameras": cams,
+                    "replays": _replay_jobs(desk["id"]), "last_ts": dstore.sec_event_stats(since=since, until=until)["last_ts"],
+                    "now": time.time()})
+
+
+@app.get("/api/cyber/detections")
+def api_cyber_detections():
+    desk = need_desk()
+    from .. import cyber as CY
+    a = request.args
+    try:
+        since, until = _cy_time(a, "since"), _cy_time(a, "until")
+        limit = max(1, min(int(a.get("limit") or 50), 200))
+    except ValueError as exc:
+        return _cy_err(str(exc))
+    sev = str(a.get("min_severity") or "").strip().lower()
+    if sev and sev not in CY.SEVERITIES:
+        return _cy_err(f"min_severity must be one of {', '.join(CY.SEVERITIES)}")
+    rows = store.for_desk(desk["id"]).sec_detections(since=since, until=until, min_severity=sev,
+                                                     rule=str(a.get("rule") or "").strip(), limit=5000)
+    by = {s: 0 for s in reversed(CY.SEVERITIES)}
+    for d in rows:
+        by[d["severity"]] = by.get(d["severity"], 0) + 1
+    return jsonify({"detections": rows[:limit], "total": len(rows), "by_severity": by,
+                    "trigger_status": scheduler.CYBER_STATUS.get(desk["id"])})
+
+
+@app.post("/api/cyber/detect")
+def api_cyber_detect():
+    """Run the rules now (e.g. after a threshold change). Starts no run."""
+    desk = need_desk()
+    res = scheduler.cyber_detect(store, desk, _start_run, trigger=False, force=True)
+    return jsonify({"detect": res["detect"], "detections": res["detections"], "new": res["new"]})
+
+
+@app.get("/api/cyber/graph")
+def api_cyber_graph():
+    desk = need_desk()
+    from .. import cyber as CY
+    a = request.args
+    try:
+        since, until = _cy_time(a, "since"), _cy_time(a, "until")
+        max_nodes = max(1, min(int(a.get("max_nodes") or 40), 80))
+    except ValueError as exc:
+        return _cy_err(str(exc))
+    entity = _ip_or_text(a.get("entity"))
+    dstore = store.for_desk(desk["id"])
+    dets = dstore.sec_detections(since=since, until=until, limit=200)
+    site_map = dict(_cyber_conf(desk).get("site_map") or {})
+    newest_cam = 0
+    if site_map:
+        last = store.vision_events(desk["id"], "", 0, "", 1)
+        newest_cam = last[0]["id"] if last else 0
+    query = (desk["id"], since, until, entity, max_nodes, json.dumps(site_map, sort_keys=True))
+    key = query + (dstore.sec_event_stats()["max_id"], newest_cam, max((d.get("updated") or 0) for d in dets) if dets else 0)
+    with _GRAPH_MEMO_LOCK:
+        hit = _GRAPH_MEMO.get(key)
+        if hit is not None:
+            _GRAPH_MEMO.move_to_end(key)
+            return jsonify(hit)
+        recent = _GRAPH_RECENT.get(query)
+        if recent is not None and time.time() - recent[0] < CYBER_GRAPH_MIN_S:
+            return jsonify(recent[1])
+    events = dstore.sec_events(since=since, until=until, exclude_kinds=("disconnect",), order="desc", limit=CY.MAX_DETECT_EVENTS)
+    events.reverse()
+    cams: list[dict[str, Any]] = []
+    if site_map and events:                             # camera events near the log events (the graph links only mapped hosts)
+        lo, hi = events[0]["ts"] - 300, events[-1]["ts"] + 300
+        cams = [e for e in store.vision_events(desk["id"], "", lo, "", 20000) if (e.get("ts") or 0) <= hi]
+    g = CY.graph(events, dets, site_map=site_map or None, camera_events=cams, max_nodes=max_nodes, focus=entity)
+    out = {**g, "window": {"since": since if since is not None else (events[0]["ts"] if events else None),
+                           "until": until if until is not None else (events[-1]["ts"] if events else None),
+                           "events": len(events)}}
+    with _GRAPH_MEMO_LOCK:
+        _GRAPH_MEMO[key] = out
+        _GRAPH_RECENT[query] = (time.time(), out)
+        _GRAPH_RECENT.move_to_end(query)
+        for memo in (_GRAPH_MEMO, _GRAPH_RECENT):
+            while len(memo) > 8:
+                memo.popitem(last=False)
+    return jsonify(out)
+
+
+@app.get("/api/cyber/incident")
+def api_cyber_incident():
+    """The incident card: a detection or report run (?run=<id>, else the newest), its summary split from the verified
+    footer, every [#id] / [cam #id] citation resolved on THIS desk, live activity, its containment actions."""
+    desk = need_desk()
+    from .. import cyber as CY
+    dstore = store.for_desk(desk["id"])
+    rid = str(request.args.get("run") or "").strip()
+    row = None
+    if rid:
+        row = store.run(rid)
+        if not row or row.get("desk_id") != desk["id"]:
+            return _cy_err("run not found", 404)
+    else:
+        for r in dstore.runs(60):
+            if str(r.get("task") or "").startswith((scheduler.TASK_PREFIX_DETECTION, scheduler.TASK_PREFIX_REPORT)):
+                row = store.run(r["id"])
+                break
+        if row is None:
+            return jsonify({"run": None})
+    live = _runs.get(row["id"])
+    active = bool(live and live["thread"].is_alive())
+    summary, verified = CY.split_summary(row.get("summary") or "")
+    cites = CY.citations(summary)
+    sec = {e["id"]: e for e in dstore.sec_events_by_ids([c["id"] for c in cites if c["kind"] == "sec"])}
+    cam = {e["id"]: e for e in store.vision_events_by_ids([c["id"] for c in cites if c["kind"] == "cam"])
+           if e.get("desk_id") == desk["id"]}
+    citations = []
+    for c in cites:
+        if c["kind"] == "sec":
+            ev = sec.get(c["id"])
+            citations.append({"kind": "sec", "id": c["id"], "found": ev is not None,
+                              "event": CY.compact_event(ev) if ev else None})
+        else:
+            ev = cam.get(c["id"])
+            citations.append({"kind": "cam", "id": c["id"], "found": ev is not None,
+                              "event": {"id": ev["id"], "camera": ev.get("camera") or "", "ts": ev.get("ts"),
+                                        "reason": (ev.get("reason") or "")[:120], "answer": (ev.get("answer") or "")[:200]}
+                              if ev else None})
+    activity = []
+    if active:
+        evs = [e for e in list(live["events"]) if e.get("kind") not in ("token", "usage")][-6:]
+        activity = [{"ts": e.get("ts"), "agent": e.get("agent") or "", "kind": e.get("kind") or "",
+                     "text": str(e.get("text") or "")[:160]} for e in evs]
+    return jsonify({
+        "run": {"id": row["id"], "status": row.get("status"), "active": active, "created": row.get("created"),
+                "ended": row.get("ended"), "mode": row.get("mode") or "", "title": str(row.get("task") or "").split("\n", 1)[0][:200]},
+        "summary": summary, "verified": verified, "citations": citations, "activity": activity,
+        "actions": [x["id"] for x in dstore.actions(limit=1000) if x.get("kind") == "containment" and x.get("run_id") == row["id"]],
+        "detections": [d["id"] for d in dstore.sec_detections(limit=5000) if d.get("run_id") == row["id"]]})
+
+
+@app.post("/api/cyber/incident/report")
+def api_cyber_report():
+    """Start an incident-report run for a window of original event time (default: the whole log on this desk)."""
+    desk = need_desk()
+    from .. import cyber as CY
+    d = request.get_json(silent=True) or {}
+    try:
+        since, until = _cy_time(d, "since"), _cy_time(d, "until")
+    except ValueError as exc:
+        return _cy_err(str(exc))
+    dstore = store.for_desk(desk["id"])
+    w = {k: v for k, v in (("since", since), ("until", until)) if v is not None}
+    st = dstore.sec_event_stats(**w)
+    if not st["total"]:
+        return _cy_err("no security log events in this window")
+    since = since if since is not None else st["first_ts"]
+    until = until if until is not None else st["last_ts"]
+    first = dstore.sec_events(since=since, until=until, order="asc", limit=1)
+    yr = not (first and (first[0].get("attrs") or {}).get("year_assumed"))
+    task = (f"{scheduler.TASK_PREFIX_REPORT} — window {CY.fmt_ts(since, year=yr)} to {CY.fmt_ts(until, year=yr)} UTC\n"
+            "Write the incident report for this window: timeline with [#id] citations, what the sensors agree on, what "
+            "the evidence does not show, and the containment status.")
+    return jsonify({"run_id": _start_run(desk, task, scheduler.cyber_mode(desk, "incident_report"))})
+
+
+def _containment_view(a: dict[str, Any], dstore, conns: dict[str, dict[str, Any]]) -> dict[str, Any]:
+    """One containment action for the approval card: the spec re-parsed from the stored body and the policy re-run."""
+    from .. import cyber as CY
+    from .. import policy as P
+    try:
+        stored = json.loads(a.get("body") or "{}")
+    except ValueError:
+        stored = None
+    spec, errs = CY.containment_spec(stored if isinstance(stored, dict) else {})
+    events = dstore.sec_events_by_ids(spec["evidence"])
+    v = (["containment body is not valid JSON"] if not isinstance(stored, dict) else []) + list(errs) + \
+        P.check_containment(spec["targets"], spec["evidence"], events)
+    name = spec["connector"]
+    c = conns.get(name.strip().lower()) if name else None
+    status = ("none" if not name else "missing" if not c else "not_http" if c["kind"] != "http"
+              else "auto_on" if c.get("auto") else "ready")
+    return {"id": a["id"], "status": a.get("status"), "created": a.get("created"), "decided_at": a.get("decided_at"),
+            "decided_by": a.get("decided_by") or "", "note": a.get("note") or "", "agent": a.get("agent") or "",
+            "run_id": a.get("run_id") or "",
+            "question": CY.containment_question(spec["targets"]) if spec["targets"] else (a.get("subject") or ""),
+            "targets": spec["targets"], "evidence": spec["evidence"], "connector": name, "connector_status": status,
+            "justification": spec["justification"],
+            "policy": {"ok": not v, "line": "" if v else CY.POLICY_LINE, "violations": v},
+            "evidence_events": [CY.compact_event(e) for e in events[:20]]}
+
+
+@app.get("/api/cyber/containment")
+def api_cyber_containment():
+    desk = need_desk()
+    try:
+        limit = max(1, min(int(request.args.get("limit") or 20), 200))
+    except ValueError:
+        return _cy_err("limit must be a number")
+    dstore = store.for_desk(desk["id"])
+    rows = [a for a in dstore.actions(str(request.args.get("status") or "").strip(), limit=5000) if a.get("kind") == "containment"]
+    conns = {c["name"].strip().lower(): c for c in dstore.connectors()}
+    other = sum(1 for a in dstore.actions("pending", limit=100000) if a.get("kind") != "containment")
+    return jsonify({"actions": [_containment_view(a, dstore, conns) for a in rows[:limit]], "other_pending": other})
+
+
+def _cyber_config_view(desk: dict[str, Any]) -> dict[str, Any]:
+    from .. import cyber as CY
+    c = _cyber_conf(desk)
+    params = {**CY.DEFAULT_PARAMS, **{k: v for k, v in (c.get("params") or {}).items() if k in CY.DEFAULT_PARAMS}}
+    intel = CY.intel_dir()
+    dbip = any(intel.glob("dbip-country-lite-*.csv*")) or any(intel.glob("dbip-asn-lite-*.csv*"))
+    return {"site_map": dict(c.get("site_map") or {}), "mask_public_ips": bool(c.get("mask_public_ips")),
+            "trigger_min": c.get("trigger_min") if c.get("trigger_min") in CY.SEVERITIES else "high", "params": params,
+            "hook_url": request.host_url.rstrip("/") + "/hook/" + store.ensure_hook_token(desk["id"]) + "/logs",
+            "formats": list(CY.FORMATS),
+            "connectors": [{"name": x["name"], "auto": bool(x.get("auto"))} for x in store.connectors(desk["id"]) if x["kind"] == "http"],
+            "jobs": [{"id": j["id"], "kind": j["kind"], "name": j["name"], "enabled": bool(j.get("enabled")),
+                      "last_result": j.get("last_result") or "", "last_status": j.get("last_status") or ""}
+                     for j in store.jobs(desk["id"]) if j["kind"] in scheduler.LOG_JOB_KINDS],
+            "notices": {"nvd": CY.NVD_NOTICE, "dbip": CY.DBIP_ATTRIBUTION if dbip else ""}}
+
+
+@app.get("/api/cyber/config")
+def api_cyber_config():
+    return jsonify(_cyber_config_view(need_desk()))
+
+
+@app.patch("/api/cyber/config")
+def api_cyber_config_patch():
+    """{site_map: {host: camera}, mask_public_ips, trigger_min, params: {rule threshold: number}}; null resets a key."""
+    desk = need_desk()
+    from .. import cyber as CY
+    d = request.get_json(silent=True)
+    if not isinstance(d, dict):
+        return _cy_err("body must be a JSON object")
+    conf = desk.get("config") or {}
+    cy = dict(conf.get("cyber") or {})
+    if "site_map" in d:
+        sm = d["site_map"] or {}
+        if not isinstance(sm, dict):
+            return _cy_err("site_map must be an object {host: camera}")
+        if len(sm) > 50:
+            return _cy_err("site_map holds at most 50 pairs")
+        clean: dict[str, str] = {}
+        for h, cam in sm.items():
+            h, cam = str(h).strip(), cam.strip() if isinstance(cam, str) else ""
+            if not h or not cam or len(h) > 60 or len(cam) > 60:
+                return _cy_err("site_map pairs are a host or IP and a camera name, each 1 to 60 characters")
+            clean[_ip_or_text(h, 60)] = cam
+        cy["site_map"] = clean
+    if "mask_public_ips" in d:
+        if not isinstance(d["mask_public_ips"], bool):
+            return _cy_err("mask_public_ips must be true or false")
+        cy["mask_public_ips"] = d["mask_public_ips"]
+    if "trigger_min" in d:
+        tm = d["trigger_min"]
+        if tm in (None, ""):
+            cy.pop("trigger_min", None)
+        elif tm not in CY.SEVERITIES:
+            return _cy_err(f"trigger_min must be one of {', '.join(CY.SEVERITIES)}")
+        else:
+            cy["trigger_min"] = tm
+    if "params" in d:
+        p = d["params"]
+        if p is None:
+            cy.pop("params", None)
+        elif not isinstance(p, dict):
+            return _cy_err("params must be an object {name: number}")
+        else:
+            cur = dict(cy.get("params") or {})
+            for k, v in p.items():
+                if k not in CY.DEFAULT_PARAMS:
+                    return _cy_err(f"unknown param '{str(k)[:40]}': one of {', '.join(CY.DEFAULT_PARAMS)}")
+                if v is None:
+                    cur.pop(k, None)
+                    continue
+                whole = isinstance(CY.DEFAULT_PARAMS[k], int)
+                if isinstance(v, bool) or not isinstance(v, (int, float)) or v != v or not 0 < v <= 10_000_000 \
+                        or (whole and float(v) != int(v)):
+                    return _cy_err(f"{k} must be a positive {'whole ' if whole else ''}number")
+                cur[k] = int(v) if whole else float(v)
+            cy["params"] = cur
+    conf["cyber"] = cy
+    store.update_desk(desk["id"], config=conf)
+    return jsonify(_cyber_config_view(store.desk(desk["id"])))
+
+
+def _rec_dir(desk_id: int) -> Path:
+    return cfg.DATA_DIR / "cyber" / "recordings" / str(int(desk_id))
+
+
+@app.get("/api/cyber/recordings")
+def api_cyber_recordings():
+    desk = need_desk()
+    d = _rec_dir(desk["id"])
+    items = []
+    if d.is_dir():
+        for p in d.glob("*.json"):
+            if _REC_NAME.match(p.stem):
+                s = p.stat()
+                items.append({"name": p.stem, "size": s.st_size, "modified": s.st_mtime})
+    items.sort(key=lambda x: -x["modified"])
+    return jsonify({"recordings": items})
+
+
+@app.get("/api/cyber/recordings/<name>")
+def api_cyber_recording(name):
+    desk = need_desk()
+    if not _REC_NAME.match(name):
+        return _cy_err("bad recording name")
+    p = _rec_dir(desk["id"]) / f"{name}.json"
+    if not p.is_file():
+        return _cy_err("recording not found", 404)
+    return send_file(p, mimetype="application/json", max_age=0)
+
+
+@app.post("/api/cyber/recordings")
+def api_cyber_recording_save():
+    """{name, bundle}: a REPLAY bundle the cyber page recorded (stored as given, per desk, written atomically)."""
+    desk = need_desk()
+    if (request.content_length or 0) > CYBER_REC_MAX_BYTES:
+        return _cy_err(f"recording too large: at most {CYBER_REC_MAX_BYTES // 1048576} MB", 413)
+    request.max_content_length = CYBER_REC_MAX_BYTES
+    d = request.get_json(silent=True)
+    if not isinstance(d, dict):
+        return _cy_err("body must be a JSON object {name, bundle}")
+    name = str(d.get("name") or "")
+    if not _REC_NAME.match(name):
+        return _cy_err("name must be 1 to 64 lower-case letters, digits, '-' or '_' (starting with a letter or digit)")
+    bundle = d.get("bundle")
+    if not isinstance(bundle, dict) or bundle.get("kind") != "atlas-cyber-recording":
+        return _cy_err("bundle.kind must be 'atlas-cyber-recording'")
+    folder = _rec_dir(desk["id"])
+    folder.mkdir(parents=True, exist_ok=True)
+    p = folder / f"{name}.json"
+    tmp = folder / f".{name}.{secrets.token_hex(4)}.tmp"
+    tmp.write_text(json.dumps(bundle, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
+    os.replace(tmp, p)
+    return jsonify({"ok": True, "name": name, "size": p.stat().st_size})
+
+
+@app.get("/desk/cyber")
+def desk_cyber():
+    """The security desk's filming surface: same login rule as /desk/workspace (?desk=N picks an owned desk), then the
+    static page with the rest of the query string (replay, record, since, until, mask)."""
+    if not current_user() and not OPEN:
+        return redirect("/login?next=/desk/cyber")
+    did = request.args.get("desk", type=int)
+    if did:
+        u, d = current_user(), store.desk(did)
+        if d and (OPEN or (u and d["owner_id"] == u["id"])):
+            session["desk"] = did
+    qs = urlencode([(k, v) for k, v in request.args.items(multi=True) if k != "desk"])
+    return redirect("/desk/static/cyber.html" + ("?" + qs if qs else ""))
 
 
 # ---------------------------------------------------------------------------- inbound webhook (public, token-addressed)

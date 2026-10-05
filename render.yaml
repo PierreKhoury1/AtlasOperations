@@ -18,7 +18,7 @@ services:
       - key: HERMES_AGENT_KEY     # that server's API_SERVER_KEY
         sync: false
       - key: DESK_OPEN
-        value: "1"
+        value: "0"          # accounts on: the hosted portal always needs a login
       - key: DESK_SECRET
         generateValue: true
       - key: DESK_TEMPLATE

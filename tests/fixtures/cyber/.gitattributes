@@ -1,0 +1,2 @@
+# public-dataset excerpts: keep every byte as published (no CRLF conversion on Windows checkouts)
+* -text

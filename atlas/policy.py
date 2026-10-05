@@ -6,6 +6,7 @@ sensible defaults, so a desk template can tighten or relax them without touching
 """
 from __future__ import annotations
 
+import ipaddress
 import json
 import re
 from typing import Any
@@ -22,7 +23,8 @@ DEFAULTS: dict[str, Any] = {
 }
 
 _MONEY = re.compile(r"(?:[£€$]\s?\d[\d,]*(?:\.\d+)?(?:\s?[kKmM])?)|(?:\d+(?:\.\d+)?\s?(?:%|percent|pcm|per month))", re.I)
-_PLACEHOLDER = re.compile(r"\[[^\]\n]{2,40}\]|\{\{?[a-z_ ]{2,30}\}?\}|<insert[^>]*>", re.I)
+# [Your name] is a placeholder; an evidence citation ([#12] log event, [cam #12] camera event) is not
+_PLACEHOLDER = re.compile(r"\[(?!(?:cam ?)?#\d+\])[^\]\n]{2,40}\]|\{\{?[a-z_ ]{2,30}\}?\}|<insert[^>]*>", re.I)
 _MARKDOWN = re.compile(r"(\*\*[^*\n]+\*\*)|(^\s*#{1,6}\s)|(^\s*[-*•]\s)|(`[^`\n]+`)", re.M)
 _EXACT_TIME = re.compile(r"\b(?:\d{1,2}(?::\d{2})?\s?(?:am|pm))\b|\b(?:mon|tues|wednes|thurs|fri|satur|sun)day\s+(?:at\s+)?\d{1,2}(?::\d{2})?\b", re.I)
 _GUARANTEE = re.compile(r"\b(guarantee[ds]?|we promise|promised|100% sure|no risk)\b", re.I)
@@ -90,4 +92,46 @@ def check_outbound(kind: str, subject: str, body: str, business: dict[str, Any],
         # whole-word / whole-phrase match: 'AI' must not fire inside 'email' or 'detail'
         if re.search(r"(?<![\w-])" + re.escape(p) + r"(?![\w-])", text, re.I):
             out.append(f"banned phrase: '{p}'")
+    return out
+
+
+# ---------------------------------------------------------------------------- containment
+def _ip(value: Any) -> str:
+    """Normalised address, or "" when the field is not an IP."""
+    try:
+        return ipaddress.ip_address(str(value or "").strip()).compressed
+    except ValueError:
+        return ""
+
+
+def _shows(target: dict[str, Any], ev: dict[str, Any]) -> bool:
+    """Does this log event show the target? ip: src/dst; host: src/dst/sensor/syslog host; user: exact username."""
+    kind, value = target.get("kind"), str(target.get("value") or "")
+    if kind == "ip":
+        want = _ip(value)
+        return bool(want) and want in {_ip(ev.get("src")), _ip(ev.get("dst"))} - {""}
+    if kind == "host":
+        attrs = ev.get("attrs") if isinstance(ev.get("attrs"), dict) else {}
+        seen = {str(ev.get(k) or "").lower() for k in ("src", "dst", "sensor")} | {str(attrs.get("host") or "").lower()}
+        return bool(value) and value.lower() in seen - {""}
+    if kind == "user":
+        return bool(value) and value == str(ev.get("user") or "")
+    return False
+
+
+def check_containment(targets: list[dict[str, Any]], evidence_ids: list[int], events: list[dict[str, Any]]) -> list[str]:
+    """Atlas cannot propose containing something it has no evidence for. `targets` are normalised (cyber.containment_spec),
+    `events` are this desk's rows for the cited ids. Returns violations; [] means every target is in the evidence."""
+    out: list[str] = []
+    cited = list(dict.fromkeys(evidence_ids or []))
+    if not cited:
+        out.append("no evidence cited")
+    rows = {e.get("id"): e for e in events or [] if isinstance(e, dict)}
+    for i in cited:
+        if i not in rows:
+            out.append(f"evidence #{i} is not on this desk")
+    shown = [rows[i] for i in cited if i in rows]           # only the cited rows count, whatever else was passed
+    for t in targets or []:
+        if not any(_shows(t, ev) for ev in shown):
+            out.append(f"target {t.get('kind')} {t.get('value')} is not in the cited evidence")
     return out

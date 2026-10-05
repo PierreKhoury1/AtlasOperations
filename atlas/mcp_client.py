@@ -19,7 +19,11 @@ import time
 from typing import Any
 
 PROTOCOL = "2025-06-18"
-WRITE_HINT = re.compile(r"(create|send|delete|remove|update|write|post|put|patch|insert|upload|move|rename|execute|run|set_|add_|reply|publish|pay|transfer|book|cancel)", re.I)
+# tool names that look like writes need the owner's approval. Containment verbs (block, isolate, disable...) count as
+# writes. Known false positives, on the safe side (they only ask for approval): names containing skill, dropdown, container.
+WRITE_HINT = re.compile(r"(create|send|delete|remove|update|write|post|put|patch|insert|upload|move|rename|execute|run|"
+                        r"set_|add_|reply|publish|pay|transfer|book|cancel|block|ban|isolate|quarantine|disable|revoke|"
+                        r"kill|lock|suspend|contain|deny|drop)", re.I)
 
 
 def _slug(s: str) -> str:

@@ -4,7 +4,7 @@
 
 corner-store — a small shop watched by the Site desk:
     counter    laptop webcam           queue watch: 3+ waiting → SMS staff to open the second till
-    street     Hikvision RTSP (real)   vehicles / loitering at the shutter → owner WhatsApp when it matters
+    street     RTSP camera (needs SCENARIO_RTSP)  vehicles / loitering at the shutter → owner WhatsApp when it matters
     shelf      Vispera shelf photos    a feeder script rotates real shelf photos; scene change → gap check → reorder note
     back-door  simulated ESP32 PIR     a node script posts events to /hook/<token>/vision (delivery bell, after-hours motion)
 
@@ -32,7 +32,7 @@ from . import config as cfg
 ROOT = cfg.ROOT
 OUT_ROOT = cfg.WORKSPACE_DIR / "scenarios"
 VISPERA = Path(os.environ.get("VISPERA_DIR", r"C:\Users\pierr\vispera")) / "data" / "analyses"
-HIKVISION = os.environ.get("SCENARIO_RTSP", "rtsp://admin:12345@178.214.74.98:554/Streaming/Channels/101")
+HIKVISION = os.environ.get("SCENARIO_RTSP", "")   # street camera RTSP URL; empty = no street camera
 
 
 def _log(msg: str) -> None:

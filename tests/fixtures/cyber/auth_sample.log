@@ -1,0 +1,54 @@
+Nov 30 06:39:00 ip-172-31-27-153 CRON[21882]: pam_unix(cron:session): session closed for user root
+Nov 30 06:47:01 ip-172-31-27-153 CRON[22087]: pam_unix(cron:session): session opened for user root by (uid=0)
+Nov 30 06:47:03 ip-172-31-27-153 CRON[22087]: pam_unix(cron:session): session closed for user root
+Nov 30 07:07:14 ip-172-31-27-153 sshd[22116]: Connection closed by 122.225.103.87 [preauth]
+Nov 30 07:07:35 ip-172-31-27-153 sshd[22118]: Connection closed by 122.225.103.87 [preauth]
+Nov 30 07:08:13 ip-172-31-27-153 sshd[22120]: Connection closed by 122.225.103.87 [preauth]
+Nov 30 07:17:01 ip-172-31-27-153 CRON[22125]: pam_unix(cron:session): session opened for user root by (uid=0)
+Nov 30 07:17:01 ip-172-31-27-153 CRON[22125]: pam_unix(cron:session): session closed for user root
+Nov 30 08:17:01 ip-172-31-27-153 CRON[22172]: pam_unix(cron:session): session opened for user root by (uid=0)
+Nov 30 08:17:01 ip-172-31-27-153 CRON[22172]: pam_unix(cron:session): session closed for user root
+Nov 30 08:42:04 ip-172-31-27-153 sshd[22182]: Invalid user admin from 187.12.249.74
+Nov 30 08:42:04 ip-172-31-27-153 sshd[22182]: input_userauth_request: invalid user admin [preauth]
+Nov 30 08:42:04 ip-172-31-27-153 sshd[22182]: Received disconnect from 187.12.249.74: 11: Bye Bye [preauth]
+Nov 30 08:42:14 ip-172-31-27-153 sshd[22184]: Did not receive identification string from 187.12.249.74
+Nov 30 09:17:01 ip-172-31-27-153 CRON[22214]: pam_unix(cron:session): session opened for user root by (uid=0)
+Nov 30 09:17:01 ip-172-31-27-153 CRON[22214]: pam_unix(cron:session): session closed for user root
+Nov 30 09:22:03 ip-172-31-27-153 sshd[22218]: Did not receive identification string from 196.200.90.236
+Nov 30 10:17:01 ip-172-31-27-153 CRON[22251]: pam_unix(cron:session): session opened for user root by (uid=0)
+Nov 30 10:17:01 ip-172-31-27-153 CRON[22251]: pam_unix(cron:session): session closed for user root
+Nov 30 10:18:55 ip-172-31-27-153 sshd[22254]: Did not receive identification string from 1.93.26.70
+Nov 30 10:56:55 ip-172-31-27-153 sshd[22285]: Did not receive identification string from 122.225.109.208
+Nov 30 10:57:06 ip-172-31-27-153 sshd[22286]: Connection closed by 122.225.109.208 [preauth]
+Nov 30 10:57:44 ip-172-31-27-153 sshd[22289]: Connection closed by 122.225.109.208 [preauth]
+Nov 30 10:58:27 ip-172-31-27-153 sshd[22291]: Invalid user admin from 122.225.109.208
+Nov 30 10:58:27 ip-172-31-27-153 sshd[22291]: input_userauth_request: invalid user admin [preauth]
+Nov 30 10:58:27 ip-172-31-27-153 sshd[22291]: Connection closed by 122.225.109.208 [preauth]
+Nov 30 11:17:01 ip-172-31-27-153 CRON[22297]: pam_unix(cron:session): session opened for user root by (uid=0)
+Nov 30 11:17:01 ip-172-31-27-153 CRON[22297]: pam_unix(cron:session): session closed for user root
+Nov 30 11:28:04 ip-172-31-27-153 sshd[22313]: Connection closed by 122.225.109.123 [preauth]
+Nov 30 11:28:12 ip-172-31-27-153 sshd[22315]: Connection closed by 122.225.109.123 [preauth]
+Nov 30 11:28:24 ip-172-31-27-153 sshd[22317]: Connection closed by 122.225.109.123 [preauth]
+Nov 30 11:39:02 ip-172-31-27-153 sshd[22322]: Connection closed by 218.2.0.129 [preauth]
+Nov 30 11:39:47 ip-172-31-27-153 sshd[22324]: Connection closed by 218.2.0.129 [preauth]
+Nov 30 11:40:13 ip-172-31-27-153 sshd[22326]: Connection closed by 218.2.0.129 [preauth]
+Nov 30 11:54:48 ip-172-31-27-153 sshd[22343]: Connection closed by 218.2.0.121 [preauth]
+Nov 30 11:54:50 ip-172-31-27-153 sshd[22341]: fatal: Read from socket failed: Connection reset by peer [preauth]
+Nov 30 12:17:01 ip-172-31-27-153 CRON[22361]: pam_unix(cron:session): session opened for user root by (uid=0)
+Nov 30 12:17:01 ip-172-31-27-153 CRON[22361]: pam_unix(cron:session): session closed for user root
+Nov 30 13:17:01 ip-172-31-27-153 CRON[22396]: pam_unix(cron:session): session opened for user root by (uid=0)
+Nov 30 13:17:01 ip-172-31-27-153 CRON[22396]: pam_unix(cron:session): session closed for user root
+Nov 30 13:59:21 ip-172-31-27-153 sshd[22430]: Received disconnect from 62.210.172.145: 11:  [preauth]
+Nov 30 14:03:41 ip-172-31-27-153 sshd[22434]: Did not receive identification string from 218.75.153.170
+Nov 30 14:03:42 ip-172-31-27-153 sshd[22435]: Did not receive identification string from 218.75.153.170
+Nov 30 14:03:43 ip-172-31-27-153 sshd[22436]: Did not receive identification string from 218.75.153.170
+Nov 30 14:03:44 ip-172-31-27-153 sshd[22437]: Did not receive identification string from 218.75.153.170
+Nov 30 14:04:18 ip-172-31-27-153 sshd[22463]: fatal: Read from socket failed: Connection reset by peer [preauth]
+Nov 30 17:47:42 ip-172-31-27-153 sshd[22952]: reverse mapping checking getaddrinfo for 118.11.26.218.internet.sx.cn [218.26.11.118] failed - POSSIBLE BREAK-IN ATTEMPT!
+Nov 30 17:47:44 ip-172-31-27-153 sshd[22954]: reverse mapping checking getaddrinfo for 118.11.26.218.internet.sx.cn [218.26.11.118] failed - POSSIBLE BREAK-IN ATTEMPT!
+Dec  3 12:29:01 ip-172-31-27-153 sshd[31555]: Bad protocol version identification ' ' from 114.113.55.198
+Dec  5 04:11:17 ip-172-31-27-153 sshd[2997]: Bad protocol version identification 'GET / HTTP/1.0' from 171.13.14.45
+Dec  7 05:20:47 ip-172-31-27-153 sshd[29706]: Disconnecting: Too many authentication failures for root [preauth]
+Dec  7 05:20:52 ip-172-31-27-153 sshd[29708]: Disconnecting: Too many authentication failures for root [preauth]
+Dec  7 05:22:56 ip-172-31-27-153 sshd[29756]: Corrupted MAC on input. [preauth]
+Dec  7 05:25:48 ip-172-31-27-153 sshd[29791]: Corrupted MAC on input. [preauth]
