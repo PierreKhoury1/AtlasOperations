@@ -1,0 +1,106 @@
+{
+ "models": [
+  {
+   "model": "google/gemini-3.1-flash-lite",
+   "calls": 21,
+   "failed": 0,
+   "count_exact": 100,
+   "count_near": 100,
+   "hazard_recall": 100,
+   "area_ok": 93,
+   "judge_single": 3.2,
+   "halluc_per_answer": 1.53,
+   "issues_per_frame": 0.4,
+   "multicam_judge": 2,
+   "multicam_service_ok": 1,
+   "multicam_busiest_ok": 1,
+   "temporal_judge": 3,
+   "temporal_counts": [
+    15,
+    15
+   ],
+   "latency_p50": 2.1,
+   "latency_max": 3.2,
+   "cost_usd": 0.0168,
+   "prompt_tokens": 42445
+  },
+  {
+   "model": "google/gemini-3.1-flash-lite+verify",
+   "calls": 21,
+   "failed": 0,
+   "count_exact": 100,
+   "count_near": 100,
+   "hazard_recall": 100,
+   "area_ok": 100,
+   "judge_single": 3.6,
+   "halluc_per_answer": 0.87,
+   "issues_per_frame": 0.4,
+   "multicam_judge": 3,
+   "multicam_service_ok": 1,
+   "multicam_busiest_ok": 1,
+   "temporal_judge": 2.8,
+   "temporal_counts": [
+    15,
+    15
+   ],
+   "latency_p50": 3.3,
+   "latency_max": 6.0,
+   "cost_usd": 0.0283,
+   "prompt_tokens": 42445
+  },
+  {
+   "model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+   "calls": 21,
+   "failed": 0,
+   "count_exact": 100,
+   "count_near": 100,
+   "hazard_recall": 67,
+   "area_ok": 87,
+   "judge_single": 3.13,
+   "halluc_per_answer": 1.13,
+   "issues_per_frame": 0.2,
+   "multicam_judge": 3,
+   "multicam_service_ok": 1,
+   "multicam_busiest_ok": 1,
+   "temporal_judge": 3,
+   "temporal_counts": [
+    14,
+    15
+   ],
+   "latency_p50": 1.5,
+   "latency_max": 15.1,
+   "cost_usd": 0,
+   "prompt_tokens": 22236
+  },
+  {
+   "model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free+verify",
+   "calls": 21,
+   "failed": 0,
+   "count_exact": 100,
+   "count_near": 100,
+   "hazard_recall": 100,
+   "area_ok": 100,
+   "judge_single": 3.33,
+   "halluc_per_answer": 0.87,
+   "issues_per_frame": 0.27,
+   "multicam_judge": 4,
+   "multicam_service_ok": 1,
+   "multicam_busiest_ok": 1,
+   "temporal_judge": 3,
+   "temporal_counts": [
+    15,
+    15
+   ],
+   "latency_p50": 3.9,
+   "latency_max": 12.5,
+   "cost_usd": 0,
+   "prompt_tokens": 22236
+  }
+ ],
+ "judge": "anthropic/claude-sonnet-5",
+ "sites": [
+  "kitchen"
+ ],
+ "frames": 3,
+ "judge_cost": 0.14735
+}

@@ -18,12 +18,16 @@ ffmpeg, webcams unavailable. Nothing here decides what to *do* — the orchestra
 from __future__ import annotations
 
 import base64
+import functools
 import io
 import json
 import os
+import platform
+import tempfile
 import re
 import shutil
 import subprocess
+import sys
 import threading
 import time
 from datetime import datetime
@@ -36,11 +40,18 @@ from . import config as cfg
 
 MODELS_DIR = cfg.DATA_DIR / "models"
 SNAP_DIR = cfg.DATA_DIR / "snapshots"
-YOLO_WEIGHTS = os.environ.get("VISION_YOLO", str(MODELS_DIR / "yolov8n.pt"))
+YOLO_WEIGHTS = os.environ.get("VISION_YOLO", str(MODELS_DIR / "yolo11n.pt"))      # yolo11n: same 28 ms as v8n on 4 CPU cores, ~40% more objects found
 DEFAULT_VLM = os.environ.get("VISION_MODEL", "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free")   # free by default; set VISION_MODEL for paid eyes
 DEFAULT_VLM_PROVIDER = os.environ.get("VISION_PROVIDER", "openrouter")
 MAX_SIDE = 960                      # frames are downscaled to this before detection / VLM
 FRAME_TIMEOUT = float(os.environ.get("VISION_GRAB_TIMEOUT", "12"))
+# Live detector runtime: auto | openvino | torch. OpenVINO runs the same weights, exported once at a fixed 384x640 input
+# (a 16:9 frame letterboxed to 640 wide, what the torch path sees too), at ~3.3-3.7x less CPU per frame (measured on a
+# 4-core AMX Xeon, bf16; less on CPUs without it); auto falls back to torch when openvino is missing or the export fails.
+VISION_RUNTIME = os.environ.get("VISION_RUNTIME", "auto").strip().lower()
+OV_IMGSZ = (384, 640)
+OV_THREADS = int(os.environ.get("VISION_OV_THREADS", "1"))   # inference threads per camera: one each scales best across feeds
+_EXPORT_LOCK = threading.Lock()                               # one export at a time, however many cameras start together
 
 # COCO labels the rule engine understands as synonyms
 SYNONYMS = {"people": "person", "human": "person", "man": "person", "woman": "person", "customer": "person",
@@ -93,8 +104,19 @@ def source_kind(source: str) -> str:
 
 
 VIDEO_EXT = {".mp4", ".mov", ".avi", ".mkv", ".webm", ".m4v", ".mpg", ".mpeg", ".ts"}
-_VIDEO_T0: dict[str, float] = {}      # path -> wall-clock start: a recording plays as a live camera, looping
+_VIDEO_T0: dict[str, float] = {}      # (kept for callers that set a start by hand; the shared clock below wins)
 _VIDEO_DUR: dict[str, float] = {}
+# Recordings play on ONE clock: position = (now - SYNC_EPOCH) mod the clip's length. Synchronised multi-camera footage
+# (clips of equal length cut from the same moment) then shows the same instant on every camera, whenever each feed was
+# opened and across restarts, and a one-off grab sees what the live loop shows. VIDEO_SYNC_EPOCH moves the zero.
+SYNC_EPOCH = float(os.environ.get("VIDEO_SYNC_EPOCH") or 0.0)
+
+
+def video_position(duration: float, now: float | None = None) -> float:
+    """Seconds into a looping recording of this length at `now`, on the shared clock."""
+    if duration <= 0.5:
+        return 0.0
+    return ((now if now is not None else time.time()) - SYNC_EPOCH) % duration
 
 
 def _grab_video(path: str) -> bytes:
@@ -107,8 +129,7 @@ def _grab_video(path: str) -> bytes:
     if path not in _VIDEO_DUR:
         _VIDEO_DUR[path] = _ffprobe_duration(path)
     dur = _VIDEO_DUR[path]
-    t0 = _VIDEO_T0.setdefault(path, time.time())
-    t = ((time.time() - t0) % dur) if dur > 0.5 else 0.0
+    t = video_position(dur)
     cmd = [ff, "-nostdin", "-loglevel", "error", "-ss", f"{t:.2f}", "-i", path, "-frames:v", "1", "-pix_fmt", "yuvj420p",
            "-f", "image2", "-q:v", "3", "pipe:1"]                  # yuvj420p: limited-range sources (MPEG-2, H.264) otherwise fail in mjpeg
     try:
@@ -255,13 +276,44 @@ def motion(prev_jpeg: bytes | None, cur_jpeg: bytes) -> float:
 
 
 # ---------------------------------------------------------------------------- detection
+def _limit_ov_threads(predictor, xml: Path) -> None:
+    """Recompile an OpenVINO-backed predictor's model with OV_THREADS inference threads (once). Ultralytics compiles
+    for latency on every core, so N cameras each fan out over the whole CPU and spend it on synchronisation."""
+    backend = getattr(getattr(predictor, "model", None), "backend", None)
+    if backend is None or not hasattr(backend, "ov_compiled_model") or getattr(backend, "_atlas_threads", 0):
+        return
+    if list(backend.ov_compiled_model.get_property("EXECUTION_DEVICES")) != ["CPU"]:
+        return                                         # an Intel GPU / NPU picked by AUTO: leave it alone
+    backend._atlas_threads = n = max(1, OV_THREADS)
+    if os.name == "nt" or platform.machine().lower() in ("arm64", "aarch64"):
+        return                                         # ultralytics forces f32 there to avoid reduced-precision kernel failures
+    try:
+        import openvino as ov
+        core = ov.Core()
+        conf = {"PERFORMANCE_HINT": "LATENCY", "INFERENCE_NUM_THREADS": n, "ENABLE_CPU_PINNING": False}
+        for k in ("INFERENCE_PRECISION_HINT", "EXECUTION_MODE_HINT"):   # keep the precision ultralytics compiled with
+            try:
+                conf[k] = backend.ov_compiled_model.get_property(k)
+            except Exception:
+                pass
+        compiled = core.compile_model(core.read_model(str(xml)), "CPU", conf)
+        backend.compile_model = functools.partial(core.compile_model, device_name="CPU", config=conf)
+        backend.ov_compiled_model = compiled
+    except Exception as exc:                           # keep ultralytics' own compile: slower, still correct
+        print(f"[vision] OpenVINO thread limit not applied ({type(exc).__name__}: {str(exc)[:120]})", file=sys.stderr, flush=True)
+
+
 class Detector:
     """Local object detector (ultralytics YOLO). Loaded once, thread-safe, optional."""
 
-    def __init__(self, weights: str = YOLO_WEIGHTS):
+    def __init__(self, weights: str = YOLO_WEIGHTS, runtime: str = ""):
         self.weights = weights
+        pref = runtime or VISION_RUNTIME
+        self.runtime_pref = pref if pref in ("auto", "openvino", "torch") else "auto"
+        self.runtime = ""                              # what the live models run on (openvino | torch), once one was made
         self._model = None
         self._lock = threading.Lock()
+        self._ov_error = ""
         self.error = ""
 
     @property
@@ -277,6 +329,11 @@ class Detector:
             self.error = f"ultralytics not installed ({type(exc).__name__})"
             return False
 
+    @property
+    def label(self) -> str:
+        """'yolo11n (openvino)' once a live model runs, the weights file before."""
+        return f"{Path(self.weights).stem} ({self.runtime})" if self.runtime else Path(self.weights).name
+
     def _load(self):
         if self._model is None:
             from ultralytics import YOLO
@@ -284,12 +341,61 @@ class Detector:
             self._model = YOLO(self.weights)          # downloads the standard weights on first use
         return self._model
 
+    def openvino_dir(self) -> Path | None:
+        """The OpenVINO export of the weights, made once and kept next to them; None when OpenVINO is off or unusable
+        (not installed, export failed: logged once, then the torch path runs)."""
+        if self.runtime_pref == "torch" or self._ov_error:
+            return None
+        h, w = OV_IMGSZ
+        target = Path(self.weights).with_name(f"{Path(self.weights).stem}_{h}x{w}_openvino_model")
+        with _EXPORT_LOCK:
+            if self._ov_error:
+                return None
+            try:
+                import openvino  # noqa: F401
+                xml = next(target.glob("*.xml"), None)
+                self._load()                           # weights on disk
+                if xml is None or xml.stat().st_mtime < Path(self.weights).stat().st_mtime:   # missing, or older than the weights
+                    from ultralytics import YOLO
+                    # export a copy in a scratch folder: ultralytics writes <stem>_openvino_model next to the weights,
+                    # which may be someone's own export
+                    tmp = Path(tempfile.mkdtemp(prefix=".ov-export-", dir=target.parent))
+                    try:
+                        src = tmp / Path(self.weights).name
+                        shutil.copy2(self.weights, src)
+                        out = Path(YOLO(str(src)).export(format="openvino", imgsz=[h, w], verbose=False))
+                        if target.exists():
+                            shutil.rmtree(target)
+                        shutil.move(str(out), str(target))
+                    finally:
+                        shutil.rmtree(tmp, ignore_errors=True)
+                return target
+            except Exception as exc:
+                self._ov_error = f"{type(exc).__name__}: {str(exc)[:160]}"
+                print(f"[vision] OpenVINO runtime unavailable, live detection runs on torch ({self._ov_error})",
+                      file=sys.stderr, flush=True)
+                return None
+
     def new_model(self):
         """A private model for one long-running consumer (a live feed). The shared instance serialises every caller
         behind one lock and carries ONE tracker state, so five cameras on it ran at a fifth of the speed each and
-        had their track ids mixed together."""
+        had their track ids mixed together. On the OpenVINO runtime the model is the fixed-input export; predict and
+        track (ByteTrack) work as on the .pt, boxes in the frame's own pixels, same class names."""
         from ultralytics import YOLO
         self._load()                                   # makes sure the weights are on disk
+        ov_dir = self.openvino_dir()
+        if ov_dir is not None:
+            try:
+                model = YOLO(str(ov_dir), task="detect")
+                model.overrides["imgsz"] = list(OV_IMGSZ)   # the export's fixed input; any other size fails or recompiles
+                model.add_callback("on_predict_start", functools.partial(_limit_ov_threads, xml=next(ov_dir.glob("*.xml"))))
+                self.runtime = "openvino"
+                return model
+            except Exception as exc:
+                self._ov_error = f"{type(exc).__name__}: {str(exc)[:160]}"
+                print(f"[vision] OpenVINO model failed to load, live detection runs on torch ({self._ov_error})",
+                      file=sys.stderr, flush=True)
+        self.runtime = "torch"
         return YOLO(self.weights)
 
     def detect(self, jpeg: bytes, conf: float = 0.35) -> list[dict[str, Any]]:
@@ -315,6 +421,24 @@ class Detector:
 DETECTOR = Detector()
 
 
+def tile_grid(w: int, h: int, nx: int, ny: int, overlap: float) -> tuple[list[tuple[int, int]], int, int]:
+    """Overlapping nx x ny tiles over a w x h frame: [(x0, y0)] row by row, tile width, tile height. The last tile of a row
+    or column ends exactly at the frame, so tile_edge_cut never mistakes the frame border for an interior edge
+    (flooring the tile size would leave it a few pixels short)."""
+    tw, th = int(w / (nx - (nx - 1) * overlap)), int(h / (ny - (ny - 1) * overlap))
+    xs = [w - tw if i == nx - 1 else min(w - tw, int(i * tw * (1 - overlap))) for i in range(nx)]
+    ys = [h - th if j == ny - 1 else min(h - th, int(j * th * (1 - overlap))) for j in range(ny)]
+    return [(x, y) for y in ys for x in xs], tw, th
+
+
+def tile_edge_cut(box, x0: int, y0: int, tw: int, th: int, w: int, h: int, margin: float = 2.0) -> bool:
+    """True if a box (tile pixels) touches an edge of its tile (offset x0,y0, size tw x th) that lies inside the
+    w x h frame. Edges on (or within `margin` of) the frame border do not count: nothing continues past them."""
+    x1, y1, x2, y2 = box
+    return ((x1 < margin and x0 > margin) or (y1 < margin and y0 > margin) or
+            (x2 > tw - margin and x0 + tw < w - margin) or (y2 > th - margin and y0 + th < h - margin))
+
+
 class PreciseDetector:
     """The detector for the RECORD (object catalogue, audits), not for the live picture.
 
@@ -322,17 +446,23 @@ class PreciseDetector:
     640 px) finds 63% of the people in a lobby and 4% of the people on a distant road: far objects are a few pixels
     tall by the time the model sees them. This one looks at the full-resolution frame twice: once whole, and once as
     overlapping tiles so small, distant objects reach the model at a usable size; the passes are merged with NMS.
-    Slower (hundreds of ms), so it runs at the analysis rate, never per displayed frame. One instance per consumer."""
+    Slower (hundreds of ms), so it runs at the analysis rate, never per displayed frame. One instance per consumer.
+
+    A tile box that touches an interior tile edge is a cut-off part of someone (a head, a torso) whose whole box the
+    neighbouring tile or the whole-frame pass also has; it is dropped, whatever its size. Kept, those halves survived
+    the merge as false positives: on WILDTRACK the tiled detector scored F1 0.636, no better than the nano model at
+    0.644; dropping them, merge NMS 0.6 and conf 0.25 give 0.701."""
 
     def __init__(self, weights: str = "", tiles: tuple[int, int] | None = None, tile_size: int = 0, full_size: int = 0,
                  conf: float = 0.0):
-        self.weights = weights or os.environ.get("VISION_YOLO_PRECISE", str(MODELS_DIR / "yolov8s.pt"))
+        self.weights = weights or os.environ.get("VISION_YOLO_PRECISE", str(MODELS_DIR / "yolo11s.pt"))
         t = os.environ.get("VISION_TILES", "2x2").lower().split("x")
         self.tiles = tiles or (int(t[0]), int(t[1]))
         self.tile_size = tile_size or int(os.environ.get("VISION_TILE_SIZE", "960"))
         self.full_size = full_size or int(os.environ.get("VISION_FULL_SIZE", "1280"))
-        self.conf = conf or float(os.environ.get("VISION_PRECISE_CONF", "0.35"))
+        self.conf = conf or float(os.environ.get("VISION_PRECISE_CONF", "0.25"))
         self.overlap = 0.2
+        self.merge_iou = 0.6
         self._model = None
         self.error = ""
 
@@ -354,27 +484,20 @@ class PreciseDetector:
         scores: list[float] = []
         clss: list[int] = []
         if nx * ny > 1 and min(h, w) >= 480:
-            ov = self.overlap
-            tw, th = int(w / (nx - (nx - 1) * ov)), int(h / (ny - (ny - 1) * ov))
-            crops, offs = [], []
-            for j in range(ny):
-                for i in range(nx):
-                    x0, y0 = min(w - tw, int(i * tw * (1 - ov))), min(h - th, int(j * th * (1 - ov)))
-                    crops.append(frame[y0:y0 + th, x0:x0 + tw])
-                    offs.append((x0, y0))
+            offs, tw, th = tile_grid(w, h, nx, ny, self.overlap)
+            crops = [frame[y0:y0 + th, x0:x0 + tw] for x0, y0 in offs]
             for r, (x0, y0) in zip(m.predict(crops, imgsz=self.tile_size, conf=self.conf, verbose=False), offs):
                 for b in r.boxes:
                     x1, y1, x2, y2 = [float(v) for v in b.xyxy[0]]
-                    cut = (x1 < 2 and x0 > 0) or (y1 < 2 and y0 > 0) or (x2 > tw - 2 and x0 + tw < w) or (y2 > th - 2 and y0 + th < h)
-                    if cut and (x2 - x1) * (y2 - y1) > 0.25 * tw * th:
-                        continue                           # a big object cut by the tile edge: the whole-frame pass owns it
+                    if tile_edge_cut((x1, y1, x2, y2), x0, y0, tw, th, w, h):
+                        continue                           # cut by the tile edge: another tile or the whole frame owns it
                     boxes.append([x1 + x0, y1 + y0, x2 + x0, y2 + y0]); scores.append(float(b.conf)); clss.append(int(b.cls))
         for b in m.predict(frame, imgsz=self.full_size, conf=self.conf, verbose=False)[0].boxes:
             boxes.append([float(v) for v in b.xyxy[0]]); scores.append(float(b.conf)); clss.append(int(b.cls))
         if not boxes:
             return []
         B, S, C = torch.tensor(boxes), torch.tensor(scores), torch.tensor(clss)
-        keep = torchvision.ops.batched_nms(B, S, C, 0.5)
+        keep = torchvision.ops.batched_nms(B, S, C, self.merge_iou)
         out = [{"label": m.names[int(C[k])], "conf": round(float(S[k]), 3), "box": [int(v) for v in B[k].tolist()]} for k in keep]
         out.sort(key=lambda d: -d["conf"])
         return out

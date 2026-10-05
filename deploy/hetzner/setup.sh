@@ -19,7 +19,7 @@
 # Re-running is safe: keeps keys/passwords in /etc/atlas/atlas.env, updates the checkout, restarts services.
 set -euo pipefail
 
-REPO="${ATLAS_REPO:-https://github.com/atlasdeskoperations-gif/AtlasDesks.git}"
+REPO="${ATLAS_REPO:-https://github.com/PierreKhoury1/AtlasOperations.git}"
 BRANCH="${ATLAS_BRANCH:-main}"
 HOST=""; OPENROUTER=""; OPEN="0"; VISION="0"
 while [ $# -gt 0 ]; do
@@ -48,7 +48,7 @@ PUBIP="$(curl -s -m 5 -4 ifconfig.me || hostname -I | awk '{print $1}')"
 
 echo "== packages"
 apt-get update -q
-apt-get install -y -q git curl ca-certificates gnupg ufw fail2ban unattended-upgrades \
+apt-get install -y -q git curl ca-certificates gnupg ufw fail2ban unattended-upgrades ffmpeg \
   python3 python3-venv python3-pip postgresql postgresql-contrib \
   debian-keyring debian-archive-keyring apt-transport-https >/dev/null
 

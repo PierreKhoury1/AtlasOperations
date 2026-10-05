@@ -33,8 +33,23 @@ LEAD_TOOLS = ["delegate", "list_agents", "save_deliverable", "read_file", "list_
 ALLOWED_TOOLS = ["read_file", "list_files", "web_fetch", "run_python", "save_deliverable", "browse", "crm_lookup",
                  "crm_update", "queue_action", "camera_look", "camera_events", "camera_ask", "video_describe",
                  "remember", "recall", "http_request", "calendar_free_slots", "calendar_book", "generate_media", "mcp",
-                 "log_search", "enrich", "correlate"]
+                 "record_find", "record_get", "record_save", "log_search", "enrich", "correlate"]
 NEVER_TOOLS = {"finish", "assemble_team"}
+# tools that DO something (anything but reading/saving the run's own files and the desk's notes)
+FUNCTION_TOOLS = {"web_fetch", "run_python", "browse", "crm_lookup", "crm_update", "queue_action", "camera_look", "camera_events",
+                  "camera_ask", "video_describe", "http_request", "calendar_free_slots", "calendar_book", "generate_media",
+                  "record_find", "record_get", "record_save", "log_search", "enrich", "correlate", "delegate"}
+MAX_RULES = 3                 # an agent's text: a one-line goal and at most three short rules
+RULE_CHARS = 120
+GOAL_CHARS = 160
+
+
+def _one_line(s: Any, n: int) -> str:
+    s = " ".join(str(s or "").split())
+    if len(s) <= n:
+        return s
+    cut = s[:n].rsplit(" ", 1)[0]
+    return (cut or s[:n]).rstrip(",;:- ") + "…"
 
 PALETTE = ["#7c3aed", "#db2777", "#1f9d63", "#b45309", "#0e7490", "#6d28d9", "#ea580c", "#15803d", "#a21caf", "#0369a1"]
 
@@ -49,10 +64,13 @@ Design rules
   a data crew that reconciles several sources). A sub-team = one lead ("reports_to": "atlas") with 2-4 members
   ("reports_to": "<lead id>"). Max depth is atlas -> lead -> member. Leads coordinate, review and merge their
   members' work; they do not do the members' jobs.
-- Each agent: "id" (a-z, 0-9, _, max 24), "name", "role" (3-6 words), "goal" (1-2 sentences: what it produces and
-  the quality bar), "instructions" (3-6 standing orders written for THIS business and THIS task: what to check
-  first, what it must never do, the exact shape it hands back), "tools" (from the list below), "engine",
-  "strong" (true only where judgement or client-facing words are the product), "reports_to".
+- An agent is defined by its FUNCTIONS (tools), not by text. Every agent needs at least one function that acts
+  (look up records, search the web, read a camera, check the calendar, run code...). A role that would only write
+  text is not an agent: fold it into its lead or leave it to Atlas.
+- Each agent: "id" (a-z, 0-9, _, max 24), "name", "role" (3-6 words), "goal" (ONE line, max 100 characters: what
+  it produces), "instructions" (1-3 rules, max 90 characters each, only what the tools cannot express: what to check
+  first, what it must never do), "tools" (from the list below), "engine", "strong" (true only where judgement or
+  client-facing words are the product), "reports_to".
 - "engine": "hermes_agent" only if it is available (see below) and the role must browse live sites, run code or
   shell, work through files over many steps, or remember a client between runs. Otherwise "atlas".
 - Tools available: {tools}. Outbound tools (queue_action, calendar_book, http_request, browse) are approval-gated.
@@ -130,9 +148,9 @@ def validate_team(raw: Any, *, allowed_tools: list[str] | None = None, max_agent
         instr = a.get("instructions")
         if isinstance(instr, str):
             instr = [x.strip(" -•\t") for x in instr.splitlines()]
-        instr = [str(x).strip()[:240] for x in (instr if isinstance(instr, list) else []) if str(x).strip()][:8]
-        if len(instr) < 2:
-            errors.append(f"{aid}: needs at least 2 standing orders in 'instructions' (has {len(instr)})")
+        instr = [str(x).strip()[:RULE_CHARS] for x in (instr if isinstance(instr, list) else []) if str(x).strip()][:MAX_RULES]
+        if not instr:
+            errors.append(f"{aid}: needs at least 1 rule in 'instructions' (has 0)")
         # an agent whose job is about the cameras must be able to read them (the model often forgets the tools)
         about = " ".join([str(a.get("role") or ""), str(a.get("goal") or ""), " ".join(instr)]).lower()
         if re.search(r"\b(camera|cameras|cctv|footage|journal|diary|feed|feeds)\b", about):
@@ -145,7 +163,7 @@ def validate_team(raw: Any, *, allowed_tools: list[str] | None = None, max_agent
             engine = "atlas"
         agents.append({
             "id": aid, "name": str(a.get("name") or aid.replace("_", " ").title())[:40],
-            "role": str(a.get("role") or "Specialist")[:60], "goal": str(a.get("goal") or a.get("description") or "")[:600],
+            "role": str(a.get("role") or "Specialist")[:60], "goal": _one_line(a.get("goal") or a.get("description") or "", GOAL_CHARS),
             "instructions": instr, "tools": tools, "engine": engine, "strong": bool(a.get("strong")),
             "reports_to": _slug(a.get("reports_to") or "atlas") or "atlas",
         })
@@ -189,6 +207,13 @@ def validate_team(raw: Any, *, allowed_tools: list[str] | None = None, max_agent
         if a["lead"] and a["engine"] == "hermes_agent":
             errors.append(f"{a['id']}: a lead must run on the atlas engine (it needs delegate) - engine set to atlas")
             a["engine"] = "atlas"
+        if not a["lead"] and not any(t in FUNCTION_TOOLS or t == "mcp" for t in a["tools"]):
+            # text-only agents were the norm (24 of 67 on Pierre's desks, Oct 2026): give each at least eyes on the business
+            granted = [t for t in ("record_find", "record_get") if t in allowed and t not in a["tools"]]
+            a["tools"].extend(granted)
+            errors.append(f"{a['id']}: has no function, only text - give it tools that act "
+                          f"({', '.join(sorted(FUNCTION_TOOLS & set(allowed) - {'delegate'})[:8])}) or fold its job into another agent"
+                          + (f"; granted {', '.join(granted)} for now" if granted else ""))
     for i, a in enumerate(agents):
         a["color"] = PALETTE[i % len(PALETTE)]
     # workflow
@@ -243,14 +268,11 @@ def tree(team: dict[str, Any]) -> str:
 # --------------------------------------------------------------------------- team -> engine config
 
 def agent_prompt(a: dict[str, Any], biz: dict[str, Any], by_id: dict[str, dict[str, Any]] | None = None) -> str:
-    lines = [f"You are {a['name']}, {a['role']} for {biz.get('name') or 'the business'}.",
-             f"Your job: {a.get('goal') or a['role']}."]
-    if biz.get("tone"):
-        lines.append(f"House tone: {biz['tone']}")
-    if biz.get("description"):
-        lines.append(f"About the business: {biz['description']}")
+    """Short on purpose: the agent is its tools (sent to the model as functions) plus at most three rules. The business
+    profile is added by the orchestrator for every specialist, so it is not repeated here."""
+    lines = [f"You are {a['name']}, {a['role']} for {biz.get('name') or 'the business'}. Job: {a.get('goal') or a['role']}."]
     if a.get("instructions"):
-        lines.append("Standing orders for this role:")
+        lines.append("Rules:")
         lines.extend(f"- {x}" for x in a["instructions"])
     if a.get("members"):
         names = ", ".join(f"{m} ({by_id[m]['role']})" if by_id and m in by_id else m for m in a["members"])
@@ -259,8 +281,7 @@ def agent_prompt(a: dict[str, Any], biz: dict[str, Any], by_id: dict[str, dict[s
                      "merged result. Do not do their jobs yourself; do not delegate outside your team.")
     elif a.get("reports_to") and a["reports_to"] != "atlas":
         lines.append(f"You report to {a['reports_to']}. Hand back exactly what they asked for, in the shape they asked for.")
-    lines.append("Be specific and concise. Never invent facts about the client; say what you assumed. "
-                 "Do not include prices, fees or placeholders like [name] in anything customer-facing unless the task supplies them.")
+    lines.append("Use your tools before answering from memory. Never invent facts, prices or placeholders like [name].")
     return "\n".join(lines)
 
 

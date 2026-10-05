@@ -13,6 +13,7 @@ Env:  DESK_MODE=demo|live|auto     demo = scripted provider (no API key needed);
 """
 from __future__ import annotations
 
+import importlib
 import json
 import queue
 import os
@@ -32,10 +33,12 @@ from urllib.parse import urlencode
 from flask import Flask, Response, abort, jsonify, redirect, request, send_file, send_from_directory, session, stream_with_context
 from werkzeug.security import check_password_hash, generate_password_hash
 
+from .. import cases as C
 from .. import config as cfg
 from .. import designer as DS
 from .. import integrations as I
 from .. import metrics as MX
+from .. import records as R
 from .. import templates
 from .. import tools as T
 from .. import vision as V
@@ -145,9 +148,25 @@ def desk_configs(desk: dict[str, Any]) -> dict[str, Any]:
     business = {**t["business"], **(over.get("business") or {})}
     agents = over.get("agents") or t["agents"]
     workflows = over.get("workflows") or t["workflows"]
+    by_id = {a.get("id"): a for a in agents}
+    for a in agents:                                   # function-first: short text, and no agent without a function
+        if a.get("id") in ("atlas", "hermes"):
+            continue
+        if a.get("instructions"):
+            a["instructions"] = [str(x)[:TM.RULE_CHARS] for x in a["instructions"]][:TM.MAX_RULES]
+        if a.get("goal"):
+            a["goal"] = TM._one_line(a["goal"], TM.GOAL_CHARS)
+        if "Standing orders for this role:" in (a.get("system_prompt") or ""):   # written by the old, wordy prompt builder
+            a["system_prompt"] = TM.agent_prompt({**a, "name": a.get("name") or a["id"], "role": a.get("role") or "specialist"},
+                                                 business, by_id) + templates._SPECIALIST_SUFFIX
+        if not any(t_ in TM.FUNCTION_TOOLS or t_ == "mcp" for t_ in a.get("tools") or []):
+            a["tools"] = list(dict.fromkeys(list(a.get("tools") or ["read_file", "list_files"]) + ["record_find", "record_get"]))
     for a in agents:                                   # a roster edited in the portal is stored raw: fill what the engine expects
         a.setdefault("enabled", True)
         a.setdefault("tools", ["read_file", "list_files"])
+        for old in templates._OLD_SPECIALIST_SUFFIXES:     # desks built before the shorter suffix
+            if old.strip() in (a.get("system_prompt") or ""):
+                a["system_prompt"] = (a.get("system_prompt") or "").replace(old, "").replace(old.strip(), "").rstrip()
         if a.get("id") != "atlas" and templates._SPECIALIST_SUFFIX.strip() not in (a.get("system_prompt") or ""):
             a["system_prompt"] = (a.get("system_prompt") or f"You are {a.get('name', a.get('id'))}, {a.get('role', '')}.").rstrip() + templates._SPECIALIST_SUFFIX
     for a in agents:                                   # what the owner granted, before any engine (Hermes) strips or adds tools
@@ -197,9 +216,14 @@ def desk_configs(desk: dict[str, Any]) -> dict[str, Any]:
         for a in agents:
             if a["id"] == "atlas" or "camera_look" in a.get("tools", []):
                 a["tools"] = list(dict.fromkeys(list(a.get("tools", [])) + ["camera_look", "camera_events", "camera_ask"]))
+    ops_on = C.enabled(desk)
     for a in agents:                                   # the lead can always redesign its team and watch videos
         if a["id"] == "atlas":
-            a["tools"] = list(dict.fromkeys(list(a.get("tools", [])) + ["assemble_team", "video_describe"]))
+            a["tools"] = list(dict.fromkeys(list(a.get("tools", [])) + ["assemble_team", "video_describe"] + T.RECORD_TOOLS
+                                            + (T.CASE_TOOLS if ops_on else [])))
+        elif any(t in a.get("tools", []) for t in RECORD_GRANT_WITH):
+            a["tools"] = list(dict.fromkeys(list(a["tools"]) + T.RECORD_TOOLS))   # anyone who touches customers or cameras
+                                                                                   # can read and save business records
         if "camera_events" in a.get("tools", []) and "camera_ask" not in a["tools"]:   # desks built before the RAG tool existed
             a["tools"] = list(a["tools"]) + ["camera_ask"]
     deny = set(business.get("deny_tools") or [])     # e.g. a security desk: log text is attacker-controlled, so no code,
@@ -261,7 +285,11 @@ def desk_configs(desk: dict[str, Any]) -> dict[str, Any]:
         a["provider"], a["model"], a["tools"], a["engine"] = pname, hmodel, [], "hermes_agent"
     return {"providers": providers, "orchestration": cfg.load("orchestration", cfg.DEFAULT_ORCHESTRATION),
             "business": business, "agents": agents, "workflows": workflows, "ui": {}, "mode": mode,
-            "desk_id": desk["id"], "cyber": (desk.get("config") or {}).get("cyber") or {}}
+            "desk_id": desk["id"], "case_id": None, "cyber": (desk.get("config") or {}).get("cyber") or {}}
+
+
+RECORD_GRANT_WITH = ("crm_lookup", "crm_update", "camera_events", "camera_ask", "camera_look", "browse", "http_request",
+                     "calendar_book", "queue_action")
 
 
 def ensure_demo_desk() -> dict[str, Any]:
@@ -517,16 +545,17 @@ def desk_static(path):
 # ---------------------------------------------------------------------------- api: desks (onboarding + switching)
 def _desk_public(d: dict[str, Any]) -> dict[str, Any]:
     b = (d.get("config") or {}).get("business") or {}
+    from .. import alerts as AL
     return {"id": d["id"], "name": d["name"], "template": d["template"], "tier": d.get("tier", "free"),
             "business_name": b.get("name", d["name"]), "created": d.get("created"),
-            "ui_level": (d.get("config") or {}).get("ui_level") or "simple"}
+            "ui_level": (d.get("config") or {}).get("ui_level") or "simple", "notify": AL.config(d)}
 
 
 # tools a specialist may be given from the Team page. Everything else in ORCHESTRATOR_ONLY stays with Atlas;
 # finish / assemble_team are never assignable. Approvals still gate every outbound tool.
 SPECIALIST_OK = {"crm_lookup", "crm_update", "queue_action", "camera_look", "camera_events", "camera_ask", "remember", "recall",
                  "browse", "http_request", "calendar_free_slots", "calendar_book", "generate_media", "video_describe",
-                 "log_search", "enrich", "correlate"}
+                 "log_search", "enrich", "correlate", "record_find", "record_get", "record_save"}
 NEVER_ASSIGN = {"finish", "assemble_team"}
 _COLOURS = ["#7c3aed", "#1f9d63", "#db2777", "#ea580c", "#b45309", "#0891b2"]
 
@@ -665,6 +694,14 @@ def api_update_desk(did):
         conf = fields.get("config") or d.get("config") or {}
         conf["ui_level"] = body["ui_level"]
         fields["config"] = conf
+    if isinstance(body.get("notify"), dict):
+        from .. import alerts as AL
+        n = AL.clean(body["notify"])
+        if isinstance(n, str):
+            return jsonify({"error": n}), 400
+        conf = fields.get("config") or d.get("config") or {}
+        conf["notify"] = n
+        fields["config"] = conf
     if body.get("reset_agents"):
         conf = fields.get("config") or d.get("config") or {}
         conf.pop("agents", None)
@@ -691,6 +728,9 @@ def api_update_desk(did):
         conf["models"] = cur
         fields["config"] = conf
     store.update_desk(did, **fields)
+    if isinstance(body.get("notify"), dict):
+        from .. import alerts as AL
+        AL.ensure_report_job(store, store.desk(did))
     return jsonify(_desk_public(store.desk(did)))
 
 
@@ -858,6 +898,10 @@ def api_stats():
         return jsonify({"leads": 0, "pending": 0, "approved": 0, "qualified": 0, "active_runs": 0, "tokens_in": 0, "tokens_out": 0, "needs_desk": True})
     s = store.stats(desk["id"])
     s["active_runs"] = sum(1 for r in _runs.values() if r["desk_id"] == desk["id"] and r["thread"].is_alive())
+    try:
+        s["cases"] = C.counts(store, desk["id"])
+    except Exception:
+        s["cases"] = {}
     return jsonify(s)
 
 
@@ -879,7 +923,8 @@ def _prune_runs() -> None:
             _runs.pop(rid, None)
 
 
-def _start_run(desk: dict[str, Any], task: str, mode: str, lead_id: int | None = None) -> str:
+def _preflight(desk: dict[str, Any]) -> dict[str, Any]:
+    """Refuse a run the desk cannot pay for or has no model for (503 no key / 402 spend cap). Returns the configs."""
     _require_live()
     configs = desk_configs(desk)
     paid = any(":free" not in (a.get("model") or "") and a.get("model") for a in configs["agents"])
@@ -887,11 +932,25 @@ def _start_run(desk: dict[str, Any], task: str, mode: str, lead_id: int | None =
         blocked = _spend_blocked()
         if blocked:
             abort(Response(json.dumps({"error": blocked}), 402, mimetype="application/json"))
+    return configs
+
+
+def _start_run(desk: dict[str, Any], task: str, mode: str, lead_id: int | None = None, case_id: int | None = None) -> str:
+    configs = _preflight(desk)
+    if case_id:
+        configs["case_id"] = int(case_id)                 # approvals queued in this run belong to the case
     dstore = store.for_desk(desk["id"])
     events: list[dict[str, Any]] = []
     orch: Orchestrator
+    bound = {"case": False}
 
     def emit(ev: Event):
+        if case_id and not bound["case"] and orch.run_id:   # first event: the run has its id, before any model call
+            bound["case"] = True
+            try:
+                C.bind_run(store, int(case_id), orch.run_id)
+            except Exception:
+                pass
         if ev.kind != "token":                     # deltas are live-only; the full text arrives as a `log` event
             events.append({"ts": ev.ts, "kind": ev.kind, "agent": ev.agent, "text": ev.text, "data": ev.data})
         if ev.kind == "error":
@@ -902,6 +961,7 @@ def _start_run(desk: dict[str, Any], task: str, mode: str, lead_id: int | None =
     holder: dict[str, Any] = {"events": events, "orch": orch, "task": task, "desk_id": desk["id"], "started": time.time()}
 
     def work():
+        res = None
         try:
             res = orch.run(task, mode)
             status = res.status
@@ -917,6 +977,13 @@ def _start_run(desk: dict[str, Any], task: str, mode: str, lead_id: int | None =
         holder["ended"] = time.time()
         if lead_id is not None:
             dstore.set_lead(lead_id, status=("processed" if status == "done" else status), run_id=orch.run_id)
+        cid = orch.case_id or case_id
+        if cid:                                    # the case decides what happens next (atlas/cases.py)
+            try:
+                C.run_finished(store, int(cid), orch.run_id, status, res.summary if res else "")
+            except Exception:
+                import traceback as _tb
+                _tb.print_exc()
 
     th = threading.Thread(target=work, daemon=True)
     holder["thread"] = th
@@ -931,6 +998,41 @@ def _start_run(desk: dict[str, Any], task: str, mode: str, lead_id: int | None =
     if lead_id is not None:
         dstore.set_lead(lead_id, status="running", run_id=orch.run_id)
     return orch.run_id
+
+
+def _run_status(run_id: str) -> str:
+    """Live status of a run for the case engine: running while its thread lives, else what the DB says."""
+    h = _runs.get(run_id)
+    if h and h["thread"].is_alive():
+        return "running"
+    row = store.run(run_id)
+    if row:
+        return "lost" if row.get("status") == "running" else (row.get("status") or "")
+    return "running" if h else "lost"
+
+
+def _lead_case_run(desk: dict[str, Any], lid: int, mode: str = "auto", extra: str = "") -> str:
+    """A lead is worked as an enquiry case: replies, follow-ups and bookings continue the same case. A workflow mode, or
+    a desk with cases switched off, gets the plain one-off run it always had."""
+    lead = store.lead(lid)
+    task = _lead_task(lead) + (("\n\n" + extra.strip()) if extra else "")
+    if mode != "auto" or not C.enabled(desk, "lead_cases"):
+        return _start_run(desk, task, mode, lid)
+    _preflight(desk)                                     # refuse (402/503) before a case exists, exactly like a plain run
+    open_ = C.match_open(store, desk["id"], email=lead.get("email") or "", phone=lead.get("phone") or "")
+    if open_:                                            # the same person again while their case is open: continue it
+        store.set_lead(lid, status="merged")
+        rid = C.inbound_reply(store, desk, open_, lead.get("source") or "lead", lead.get("notes") or "", actor=lead.get("name") or "",
+                              extra=extra)
+        if rid:
+            store.set_lead(lid, status="running", run_id=rid)
+        return rid or (C.get(store, open_["id"]) or {}).get("active_run") or ""
+    person = R.person_for(store, desk["id"], email=lead.get("email") or "", phone=lead.get("phone") or "")
+    first = ((lead.get("notes") or "").strip().splitlines() or [""])[0][:90]   # the person is the case's record, not its title
+    title = first or f"Enquiry from {lead.get('name') or lead.get('email') or lead.get('phone') or 'unknown'}"
+    c = C.open_case(store, desk["id"], "enquiry", title, (person or {}).get("id") or 0, source=lead.get("source") or "lead",
+                    brief=task, desk=desk)
+    return C.kick(store, desk, c, lead_id=lid)
 
 
 @app.get("/api/leads")
@@ -953,7 +1055,7 @@ def api_add_lead():
                                   "phone": d.get("phone", ""), "stage": "New", "notes": "Inbound lead"})
     run_id = None
     if d.get("run", True):
-        run_id = _start_run(desk, _lead_task(dstore.lead(lid)), d.get("mode", "auto"), lid)
+        run_id = _lead_case_run(desk, lid, d.get("mode", "auto"))
     return jsonify({"id": lid, "run_id": run_id})
 
 
@@ -964,7 +1066,7 @@ def api_run_lead(lid):
     if not lead or lead.get("desk_id") != desk["id"]:
         abort(404)
     mode = (request.get_json(silent=True) or {}).get("mode", "auto")
-    return jsonify({"run_id": _start_run(desk, _lead_task(lead), mode, lid)})
+    return jsonify({"run_id": _lead_case_run(desk, lid, mode)})
 
 
 @app.post("/api/runs")
@@ -1122,7 +1224,30 @@ def api_decide(aid):
             dstore.add_event(row["run_id"], "error", "owner", f"{row['kind']} → {row['to']} failed: {err}")
     else:
         dstore.add_event(row["run_id"], "rejected", "owner", f"{row['kind']} to {row['to']} rejected — {d.get('note','')}")
+    _action_to_case(desk, row, by, d.get("note", ""))
     return jsonify(row)
+
+
+def _action_to_case(desk: dict[str, Any], row: dict[str, Any], by: str, note: str) -> None:
+    """A decided approval lands on the person's record history and moves the case it belongs to."""
+    try:
+        what = f"{row['kind']} → {row['to']}: {row['subject'] or (row['body'] or '')[:120]}"
+        person = R.person_for(store, desk["id"], email=row["to"] if "@" in (row["to"] or "") else "",
+                              phone=row["to"] if "@" not in (row["to"] or "") else "")
+        if row["status"] == "sent":
+            if person:
+                R.add_timeline(store, desk["id"], record_id=person["id"], kind="sent", actor=by, text=what, run_id=row.get("run_id") or "",
+                               data={"action_id": row["id"], "body": (row.get("body") or "")[:1500]})
+            if row.get("case_id"):
+                C.fire(store, int(row["case_id"]), "booked" if row["kind"] == "booking" else "sent", what, actor=by,
+                       run_id=row.get("run_id") or "")
+        elif row["status"] == "rejected" and row.get("case_id"):
+            C.fire(store, int(row["case_id"]), "rejected", f"rejected {what}" + (f" — owner's note: {note}" if note else ""), actor=by)
+        elif row["status"] == "failed" and row.get("case_id"):
+            C.note(store, int(row["case_id"]), f"sending failed: {what} ({row.get('note') or ''})"[:600], actor="system", kind="error")
+    except Exception:
+        import traceback as _tb
+        _tb.print_exc()
 
 
 # ---------------------------------------------------------------------------- api: crm / audit / report
@@ -1398,7 +1523,7 @@ def api_seed():
     for L in _sample_leads(desk):
         lid = dstore.add_lead(L["name"], L["company"], L["email"], L["phone"], L["source"], L["notes"])
         dstore.upsert_contact(L["email"], {"name": L["name"], "company": L["company"], "email": L["email"], "phone": L["phone"], "stage": "New", "notes": "Inbound lead"})
-        ids.append({"id": lid, "run_id": _start_run(desk, _lead_task(dstore.lead(lid)), "auto", lid)})
+        ids.append({"id": lid, "run_id": _lead_case_run(desk, lid)})
         time.sleep(0.05)
     return jsonify(ids)
 
@@ -1520,7 +1645,10 @@ def api_add_connector():
     name = (d.get("name") or kind).strip()
     if store.connector_by_name(desk["id"], name):
         return jsonify({"error": "a connector with that name exists"}), 400
-    c = store.add_connector(desk["id"], kind, name, d.get("config") or {}, bool(d.get("auto")))
+    config = d.get("config") or {}
+    if kind == "camera":                                   # "sample:<clip>" is resolved once, here, like the designer does
+        config["source"] = DS.resolve_camera_source(str(config.get("source") or "")) or str(config.get("source") or "")
+    c = store.add_connector(desk["id"], kind, name, config, bool(d.get("auto")))
     return jsonify(_conn_public(c))
 
 
@@ -1533,6 +1661,9 @@ def api_update_connector(cid):
     d = request.get_json(force=True) or {}
     fields: dict[str, Any] = {}
     if "config" in d:
+        if c["kind"] == "camera" and "source" in (d["config"] or {}):
+            src = str(d["config"].get("source") or "")
+            d["config"]["source"] = DS.resolve_camera_source(src) or src
         fields["config"] = I.merge_secrets(c["config"], d["config"] or {})
     if "auto" in d:
         fields["auto"] = 1 if d["auto"] else 0
@@ -1549,6 +1680,10 @@ def api_delete_connector(cid):
     if not c or c["desk_id"] != desk["id"]:
         abort(404)
     store.delete_connector(cid)
+    if c["kind"] == "camera":                              # its watch job goes too, or it keeps ticking on a missing camera
+        for j in store.jobs(desk["id"]):
+            if j["kind"] == "camera_watch" and f'"connector": "{c["name"]}"' in (j["task"] or ""):
+                store.delete_job(j["id"])
     from .. import mcp_client as M
     M.REGISTRY.drop(cid)
     return jsonify({"ok": True})
@@ -1701,6 +1836,37 @@ def _vev_public(e: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
+@app.get("/api/agents/links")
+def api_agent_links():
+    """Which agent watches which camera and sends through which connector, with the gaps: read by every tab."""
+    from .. import agent_links as AL
+    desk = need_desk()
+    conns = store.connectors(desk["id"])
+    cams = [c for c in conns if c["kind"] == "camera"]
+    out = AL.links(desk_configs(desk)["agents"], cams, [c for c in conns if c["kind"] != "camera"])
+    out["camera_ids"] = {c["name"]: c["id"] for c in cams}
+    return jsonify(out)
+
+
+@app.post("/api/cameras/<int:cid>/assign")
+def api_camera_assign(cid):
+    """{agent, on=true}: name this camera in the agent's instructions (and grant the camera tools), or take it out."""
+    from .. import agent_links as AL
+    desk = need_desk()
+    cam = _camera(cid, desk)
+    d = request.get_json(silent=True) or {}
+    aid = str(d.get("agent") or "")
+    conf = dict(desk.get("config") or {})
+    roster = json.loads(json.dumps(conf.get("agents") or templates.get(desk.get("template") or DEFAULT_TEMPLATE)["agents"]))
+    i = next((k for k, a in enumerate(roster) if a.get("id") == aid), None)
+    if i is None or aid == "atlas":
+        return jsonify({"error": "pick a specialist agent of this desk"}), 400
+    roster[i] = AL.assign_camera(roster[i], cam["name"], bool(d.get("on", True)))
+    conf["agents"] = roster
+    store.update_desk(desk["id"], config=conf)
+    return jsonify({"ok": True, "agent": aid, "camera": cam["name"], "on": bool(d.get("on", True))})
+
+
 @app.get("/api/cameras")
 def api_cameras():
     desk = need_desk()
@@ -1720,9 +1886,118 @@ def api_cameras():
     nodes = [{**n, "last_event": _vev_public(n["last_event"]) if n.get("last_event") else None}
              for n in store.hook_cameras(desk["id"], time.time() - 86400, tuple(c["name"] for c in cams))]
     return jsonify({"cameras": cams, "nodes": nodes, "mode": _mode(),
-                    "detector": {"available": V.DETECTOR.available, "error": V.DETECTOR.error, "weights": os.path.basename(V.YOLO_WEIGHTS)},
+                    "detector": {"available": V.DETECTOR.available, "error": V.DETECTOR.error, "weights": getattr(V.DETECTOR, "label", os.path.basename(V.YOLO_WEIGHTS)),
+                                 "runtime_error": getattr(V.DETECTOR, "_ov_error", "")},
                     "vlm": {"ready": V.vlm_ready() and _mode() != "demo", "model": V.DEFAULT_VLM},
-                    "stats": store.vision_stats(desk["id"], time.time() - 86400), "hook_url": hook})
+                    "stats": store.vision_stats(desk["id"], time.time() - 86400), "hook_url": hook,
+                    "planned": _planned_cameras(desk, cams),
+                    "samples": [{"name": n, "label": DS.SAMPLE_LABELS.get(n, n.replace("-", " "))} for n in DS.sample_clips()]})
+
+
+def _planned_cameras(desk: dict[str, Any], cams: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Cameras Atlas planned for this desk that are not connected yet (built without a stream address)."""
+    have = {c["name"] for c in cams}
+    bp = (desk.get("config") or {}).get("blueprint") or {}
+    return [{k: cam.get(k, "") for k in ("name", "notes", "focus", "watch_for")} for cam in bp.get("cameras") or []
+            if cam.get("name") and cam["name"] not in have]
+
+
+@app.post("/api/cameras/planned")
+def api_camera_planned():
+    """{name, source}: connect a camera Atlas planned (journal, focus and notes as designed) and start watching it."""
+    desk = need_desk()
+    d = request.get_json(silent=True) or {}
+    bp = (desk.get("config") or {}).get("blueprint") or {}
+    cam = next((c for c in bp.get("cameras") or [] if c.get("name") == d.get("name")), None)
+    if not cam:
+        return jsonify({"error": "no planned camera by that name"}), 404
+    if not DS.resolve_camera_source(str(d.get("source") or "")):
+        return jsonify({"error": "give a stream address (rtsp://, http://, a webcam index) or pick sample footage"}), 400
+    made, missing = _build_cameras(desk, {"cameras": [dict(cam, source=str(d["source"]))]})
+    if not made:
+        return jsonify({"error": f"could not use that source for {cam['name']}"}), 400
+    return jsonify({"ok": True, "camera": made[0]})
+
+
+# ---- attaching a feed to a camera tile: upload a recording, test any source, attach it (built or planned camera)
+CAMERA_UPLOAD_DIR = cfg.DATA_DIR / "uploads" / "cameras"
+CAMERA_UPLOAD_EXT = V.VIDEO_EXT | {".jpg", ".jpeg", ".png"}
+CAMERA_UPLOAD_MAX = int(os.environ.get("CAMERA_UPLOAD_MAX_MB", "2048")) * 1024 * 1024
+
+
+def _signed_in() -> None:
+    if not current_user() and not OPEN:
+        abort(401)
+
+
+@app.post("/api/cameras/upload")
+def api_camera_upload():
+    """multipart "file": a recording (mp4, mov, mkv, ...) or a still image, stored on the server and played as a camera
+    (recordings loop on the shared clock, like the sample footage). Returns {"source": path} for /attach."""
+    _signed_in()
+    f = request.files.get("file")
+    if not f or not f.filename:
+        return jsonify({"error": "choose a video or image file"}), 400
+    ext = Path(f.filename).suffix.lower()
+    if ext not in CAMERA_UPLOAD_EXT:
+        return jsonify({"error": f"{ext or 'that file type'} is not supported; use " + ", ".join(sorted(CAMERA_UPLOAD_EXT))}), 400
+    if request.content_length and request.content_length > CAMERA_UPLOAD_MAX:
+        return jsonify({"error": f"file is larger than {CAMERA_UPLOAD_MAX // (1024 * 1024)} MB"}), 413
+    CAMERA_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+    stem = re.sub(r"[^a-zA-Z0-9_-]+", "-", Path(f.filename).stem).strip("-")[:40] or "camera"
+    dest = CAMERA_UPLOAD_DIR / f"{stem}-{secrets.token_hex(4)}{ext}"
+    f.save(dest)
+    return jsonify({"source": str(dest), "name": f.filename, "kind": V.source_kind(str(dest)), "bytes": dest.stat().st_size})
+
+
+@app.post("/api/cameras/probe")
+def api_camera_probe():
+    """{source}: grab one frame to prove the source works before attaching it. {ok, kind, preview (data URL)} or {ok:false, error}."""
+    _signed_in()
+    d = request.get_json(silent=True) or {}
+    raw = str(d.get("source") or "").strip()
+    src = DS.resolve_camera_source(raw)
+    if not src:
+        return jsonify({"ok": False, "error": "enter a stream address, pick a file or choose sample footage"}), 400
+    kind = V.source_kind(src)
+    try:
+        jpeg = V.grab(src)
+    except Exception as exc:
+        return jsonify({"ok": False, "kind": kind, "error": str(exc)[:300] or type(exc).__name__})
+    return jsonify({"ok": True, "kind": kind, "source": src, "preview": "data:image/jpeg;base64," + base64.b64encode(jpeg).decode()})
+
+
+@app.post("/api/cameras/attach")
+def api_camera_attach():
+    """{name, source, cid?, notes?, focus?}: point a camera at a feed. An existing camera keeps its journal settings
+    and only swaps the source; a planned or brand-new camera is created with a journal and a watch job."""
+    desk = need_desk()
+    d = request.get_json(silent=True) or {}
+    name = re.sub(r"\s+", "-", str(d.get("name") or "").strip())[:60]
+    src = DS.resolve_camera_source(str(d.get("source") or ""))
+    if not name:
+        return jsonify({"error": "name the camera"}), 400
+    if not src:
+        return jsonify({"error": "give a stream address (rtsp://, http://), a webcam number, an uploaded file or sample footage"}), 400
+    c = store.connector(int(d["cid"])) if d.get("cid") else store.connector_by_name(desk["id"], name)
+    if c and (c["desk_id"] != desk["id"] or c["kind"] != "camera"):
+        abort(404)
+    if c:
+        store.update_connector(c["id"], config=I.merge_secrets(c["config"], {"source": src}), status="")
+        c = store.connector(c["id"])
+        if not any(j["kind"] == "camera_watch" and f'"connector": "{c["name"]}"' in (j["task"] or "") for j in store.jobs(desk["id"])):
+            store.add_job(desk["id"], "camera_watch", f"Watch {c['name']}", json.dumps({"connector": c["name"], "every_s": 8}), 1, time.time())
+        cam = {"id": c["id"], "name": c["name"]}
+    else:
+        bp = (desk.get("config") or {}).get("blueprint") or {}
+        plan = next((x for x in bp.get("cameras") or [] if x.get("name") == name), None) or {}
+        made, _ = _build_cameras(desk, {"cameras": [{**plan, "name": name, "source": src,
+                                                     "notes": plan.get("notes") or str(d.get("notes") or ""),
+                                                     "focus": plan.get("focus") or str(d.get("focus") or "")}]})
+        if not made:
+            return jsonify({"error": f"could not use that source for {name}"}), 400
+        cam = made[0]
+    return jsonify({"ok": True, "camera": {**cam, "source_kind": V.source_kind(src)}})
 
 
 @app.post("/api/cameras/<int:cid>/look")
@@ -1855,9 +2130,26 @@ def api_vision_journal_stream():
 
 
 # ---------------------------------------------------------------------------- object catalogue
-def _obj_public(o: dict[str, Any]) -> dict[str, Any]:
+def _objects_mod():
+    """atlas.objects (the catalogue worker) and atlas.audit are optional installs; without them the routes say so
+    instead of dying with a 500."""
+    try:
+        OBJ = importlib.import_module("atlas.objects")
+        AUD = importlib.import_module("atlas.audit")
+    except ImportError:
+        abort(Response(json.dumps({"error": "object catalogue not installed (atlas/objects.py, atlas/audit.py)"}), 501,
+                       mimetype="application/json"))
+    return OBJ, AUD
+
+
+def _obj_public(o: dict[str, Any], names: dict[int, dict[str, Any]] | None = None) -> dict[str, Any]:
     o = dict(o)
     o.pop("emb", None)
+    n = None
+    if o.get("name_id") and o.get("name_by") != "owner-no":
+        n = (names or {}).get(o["name_id"]) if names is not None else store.named(o["name_id"])
+    o["name"] = n["name"] if n else ""
+    o["name_kind"] = n["kind"] if n else ""
     o["crop_url"] = f"/api/objects/{o['id']}/crop.jpg?v={int(o.get('last_ts') or 0)}"
     o["scene_url"] = f"/api/objects/{o['id']}/scene.jpg?v={int(o.get('last_ts') or 0)}"
     o["seconds"] = round(max(0.0, (o.get("last_ts") or 0) - (o.get("first_ts") or 0)), 1)
@@ -1871,6 +2163,52 @@ def _object(oid: int) -> tuple[dict[str, Any], dict[str, Any]]:
     if not o:
         abort(404)
     return desk, o
+
+
+# ---------------------------------------------------------------------------- review: synced multi-camera playback vs labels
+REVIEW_DATA = Path(os.environ.get("ATLAS_REVIEW_DATA") or (Path.home() / "AtlasDemo" / "wildtrack")).expanduser()
+REVIEW_OUT = Path(os.environ.get("ATLAS_REVIEW_OUT") or "").expanduser() if os.environ.get("ATLAS_REVIEW_OUT") else None
+
+
+def _review_out() -> Path:
+    from .. import mcam_eval as MC
+    return REVIEW_OUT or MC.OUT_DIR
+
+
+@app.get("/desk/review")
+def desk_review_page():
+    if not current_user() and not OPEN:
+        return redirect("/login?next=/desk/review")
+    return send_from_directory(STATIC_DIR, "review.html")
+
+
+@app.get("/api/review/data")
+def api_review_data():
+    """The evaluation's per-instant boxes (review.json) and its scores (results.json): `py -m atlas mcam-eval` writes both;
+    notes.json, when `py -m atlas mcam-notes` has run, carries each camera agent's notes and how they were checked."""
+    if not current_user() and not OPEN:
+        abort(401)
+    out = _review_out()
+    rv, rs, nt = out / "review.json", out / "results.json", out / "notes.json"
+    if not rv.is_file():
+        return jsonify({"error": "no evaluation yet: run  py -m atlas mcam-eval  (WILDTRACK under ~/AtlasDemo/wildtrack)"}), 404
+    rd = lambda f: f.read_text(encoding="utf-8") if f.is_file() else "null"
+    return Response('{"review":' + rv.read_text(encoding="utf-8") + ',"results":' + rd(rs) + ',"notes":' + rd(nt) + "}",
+                    mimetype="application/json")
+
+
+@app.get("/api/review/frame/<cam>/<frame>.jpg")
+def api_review_frame(cam, frame):
+    if not current_user() and not OPEN:
+        abort(401)
+    if not re.fullmatch(r"C[1-7]", cam) or not re.fullmatch(r"\d{8}", frame):
+        abort(404)
+    p = REVIEW_DATA / "frames-hd" / cam / f"{frame}.jpg"          # full 1080p when fetched with --hd; labels are scaled, so same boxes
+    if not p.is_file():
+        p = REVIEW_DATA / "frames" / cam / f"{frame}.jpg"
+    if not p.is_file():
+        abort(404)
+    return send_file(p, mimetype="image/jpeg", max_age=3600)
 
 
 @app.get("/desk/objects")
@@ -1888,8 +2226,7 @@ def desk_objects_page():
 @app.get("/api/objects")
 def api_objects():
     """The catalogue: every distinct thing the cameras saw. Filters: camera, label, status, verdict, minutes, watch."""
-    from .. import objects as OBJ
-    from .. import audit as AUD
+    OBJ, AUD = _objects_mod()
     desk = need_desk()
     ds = store.for_desk(desk["id"])
     a = request.args
@@ -1902,18 +2239,26 @@ def api_objects():
         rows = [o for o in rows if (o.get("verdict") or "unverified") == verdict]
     elif a.get("rejected") != "1":
         rows = [o for o in rows if o.get("verdict") != "rejected"]
+    names = {n["id"]: n for n in ds.named_things()}
+    if a.get("name", type=int):
+        rows = [o for o in rows if o.get("name_id") == a.get("name", type=int) and o.get("name_by") != "owner-no"]
     everything = ds.vision_objects(limit=5000)
-    facets = {"camera": {}, "label": {}, "verdict": {}}
+    facets = {"camera": {}, "label": {}, "verdict": {}, "name": {}}
     for o in everything:
         for k, v in (("camera", o["camera"]), ("label", o["label"]), ("verdict", o.get("verdict") or "unverified")):
             facets[k][v] = facets[k].get(v, 0) + 1
-    return jsonify({"objects": [_obj_public(o) for o in rows], "facets": facets, "workers": OBJ.statuses(desk["id"]),
+        if o.get("name_id") in names and o.get("name_by") != "owner-no":
+            nm = names[o["name_id"]]["name"]
+            facets["name"][nm] = facets["name"].get(nm, 0) + 1
+    return jsonify({"objects": [_obj_public(o, names) for o in rows], "facets": facets, "workers": OBJ.statuses(desk["id"]),
+                    "names": [{"id": n["id"], "name": n["name"], "kind": n["kind"], "notes": n.get("notes") or "",
+                               "exemplars": len(n["exemplars"]), "sightings": n.get("sightings") or 0} for n in names.values()],
                     "audit": AUD.latest(), "live": _mode() == "live" and V.vlm_ready()})
 
 
 @app.get("/api/objects/<int:oid>")
 def api_object(oid):
-    from .. import objects as OBJ
+    OBJ, _ = _objects_mod()
     desk, o = _object(oid)
     ds = store.for_desk(desk["id"])
     try:
@@ -1925,7 +2270,7 @@ def api_object(oid):
 
 @app.get("/api/objects/<int:oid>/<which>.jpg")
 def api_object_image(oid, which):
-    from .. import objects as OBJ
+    OBJ, _ = _objects_mod()
     desk, o = _object(oid)
     if which not in ("crop", "scene"):
         abort(404)
@@ -1937,7 +2282,7 @@ def api_object_image(oid, which):
 
 def _object_live(desk: dict[str, Any], o: dict[str, Any]):
     """(frame, box, vision model) for an object: the live frame while it is still in view, else its stored pictures."""
-    from .. import objects as OBJ
+    OBJ, _ = _objects_mod()
     w = OBJ.worker(desk["id"], o["camera"])
     frame, box = w.latest(o["id"]) if w else (None, None)
     conn = next((c for c in store.connectors(desk["id"]) if c["kind"] == "camera" and c["name"] == o["camera"]), None)
@@ -1947,7 +2292,7 @@ def _object_live(desk: dict[str, Any], o: dict[str, Any]):
 @app.post("/api/objects/<int:oid>/call")
 def api_object_call(oid):
     """Call an object: the vision model examines it now, and (watch on) keeps following it while it stays in view."""
-    from .. import objects as OBJ
+    OBJ, _ = _objects_mod()
     desk, o = _object(oid)
     d = request.get_json(silent=True) or {}
     on = bool(d.get("on", True))
@@ -1967,7 +2312,7 @@ def api_object_call(oid):
 
 @app.post("/api/objects/<int:oid>/ask")
 def api_object_ask(oid):
-    from .. import objects as OBJ
+    OBJ, _ = _objects_mod()
     desk, o = _object(oid)
     q = str((request.get_json(force=True) or {}).get("question") or "").strip()[:500]
     if not q:
@@ -1979,6 +2324,93 @@ def api_object_ask(oid):
     except Exception as exc:
         return jsonify({"ok": False, "error": str(exc)[:300]}), 502
     return jsonify({"ok": True, "answer": text, "notes": store.for_desk(desk["id"]).object_notes(oid, 60)})
+
+
+@app.post("/api/objects/<int:oid>/name")
+def api_object_name(oid):
+    """The owner names this sighting ("Marco", "the Bidfood van"): a new named thing or one more exemplar of one.
+    Appearance only - the crop's CLIP embedding - never a face."""
+    OBJ, _ = _objects_mod()
+    desk, o = _object(oid)
+    d = request.get_json(force=True) or {}
+    name = re.sub(r"\s+", " ", str(d.get("name") or "")).strip()[:60]
+    if not name:
+        return jsonify({"error": "name required"}), 400
+    kind = str(d.get("kind") or "").strip().lower()
+    if kind not in ("", "person", "vehicle", "object"):
+        return jsonify({"error": "kind must be person, vehicle or object"}), 400
+    thing = OBJ.name_object(store, o, name, kind=kind, notes=str(d.get("notes") or "").strip()[:300])
+    ds = store.for_desk(desk["id"])
+    return jsonify({"ok": True, "thing": {k: thing[k] for k in ("id", "name", "kind", "notes")}, "object": _obj_public(ds.vision_object(oid)),
+                    "notes": ds.object_notes(oid, 60)})
+
+
+@app.delete("/api/objects/<int:oid>/name")
+def api_object_unname(oid):
+    OBJ, _ = _objects_mod()
+    desk, o = _object(oid)
+    OBJ.unname_object(store, o)
+    ds = store.for_desk(desk["id"])
+    return jsonify({"ok": True, "object": _obj_public(ds.vision_object(oid)), "notes": ds.object_notes(oid, 60)})
+
+
+@app.get("/api/names")
+def api_names():
+    desk = need_desk()
+    ds = store.for_desk(desk["id"])
+    out = []
+    for n in ds.named_things():
+        seen = [o for o in ds.vision_objects(name_id=n["id"], limit=2000) if o.get("name_by") != "owner-no"]
+        out.append({"id": n["id"], "name": n["name"], "kind": n["kind"], "notes": n.get("notes") or "", "label": n.get("label") or "",
+                    "exemplars": n["exemplars"], "sightings": len(seen),
+                    "last_seen": max((o.get("last_ts") or 0 for o in seen), default=None),
+                    "cameras": sorted({o["camera"] for o in seen})})
+    return jsonify({"names": out})
+
+
+@app.patch("/api/names/<int:nid>")
+def api_name_update(nid):
+    desk = need_desk()
+    ds = store.for_desk(desk["id"])
+    if not ds.named(nid):
+        abort(404)
+    d = request.get_json(force=True) or {}
+    f: dict[str, Any] = {}
+    if d.get("name"):
+        f["name"] = re.sub(r"\s+", " ", str(d["name"])).strip()[:60]
+    if d.get("kind") in ("person", "vehicle", "object"):
+        f["kind"] = d["kind"]
+    if "notes" in d:
+        f["notes"] = str(d.get("notes") or "").strip()[:300]
+    ds.update_named(nid, **f)
+    n = ds.named(nid)
+    return jsonify({"ok": True, "thing": {k: n[k] for k in ("id", "name", "kind", "notes")}})
+
+
+@app.delete("/api/names/<int:nid>")
+def api_name_delete(nid):
+    desk = need_desk()
+    ds = store.for_desk(desk["id"])
+    if not ds.named(nid):
+        abort(404)
+    ds.delete_named(nid)
+    return jsonify({"ok": True})
+
+
+@app.get("/api/report/day")
+def api_report_day():
+    """The daily camera report, by name: ?date=YYYY-MM-DD (today), ?format=md for the readable version."""
+    from .. import report as REP
+    desk = need_desk()
+    date = request.args.get("date") or time.strftime("%Y-%m-%d")
+    try:
+        data = REP.daily(store, desk["id"], date)
+    except ValueError:
+        return jsonify({"error": "date must be YYYY-MM-DD"}), 400
+    if request.args.get("format") == "md":
+        biz = ((desk.get("config") or {}).get("business") or {}).get("name") or desk.get("name") or ""
+        return Response(REP.markdown(data, biz), mimetype="text/markdown; charset=utf-8")
+    return jsonify(data)
 
 
 @app.post("/api/objects/<int:oid>/verdict")
@@ -2231,6 +2663,17 @@ def api_vision_events():
                                request.args.get("q", ""), min(int(request.args.get("limit") or 100), 500),
                                request.args.get("alerts") in ("1", "true"))
     return jsonify([_vev_public(r) for r in rows])
+
+
+@app.get("/api/vision/events/<int:vid>")
+def api_vision_event(vid):
+    """One event by id, for citation pop-overs: the note, counts, reason and snapshot url."""
+    desk = need_desk()
+    ev = store.vision_events_by_ids([vid])
+    ev = ev[0] if ev and ev[0].get("desk_id") == desk["id"] else None
+    if not ev:
+        abort(404)
+    return jsonify(_vev_public(ev))
 
 
 @app.get("/api/vision/snapshot/<int:vid>")
@@ -2512,7 +2955,11 @@ def hook_vision(token):
                 f"EXTERNAL EVENT — {camera} at {when}\n"
                 f"Reported: {V.counts_text(counts) if counts else 'no object counts'}" + (f"; note: {note}" if note else "") + "\n"
                 f"Event id: {ev['id']}." + (" Snapshot attached." if snap else "") + " Use camera_events for history; camera_look works only for cameras the desk can reach itself.")
-        rid = _start_run(desk, task, "auto")
+        if C.enabled(desk, "camera_cases"):
+            _preflight(desk)
+            rid = C.camera_alert(store, desk, camera, "CAMERA ALERT (external sensor)\n" + task, note or "external event", ev["id"])
+        else:
+            rid = _start_run(desk, task, "auto")
         dstore.set_vision_run(ev["id"], rid)
     return jsonify({"ok": True, "event_id": ev["id"], "run_id": rid})
 
@@ -3283,6 +3730,278 @@ def desk_cyber():
     return redirect("/desk/static/cyber.html" + ("?" + qs if qs else ""))
 
 
+# ---------------------------------------------------------------------------- operations: records + cases
+@app.get("/desk/ops")
+def desk_ops_page():
+    if not current_user() and not OPEN:
+        return redirect("/login?next=/desk/ops")
+    did = request.args.get("desk", type=int)
+    if did:
+        u, d = current_user(), store.desk(did)
+        if d and (OPEN or (u and d["owner_id"] == u["id"])):
+            session["desk"] = did
+    return send_from_directory(STATIC_DIR, "ops.html")
+
+
+def _own_record(rid: int) -> tuple[dict[str, Any], dict[str, Any]]:
+    desk = need_desk()
+    rec = R.get(store, rid)
+    if not rec or rec["desk_id"] != desk["id"]:
+        abort(404)
+    return desk, rec
+
+
+def _own_case(cid: int) -> tuple[dict[str, Any], dict[str, Any]]:
+    desk = need_desk()
+    c = C.get(store, cid)
+    if not c or c["desk_id"] != desk["id"]:
+        abort(404)
+    return desk, c
+
+
+@app.get("/api/records/types")
+def api_record_types():
+    desk = need_desk()
+    R.ensure_synced(store, desk["id"])
+    return jsonify({"types": R.types_for(store, desk["id"]), "total": sum(R.type_counts(store, desk["id"]).values())})
+
+
+@app.get("/api/records")
+def api_records():
+    desk = need_desk()
+    R.ensure_synced(store, desk["id"])
+    rows = R.search(store, desk["id"], request.args.get("type", ""), request.args.get("q", ""), request.args.get("limit", 200, type=int),
+                    include_archived=request.args.get("archived") == "1")
+    ids = [r["id"] for r in rows]
+    n_links: dict[int, int] = {}
+    n_cases: dict[int, int] = {}
+    if ids:
+        marks = ",".join("?" * len(ids))
+        for a, b in store._conn.execute(f"SELECT src, COUNT(*) FROM record_links WHERE src IN ({marks}) GROUP BY src", ids).fetchall():
+            n_links[a] = n_links.get(a, 0) + b
+        for a, b in store._conn.execute(f"SELECT dst, COUNT(*) FROM record_links WHERE dst IN ({marks}) GROUP BY dst", ids).fetchall():
+            n_links[a] = n_links.get(a, 0) + b
+        for a, b in store._conn.execute(f"SELECT record_id, COUNT(*) FROM case_records WHERE record_id IN ({marks}) GROUP BY record_id", ids).fetchall():
+            n_cases[a] = b
+    for r in rows:
+        r["links"] = n_links.get(r["id"], 0)
+        r["cases"] = n_cases.get(r["id"], 0)
+    return jsonify(rows)
+
+
+@app.post("/api/records")
+def api_record_save():
+    desk = need_desk()
+    d = request.get_json(force=True) or {}
+    try:
+        rec, changed = R.upsert(store, desk["id"], str(d.get("type") or ""), d.get("props") or {}, key=str(d.get("key") or ""),
+                                title=str(d.get("title") or ""), source="owner", actor=_who())
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    return jsonify({**rec, "changed": changed})
+
+
+@app.get("/api/records/<int:rid>")
+def api_record(rid):
+    desk, rec = _own_record(rid)
+    cs = C.for_record(store, rid)
+    return jsonify({**rec, "links": R.links(store, rid), "cases": [C.public(store, c, desk) for c in cs],
+                    "timeline": R.timeline_for(store, rid, [c["id"] for c in cs], 150)})
+
+
+@app.patch("/api/records/<int:rid>")
+def api_record_update(rid):
+    _desk, rec = _own_record(rid)
+    d = request.get_json(force=True) or {}
+    return jsonify(R.update(store, rid, d.get("props"), d.get("title"), d.get("status"), actor=_who()))
+
+
+@app.delete("/api/records/<int:rid>")
+def api_record_delete(rid):
+    _own_record(rid)
+    R.delete(store, rid)
+    return jsonify({"ok": True})
+
+
+@app.get("/api/records/<int:rid>/graph")
+def api_record_graph(rid):
+    _own_record(rid)
+    return jsonify(R.graph(store, rid, request.args.get("depth", 2, type=int)))
+
+
+@app.post("/api/records/<int:rid>/link")
+def api_record_link(rid):
+    desk, rec = _own_record(rid)
+    d = request.get_json(force=True) or {}
+    dst = R.resolve_ref(store, desk["id"], d.get("to"))
+    if not dst or dst["desk_id"] != desk["id"]:
+        return jsonify({"error": "no such record to link to"}), 400
+    R.link(store, desk["id"], rid, str(d.get("rel") or "related_to"), dst["id"], source="owner", actor=_who())
+    return jsonify({"ok": True, "links": R.links(store, rid)})
+
+
+@app.delete("/api/records/links/<int:lid>")
+def api_record_unlink(lid):
+    desk = need_desk()
+    row = store._conn.execute("SELECT desk_id FROM record_links WHERE id=?", (lid,)).fetchone()
+    if not row or row[0] != desk["id"]:
+        abort(404)
+    R.unlink(store, lid)
+    return jsonify({"ok": True})
+
+
+@app.post("/api/records/<int:rid>/note")
+def api_record_note(rid):
+    desk, rec = _own_record(rid)
+    text = str((request.get_json(force=True) or {}).get("text") or "").strip()
+    if not text:
+        return jsonify({"error": "text required"}), 400
+    R.add_timeline(store, desk["id"], record_id=rid, kind="note", actor=_who(), text=text[:3000])
+    return jsonify({"ok": True})
+
+
+@app.post("/api/records/sync")
+def api_records_sync():
+    desk = need_desk()
+    return jsonify(R.sync_desk(store, desk["id"]))
+
+
+@app.get("/api/cases")
+def api_cases():
+    desk = need_desk()
+    rows = C.list_cases(store, desk["id"], open_only=request.args.get("open") == "1", ctype=request.args.get("type", ""),
+                        state=request.args.get("state", ""), limit=request.args.get("limit", 300, type=int))
+    return jsonify({"cases": [C.public(store, c, desk) for c in rows], "counts": C.counts(store, desk["id"]),
+                    "playbooks": {k: {"label": v.get("label", k), "description": v.get("description", "")} for k, v in C.playbooks(desk).items()},
+                    "enabled": C.settings(desk)})
+
+
+@app.get("/api/cases/playbooks")
+def api_case_playbooks():
+    desk = need_desk()
+    return jsonify(C.playbooks(desk))
+
+
+@app.post("/api/cases")
+def api_case_open():
+    desk = need_desk()
+    d = request.get_json(force=True) or {}
+    rec_id = 0
+    if d.get("record_id"):
+        rec = R.get(store, int(d["record_id"]))
+        if not rec or rec["desk_id"] != desk["id"]:
+            return jsonify({"error": "no such record"}), 400
+        rec_id = rec["id"]
+    elif isinstance(d.get("person"), dict) and (d["person"].get("email") or d["person"].get("phone") or d["person"].get("name")):
+        try:
+            rec, _ = R.upsert(store, desk["id"], "person", d["person"], source="owner", actor=_who())
+            rec_id = rec["id"]
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+    title = str(d.get("title") or "").strip()
+    if not title:
+        return jsonify({"error": "title required"}), 400
+    if d.get("run", True):
+        _preflight(desk)
+    c = C.open_case(store, desk["id"], str(d.get("type") or "task"), title, rec_id, str(d.get("priority") or "normal"),
+                    source="owner", brief=str(d.get("brief") or ""), actor=_who(), desk=desk)
+    rid = C.kick(store, desk, c) if d.get("run", True) else ""
+    return jsonify({"case": C.public(store, C.get(store, c["id"]), desk, detail=True), "run_id": rid})
+
+
+@app.get("/api/cases/<int:cid>")
+def api_case(cid):
+    desk, c = _own_case(cid)
+    return jsonify(C.public(store, c, desk, detail=True))
+
+
+@app.post("/api/cases/<int:cid>/move")
+def api_case_move(cid):
+    desk, c = _own_case(cid)
+    d = request.get_json(force=True) or {}
+    try:
+        rid = C.enter(store, cid, str(d.get("state") or ""), str(d.get("note") or "moved by the owner"), actor=_who(),
+                      outcome=str(d.get("outcome") or ""))
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    return jsonify({"case": C.public(store, C.get(store, cid), desk, detail=True), "run_id": rid})
+
+
+@app.post("/api/cases/<int:cid>/run")
+def api_case_run(cid):
+    desk, c = _own_case(cid)
+    if c.get("closed_at"):
+        return jsonify({"error": "the case is closed - move it to an open state first"}), 400
+    d = request.get_json(silent=True) or {}
+    _preflight(desk)
+    extra = str(d.get("instruction") or "").strip()
+    rid = C.kick(store, desk, c, extra=("The owner asks: " + extra) if extra else "The owner asked Atlas to work this step now.")
+    if not rid and c.get("active_run"):
+        return jsonify({"error": "Atlas is already working this case", "run_id": c["active_run"]}), 409
+    return jsonify({"case": C.public(store, C.get(store, cid), desk, detail=True), "run_id": rid})
+
+
+@app.post("/api/cases/<int:cid>/note")
+def api_case_note(cid):
+    desk, c = _own_case(cid)
+    d = request.get_json(force=True) or {}
+    text = str(d.get("text") or "").strip()
+    if not text:
+        return jsonify({"error": "text required"}), 400
+    if d.get("as_reply"):                               # the owner pastes a reply that came in another way (phone call, in person)
+        rid = C.inbound_reply(store, desk, c, str(d.get("channel") or "owner"), text, actor=_who())
+        return jsonify({"case": C.public(store, C.get(store, cid), desk, detail=True), "run_id": rid})
+    C.note(store, cid, text, actor=_who())
+    return jsonify({"case": C.public(store, C.get(store, cid), desk, detail=True)})
+
+
+@app.patch("/api/cases/<int:cid>")
+def api_case_patch(cid):
+    desk, c = _own_case(cid)
+    d = request.get_json(force=True) or {}
+    fields: dict[str, Any] = {}
+    if d.get("priority") in C.PRIORITIES:
+        fields["priority"] = d["priority"]
+    if str(d.get("title") or "").strip():
+        fields["title"] = str(d["title"]).strip()[:200]
+    if d.get("snooze_hours"):
+        try:
+            fields.update({"waiting_for": "time", "wake_at": time.time() + float(d["snooze_hours"]) * 3600})
+        except (TypeError, ValueError):
+            return jsonify({"error": "snooze_hours must be a number"}), 400
+    if fields:
+        C._set(store, cid, **fields)
+        R.add_timeline(store, desk["id"], case_id=cid, kind="updated", actor=_who(), text=", ".join(f"{k}={v}" for k, v in fields.items() if k != "wake_at"))
+    return jsonify(C.public(store, C.get(store, cid), desk, detail=True))
+
+
+@app.get("/api/ops/activity")
+def api_ops_activity():
+    """Desk-wide feed for the Operations page: the newest timeline lines with the case / record they belong to."""
+    desk = need_desk()
+    rows = R.recent_timeline(store, desk["id"], max(1, min(request.args.get("limit", 60, type=int), 300)))
+    cids = sorted({r["case_id"] for r in rows if r["case_id"]})
+    rids = sorted({r["record_id"] for r in rows if r["record_id"]})
+    ctitle, rtitle = {}, {}
+    if cids:
+        marks = ",".join("?" * len(cids))
+        ctitle = {a: (b, c) for a, b, c in store._conn.execute(f"SELECT id, title, type FROM cases WHERE id IN ({marks})", cids).fetchall()}
+    if rids:
+        marks = ",".join("?" * len(rids))
+        rtitle = {a: (b, c) for a, b, c in store._conn.execute(f"SELECT id, title, type FROM records WHERE id IN ({marks})", rids).fetchall()}
+    for r in rows:
+        if r["case_id"] in ctitle:
+            r["case_title"], r["case_type"] = ctitle[r["case_id"]]
+        if r["record_id"] in rtitle:
+            r["record_title"], r["record_type"] = rtitle[r["record_id"]]
+    return jsonify(rows)
+
+
+def _who() -> str:
+    u = current_user()
+    return (u or {}).get("name") or "owner"
+
+
 # ---------------------------------------------------------------------------- inbound webhook (public, token-addressed)
 # ---------------------------------------------------------------------------- api: design studio
 def _providers_cfg() -> dict[str, Any]:
@@ -3323,7 +4042,7 @@ def api_design_start():
     tier = d.get("tier") if d.get("tier") in templates.TIERS else "free"
     s = DS.new_session(_mode(), tier)
     if u and u.get("company"):
-        s.transcript[0]["text"] = s.transcript[0]["text"].replace("Tell me what your business does", f"Tell me what {u['company']} does")
+        s.transcript[0]["text"] = s.transcript[0]["text"].replace("Describe the business", f"Describe {u['company']}", 1)
     links = d.get("links") or []
     if isinstance(links, str):
         links = re.split(r"[\s,]+", links)
@@ -3481,8 +4200,8 @@ def api_design_build(sid):
     if not bp or not bp.get("agents"):
         return jsonify({"error": "The blueprint has no agents yet - keep talking to the designer first."}), 400
     tier = d.get("tier") if d.get("tier") in templates.TIERS else s.tier
-    conf = DS.blueprint_to_desk(bp, tier)
-    name = (d.get("name") or (bp.get("business") or {}).get("name") or "New desk").strip()
+    name = (d.get("name") or (bp.get("business") or {}).get("name") or (u or {}).get("company") or "New desk").strip()
+    conf = DS.blueprint_to_desk(bp, tier, name=name)
     if not (bp.get("business") or {}).get("name"):                 # never show the template's placeholder business name
         conf["business"]["name"] = name
     if s.desk_id and store.desk(s.desk_id):
@@ -3587,22 +4306,27 @@ def hook(token):
                           (d.get("source") or "webhook").strip(), notes)
     if email_:
         dstore.upsert_contact(email_, {"name": name, "company": d.get("company", ""), "email": email_, "phone": d.get("phone", ""), "stage": "New", "notes": "Inbound via webhook"})
-    rid = _start_run(desk, _lead_task(dstore.lead(lid)), "auto", lid)
+    rid = _lead_case_run(desk, lid)
     return jsonify({"ok": True, "lead_id": lid, "run_id": rid})
 
 
 def _inbound_message(desk: dict[str, Any], phone: str, name: str, text: str, source: str) -> str:
-    """A WhatsApp / SMS message from a prospect: new lead + run (existing contact keeps its name/company)."""
+    """A WhatsApp / SMS message: a reply on the sender's open case if they have one, otherwise a new lead + case
+    (an existing contact keeps its name/company)."""
     dstore = store.for_desk(desk["id"])
     phone = "+" + I._digits(phone) if phone else ""
+    channel = "whatsapp" if "whatsapp" in source else "sms"
+    how = f"This arrived by {source}. Reply on the same channel (queue_action kind={channel}, to={phone}) — keep it short."
+    open_ = C.match_open(store, desk["id"], phone=phone) if phone and C.enabled(desk, "lead_cases") else None
+    if open_:
+        return C.inbound_reply(store, desk, open_, source, text, actor=name or phone, extra=how) or open_.get("active_run") or ""
     known = next((c for c in dstore.contacts(phone) if c.get("phone") == phone), None) if phone else None
     name = name or (known or {}).get("name") or (phone or "unknown")
     lid = dstore.add_lead(name, (known or {}).get("company", ""), (known or {}).get("email", "") or "", phone, source, text)
     key = (known or {}).get("email") or name
     dstore.upsert_contact(key, {"name": name, "phone": phone, "stage": (known or {}).get("stage") or "New",
                                 "notes": f"Inbound via {source}: {text[:200]}"})
-    task = _lead_task(dstore.lead(lid)) + f"\n\nThis arrived by {source}. Reply on the same channel (queue_action kind={'whatsapp' if 'whatsapp' in source else 'sms'}, to={phone}) — keep it short."
-    return _start_run(desk, task, "auto", lid)
+    return _lead_case_run(desk, lid, extra=how)
 
 
 @app.route("/hook/<token>/whatsapp", methods=["GET", "POST"])
@@ -3645,14 +4369,21 @@ if _n_enc:
 if OPEN and os.environ.get("RENDER"):
     print("WARNING: DESK_OPEN=1 on a public deployment - the portal and every desk are reachable without login")
 scheduler.LIVE = lambda: _mode() != "demo" and not _live_reason()
+scheduler.DISPATCH = _dispatch
+scheduler.LEAD_RUN = _lead_case_run
+C.START_RUN = _start_run
+C.RUN_STATUS = _run_status
+C.NOTIFY = lambda desk_id, text: I.notify(store.connectors(desk_id), text)
+scheduler.BASE_URL = lambda: os.environ.get("PUBLIC_URL", "").strip()
 scheduler.start(store, _start_run, store.desk)
 threading.Thread(target=_watchdog_loop, daemon=True, name="atlas-watchdog").start()
 
 
 def main():
     port = int(os.environ.get("PORT", "8094"))
-    print(f"Atlas Desk  mode={_mode()}  accounts={'off' if OPEN else 'on'}  http://localhost:{port}/desk")
-    app.run(host="0.0.0.0", port=port, debug=False, threaded=True)
+    host = os.environ.get("DESK_HOST", "127.0.0.1").strip() or "127.0.0.1"   # this machine only; DESK_HOST=0.0.0.0 to share on the LAN
+    print(f"Atlas Desk  mode={_mode()}  accounts={'off' if OPEN else 'on'}  http://localhost:{port}/desk  (bound to {host})")
+    app.run(host=host, port=port, debug=False, threaded=True)
 
 
 if __name__ == "__main__":

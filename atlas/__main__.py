@@ -26,7 +26,15 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("team", help="design a team for a job (see atlas/team.py --help)", add_help=False)
     sub.add_parser("audit", help="score detection + the object catalogue against human ground truth (see atlas/audit.py --help)", add_help=False)
     sub.add_parser("vision-eval", help="compare vision models on multi-camera restaurant feeds (see atlas/vision_eval.py --help)", add_help=False)
+    sub.add_parser("mcam-eval", help="multi-camera accuracy vs human labels on WILDTRACK: detection, tracking, re-id, counts (see atlas/mcam_eval.py --help)", add_help=False)
+    sub.add_parser("mcam-notes", help="are the camera agents' notes true? check them against the labels and the other cameras (see atlas/mcam_notes.py --help)", add_help=False)
     args, rest = p.parse_known_args(argv)
+    if args.cmd == "mcam-notes":
+        from .mcam_notes import main as mn_main
+        return mn_main(rest)
+    if args.cmd == "mcam-eval":
+        from .mcam_eval import main as mc_main
+        return mc_main(rest)
     if args.cmd == "vision-eval":
         from .vision_eval import main as ve_main
         return ve_main(rest)

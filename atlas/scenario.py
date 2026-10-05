@@ -145,7 +145,7 @@ def corner_store(a: argparse.Namespace) -> int:
             return 2
     env = {**os.environ, "ATLAS_DATA_DIR": str(data), "DESK_OPEN": "1", "DESK_MODE": "live", "DESK_PROVIDER": "openrouter",
            "DESK_TEMPLATE": "site_watch", "PORT": str(a.port), "SPEND_CAP_USD": str(a.spend_cap), "PYTHONIOENCODING": "utf-8",
-           "VISION_YOLO": os.environ.get("VISION_YOLO", str(cfg.DATA_DIR / "models" / "yolov8n.pt"))}
+           "VISION_YOLO": os.environ.get("VISION_YOLO", str(cfg.DATA_DIR / "models" / "yolo11n.pt"))}
     env.pop("DESK_DEFAULT_ENGINE", None)                  # specialists on the built-in loop: no WSL dependency
     log_f = open(out / "portal.log", "w", encoding="utf-8")
     proc = subprocess.Popen([sys.executable, "-m", "atlas.desk"], cwd=str(ROOT), env=env, stdout=log_f, stderr=subprocess.STDOUT)

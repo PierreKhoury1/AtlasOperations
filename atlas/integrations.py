@@ -65,7 +65,8 @@ KINDS = {
 }
 
 # outbound channel → connector kinds that can carry it, in order of preference
-CHANNELS = {"email": ("smtp", "resend"), "whatsapp": ("whatsapp", "twilio"), "sms": ("twilio",), "booking": ("gcal",)}
+CHANNELS = {"email": ("smtp", "resend"), "whatsapp": ("whatsapp", "twilio"), "sms": ("twilio",), "booking": ("gcal",),
+            "slack": ("slack",)}
 CRM_KINDS = ("hubspot", "pipedrive")
 
 SECRET_KEYS = ("password", "token", "secret", "api_key", "env", "webhook_url", "account_sid")
@@ -836,6 +837,8 @@ def deliver(conn: dict[str, Any], kind: str, to: str, subject: str, body: str) -
         return send_whatsapp(cfg, to, text) if k == "whatsapp" else send_twilio(cfg, to, text, "whatsapp")
     if kind == "sms":
         return send_twilio(cfg, to, body, "sms")
+    if kind == "slack":
+        return slack_notify(cfg, (("*" + subject + "*\n") if subject else "") + (body or ""))
     if kind == "booking":
         spec = json.loads(body or "{}") if (body or "").lstrip().startswith("{") else {"title": subject, "start": body}
         return gcal_create_event(cfg, spec.get("title") or subject, spec.get("start", ""), spec.get("end", ""),

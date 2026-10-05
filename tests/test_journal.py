@@ -1,4 +1,5 @@
 """Camera journal: detailed notes on change / max gap, two-frame continuity, summaries, diary, RAG wiring."""
+import json
 import time
 
 import pytest
@@ -20,19 +21,29 @@ def _clean(tmp_path, monkeypatch):
 
 class FakeVLM:
     """Stands in for V.chat_images: records what the journal sent, returns a canned note."""
-    def __init__(self):
+    def __init__(self, audit=None):
         self.calls = []
+        self.audit = audit                                  # draft -> {"note", "removed", "softened"} for the verify pass
+
+    def notes(self):
+        return [c for c in self.calls if c["system"] == JR.NOTE_SYSTEM]
 
     def __call__(self, system, text, images, model="", max_tokens=500, transport=None):
         self.calls.append({"system": system, "text": text, "labels": [l for l, _ in images]})
         if system == JR.ROLLUP_SYSTEM:
             return "Quiet window. 12:00 one adult in a red coat waited at the counter, served after 2 minutes."
-        return f"note {len(self.calls)}: one adult in a red coat stands at the counter holding a bag."
+        if system == JR.VERIFY_SYSTEM:                     # the auditor: keeps the draft unless a test says otherwise
+            draft = text.split("NOTE TO AUDIT:\n", 1)[1].rsplit("\n\nReturn the JSON.", 1)[0]
+            return json.dumps(self.audit(draft) if self.audit else {"note": draft, "removed": [], "softened": []})
+        n = len([c for c in self.calls if c["system"] == JR.NOTE_SYSTEM])
+        return f"note {n}: one adult in a red coat stands at the counter holding a bag."
 
 
 def test_config_defaults_and_bounds():
     jc = JR.config({})
-    assert jc == {"on": False, "every_s": 60, "min_gap_s": 8, "motion": 0.03, "rollup_min": 15, "focus": ""}
+    assert jc == {"on": False, "every_s": 60, "min_gap_s": 8, "motion": 0.03, "rollup_min": 15, "focus": "", "closeup": True,
+                  "verify": True}
+    assert JR.config({"journal_closeup": "0"})["closeup"] is False and JR.config({"journal_verify": "off"})["verify"] is False
     jc = JR.config({"journal": "1", "journal_every_s": "5", "journal_rollup_min": "x", "journal_focus": "tables"})
     assert jc["on"] and jc["every_s"] == 10 and jc["rollup_min"] == 15 and jc["focus"] == "tables"
 
@@ -61,11 +72,11 @@ def test_note_uses_previous_frame_and_note(monkeypatch, tmp_path):
     jc = JR.config({"journal": "1", "journal_focus": "queue at the counter"})
     key = (1, "counter")
     first = JR.write_note(key, "counter", jc, b"\xff\xd8one", {"person": 1}, notes="Till and counter", now=1000.0)
-    assert first.startswith("note 1") and vlm.calls[0]["labels"][0].startswith("NOW")
-    assert len(vlm.calls[0]["labels"]) == 1 and "first note" in vlm.calls[0]["text"]
-    assert "queue at the counter" in vlm.calls[0]["text"] and "Till and counter" in vlm.calls[0]["text"]
+    assert first.startswith("note 1") and vlm.notes()[0]["labels"][0].startswith("NOW")
+    assert len(vlm.notes()[0]["labels"]) == 1 and "first note" in vlm.notes()[0]["text"]
+    assert "queue at the counter" in vlm.notes()[0]["text"] and "Till and counter" in vlm.notes()[0]["text"]
     JR.write_note(key, "counter", jc, b"\xff\xd8two", {"person": 2}, now=1030.0)
-    c = vlm.calls[1]
+    c = vlm.notes()[1]
     assert c["labels"][0].startswith("EARLIER") and "30s ago" in c["labels"][0] and c["labels"][1].startswith("NOW")
     assert "Previous note (30s ago): note 1" in c["text"] and "2 people" in c["text"]
 
@@ -137,13 +148,13 @@ def test_camera_tick_writes_journal_notes(store, tmp_path, monkeypatch):
     ev = store.last_vision_event(desk["id"], "floor")
     assert ev["source"] == "journal" and ev["answer"].startswith("note 1") and ev["reason"] == "journal: first note"
     r2 = S.camera_tick(store, desk, conn, lambda *a: "x", True)                 # same frame, 0 s later: no new note
-    assert r2["journal"] == "" and len(vlm.calls) == 1
+    assert r2["journal"] == "" and len(vlm.notes()) == 1
     key = (desk["id"], "floor")
     JR._state[key]["note"]["ts"] -= 5                                            # past the min gap...
     fake.dets = [PERSON, PERSON]                                                 # ...and a second person arrives
     r3 = S.camera_tick(store, desk, conn, lambda *a: "x", True)
     assert r3["journal"].startswith("note 2") and "counts" in r3["journal_status"]
-    assert "EARLIER" in vlm.calls[1]["labels"][0]
+    assert "EARLIER" in vlm.notes()[1]["labels"][0]
     diary = JR.diary_read(desk["id"])
     assert "note 1" in diary and "note 2" in diary and "floor" in diary
     # document-only camera: the rule matches (a car) but the agents are never woken; the note is still written
@@ -151,12 +162,12 @@ def test_camera_tick_writes_journal_notes(store, tmp_path, monkeypatch):
     woke = []
     r4 = S.camera_tick(store, desk, conn3, lambda *a: woke.append(1) or "x", True)
     assert not r4["triggered"] and "alerts off" in r4["reason"] and not woke and r4["journal"].startswith("note 3")
-    vlm.calls.pop()
+    vlm.calls.remove(vlm.notes()[-1])                                          # drop note 3 (and only it)
     # journal off (or demo mode): no model calls at all
     conn2 = store.add_connector(desk["id"], "camera", "yard", {"source": src, "watch_for": "car"}, False)
     S.camera_tick(store, desk, conn2, lambda *a: "x", True)
     S.camera_tick(store, desk, conn, lambda *a: "x", False)
-    assert len(vlm.calls) == 2
+    assert len(vlm.notes()) == 2
 
 
 def test_team_agents_about_cameras_get_camera_tools():
@@ -290,3 +301,33 @@ def test_build_without_business_name_uses_desk_name(app_client):
     r = c.post(f"/api/design/{sid}/build", json={"name": "Harbour Hotel", "blueprint": {"agents": [{"id": "a", "name": "A", "role": "r"}]}}).get_json()
     assert r["desk"]["name"] == "Harbour Hotel"
     assert c.get("/api/config").get_json()["business"]["name"] == "Harbour Hotel"
+
+
+def test_verify_pass_audits_the_note_against_the_current_frames(monkeypatch):
+    """The second call sees the draft + the same frames the note was written from; its corrected note is what is kept."""
+    vlm = FakeVLM(audit=lambda d: {"note": d.replace("holding a bag", "holding something, unclear what"),
+                                   "removed": [], "softened": ["holding a bag"]})
+    monkeypatch.setattr(V, "chat_images", vlm)
+    seen = []
+    monkeypatch.setattr(JR, "publish", lambda desk_id, kind, camera, **kw: seen.append((kind, kw)))
+    jc = JR.config({"journal": "1"})
+    key = (2, "door")
+    JR.write_note(key, "door", jc, b"\xff\xd8one", {"person": 1}, now=1000.0)
+    text = JR.write_note(key, "door", jc, b"\xff\xd8two", {"person": 1}, now=1040.0)
+    assert "holding something, unclear what" in text
+    audit = [c for c in vlm.calls if c["system"] == JR.VERIFY_SYSTEM][-1]
+    assert audit["labels"][0].startswith("EARLIER") and audit["labels"][1].startswith("NOW (")        # both frames: change claims need both
+    assert "note 2: one adult in a red coat" in audit["text"]
+    ev = [kw for kind, kw in seen if kind == "note_verify"][-1]
+    assert ev["changed"] is True and ev["softened"] == ["holding a bag"] and ev["error"] == ""
+    assert [kw for kind, kw in seen if kind == "note_done"][-1]["text"] == text
+    # an auditor that returns junk changes nothing
+    vlm.audit = lambda d: "not json"
+    monkeypatch.setattr(V, "chat_images", lambda system, text, images, **k: "???" if system == JR.VERIFY_SYSTEM else vlm(system, text, images, **k))
+    JR._state.pop(key, None)
+    kept = JR.write_note(key, "door", jc, b"\xff\xd8three", {"person": 1}, now=1100.0)
+    assert kept.startswith("note ") and [kw for kind, kw in seen if kind == "note_verify"][-1]["error"]
+    # journal_verify=0: one call per note
+    off = FakeVLM(); monkeypatch.setattr(V, "chat_images", off)
+    JR.write_note((3, "x"), "x", JR.config({"journal": "1", "journal_verify": "0"}), b"\xff\xd8a", {}, now=1.0)
+    assert [c["system"] for c in off.calls] == [JR.NOTE_SYSTEM]

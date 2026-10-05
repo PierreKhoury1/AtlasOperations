@@ -25,7 +25,7 @@ Location: Nuremberg or Falkenstein (same as bookli-1). Image: Ubuntu 24.04.
 
 ```bash
 ssh -i ~/.ssh/atlas_hetzner root@IP
-curl -fsSL https://raw.githubusercontent.com/atlasdeskoperations-gif/AtlasDesks/main/deploy/hetzner/setup.sh -o setup.sh
+curl -fsSL https://raw.githubusercontent.com/PierreKhoury1/AtlasOperations/main/deploy/hetzner/setup.sh -o setup.sh
 bash setup.sh --openrouter-key sk-or-v1-XXXX --vision
 ```
 
@@ -43,7 +43,7 @@ point `A` records (`@` and `www`) at the IP and re-run `bash setup.sh --host atl
 
 ## Updates
 
-`git push` to `main` on atlasdeskoperations-gif/AtlasDesks. The box fast-forwards within a minute, reinstalls
+`git push` to `main` on PierreKhoury1/AtlasOperations. The box fast-forwards within a minute, reinstalls
 requirements only if `requirements.txt` changed, restarts, health-checks, rolls back on failure. Never edit files on
 the box except `/etc/atlas/atlas.env` (then `systemctl restart atlas`).
 

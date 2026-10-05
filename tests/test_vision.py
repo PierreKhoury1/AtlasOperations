@@ -4,6 +4,7 @@ the detector is faked so the suite runs anywhere (Render has no ultralytics)."""
 import io
 import json
 import time
+from pathlib import Path
 
 import pytest
 from PIL import Image, ImageDraw
@@ -409,3 +410,177 @@ def test_site_demo_ask_retrieves_and_streams(app_client, monkeypatch):
     assert "[#2] 10:00:07 | 2 person | analyst: Stock room: two people moving boxes" in sysmsg
     assert seen["payload"]["messages"][1]["content"] == "who was in the stock room?"
     assert seen["payload"]["stream"] is True
+
+
+# ----------------------------------------------------------------------------- live detector runtime
+class FakeYOLO:
+    """Stands in for ultralytics.YOLO: records loads and exports; export writes an IR folder like the real one."""
+    loads: list = []
+    exports: list = []
+    fail_export = False
+
+    def __init__(self, weights, task=None):
+        self.weights, self.overrides, self.callbacks = str(weights), {}, []
+        FakeYOLO.loads.append(self.weights)
+
+    def export(self, format, imgsz, verbose=False):
+        FakeYOLO.exports.append((format, list(imgsz)))
+        if FakeYOLO.fail_export:
+            raise RuntimeError("export broke")
+        time.sleep(0.05)                                   # wide enough for a second thread to arrive mid-export
+        out = Path(self.weights).with_name(Path(self.weights).stem + "_openvino_model")
+        out.mkdir()
+        (out / "m.xml").write_text("<net/>")
+        return str(out)
+
+    def add_callback(self, event, fn):
+        self.callbacks.append(event)
+
+
+@pytest.fixture()
+def fake_yolo(tmp_path, monkeypatch):
+    import sys
+    import types
+    FakeYOLO.loads, FakeYOLO.exports, FakeYOLO.fail_export = [], [], False
+    monkeypatch.setitem(sys.modules, "ultralytics", types.SimpleNamespace(YOLO=FakeYOLO))
+    monkeypatch.setitem(sys.modules, "openvino", types.ModuleType("openvino"))
+    w = tmp_path / "yolo11n.pt"
+    w.write_bytes(b"pt")
+    return w
+
+
+def test_runtime_falls_back_to_torch_without_openvino(fake_yolo, monkeypatch, capsys):
+    import sys
+    monkeypatch.setitem(sys.modules, "openvino", None)          # import openvino -> ImportError
+    d = V.Detector(str(fake_yolo), runtime="auto")
+    m = d.new_model()
+    assert d.runtime == "torch" and d.label == "yolo11n (torch)" and m.weights == str(fake_yolo)
+    assert FakeYOLO.exports == [] and "openvino" in d._ov_error
+    d.new_model()
+    assert capsys.readouterr().err.count("OpenVINO runtime unavailable") == 1     # logged once, not per camera
+
+
+def test_runtime_falls_back_to_torch_when_export_fails(fake_yolo):
+    FakeYOLO.fail_export = True
+    d = V.Detector(str(fake_yolo), runtime="openvino")
+    assert d.new_model().weights == str(fake_yolo) and d.runtime == "torch"
+    d.new_model()
+    assert len(FakeYOLO.exports) == 1                            # a failed export is not retried for every camera
+
+
+def test_openvino_export_is_made_once_and_reused(fake_yolo):
+    import threading
+    d = V.Detector(str(fake_yolo), runtime="auto")
+    assert d.label == "yolo11n.pt"                               # nothing running yet
+    models = []
+    th = [threading.Thread(target=lambda: models.append(d.new_model())) for _ in range(3)]
+    for t in th:
+        t.start()
+    for t in th:
+        t.join()
+    ov_dir = fake_yolo.with_name("yolo11n_384x640_openvino_model")
+    assert FakeYOLO.exports == [("openvino", [384, 640])] and (ov_dir / "m.xml").exists()
+    assert all(m.weights == str(ov_dir) and m.overrides["imgsz"] == [384, 640] and "on_predict_start" in m.callbacks for m in models)
+    assert d.runtime == "openvino" and d.label == "yolo11n (openvino)"
+    V.Detector(str(fake_yolo)).new_model()                       # another process / restart: the export on disk is used
+    assert len(FakeYOLO.exports) == 1
+
+
+def test_runtime_torch_never_touches_openvino(fake_yolo):
+    d = V.Detector(str(fake_yolo), runtime="torch")
+    assert d.new_model().weights == str(fake_yolo) and d.runtime == "torch" and FakeYOLO.exports == []
+
+
+# ----------------------------------------------------------------------------- record detector tiling
+def test_tile_edge_rule_drops_cut_boxes_keeps_interior_ones():
+    # 1920x1080 frame, 2x2 tiles with 20% overlap as PreciseDetector lays them: 1066x600 at (0,0) (852,0) (0,480) (852,480);
+    # the right column ends at x 1918, 2 px short of the frame: still the frame border
+    w, h, tw, th = 1920, 1080, 1066, 600
+    # top-left tile: its right and bottom edges are interior, its left and top edges are the frame border
+    assert V.tile_edge_cut((1000, 100, 1065, 300), 0, 0, tw, th, w, h)          # small box cut by the right edge
+    assert V.tile_edge_cut((300, 520, 340, 599), 0, 0, tw, th, w, h)            # small box cut by the bottom edge
+    assert not V.tile_edge_cut((0, 0, 60, 150), 0, 0, tw, th, w, h)             # on the frame border: a whole person
+    assert not V.tile_edge_cut((400, 200, 450, 330), 0, 0, tw, th, w, h)        # well inside the tile
+    # bottom-right tile: its left and top edges are interior
+    assert V.tile_edge_cut((0.5, 100, 40, 200), 852, 480, tw, th, w, h)
+    assert V.tile_edge_cut((500, 1, 540, 90), 852, 480, tw, th, w, h)
+    assert not V.tile_edge_cut((1000, 500, 1066, 600), 852, 480, tw, th, w, h)  # bottom-right frame corner
+    assert not V.tile_edge_cut((1020, 100, 1065, 300), 852, 0, tw, th, w, h)     # right frame border, top-right tile
+
+
+def test_precise_detector_defaults(monkeypatch):
+    monkeypatch.delenv("VISION_PRECISE_CONF", raising=False)
+    monkeypatch.delenv("VISION_TILES", raising=False)
+    p = V.PreciseDetector()
+    assert p.conf == 0.25 and p.merge_iou == 0.6 and p.tiles == (2, 2)
+    monkeypatch.setenv("VISION_PRECISE_CONF", "0.4")
+    monkeypatch.setenv("VISION_TILES", "1x1")
+    p = V.PreciseDetector()
+    assert p.conf == 0.4 and p.tiles == (1, 1)
+
+
+def test_tile_grid_ends_at_the_frame_for_any_layout():
+    # flooring the tile size used to leave the last column 3-4 px short of the frame for grids other than 2x2; that edge
+    # then counted as interior and everyone touching the real frame border was dropped
+    for w, h, nx, ny in [(1920, 1080, 2, 2), (3840, 2160, 3, 2), (1920, 1080, 4, 2), (1280, 720, 3, 3)]:
+        offs, tw, th = V.tile_grid(w, h, nx, ny, 0.2)
+        assert len(offs) == nx * ny and max(x for x, _ in offs) + tw == w and max(y for _, y in offs) + th == h
+        x0, y0 = max(x for x, _ in offs), max(y for _, y in offs)            # the bottom-right tile
+        assert not V.tile_edge_cut((tw - 40, th - 120, tw, th), x0, y0, tw, th, w, h)   # a person on the frame corner stays
+        assert V.tile_edge_cut((0, 100, 40, 200), x0, y0, tw, th, w, h)                 # one cut by its left edge goes
+
+
+def test_openvino_export_is_redone_when_the_weights_change_and_never_clobbers_a_users_export(fake_yolo):
+    import os
+    mine = fake_yolo.with_name("yolo11n_openvino_model")                # someone's own export, next to the weights
+    mine.mkdir()
+    (mine / "theirs.xml").write_text("<mine/>")
+    V.Detector(str(fake_yolo), runtime="auto").new_model()
+    assert (mine / "theirs.xml").read_text() == "<mine/>"                # exported in a scratch folder, not over theirs
+    ov_xml = fake_yolo.with_name("yolo11n_384x640_openvino_model") / "m.xml"
+    old = ov_xml.stat().st_mtime
+    os.utime(fake_yolo, (old + 10, old + 10))                           # new weights at the same path
+    V.Detector(str(fake_yolo), runtime="auto").new_model()
+    assert len(FakeYOLO.exports) == 2
+
+
+def test_openvino_thread_limit_keeps_the_precision_ultralytics_chose(monkeypatch, tmp_path):
+    import sys
+    import types
+    seen = {}
+
+    class Core:
+        def read_model(self, path):
+            return path
+
+        def compile_model(self, model, device, config):
+            seen.update(device=device, config=config)
+            return "compiled"
+
+    monkeypatch.setitem(sys.modules, "openvino", types.SimpleNamespace(Core=Core))
+    monkeypatch.setattr(V.platform, "machine", lambda: "x86_64")
+    monkeypatch.setattr(V, "OV_THREADS", 1)
+
+    class Compiled:
+        def __init__(self, devices):
+            self.devices = devices
+
+        def get_property(self, k):
+            return {"EXECUTION_DEVICES": self.devices, "INFERENCE_PRECISION_HINT": "f32", "EXECUTION_MODE_HINT": "ACCURACY"}[k]
+
+    def predictor(devices):
+        return types.SimpleNamespace(model=types.SimpleNamespace(backend=types.SimpleNamespace(ov_compiled_model=Compiled(devices))))
+    p = predictor(["CPU"])
+    V._limit_ov_threads(p, tmp_path / "m.xml")
+    assert p.model.backend.ov_compiled_model == "compiled" and seen["device"] == "CPU"
+    assert seen["config"]["INFERENCE_NUM_THREADS"] == 1
+    assert seen["config"]["INFERENCE_PRECISION_HINT"] == "f32" and seen["config"]["EXECUTION_MODE_HINT"] == "ACCURACY"
+    seen.clear()
+    g = predictor(["GPU.0"])                                            # an Intel GPU picked by AUTO: left alone
+    V._limit_ov_threads(g, tmp_path / "m.xml")
+    assert seen == {} and isinstance(g.model.backend.ov_compiled_model, Compiled)
+    seen.clear()
+    monkeypatch.setattr(V.platform, "machine", lambda: "aarch64")       # ultralytics forces f32 on ARM: not recompiled
+    a = predictor(["CPU"])
+    V._limit_ov_threads(a, tmp_path / "m.xml")
+    assert seen == {}

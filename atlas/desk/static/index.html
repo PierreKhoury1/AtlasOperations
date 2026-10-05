@@ -4,9 +4,13 @@
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Atlas Desk</title>
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<script>try{document.documentElement.dataset.theme=localStorage.getItem("atlas-theme")||"dark"}catch(e){document.documentElement.dataset.theme="dark"}</script>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
 :root{--bg:#f5f7fa;--side:#eef1f6;--panel:#ffffff;--panel2:#f0f3f7;--line:#d9dfe8;--line2:#c1cad6;--text:#10161d;--text2:#2f3a47;--muted:#5f6b7a;--faint:#8b97a6;--accent:#2d72d2;--accent2:#215db0;--accent-soft:#e4eefc;--deep:#215db0;--ink:#2d72d2;--blue:#2d72d2;--ok:#1c8f5f;--ok-soft:#e2f4ea;--danger:#c23030;--warn:#a66a00;--r:3px;--grad:#2d72d2;--mono:"IBM Plex Mono",Consolas,monospace}
+/* studio theme (the default): neutral greys like a video or 3D tool, colour only where it carries meaning */
+:root[data-theme="dark"]{color-scheme:dark;--bg:#111418;--side:#1c2127;--panel:#1c2127;--panel2:#252a31;--line:#2a3038;--line2:#3a414b;--text:#f6f7f9;--text2:#d3d8de;--muted:#abb3bf;--faint:#738091;--accent:#4c90f0;--accent2:#8abbff;--accent-soft:rgba(76,144,240,.14);--deep:#8abbff;--ink:#2d72d2;--blue:#4c90f0;--ok:#72ca9b;--ok-soft:rgba(50,164,103,.16);--danger:#fa999c;--warn:#fbb360;--grad:#2d72d2}
+:root[data-theme="dark"] ::-webkit-scrollbar{width:10px;height:10px}:root[data-theme="dark"] ::-webkit-scrollbar-thumb{background:#3a414b;border-radius:0;border:2px solid var(--bg)}:root[data-theme="dark"] ::-webkit-scrollbar-track{background:transparent}
 *{box-sizing:border-box;margin:0;padding:0}
 html{-webkit-font-smoothing:antialiased}
 body{font-family:Inter,system-ui,-apple-system,"Segoe UI",sans-serif;background:var(--bg);color:var(--text);font-size:14px;line-height:1.5;font-weight:400}
@@ -16,6 +20,7 @@ a{color:inherit;text-decoration:none}
 aside{background:var(--side);border-right:1px solid var(--line);padding:16px 12px;position:sticky;top:0;height:100vh;display:flex;flex-direction:column;gap:6px}
 .brand{display:flex;align-items:center;gap:9px;font-weight:600;font-size:17px;padding:4px 8px 12px}
 .brand i{width:20px;height:20px;border-radius:2px;background:var(--grad);display:inline-block;position:relative;flex:0 0 auto}
+.themebtn{margin-left:auto;background:none;border:1px solid var(--line);color:var(--muted);border-radius:var(--r);width:26px;height:24px;cursor:pointer;font-size:13px;line-height:1}.themebtn:hover{color:var(--text);border-color:var(--line2)}
 .brand i::after{content:"";position:absolute;inset:6px;border-radius:1px;background:var(--bg)}
 .ws{display:flex;align-items:center;justify-content:space-between;gap:8px;border:1px solid var(--line);border-radius:var(--r);padding:9px 11px;background:var(--panel);margin-bottom:8px;cursor:default}
 .ws b{display:block;font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -73,7 +78,7 @@ h2{font-size:15px;font-weight:600;margin-bottom:10px}
 .btn:disabled{opacity:.5;cursor:default}
 input,select,textarea{width:100%;background:var(--panel);border:1px solid var(--line2);color:var(--text);padding:8px 11px;border-radius:3px;font:inherit;font-size:13.5px}
 input::placeholder,textarea::placeholder{color:var(--faint)}
-input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 2px rgba(45,114,210,.22)}
+input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 2px color-mix(in srgb,var(--accent) 24%,transparent)}
 textarea{min-height:90px;resize:vertical}
 label{display:block;font-size:12px;color:var(--muted);margin:8px 0 4px;font-weight:600}
 table{width:100%;border-collapse:collapse;font-size:13px}th,td{text-align:left;padding:9px 8px;border-bottom:1px solid var(--line);vertical-align:top}th{color:var(--faint);font-family:var(--mono);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;font-weight:500}
@@ -186,7 +191,7 @@ aside.simple [data-lvl="full"]{display:none}
 .tmn.atlas{width:250px;padding-top:14px}
 .tmn.atlas .nm b{font-size:14.5px}
 .tmn.drag{cursor:grabbing;box-shadow:0 14px 34px rgba(16,22,29,.18);z-index:5}
-.tmn.sel{border-color:var(--accent);box-shadow:0 0 0 2px rgba(45,114,210,.22)}
+.tmn.sel{border-color:var(--accent);box-shadow:0 0 0 2px color-mix(in srgb,var(--accent) 24%,transparent)}
 .tmn.off{opacity:.55}
 .tmn.busy{border-color:var(--c);box-shadow:0 0 0 1px var(--c),0 0 20px color-mix(in srgb,var(--c) 28%,transparent)}
 .tmn.fin{border-color:color-mix(in srgb,var(--c) 45%,var(--line))}
@@ -236,7 +241,7 @@ aside.simple [data-lvl="full"]{display:none}
 .wsmenu button:hover{background:var(--panel2)}
 .wsmenu button.on{color:var(--accent2)}
 .wsmenu .new{border-top:1px solid var(--line);margin-top:4px;padding-top:8px;color:var(--accent2);font-weight:600}
-.flag{background:#fdecec;border:1px solid #f0b6b6;color:#a82a2a;padding:8px 10px;border-radius:3px;font-size:12px;margin:8px 0}
+.flag{background:color-mix(in srgb,var(--danger) 9%,var(--panel));border:1px solid color-mix(in srgb,var(--danger) 35%,var(--panel));color:var(--danger);padding:8px 10px;border-radius:3px;font-size:12px;margin:8px 0}
 .model{font-family:var(--mono);font-size:11px;color:var(--faint)}
 </style>
 <style>
@@ -284,13 +289,75 @@ aside.simple [data-lvl="full"]{display:none}
 .askout .cite{font-family:var(--mono);font-size:11px;color:var(--blue,#4c90f0)}
 .lightbox{position:fixed;inset:0;background:rgba(3,5,8,.86);display:flex;align-items:center;justify-content:center;z-index:50;cursor:zoom-out}
 .lightbox img{max-width:92vw;max-height:88vh;border:1px solid var(--line)}
+/* ---------- cameras v2: wall, notes, citations, motion */
+.card,.panel,.cam{transition:box-shadow .18s,border-color .18s,transform .18s}
+.cam:hover,.card:hover{box-shadow:0 10px 30px rgba(16,22,29,.08);border-color:var(--line2)}
+.kpi b{transition:color .3s}
+.camstats{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.camstats .kv b{font-variant-numeric:tabular-nums}
+.gapb{margin-left:auto;color:var(--warn);font-size:10.5px;font-weight:600}
+.tlinks{display:flex;flex-direction:column;gap:6px;font-size:12px;margin-bottom:6px}
+.tlinks .k{display:inline-block;width:70px;color:var(--muted);font-size:11px}
+.tlinks .gap{color:var(--warn);display:flex;flex-wrap:wrap;gap:6px;align-items:center;font-size:12px}
+.planrow{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,1.2fr) auto auto;gap:10px;align-items:center;padding:9px 0;border-bottom:1px solid var(--line)}
+.planrow:last-child{border-bottom:0}
+.planrow .pn small{display:block;color:var(--muted);font-size:12px}
+.planrow select{width:auto;font-size:12px}
+.needrow{display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid var(--line);font-size:13px}
+.needrow:last-child{border-bottom:0}
+.needrow>span:not(.achip){flex:1;color:var(--text2)}
+.camagents{display:flex;flex-wrap:wrap;gap:5px;align-items:center;margin:4px 0 6px;font-size:12px}
+.camagents .lbl{color:var(--muted);font-size:11px;margin-right:2px}
+.camagents .none{color:var(--warn);font-size:11.5px}
+.camagents select{width:auto;font-size:11.5px;padding:2px 6px;height:24px}
+.achip{display:inline-flex;align-items:center;gap:5px;border:1px solid var(--line2);border-radius:12px;padding:1px 9px 1px 7px;font-size:11.5px;cursor:pointer;background:var(--panel2);color:var(--text)}
+.achip i{width:7px;height:7px;border-radius:50%;background:var(--ac)}
+.achip small{color:var(--muted)}
+.achip .x{color:var(--muted);font-weight:600;margin-left:2px;padding:0 2px}.achip .x:hover{color:var(--danger)}
+.achip:hover{border-color:var(--ac)}
+.wall{border:1px solid var(--line);background:var(--panel);border-radius:3px;margin-bottom:14px;overflow:hidden;animation:rise .25s ease-out}
+@keyframes rise{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+.wall .wh{display:flex;align-items:center;gap:10px;padding:8px 12px;border-bottom:1px solid var(--line);background:var(--panel2)}
+.wall .wh h3{margin:0;font-size:13px;flex:1;display:flex;gap:8px;align-items:center}
+.wall .wbody{display:grid;grid-template-columns:minmax(0,2.2fr) minmax(300px,1fr)}
+.wall .wgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:2px;background:var(--line);padding:2px}
+.wall .wtile{position:relative;background:#05070a;aspect-ratio:16/9;overflow:hidden;cursor:pointer}
+.wall .wtile img{width:100%;height:100%;object-fit:cover;display:block;opacity:0;transition:opacity .4s}
+.wall .wtile img.on{opacity:1}
+.wall .wtile .wname{position:absolute;left:8px;bottom:8px;z-index:2;font-family:var(--mono);font-size:11px;color:#fff;background:rgba(5,7,10,.7);padding:2px 7px;border-radius:2px;display:flex;gap:8px;align-items:center}
+.wall .wtile .wname .dot{width:6px;height:6px}
+.wall .wtile .wcount{position:absolute;right:8px;top:8px;font-family:var(--mono);font-size:10.5px;color:#fff;background:rgba(5,7,10,.7);padding:2px 7px;border-radius:2px;transition:background .3s}
+.wall .wtile .wcount.flash{background:var(--accent)}
+.wall .wtile .wnote{position:absolute;left:0;right:0;bottom:0;padding:26px 8px 32px;background:linear-gradient(transparent,rgba(5,7,10,.85));color:#e7edf5;font-size:11.5px;line-height:1.4;opacity:0;transition:opacity .3s;pointer-events:none;max-height:60%;overflow:hidden}
+.wall .wtile:hover .wnote,.wall .wtile.writing .wnote{opacity:1}
+.hcams .wall{border:0;margin:0;border-radius:0;animation:none}.hcams .wgrid{grid-template-columns:repeat(auto-fill,minmax(230px,1fr));background:var(--panel);gap:4px;padding:4px}
+.wall .wticker{border-left:1px solid var(--line);position:relative;min-height:300px}
+.wall .wticker .wt-in{position:absolute;inset:0;overflow:auto;padding:8px 12px;font-size:12.5px}
+.wall .wt-item{padding:8px 0;border-bottom:1px dashed var(--line);animation:rise .3s ease-out}
+.wall .wt-item .wt-h{font-family:var(--mono);font-size:10.5px;color:var(--muted);display:flex;gap:8px;align-items:center;margin-bottom:3px}
+.wall .wt-item .wt-h b{color:var(--text);font-weight:600}
+.wall .wt-item.alert .wt-h b{color:var(--warn)}
+.wall .wt-item.audit{color:var(--muted);font-size:12px}
+.wall .wt-item.audit .wt-h{color:var(--ok)}
+.wall .wt-item .typing::after{content:'\258B';color:var(--accent);animation:blink 1s steps(1) infinite;margin-left:1px}
+.note .nm{color:var(--accent);font-weight:600}
+.note .unsure{color:var(--muted);font-style:italic}
+.note .num{font-variant-numeric:tabular-nums;font-weight:600}
+.cite{cursor:pointer;border-bottom:1px dotted var(--blue,#4c90f0)}
+.cite:hover{color:var(--accent2)}
+.citepop{position:fixed;z-index:60;width:min(420px,92vw);background:var(--panel);border:1px solid var(--line2);border-radius:4px;box-shadow:0 18px 48px rgba(16,22,29,.22);padding:10px 12px;font-size:12.5px;animation:rise .18s ease-out}
+.citepop img{width:100%;border:1px solid var(--line);border-radius:2px;margin:6px 0;cursor:zoom-in;background:#05070a}
+.citepop .ch{font-family:var(--mono);font-size:10.5px;color:var(--muted);display:flex;gap:8px;align-items:center}
+.citepop .ch b{color:var(--text)}
+.citepop .cx{margin-left:auto;cursor:pointer;color:var(--faint)}
+@media (max-width:900px){.wall .wbody{grid-template-columns:1fr}.wall .wticker{border-left:0;border-top:1px solid var(--line);height:320px}}
 </style>
 <link rel="stylesheet" href="/desk/static/studio.css">
 </head>
 <body>
 <div class="layout">
 <aside>
-  <div class="brand"><i></i>Atlas Desk</div>
+  <div class="brand"><i></i>Atlas Desk<button id="themebtn" class="themebtn" onclick="toggleTheme()" title="Switch theme">◐</button></div>
   <div class="ws" title="Switch desk" onclick="toggleWs(event)"><div><b id="bizname">…</b><small id="wshint">sales desk</small></div><div class="wsmenu hide" id="wsmenu"></div><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m7 15 5 5 5-5M7 9l5-5 5 5"/></svg></div>
   <nav id="nav">
     <button data-p="design" data-lvl="full"><svg viewBox="0 0 24 24"><path d="M3 21v-4L16 4l4 4L7 21H3z"/><path d="m13 7 4 4"/><path d="M14 3h7v7"/></svg>Design studio</button>
@@ -298,6 +365,7 @@ aside.simple [data-lvl="full"]{display:none}
     <button data-p="live"><svg viewBox="0 0 24 24"><path d="M3 12h4l3-8 4 16 3-8h4"/></svg>Live desk <span class="dot" id="n-live"></span></button>
     <button data-p="leads"><svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c0-3.5 3-6 6.5-6s6.5 2.5 6.5 6"/><path d="M17 8h5M19.5 5.5v5"/></svg>Leads <span class="pill" id="n-leads">0</span></button>
     <button data-p="approvals"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="m8 12 3 3 5-6"/></svg>Approvals <span class="pill" id="n-pending">0</span></button>
+    <a class="navlink" href="/desk/ops" title="Cases and records: work that spans days, and the desk's live model of the business" style="display:flex;align-items:center;gap:9px;padding:8px 10px;border-radius:var(--r);color:var(--text2);font-weight:500;text-decoration:none"><svg viewBox="0 0 24 24" style="width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.8"><rect x="3" y="7" width="18" height="13" rx="1.5"/><path d="M8 7V5a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2M3 12h18"/></svg>Operations</a>
     <a class="navlink" href="/desk/workspace" title="Talk to Atlas, watch the team assemble, run jobs live" style="display:flex;align-items:center;gap:9px;padding:8px 10px;border-radius:var(--r);color:var(--text2);font-weight:500;text-decoration:none"><svg viewBox="0 0 24 24" style="width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.8"><circle cx="12" cy="12" r="3"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.2 2.2M16.2 16.2l2.2 2.2M5.6 18.4l2.2-2.2M16.2 7.8l2.2-2.2"/></svg>Workspace</a>
     <button data-p="team"><svg viewBox="0 0 24 24"><circle cx="12" cy="6" r="3"/><circle cx="6" cy="17" r="3"/><circle cx="18" cy="17" r="3"/><path d="M10.5 8.5 7.5 14M13.5 8.5l3 5.5M9 17h6"/></svg>Team <span class="dot" id="n-team"></span></button>
     <button data-p="crm" data-lvl="full"><svg viewBox="0 0 24 24"><ellipse cx="12" cy="6" rx="8" ry="3"/><path d="M4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6"/><path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/></svg>CRM</button>
@@ -307,6 +375,8 @@ aside.simple [data-lvl="full"]{display:none}
     <button data-p="automations" data-lvl="full"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>Automations <span class="pill" id="n-jobs">0</span></button>
     <div class="grp" data-lvl="full">Records</div>
     <button data-p="runs" data-lvl="full"><svg viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13"/><path d="M3 6h.01M3 12h.01M3 18h.01"/></svg>Runs</button>
+    <a class="navlink" href="/desk/review" data-lvl="full" title="Synced multi-camera playback against human labels: every camera on one timeline, our tracks over theirs, measured accuracy" style="display:flex;align-items:center;gap:9px;padding:8px 10px;border-radius:var(--r);color:var(--text2);font-weight:500;text-decoration:none"><svg viewBox="0 0 24 24" style="width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.8"><rect x="3" y="4" width="18" height="12" rx="1.5"/><path d="M3 20h18M7 20v-4M12 20v-4M17 20v-4"/></svg>Review</a>
+    <a class="navlink" href="/desk/objects" data-lvl="full" title="Every distinct thing the cameras saw, tracked and cross-checked; call one, correct its label, ask about it" style="display:flex;align-items:center;gap:9px;padding:8px 10px;border-radius:var(--r);color:var(--text2);font-weight:500;text-decoration:none"><svg viewBox="0 0 24 24" style="width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.8"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>Objects</a>
     <button data-p="audit" data-lvl="full"><svg viewBox="0 0 24 24"><path d="M6 2h9l5 5v15H6z"/><path d="M14 2v6h6"/><path d="M9 13h7M9 17h7"/></svg>Audit log</button>
     <button data-p="report" data-lvl="full"><svg viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>Monthly report</button>
     <div class="grp" data-lvl="full">Account</div>
@@ -410,6 +480,8 @@ aside.simple [data-lvl="full"]{display:none}
     <div class="card kpi"><span>Qualified contacts</span><b id="k-qual">0</b><small>in CRM</small></div>
     <div class="card kpi"><span>Tokens used</span><b id="k-tok">0</b><small id="k-cost">model cost £0.00</small></div>
   </div>
+  <div class="panel hcams" id="home-cams" style="margin-bottom:14px;display:none"><div class="ph"><h2 style="display:flex;align-items:center;gap:8px"><span class="dot live"></span>Cameras now</h2><span class="hint" id="hc-hint" style="margin:0 auto 0 12px"></span><button class="link" onclick="go('cameras')">All cameras ›</button></div>
+    <div class="wall"><div class="wgrid" id="hc-grid"></div></div></div>
   <div class="panel" style="margin-bottom:14px"><div class="ph"><h2>Give the team a job</h2><span class="hint">any task — the agents plan, research, draft; anything outbound waits for your approval</span></div>
     <div class="pb"><div class="row"><input id="d-task" placeholder="e.g. Research our 5 nearest competitors and draft a one-page comparison · Chase every quote that went quiet this month · Prepare Monday's client update" style="flex:1" onkeydown="if(event.key==='Enter')dashTask()"><button class="btn p" onclick="dashTask()">Deploy the team →</button></div></div></div>
   <div class="grid g2" style="grid-template-columns:1.5fr 1fr">
@@ -506,6 +578,7 @@ aside.simple [data-lvl="full"]{display:none}
   <div class="phead"><div><h1>Integrations</h1><p class="lead">Connect the desk to the real world. Email (SMTP or Resend), WhatsApp (Meta or Twilio), SMS, HubSpot / Pipedrive CRM sync, Google Calendar, Slack pings, any HTTP API or MCP server, inbound webhooks. Writes need your approval unless you switch a connector to auto.</p></div></div>
   <div class="grid g2" style="grid-template-columns:1.2fr 1fr">
     <div>
+      <div class="panel hide" id="needs-panel" style="margin-bottom:14px"><div class="ph"><h2>What your agents need</h2><span class="hint" style="margin:0">from each agent's job and tools</span></div><div class="pb" id="needs-list"></div></div>
       <div class="panel" style="margin-bottom:14px"><div class="ph"><h2>Connected systems</h2></div><div class="pb" id="conn-list"></div></div>
       <div class="panel" style="margin-bottom:14px"><div class="ph"><h2>Channels</h2><span class="hint">what an approved action actually does</span></div><div class="pb" id="conn-channels"></div></div>
       <div class="panel"><div class="ph"><h2>Inbound</h2><span class="hint">forms, Zapier, Make, WhatsApp, SMS</span></div><div class="pb">
@@ -551,10 +624,11 @@ aside.simple [data-lvl="full"]{display:none}
 <!-- CAMERAS -->
 <section id="p-cameras" class="hide">
   <div class="phead"><div><h1>Cameras</h1><p class="lead">The desk's eyes. Every camera is watched on a schedule: objects are counted locally, the vision analyst answers your standing question when something changes, and a rule decides when Atlas is woken. Everything the cameras see is logged — ask about it in plain English.</p></div>
-    <div class="ctl"><span class="tag" id="cam-det">detector…</span><span class="tag" id="cam-vlm">analyst…</span><button class="btn sm" onclick="lookAll()">Look through all</button></div></div>
+    <div class="ctl camstats"><span class="kv"><span class="dot" id="cs-dot"></span><b id="cs-live">0</b> live</span><span class="kv"><b id="cs-notes">0</b> notes today</span><span class="kv"><b id="cs-alerts">0</b> alerts</span><span class="kv"><b id="cs-names">0</b> named</span><span class="tag" id="cam-det">detector…</span><span class="tag" id="cam-vlm">analyst…</span><button class="btn p sm" id="wall-btn" onclick="toggleWall()">▦ Wall</button><button class="btn sm" onclick="lookAll()">Look through all</button></div></div>
   <div id="cam-live"></div>
   <div class="grid g2" style="grid-template-columns:1.6fr 1fr">
     <div>
+      <div class="panel hide" id="cam-planned" style="margin-bottom:14px"></div>
       <div class="camgrid" id="cam-grid" style="margin-bottom:14px"><div class="empty">Loading…</div></div>
       <div class="panel"><div class="ph"><h2>What the cameras saw</h2><div class="row" style="gap:6px"><select id="ev-cam" style="width:auto;font-size:12px;padding:5px 8px" onchange="loadVisionEvents()"><option value="">all cameras</option></select><select id="ev-hours" style="width:auto;font-size:12px;padding:5px 8px" onchange="loadVisionEvents()"><option value="1">last hour</option><option value="24" selected>last 24h</option><option value="168">last 7 days</option></select><label style="margin:0;display:flex;gap:5px;align-items:center;font-size:12px"><input type="checkbox" id="ev-alerts" style="width:auto" onchange="loadVisionEvents()"> alerts only</label><a class="link" style="font-size:12px" href="/api/vision/journal?format=html" target="_blank" rel="noopener">today's journal ↗</a></div></div>
         <div class="pb" id="ev-list" style="max-height:520px;overflow:auto"></div></div>
@@ -573,6 +647,22 @@ aside.simple [data-lvl="full"]{display:none}
         <input id="vid-q" placeholder="Describe what happens · Does anyone enter after the shutter closes? · Count people at the counter">
         <div class="row" style="margin-top:10px"><button class="btn p" id="vid-btn" onclick="analyseVideo()">Analyse</button><span class="hint" id="vid-status"></span></div>
         <div class="askout" id="vid-out" style="margin-top:10px;display:none"></div>
+      </div></div>
+      <div class="panel" style="margin-bottom:14px"><div class="ph"><h2>Alerts go to</h2><span class="hint" id="nt-state"></span></div><div class="pb">
+        <p class="hint" style="margin-bottom:8px">Every rule firing becomes one message here, with the snapshot and the note. It waits in Approvals unless you tick <b>send at once</b>. Beyond the hourly budget the rest of the hour is one digest; in quiet hours alerts are logged, not sent. The daily report by name goes out every morning.</p>
+        <div class="grid2">
+          <div><label>Channel</label><select id="nt-channel"><option value="">off (agents handle alerts)</option><option value="whatsapp">WhatsApp</option><option value="sms">SMS</option><option value="email">Email</option><option value="slack">Slack</option></select></div>
+          <div><label>To</label><input id="nt-to" placeholder="+44 7700 900123 · boss@… · (Slack: the connector's channel)"></div>
+          <div><label>Alerts per camera per hour</label><input id="nt-per" type="number" min="1" max="120" value="6"></div>
+          <div><label>Quiet hours</label><input id="nt-quiet" placeholder="23:00-07:00 (blank = never)"></div>
+          <div><label>Daily report at</label><input id="nt-rt" placeholder="07:00" value="07:00"></div>
+          <div style="display:flex;flex-direction:column;gap:6px;justify-content:end">
+            <label style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="nt-auto" style="width:auto"> send at once (no approval)</label>
+            <label style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="nt-report" style="width:auto" checked> daily report</label>
+            <label style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="nt-run" style="width:auto"> also wake the agents for every alert</label>
+          </div>
+        </div>
+        <div class="act" style="margin-top:8px"><button class="btn p sm" onclick="saveNotify()">Save</button><a class="btn sm" href="/api/report/day?format=md" target="_blank">Today's report ↗</a></div>
       </div></div>
       <div class="panel" style="margin-bottom:14px"><div class="ph"><h2>Add a camera</h2></div><div class="pb">
         <label>Name (agents refer to it by this)</label><input id="cam-name" placeholder="front-door">
@@ -644,7 +734,7 @@ async function loadCfg(){
   loadDesks();
   const me = await api('/me'); if (me && me.id) { $('#who').textContent = me.name; $('#whoco').textContent = me.company || me.email; $('#whoav').textContent = (me.name||'?').trim()[0].toUpperCase(); } else { $('#who').textContent = 'Guest'; $('#whoco').textContent = 'open test mode'; document.querySelectorAll('a[href="/logout"]').forEach(a => a.remove()); }
   colors = Object.fromEntries(CFG.agents.map(a=>[a.id, a.color || '#7c3aed']));
-  applyLevel();
+  applyLevel(); fillNotify();
   $('#bizname').textContent = CFG.business.name; $('#wshint').textContent = (CFG.template || '').replace('_', ' ') + ' · ' + CFG.mode;
   $('#mode').textContent = CFG.mode.toUpperCase();
   $('#modehint').textContent = CFG.mode==='demo' ? 'scripted agents' : (CFG.live_reason ? '⚠ ' + CFG.live_reason : 'live models');
@@ -659,12 +749,13 @@ async function loadCfg(){
 }
 
 async function refresh(){
-  if (page !== 'team') teamLeave();                                             // close the team canvas stream/timers when the owner moves on
+  if (page !== 'team') teamLeave();
+  if (page !== 'dash') homeCamsStop();                                         // Home's live tiles stop streaming when it is not on screen                                             // close the team canvas stream/timers when the owner moves on
   const s = await api('/stats'); if(!s || s.needs_desk) return;
   $('#n-leads').textContent = s.leads; $('#n-pending').textContent = s.pending;
   $('#k-leads').textContent = s.leads; $('#k-pending').textContent = s.pending; $('#k-sent').textContent = s.approved; $('#k-qual').textContent = s.qualified; $('#k-active').textContent = s.active_runs; $('#d-dot').classList.toggle('live', s.active_runs > 0); $('#k-tok').textContent = ((s.tokens_in||0)+(s.tokens_out||0)).toLocaleString(); $('#k-cost').textContent = 'model cost £' + (((s.tokens_in||0)*5+(s.tokens_out||0)*25)/1e6*0.78).toFixed(2);
   $('#n-live').classList.toggle('live', s.active_runs > 0);
-  if (page==='dash') { loadDashLog(); loadHealth(); }
+  if (page==='dash') { loadDashLog(); loadHealth(); homeCams(); }
   if (page==='live') liveRefreshList();
   if (page==='leads') loadLeads();
   if (page==='approvals') loadApprovals();
@@ -684,6 +775,24 @@ function evLine(e){
   const icon = {tool:'⚙ ', approval:'⏸ ', error:'✖ ', deliverable:'📄 ', done:'✔ ', sent:'📤 ', rejected:'✖ ', agent_start:'→ ', agent_end:'← '}[e.kind] || '';
   return `<div><span class="t">${hms(e.ts)}</span><span class="ag" style="color:${col}">[${esc(e.agent)}]</span> ${icon}${esc(e.text)}</div>`;
 }
+// ---- Home: every camera live and small, with what it counts and its last note; click one to open it with its journal
+const HOME = {ids: '', t: 0};
+async function homeCams(){
+  if (Date.now() - HOME.t < 5000) return; HOME.t = Date.now();
+  const R = await api('/cameras'); if (!R || page !== 'dash') return; const cams = R.cameras || [], box = $('#home-cams');
+  if (!cams.length) { box.style.display = 'none'; return; }
+  CAMS = cams; box.style.display = ''; $('#n-cams').textContent = cams.length + (R.nodes || []).length;
+  const show = cams.slice(0, 8), ids = show.map(c => c.id).join(',');
+  if (ids !== HOME.ids) {
+    HOME.ids = ids;
+    $('#hc-grid').innerHTML = show.map(c => `<div class="wtile" onclick="go('cameras');openLive(${c.id})" title="open ${esc(c.name)} live with its journal"><img alt="" src="/api/cameras/${c.id}/live.mjpg?fps=3&t=${Date.now()}" onload="this.classList.add('on')"><span class="wcount" id="hc-c-${c.id}">…</span><div class="wnote" id="hc-n-${c.id}"></div><span class="wname"><span class="dot live"></span>${esc(c.name)}</span></div>`).join('');
+  }
+  show.forEach(c => { const s = c.seen || {}, le = c.last_event;
+    const k = $(`#hc-c-${c.id}`); if (k && s.counts) k.textContent = countsText(s.counts);
+    const n = $(`#hc-n-${c.id}`); if (n && le) n.innerHTML = fmtNote(String(le.answer || le.reason || '').slice(0, 200)); });
+  $('#hc-hint').textContent = `${cams.length} camera${cams.length === 1 ? '' : 's'}${cams.length > 8 ? ', first 8 shown' : ''} · live, every frame through the local detector · hover for the latest note`;
+}
+function homeCamsStop(){ if (!HOME.ids) return; document.querySelectorAll('#hc-grid img').forEach(i => i.src = ''); $('#hc-grid').innerHTML = ''; HOME.ids = ''; HOME.t = 0; }
 async function loadDashLog(){ const ev = await api('/audit'); $('#dash-log').innerHTML = ev.length ? ev.slice(0,40).reverse().map(evLine).join('') : '(nothing yet — seed demo leads)'; $('#dash-log').scrollTop = 1e9; }
 
 async function seed(){ toast('Seeding 3 leads…'); const r = await api('/demo/seed', {method:'POST', body:{}}); if (r && r[0]) liveWant = r[0].run_id; go('live'); }
@@ -953,6 +1062,13 @@ function applyLevel(){
   document.querySelector('aside').classList.toggle('simple', !full);
   const b = $('#lvl-btn'); if (b) b.textContent = full ? '‹ Simple view' : 'Show everything ›';
 }
+function toggleTheme(){
+  const t = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
+  document.documentElement.dataset.theme = t; try { localStorage.setItem("atlas-theme", t); } catch (e) {}
+  themeLabel();
+}
+function themeLabel(){ const b = document.getElementById("themebtn"); if (b) b.title = document.documentElement.dataset.theme === "dark" ? "Switch to the light theme" : "Switch to the dark studio theme"; }
+themeLabel();
 async function toggleLevel(){
   const did = (CFG.desk || {}).id; if (!did) return;
   const lvl = CFG.ui_level === 'full' ? 'simple' : 'full';
@@ -1000,6 +1116,10 @@ function teamFromCfg(){
   return [...list.filter(a => a.id === 'atlas'), ...list.filter(a => a.id !== 'atlas')];
 }
 function loadTeam(){
+  const before = JSON.stringify(LINKS);                                            // redraw only when the links changed, never mid-edit
+  loadLinks().then(() => { const ws2 = $('#tm-ws');
+    if (page !== 'team' || !TEAM.agents || TEAM.dirty || JSON.stringify(LINKS) === before || (ws2 && ws2.contains(document.activeElement) && document.activeElement !== ws2)) return;
+    renderTeam(); if (TEAM.sel >= 0) teamInspect(TEAM.sel); });
   if (!CFG.agents) return;
   const ws = $('#tm-ws'); if (!ws || !ws.clientWidth) return;                          // section hidden — lay out when it is visible
   if (TEAM.cams === null) { TEAM.cams = []; api('/cameras').then(R => { TEAM.cams = (R && Array.isArray(R.cameras)) ? R.cameras : []; if (page === 'team') teamRenderCams(); }); }
@@ -1018,6 +1138,28 @@ function teamCatalogue(a){
   return cat;
 }
 /* ---- canvas render + layout */
+function teamGapBadge(a){ const e = LINKS && LINKS.agents[a.id]; const n = e ? e.gaps.length : 0;
+  return n ? `<span class="gapb" title="${esc(e.gaps.join(' · '))}">⚠ ${n}</span>` : ''; }
+function teamOpenId(id, tries = 0){
+  const i = (TEAM.agents || []).findIndex(a => a.id === id);
+  if (i >= 0 && document.getElementById(tkid(TEAM.agents[i]._k))) return teamInspect(i);
+  if (tries < 20) setTimeout(() => teamOpenId(id, tries + 1), 150);
+}
+function teamLinksHtml(a, i){
+  const e = LINKS && LINKS.agents[a.id]; if (!e) return '';
+  const cams = e.cameras.length ? e.cameras.map(n => `<span class="tag" style="cursor:pointer" onclick="go('cameras')">📷 ${esc(n)}</span>`).join(' ')
+    : (e.any_camera ? '<span class="hint" style="margin:0">any camera (none named in its job)</span>' : '<span class="hint" style="margin:0">none</span>');
+  const ch = Object.entries(e.channels).map(([k, v]) => `<span class="tag" style="${v ? 'color:var(--ok);border-color:var(--ok)' : 'color:var(--warn);border-color:var(--warn)'}">${esc(k)}: ${v ? esc(v) : 'not connected'}</span>`).join(' ');
+  const fix = g => { if (/cannot send/.test(g)) return `<button class="btn sm" onclick="teamToolOn(${i},'queue_action')">Let it send (with approval)</button>`;
+    if (/no camera tools/.test(g)) return `<button class="btn sm" onclick="teamToolOn(${i},'camera_ask')">Give it camera tools</button>`; return gapFix(g, a.id); };
+  return `<label>Links</label><div class="tlinks"><div><span class="k">Cameras</span>${cams}</div>${ch ? `<div><span class="k">Sends by</span>${ch}</div>` : ''}
+    ${e.gaps.map(g => `<div class="gap">⚠ ${esc(g)} ${fix(g)}</div>`).join('')}</div>`;
+}
+function teamToolOn(i, tool){
+  const a = TEAM.agents[i]; if (!a) return;
+  for (const t of (tool === 'camera_ask' ? ['camera_ask', 'camera_events', 'camera_look'] : [tool])) if (!a.tools.includes(t)) a.tools.push(t);
+  teamSetDirty(true); renderTeam(); teamInspect(i); toast('Granted: save the team to apply');
+}
 function renderTeam(){
   const box = $('#tm-nodes');
   box.innerHTML = TEAM.agents.map((a, i) => {
@@ -1028,7 +1170,7 @@ function renderTeam(){
       <div class="role" id="role-${k}">${esc(a.role) || '<span style="color:var(--faint)">no role yet</span>'}</div>
       <div class="asg hide" id="asg-${k}"></div>
       <div class="chips" id="chips-${k}"></div>
-      <div class="nf"><span id="tools-${k}">${nt} tool${nt === 1 ? '' : 's'}</span>${a.engine === 'hermes_agent' ? '<span class="eng" title="Runs inside the Hermes Agent runtime">Hermes</span>' : ''}<span id="it-${k}"></span><span class="badge hide" id="ap-${k}"></span></div></div>`;
+      <div class="nf"><span id="tools-${k}">${nt} tool${nt === 1 ? '' : 's'}</span>${a.engine === 'hermes_agent' ? '<span class="eng" title="Runs inside the Hermes Agent runtime">Hermes</span>' : ''}<span id="it-${k}"></span><span class="badge hide" id="ap-${k}"></span>${teamGapBadge(a)}</div></div>`;
   }).join('') || '<div class="empty" style="margin:40px;border:0">No agents — reload the page</div>';
   box.querySelectorAll('.tmn[data-i]').forEach(el => el.addEventListener('pointerdown', teamDown));
   teamPlace();
@@ -1093,7 +1235,11 @@ function teamEdges(){
   const curve = (from, to, cls, color) => { const rt = to.cx >= from.cx; const x1 = rt ? from.r : from.l, y1 = from.cy, x2 = rt ? to.l : to.r, y2 = to.cy, mx = (x1 + x2) / 2;
     return `<path class="tme ${cls}" style="--c:${color}" d="M${x1},${y1} C${mx},${y1} ${mx},${y2} ${x2},${y2}"/>`; };
   const ab = box(A); let out = '';
-  ws.querySelectorAll('#tm-cams .tmn').forEach(el => { out += curve(box(el), ab, 'cam', 'var(--line2)'); });
+  ws.querySelectorAll('#tm-cams .tmn').forEach(el => {                       // a camera feeds the agents that watch it, else Atlas
+    const cam = (TEAM.cams || [])[+(el.id.split('-')[1])], ids = cam && LINKS ? (LINKS.cameras[cam.name] || []) : [];
+    const to = ids.map(id => TEAM.agents.find(a => a.id === id)).filter(Boolean).map(a => document.getElementById(tkid(a._k))).filter(Boolean);
+    if (!to.length) out += curve(box(el), ab, 'cam', 'var(--line2)');
+    to.forEach(t => { out += curve(box(el), box(t), 'cam', t.style.getPropertyValue('--c') || 'var(--line2)'); }); });
   ws.querySelectorAll('#tm-nodes .tmn[data-i]').forEach(el => { if (el === A) return;
     const ag = TEAM.agents[+el.dataset.i]; let from = ab;
     if (ag && ag.reports_to && ag.reports_to !== 'atlas') { const lead = TEAM.agents.find(x => x.id === ag.reports_to); const L = lead && document.getElementById(tkid(lead._k)); if (L) from = box(L); }
@@ -1144,6 +1290,7 @@ function teamInspect(i){
     <div class="hint" style="margin-top:10px"><span class="tag">${esc(a.id || 'id from name')}</span> <span class="model">${esc(a.model || '(default model)')}${a.engine ? ' · ' + esc(a.engine) : ''}</span>${a.engine === 'hermes_agent' ? '<br><span style="color:var(--warn)">Runs inside the Hermes Agent runtime with its own tools; the grants below apply when it runs on the built-in engine.</span>' : ''}</div>
     <label>System prompt</label><textarea rows="9" class="sp" placeholder="${isAtlas ? 'How Atlas should run this desk, who it delegates to, what it must never do…' : 'What this agent does, how it works, what it must never do…'}" oninput="teamField(${i},'system_prompt',this.value)">${esc(a.system_prompt)}</textarea>
     <label>Tools</label><div class="tchips">${chips || '<span class="hint" style="margin:0">no tools in the catalogue</span>'}</div>
+    ${isAtlas ? '' : teamLinksHtml(a, i)}
     ${isAtlas ? '' : `<div class="foot"><button class="btn sm d" onclick="teamRemove(${i})">✕ Remove agent</button><span class="hint" style="margin:0;align-self:center">${a._srv ? 'Removed on save' : 'Not saved yet'}</span></div>`}`;
   insp.classList.add('on');
 }
@@ -1395,7 +1542,8 @@ async function loadConnectors(){
   const CH = {email:'Email', whatsapp:'WhatsApp', sms:'SMS', booking:'Calendar booking'};
   $('#conn-channels').innerHTML = Object.entries(CH).map(([k,l])=>`<span class="tag" style="margin:0 8px 6px 0;${R.channels && R.channels[k] ? 'color:var(--ok);border-color:var(--ok)' : ''}">${l}: ${R.channels && R.channels[k] ? 'live' : 'simulated'}</span>`).join('');
   if (!$('#c-kind').options.length) { $('#c-kind').innerHTML = Object.entries(KINDS).filter(([k])=>k!=='webhook').map(([k,v])=>`<option value="${k}">${esc(v.label)}</option>`).join(''); connFields(); }
-  $('#conn-list').innerHTML = R.connectors.length ? `<table><tr><th>Name</th><th>Type</th><th>Details</th><th>Writes</th><th>Status</th><th></th></tr>` + R.connectors.map(c=>`<tr><td><b>${esc(c.name)}</b></td><td><span class="tag">${esc(c.kind)}</span></td><td class="model">${esc(Object.entries(c.config).filter(([k])=>k!=='notes').map(([k,v])=>k+'='+v).join('  ').slice(0,90))}</td><td><label style="margin:0;display:flex;gap:6px;align-items:center"><input type="checkbox" style="width:auto" ${c.auto?'checked':''} onchange="api('/connectors/${c.id}',{method:'PATCH',body:{auto:this.checked}})"> auto</label></td><td class="hint">${esc(c.status||'untested')}</td><td class="row"><button class="btn sm" onclick="testConn(${c.id})">Test</button><button class="btn sm d" onclick="delConn(${c.id})">✕</button></td></tr>`).join('') + '</table>' : '<div class="empty">No connectors yet. Add email sending, an inbox or an API on the right.</div>';
+  $('#conn-list').innerHTML = R.connectors.length ? `<table><tr><th>Name</th><th>Type</th><th>Details</th><th>Writes</th><th>Used by</th><th>Status</th><th></th></tr>` + R.connectors.map(c=>`<tr><td><b>${esc(c.name)}</b></td><td><span class="tag">${esc(c.kind)}</span></td><td class="model">${esc(Object.entries(c.config).filter(([k])=>k!=='notes').map(([k,v])=>k+'='+v).join('  ').slice(0,90))}</td><td><label style="margin:0;display:flex;gap:6px;align-items:center"><input type="checkbox" style="width:auto" ${c.auto?'checked':''} onchange="api('/connectors/${c.id}',{method:'PATCH',body:{auto:this.checked}})"> auto</label></td><td class="usedby" data-c="${esc(c.name)}"></td><td class="hint">${esc(c.status||'untested')}</td><td class="row"><button class="btn sm" onclick="testConn(${c.id})">Test</button><button class="btn sm d" onclick="delConn(${c.id})">✕</button></td></tr>`).join('') + '</table>' : '<div class="empty">No connectors yet. Add email sending, an inbox or an API on the right.</div>';
+  loadLinks().then(renderConnLinks);
 }
 function connFields(){
   const k = $('#c-kind').value, spec = KINDS[k]; if (!spec) return;
@@ -1431,11 +1579,78 @@ async function analyseVideo(){
   } catch(e){ toast('Upload failed'); }
   btn.disabled = false; $('#vid-status').textContent = '';
 }
+
+// ---- notes read better when the names, the numbers and the doubts stand out
+let NAMES_KNOWN = [];
+function fmtNote(t){
+  let h = esc(t || '');
+  h = h.replace(/\b(\d+)\s+(people|person|persons|adults?|customers?|staff|vehicles?|cars?|vans?|bottles?|cups?|plates?)\b/gi, '<span class="num">$1</span> $2');
+  h = h.replace(/\b(appears? to( be)?|possibly|unclear[^.,;]*|likely|cannot (be )?(determine|tell|confirm)[^.,;]*|not (clearly )?visible[^.,;]*)/gi, '<span class="unsure">$1</span>');
+  NAMES_KNOWN.forEach(n => { if (n) h = h.replace(new RegExp('\\b' + n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b', 'g'), `<span class="nm">${esc(n)}</span>`); });
+  h = h.replace(/\[#?(\d+)\]/g, (m, id) => `<span class="cite" onclick="cite(event,${id})">[#${id}]</span>`);
+  return `<span class="note">${h}</span>`;
+}
+// ---- a citation opens the event it points at: snapshot, note, reason
+let _pop = null;
+async function cite(ev, id){
+  ev.stopPropagation(); if (_pop) { _pop.remove(); _pop = null; }
+  const e = await api('/vision/events/' + id); if (!e) return toast('event #' + id + ' not found');
+  const d = document.createElement('div'); d.className = 'citepop';
+  d.innerHTML = `<div class="ch"><b>#${e.id}</b> ${esc(e.camera)} · ${hms(e.ts)}${e.triggered ? ' · <span style="color:var(--warn)">alert</span>' : ''}<span class="cx" onclick="this.closest('.citepop').remove()">✕</span></div>
+    ${e.snapshot_url ? `<img src="${e.snapshot_url}" onclick="zoom('${e.snapshot_url}')">` : ''}
+    <div>${fmtNote(e.answer || e.reason || '')}</div>${e.answer && e.reason ? `<div class="hint" style="margin-top:4px">${esc(e.reason)} · ${esc(e.seen || '')}</div>` : ''}`;
+  const x = Math.min(ev.clientX, window.innerWidth - 440), y = Math.min(ev.clientY + 12, window.innerHeight - 320);
+  d.style.left = x + 'px'; d.style.top = y + 'px'; document.body.appendChild(d); _pop = d;
+  setTimeout(() => document.addEventListener('click', function h(x){ if (_pop && !_pop.contains(x.target)) { _pop.remove(); _pop = null; } document.removeEventListener('click', h); }), 0);
+}
+// ---- the wall: every camera live at once, one journal ticker for all of them
+const WALL = {on:false, es:null, statT:null, buf:{}, ids:[]};
+function toggleWall(){ WALL.on ? closeWall() : openWall(); }
+async function openWall(){
+  closeLive(true); if (!CAMS.length) return toast('add a camera first');
+  WALL.on = true; WALL.ids = CAMS.map(c => c.id); WALL.buf = {};
+  $('#wall-btn').textContent = '▦ Close wall';
+  $('#cam-live').innerHTML = `<div class="wall" id="wall"><div class="wh"><h3><span class="dot live"></span>All cameras <span class="tag" id="wall-fps"></span></h3><span class="hint" style="margin:0" id="wall-why">journal: listening…</span><button class="btn sm" onclick="closeWall()">Close</button></div>
+    <div class="wbody"><div class="wgrid">${CAMS.map(c => `<div class="wtile" id="wt-${c.id}" onclick="closeWall();openLive(${c.id})" title="open ${esc(c.name)} with its journal"><img id="wimg-${c.id}" alt="" src="/api/cameras/${c.id}/live.mjpg?fps=4&t=${Date.now()}" onload="this.classList.add('on')"><span class="wcount" id="wc-${c.id}">…</span><div class="wnote" id="wn-${c.id}"></div><span class="wname"><span class="dot live"></span>${esc(c.name)}</span></div>`).join('')}</div>
+    <div class="wticker"><div class="wt-in" id="wall-ticker"><div class="hint">Notes from every camera appear here as they are written, with what the audit removed.</div></div></div></div></div>`;
+  WALL.es = new EventSource('/api/vision/journal/stream');
+  WALL.es.onmessage = e => { try { wallEvent(JSON.parse(e.data)); } catch(_){} };
+  WALL.statT = setInterval(wallStat, 3000); wallStat();
+}
+function closeWall(){
+  if (!WALL.on) return; WALL.on = false;
+  if (WALL.es) { WALL.es.close(); WALL.es = null; }
+  if (WALL.statT) { clearInterval(WALL.statT); WALL.statT = null; }
+  document.querySelectorAll('.wall img').forEach(i => i.src = '');
+  $('#cam-live').innerHTML = ''; $('#wall-btn').textContent = '▦ Wall';
+}
+async function wallStat(){
+  if (!WALL.on) return; let fps = [];
+  for (const id of WALL.ids) { const r = await api(`/cameras/${id}/live`); if (!r || !r.ok) continue; const l = r.live || {}; fps.push(l.fps || 0);
+    const c = $(`#wc-${id}`); if (c) { const t = countsText(l.counts || {}); if (c.textContent !== t) { c.textContent = t; c.classList.add('flash'); setTimeout(() => c.classList.remove('flash'), 600); } } }
+  const f = $('#wall-fps'); if (f && fps.length) f.textContent = `${Math.min(...fps)}–${Math.max(...fps)} fps · ${WALL.ids.length} feeds`;
+}
+function wallEvent(ev){
+  if (!WALL.on) return; const cam = CAMS.find(c => c.name === ev.camera); const tk = $('#wall-ticker'); if (!tk) return;
+  const push = (cls, head, body) => { if (tk.querySelector('.hint')) tk.innerHTML = ''; const d = document.createElement('div'); d.className = 'wt-item ' + cls; d.innerHTML = `<div class="wt-h"><b>${esc(ev.camera || '')}</b> ${head}</div>${body}`; tk.prepend(d); while (tk.children.length > 60) tk.lastChild.remove(); };
+  if (ev.kind === 'tick') { if (ev.triggered) push('alert', hms(ev.ts) + ' · alert', esc(ev.reason || '') + (ev.notified ? ` · <span class="tag">${esc(ev.notified)}</span>` : '')); return; }
+  if (ev.kind === 'note_start') { WALL.buf[ev.camera] = ''; const w = $('#wall-why'); if (w) w.textContent = `${ev.camera}: writing a note · ${ev.why || ''}`; if (cam) { const t = $(`#wt-${cam.id}`); if (t) t.classList.add('writing'); } return; }
+  if (ev.kind === 'note_delta') { WALL.buf[ev.camera] = (WALL.buf[ev.camera] || '') + (ev.text || ''); if (cam) { const n = $(`#wn-${cam.id}`); if (n) n.innerHTML = `<span class="typing">${esc(WALL.buf[ev.camera].slice(-220))}</span>`; } return; }
+  if (ev.kind === 'note_verify_start') { const w = $('#wall-why'); if (w) w.textContent = `${ev.camera}: auditing the note against the frame…`; return; }
+  if (ev.kind === 'note_verify') { const parts = []; if (ev.removed && ev.removed.length) parts.push('removed: ' + ev.removed.join('; ')); if (ev.softened && ev.softened.length) parts.push('softened: ' + ev.softened.join('; ')); if (parts.length) push('audit', hms(ev.ts) + ' · audit', esc(parts.join(' · '))); return; }
+  if (ev.kind === 'note_done') { push('', hms(ev.ts) + ' · note', fmtNote(ev.text || '')); if (cam) { const n = $(`#wn-${cam.id}`); if (n) n.innerHTML = fmtNote((ev.text || '').slice(0, 220)); const t = $(`#wt-${cam.id}`); if (t) t.classList.remove('writing'); } const w = $('#wall-why'); if (w) w.textContent = `${ev.camera}: note written in ${ev.took_s || 0}s`; loadVisionEvents(); return; }
+  if (ev.kind === 'digest') { push('audit', hms(ev.ts) + ' · summary ' + esc(ev.span || ''), esc((ev.text || '').slice(0, 400))); return; }
+}
 async function loadCameras(){
   const R = await api('/cameras'); if (!R) return; CAMS = R.cameras; const NODES = R.nodes || [];
+  renderPlanned(R.planned || [], R.samples || []);
   $('#n-cams').textContent = CAMS.length + NODES.length;
+  try { const st = R.stats || {}; const live = CAMS.filter(c => c.watch_job && c.watch_job.enabled).length;
+    $('#cs-live').textContent = live; $('#cs-dot').className = 'dot' + (live ? ' live' : '');
+    $('#cs-notes').textContent = st.notes ?? st.events ?? 0; $('#cs-alerts').textContent = st.triggered ?? 0;
+    api('/names').then(n => { if (n && n.names) { NAMES_KNOWN = n.names.map(x => x.name); $('#cs-names').textContent = n.names.length; } }); } catch(_){}
   $('#vision-hook-url').value = R.hook_url || '';
-  const det = $('#cam-det'); det.textContent = R.detector.available ? 'local detector: ' + R.detector.weights : 'no local detector'; det.style.color = R.detector.available ? 'var(--ok)' : 'var(--muted)'; det.title = R.detector.error || 'ultralytics YOLO, runs on this machine';
+  const det = $('#cam-det'); det.textContent = R.detector.available ? 'local detector: ' + R.detector.weights : 'no local detector'; det.style.color = R.detector.available ? 'var(--ok)' : 'var(--muted)'; det.title = R.detector.error || ('ultralytics YOLO, runs on this machine' + (R.detector.runtime_error ? ' · OpenVINO unavailable, running on torch: ' + R.detector.runtime_error : ''));
   const v = $('#cam-vlm'); v.textContent = R.vlm.ready ? 'analyst: ' + R.vlm.model.split('/').pop() : (R.mode==='demo' ? 'analyst: demo' : 'analyst: no key'); v.style.color = R.vlm.ready ? 'var(--ok)' : 'var(--muted)';
   const sel = $('#ev-cam'); const cur = sel.value; sel.innerHTML = '<option value="">all cameras</option>' + CAMS.concat(NODES).map(c=>`<option value="${esc(c.name)}" ${c.name===cur?'selected':''}>${esc(c.name)}</option>`).join('');
   const nodeCards = NODES.map(n => { const le = n.last_event || {}; const c = le.counts || {}; const fresh = (Date.now()/1000 - n.last_ts) < 900;
@@ -1462,12 +1677,91 @@ async function loadCameras(){
         <span class="live ${watching?'on':''}">${watching ? 'watching · '+(JSON.parse(c.watch_job.task||'{}').every_s||30)+'s' : 'idle'}</span></div>
       <div class="body">
         <h3>${esc(c.name)}<small title="${esc(src)}">${esc(c.source_kind)}${ts ? ' · ' + hms(ts) : ''}</small></h3>
+        <div class="camagents" id="ca-${c.id}"></div>
         <div class="hint" style="margin:0">${esc(seenTxt)}${s.motion!=null ? ` · motion ${Number(s.motion).toFixed(2)}` : ''}${s.backend && s.backend!=='none' ? ` · ${esc(s.backend)}` : ''}${s.reason ? ` · ${esc(s.reason)}` : ''}</div>
         <div class="hint" style="margin:0">watch for <b>${esc(c.rule.labels.join(', '))}</b> ≥${c.rule.min_count}${c.rule.dwell_min > 0 ? ' for '+c.rule.dwell_min+' min' : ''}${c.rule.hours ? ' during '+esc(c.rule.hours) : ''} · cooldown ${c.rule.cooldown_min}m · ${c.rule.repeat==='always' ? 'repeats' : c.rule.repeat==='once' ? 'once per stay' : 'repeats on change'}${s.present_s ? ' · present '+Math.round(s.present_s/60)+'m' : ''}${['1','true','on','yes'].includes(String((c.config||{}).journal||'').toLowerCase()) ? ' · <b>journal on</b>' : ''}${c.rule.alerts===false ? ' · alerts off' : ''}${c.rule.question ? ` · asks “${esc(c.rule.question)}”` : ''}</div>
         ${(s.answer || (le && le.answer)) ? `<div class="ans">${esc(s.answer || le.answer)}</div>` : ''}
         <div class="act"><input id="camq-${c.id}" placeholder="ask the analyst about this frame…" onkeydown="if(event.key==='Enter')lookCam(${c.id})"><button class="btn sm p" onclick="lookCam(${c.id})" ${busy?'disabled':''}>${busy?'…':'Look now'}</button><button class="btn sm ${LIVE.id===c.id?'p':''}" onclick="${LIVE.id===c.id?'closeLive()':`openLive(${c.id})`}" title="Watch this camera as live video with detections, and the journal being written in real time">${LIVE.id===c.id?'Close live':'Live'}</button></div>
         <div class="act"><button class="btn sm ${watching?'':'p'}" onclick="watchCam(${c.id}, ${watching?'false':'true'}, ${['1','true','on','yes'].includes(String((c.config||{}).journal||'').toLowerCase()) ? 8 : 30})">${watching ? 'Stop watching' : 'Watch'}</button><button class="btn sm" onclick="lookCam(${c.id}, true)" title="Force an alert run now (demo / test)">Trigger alert</button><span class="spacer"></span>${s.run_id ? `<button class="btn sm" onclick="liveWant='${s.run_id}';go('live')">See run ›</button>` : ''}<button class="btn sm d" onclick="delCam(${c.id})">✕</button></div>
       </div></div>`; }).join('') + nodeCards;
+  loadLinks().then(renderCamAgents);
+}
+// ---- agents on every tab: who watches which camera, who sends through which connector, and what is missing
+let LINKS = null;
+async function loadLinks(){ const r = await api('/agents/links'); if (r && r.agents) LINKS = r; return LINKS; }
+const agentName = id => ((CFG && CFG.agents || []).find(a => a.id === id) || {name: id}).name;
+const agentColor = id => ((CFG && CFG.agents || []).find(a => a.id === id) || {}).color || 'var(--muted)';
+function agentChip(id, extra){ return `<span class="achip" style="--ac:${agentColor(id)}" onclick="go('team');setTimeout(()=>teamOpenId&&teamOpenId('${id}'),400)" title="open ${esc(agentName(id))} on the Team tab"><i></i>${esc(agentName(id))}${extra || ''}</span>`; }
+function renderCamAgents(){
+  if (!LINKS) return;
+  const specs = (CFG.agents || []).filter(a => a.id !== 'atlas' && a.enabled !== false);
+  for (const c of CAMS) {
+    const box = $(`#ca-${c.id}`); if (!box) continue;
+    const mine = LINKS.cameras[c.name] || [], any = LINKS.any_camera || [];
+    const chips = mine.map(id => agentChip(id, `<b class="x" title="stop ${esc(agentName(id))} watching this camera" onclick="event.stopPropagation();assignCam(${c.id}, '${id}', false)">×</b>`)).join('')
+      + any.map(id => agentChip(id, ' <small>any camera</small>')).join('');
+    const free = specs.filter(a => !mine.includes(a.id));
+    box.innerHTML = `<span class="lbl">Watched by</span>${chips || '<span class="none">no agent: only the rule runs</span>'}`
+      + (free.length ? `<select onchange="if(this.value)assignCam(${c.id}, this.value, true)"><option value="">+ assign an agent…</option>${free.map(a => `<option value="${a.id}">${esc(a.name)}</option>`).join('')}</select>` : '');
+  }
+}
+// channel / tool -> the connector type to preselect in "Add a connector"
+const NEED_KIND = {email: 'smtp', whatsapp: 'whatsapp', sms: 'twilio', slack: 'slack', gcal: 'gcal', http: 'http', mcp: 'mcp', higgsfield: 'higgsfield'};
+function gapFix(g, aid){
+  const m = g.match(/no (\w+) connector|needs a (\w+)/); const kind = m && NEED_KIND[m[1] || m[2]];
+  if (kind) return `<button class="btn sm" onclick="connectKind('${kind}')">Connect ${esc(KINDS && KINDS[kind] ? KINDS[kind].label : kind)} →</button>`;
+  if (/cannot send/.test(g)) return `<button class="btn sm" onclick="grantTool('${aid}','queue_action')">Let it send (with your approval)</button>`;
+  if (/no camera tools/.test(g)) return `<button class="btn sm" onclick="grantTool('${aid}','camera_ask')">Give it camera tools</button>`;
+  return '';
+}
+async function connectKind(kind){
+  go('integrations'); await loadConnectors();
+  const sel = $('#c-kind'); if (sel && [...sel.options].some(o => o.value === kind)) { sel.value = kind; connFields(); }
+  const n = $('#c-name'); if (n) { n.scrollIntoView({behavior: 'smooth', block: 'center'}); n.focus(); }
+}
+async function grantTool(aid, tool){
+  const did = (CFG.desk || {}).id; if (!did) return;
+  const agents = (CFG.agents || []).map(a => ({id: a.id, name: a.name, role: a.role, color: a.color, enabled: a.enabled, reports_to: a.reports_to,
+    goal: a.goal, instructions: a.instructions, system_prompt: a.system_prompt, engine: a.engine, members: a.members,
+    tools: a.id === aid ? [...new Set([...(a.tools || []), ...(tool === 'camera_ask' ? ['camera_ask', 'camera_events', 'camera_look'] : [tool])])] : a.tools}));
+  const r = await api(`/desks/${did}`, {method: 'PATCH', body: {agents}});
+  if (!r || r.error) return toast(r?.error || 'failed');
+  toast(`${agentName(aid)} can now use ${tool}${tool === 'queue_action' ? ': everything it sends waits for your approval' : ''}`);
+  await loadCfg(); await loadLinks(); renderConnLinks(); renderCamAgents(); if (page === 'team') loadTeam();
+}
+function renderConnLinks(){
+  if (!LINKS) return;
+  document.querySelectorAll('#conn-list td.usedby').forEach(td => { const ids = LINKS.connectors[td.dataset.c] || [];
+    td.innerHTML = ids.length ? ids.map(id => agentChip(id)).join(' ') : '<span class="hint" style="margin:0">no agent yet</span>'; });
+  const rows = Object.entries(LINKS.agents).flatMap(([id, e]) => e.gaps.map(g => [id, g]));
+  const p = $('#needs-panel'); if (!p) return; p.classList.toggle('hide', !rows.length);
+  $('#needs-list').innerHTML = rows.map(([id, g]) => `<div class="needrow">${agentChip(id)}<span>${esc(g)}</span>${gapFix(g, id)}</div>`).join('');
+}
+// cameras Atlas planned while designing the team but that have no stream address yet
+function renderPlanned(planned, samples){
+  const box = $('#cam-planned'); if (!box) return; box.classList.toggle('hide', !planned.length); if (!planned.length) { box.innerHTML = ''; box.dataset.key = ''; return; }
+  const key = JSON.stringify([planned, samples.length, (CFG.agents || []).map(a => a.id)]);   // the page refreshes every few seconds: never wipe what is being typed
+  if (box.dataset.key === key) return; box.dataset.key = key;
+  const who = n => (CFG.agents || []).filter(a => a.id !== 'atlas' && JSON.stringify([a.goal, a.role, a.instructions]).toLowerCase().includes(n.toLowerCase()));
+  const opts = samples.map(x => `<option value="sample:${esc(x.name)}" title="${esc(x.label)}">sample: ${esc(x.name)}</option>`).join('');
+  box.innerHTML = `<div class="ph"><h2>Cameras your team is waiting for</h2><span class="hint" style="margin:0">Atlas planned these; give each a stream address (rtsp://, http://…/snapshot, a webcam number) or sample footage</span></div>
+    <div class="pb">${planned.map(p => `<div class="planrow"><div class="pn"><b>📷 ${esc(p.name)}</b><small>${esc(p.notes || p.focus || '')}</small><div class="camagents">${who(p.name).map(a => agentChip(a.id)).join('') || '<span class="none">no agent named it yet</span>'}</div></div>
+      <input id="pl-${esc(p.name)}" placeholder="rtsp://… or http://…/snapshot.jpg or 0">
+      <select onchange="if(this.value){document.getElementById('pl-${esc(p.name)}').value=this.value}"><option value="">or sample footage…</option>${opts}</select>
+      <button class="btn sm p" onclick="connectPlanned('${esc(p.name)}')">Connect</button></div>`).join('')}</div>`;
+}
+async function connectPlanned(name){
+  const src = (document.getElementById('pl-' + name) || {}).value || '';
+  if (!src.trim()) return toast('Give a stream address or pick sample footage');
+  const r = await api('/cameras/planned', {method: 'POST', body: {name, source: src.trim()}});
+  if (!r || r.error) return toast(r?.error || 'failed');
+  toast(`${name} connected: watching and writing its journal`); loadCameras();
+}
+async function assignCam(cid, agent, on){
+  const r = await api(`/cameras/${cid}/assign`, {method:'POST', body:{agent, on}});
+  if (!r || r.error) return toast(r?.error || 'failed');
+  toast(on ? `${agentName(agent)} now watches ${r.camera}` : `${agentName(agent)} no longer watches ${r.camera}`);
+  await loadCfg(); await loadLinks(); renderCamAgents();
 }
 // ---- live view: MJPEG picture with detections + the journal streamed token by token
 const LIVE = {id:null, es:null, cam:'', typing:false, buf:'', hist:[], ticks:0, statT:null};
@@ -1530,11 +1824,21 @@ function liveEvent(ev){
     LIVE.typing = false; LIVE.buf = ev.text || LIVE.buf;
     if (txt) { txt.textContent = LIVE.buf; txt.classList.remove('typing'); }
     if (why) why.textContent = `note written in ${ev.took_s||0}s · ${ev.why||''}`;
-    if (hist) { if (hist.querySelector('.hint')) hist.innerHTML = ''; const d = document.createElement('div'); d.className = 'ln'; d.innerHTML = `<b>${hms(ev.ts)}</b>${esc(ev.text||'')}`; hist.prepend(d); while (hist.children.length > 40) hist.lastChild.remove(); }
+    if (hist) { if (hist.querySelector('.hint')) hist.innerHTML = ''; const d = document.createElement('div'); d.className = 'ln'; d.innerHTML = `<b>${hms(ev.ts)}</b>${fmtNote(ev.text||'')}`; hist.prepend(d); while (hist.children.length > 40) hist.lastChild.remove(); }
     loadVisionEvents();
     return;
   }
   if (ev.kind === 'note_error') { LIVE.typing = false; if (txt) txt.classList.remove('typing'); if (why) why.textContent = 'note failed: ' + (ev.error||''); return; }
+  if (ev.kind === 'note_verify_start') { if (why) why.textContent = 'auditing the note against the frame…'; return; }
+  if (ev.kind === 'note_verify') {                       // the verify pass: what the frame did not support
+    const parts = [];
+    if (ev.removed && ev.removed.length) parts.push('removed: ' + ev.removed.join('; '));
+    if (ev.softened && ev.softened.length) parts.push('softened: ' + ev.softened.join('; '));
+    if (ev.error) parts.push('audit skipped: ' + ev.error);
+    if (why) why.textContent = 'audit · ' + (parts.length ? parts.join(' · ') : 'nothing to change');
+    if (hist && parts.length && !ev.error) { const d = document.createElement('div'); d.className = 'ln'; d.style.color = 'var(--muted)'; d.innerHTML = `<b>${hms(ev.ts)} audit</b>${esc(parts.join(' · '))}`; hist.prepend(d); }
+    return;
+  }
   if (ev.kind === 'digest') {
     if (hist) { if (hist.querySelector('.hint')) hist.innerHTML = ''; const d = document.createElement('div'); d.className = 'ln digest'; d.innerHTML = `<b>${hms(ev.ts)} summary ${esc(ev.span||'')}</b>${esc(ev.text||'')}`; hist.prepend(d); }
     return;
@@ -1551,6 +1855,16 @@ async function lookCam(id, trigger){
 async function lookAll(){ for (const c of CAMS) await lookCam(c.id); }
 async function watchCam(id, on, every){ every = every || 30; const r = await api(`/cameras/${id}/watch`, {method:'POST', body:{on, every_s:every}}); toast(r && r.ok ? (on ? `Watching every ${every}s` : 'Stopped') : 'failed'); loadCameras(); }
 async function delCam(id){ if(!confirm('Remove this camera? Its event log stays.')) return; await api(`/connectors/${id}`, {method:'DELETE', body:{}}); loadCameras(); }
+
+function fillNotify(){ const n = (CFG.desk || {}).notify || {}; if (!$('#nt-channel')) return;
+  $('#nt-channel').value = n.channel || ''; $('#nt-to').value = n.to || ''; $('#nt-per').value = n.per_hour || 6; $('#nt-quiet').value = n.quiet || '';
+  $('#nt-rt').value = n.report_time || '07:00'; $('#nt-auto').checked = !!n.auto; $('#nt-report').checked = n.report !== false; $('#nt-run').checked = !!n.run;
+  $('#nt-state').textContent = n.channel ? `${n.channel} → ${n.to || 'connector'}${n.auto ? ' · sends at once' : ' · via Approvals'}` : 'off: alerts wake the agents'; }
+async function saveNotify(){ const did = (CFG.desk || {}).id; if (!did) return;
+  const body = {notify: {channel: $('#nt-channel').value, to: $('#nt-to').value.trim(), per_hour: +$('#nt-per').value || 6, quiet: $('#nt-quiet').value.trim(),
+    report_time: $('#nt-rt').value.trim() || '07:00', auto: $('#nt-auto').checked, report: $('#nt-report').checked, run: $('#nt-run').checked}};
+  const r = await api(`/desks/${did}`, {method:'PATCH', body});
+  if (r && r.notify) { CFG.desk.notify = r.notify; fillNotify(); toast('alert settings saved'); } else toast((r && r.error) || 'could not save'); }
 async function addCamera(){
   const name = $('#cam-name').value.trim(), source = $('#cam-src').value.trim(); if (!name || !source) return toast('Name and source needed');
   const config = {source, watch_for:$('#cam-watch').value.trim()||'person', min_count:$('#cam-min').value||'1', hours:$('#cam-hours').value.trim(), cooldown_min:$('#cam-cool').value||'10', dwell_min:$('#cam-dwell').value||'0', repeat:$('#cam-repeat').value||'changes', question:$('#cam-q').value.trim(), task:$('#cam-task').value.trim(), notes:$('#cam-notes').value.trim(), journal:$('#cam-journal').checked?'1':'', alerts:$('#cam-alerts').checked?'1':'0', journal_every_s:$('#cam-jevery').value||'60', journal_rollup_min:$('#cam-jroll').value||'15', journal_focus:$('#cam-jfocus').value.trim()};
@@ -1569,7 +1883,7 @@ async function askCams(){
   const q = $('#ask-q').value.trim(); if (!q) return; const btn = $('#ask-btn'); btn.disabled = true; $('#ask-out').textContent = 'Reading the log…'; $('#ask-ev').innerHTML = '';
   const r = await api('/vision/ask', {method:'POST', body:{question:q, hours:+$('#ask-hours').value, camera:$('#ev-cam').value}}); btn.disabled = false;
   if (!r || r.error) { $('#ask-out').textContent = r?.error || 'failed'; return; }
-  $('#ask-out').innerHTML = esc(r.answer).replace(/\[#?(\d+)\]/g, (m,id)=>`<span class="cite" title="event ${id}">[#${id}]</span>`);
+  $('#ask-out').innerHTML = fmtNote(r.answer);
   const m = r.retrieval || {};
   const how = m.embedder ? `<div class="hint" style="margin:0 0 4px">retrieval: ${esc(m.embedder)} · window ${esc(m.window || '')} · ${m.considered ?? 0} events, ${m.indexed ?? 0} indexed · ${esc(m.grounding || '')}${(m.looked_at || []).length ? ' · re-looked at ' + m.looked_at.map(id => `<span class="cite">#${id}</span>`).join(' ') : ''}</div>` : '';
   $('#ask-ev').innerHTML = how + ((r.evidence||[]).length ? `${r.events_considered||r.evidence.length} event(s) considered · ` + r.evidence.slice(-6).map(e=>`<span class="cite">#${e.id}</span> ${esc(e.camera)} ${hms(e.ts).slice(0,5)}${e.snapshot_url?` <a href="#" onclick="zoom('${e.snapshot_url}');return false">↗</a>`:''}`).join(' · ') : '');
@@ -1609,7 +1923,7 @@ async function loadHealth(){
   const navBtn = document.querySelector('#nav button[data-p="dash"]'); if (navBtn) navBtn.classList.toggle('alert', !h.ok);
   const r = h.runs, fmt = v => v == null ? '–' : v + 's';
   const stat = (k, v, sub) => `<div class="kpi"><span>${k}</span><b style="font-size:20px">${v}</b><small>${sub||''}</small></div>`;
-  const alerts = h.alerts.length ? h.alerts.map(a => `<div class="flag" style="${a.level==='critical'?'':'background:var(--panel)8e6;border-color:#e4cf96;color:#8a5c00'}">${esc(a.text)}</div>`).join('') : '<div class="hint" style="margin:0 0 10px">No alerts. Watchdog limit ' + Math.round(h.watchdog_s/60) + ' min per run; runs past it are killed and marked failed.</div>';
+  const alerts = h.alerts.length ? h.alerts.map(a => `<div class="flag" style="${a.level==='critical'?'':'background:color-mix(in srgb,var(--warn) 9%,var(--panel));border-color:color-mix(in srgb,var(--warn) 40%,var(--panel));color:var(--warn)'}">${esc(a.text)}</div>`).join('') : '<div class="hint" style="margin:0 0 10px">No alerts. Watchdog limit ' + Math.round(h.watchdog_s/60) + ' min per run; runs past it are killed and marked failed.</div>';
   const jobs = h.jobs.length ? `<table style="margin-top:10px"><tr><th>Automation</th><th>Last</th><th>Result</th></tr>` + h.jobs.map(j => `<tr><td><b>${esc(j.name)}</b> <span class="model">${esc(j.kind)}${j.enabled?'':' · off'}</span></td><td><span class="tag ${j.last_status==='error'?'error':(j.last_status==='ok'?'done':'')}">${esc(j.last_status||'never')}</span> <span class="hint" style="margin:0">${j.last_run?hms(j.last_run):''}</span></td><td class="model">${esc(j.last_result)}</td></tr>`).join('') + '</table>' : '';
   const cons = h.connectors.length ? `<div class="row" style="margin-top:10px">${h.connectors.map(c => `<span class="tag ${String(c.status).startsWith('ok')?'done':(String(c.status).startsWith('error')?'error':'')}">${esc(c.name)} · ${esc(String(c.status).split(':')[0])}</span>`).join('')}</div>` : '';
   const err = h.last_error ? `<div class="hint" style="margin-top:10px">Last error ${hms(h.last_error.ts)} · run ${esc(h.last_error.run_id||'')}: <span class="model">${esc(h.last_error.text)}</span></div>` : '';

@@ -1,6 +1,8 @@
 # Local computer vision (not installed on Render — the vision model covers detection there)
 ultralytics>=8.3
 opencv-python>=4.10
+# Live detector on OpenVINO (VISION_RUNTIME=auto): ~3.3-3.7x less CPU per frame (measured on a 4-core AMX Xeon, bf16; less elsewhere). Optional: without it the torch path runs
+openvino>=2024.0
 # Local CLIP embeddings for the camera RAG (optional; without them retrieval uses the API embedder or hashed vectors)
 open_clip_torch>=2.24
 torch>=2.2

@@ -102,10 +102,18 @@ CREATE TABLE IF NOT EXISTS sec_detections (
   src TEXT DEFAULT '[]', dst TEXT DEFAULT '[]', users TEXT DEFAULT '[]', run_id TEXT DEFAULT '', created REAL, updated REAL
 );
 CREATE INDEX IF NOT EXISTS ix_secdet_desk ON sec_detections(desk_id, det_id);
+CREATE TABLE IF NOT EXISTS named_things (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, desk_id INTEGER, name TEXT, kind TEXT DEFAULT 'object', label TEXT DEFAULT '',
+  notes TEXT DEFAULT '', created REAL, exemplars TEXT DEFAULT '[]', emb BLOB, dim INTEGER DEFAULT 0, sightings INTEGER DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS ix_named_desk ON named_things(desk_id);
 """
 
 # columns added after the first release — applied idempotently on open
 _MIGRATIONS = [
+    ("vision_objects", "name_id", "INTEGER DEFAULT 0"),          # named things: which one this sighting was matched to
+    ("vision_objects", "name_score", "REAL DEFAULT 0"),           # ...and how sure the match is (0-1, cosine)
+    ("vision_objects", "name_by", "TEXT DEFAULT ''"),             # owner | match
     ("runs", "desk_id", "INTEGER DEFAULT 1"),
     ("contacts", "desk_id", "INTEGER DEFAULT 1"),
     ("actions", "desk_id", "INTEGER DEFAULT 1"),
@@ -115,6 +123,8 @@ _MIGRATIONS = [
     ("jobs", "last_status", "TEXT DEFAULT ''"),
     ("runs", "ended", "REAL"),
     ("events", "data", "TEXT DEFAULT ''"),
+    ("actions", "case_id", "INTEGER DEFAULT 0"),                 # the case an approval belongs to (atlas/cases.py)
+    ("runs", "case_id", "INTEGER DEFAULT 0"),
 ]
 
 STAGES = ("New", "Contacted", "Qualified", "Proposal", "Won", "Lost")
@@ -209,7 +219,8 @@ class Store:
         self._lock = threading.Lock()
         self._conn = DB.connect(path, url)
         self.backend = "postgres" if isinstance(self._conn, DB.PgConn) else "sqlite"
-        self._conn.executescript(_SCHEMA)
+        from . import cases as _C, records as _R            # records + cases own their tables; created with the rest
+        self._conn.executescript(_SCHEMA + _R.SCHEMA + _C.SCHEMA)
         for table, col, decl in _MIGRATIONS:
             if col not in DB.columns(self._conn, table):
                 DB.add_column(self._conn, table, col, decl)
@@ -424,13 +435,18 @@ class Store:
         return self._orow(rows[0], emb) if rows else None
 
     def vision_objects(self, desk_id: int, camera: str = "", label: str = "", since: float = 0, status: str = "",
-                       watch: bool = False, limit: int = 300, emb: bool = False) -> list[dict[str, Any]]:
+                       watch: bool = False, limit: int = 300, emb: bool = False, name_id: int = 0,
+                       named: bool = False) -> list[dict[str, Any]]:
         sql, args = "SELECT * FROM vision_objects WHERE desk_id=? AND last_ts>=?", [desk_id, since]
         for col, val in (("camera", camera), ("label", label), ("status", status)):
             if val:
                 sql += f" AND {col}=?"; args.append(val)
         if watch:
             sql += " AND watch=1"
+        if name_id:
+            sql += " AND name_id=?"; args.append(int(name_id))
+        elif named:
+            sql += " AND name_id>0"
         sql += " ORDER BY last_ts DESC LIMIT ?"; args.append(int(limit))
         return [self._orow(r, emb) for r in _rows(self._conn.execute(sql, args))]
 
@@ -479,6 +495,11 @@ class Store:
             "SELECT e.* FROM vision_events e LEFT JOIN vision_vectors v ON v.event_id=e.id AND v.model=? "
             "WHERE e.desk_id=? AND v.event_id IS NULL ORDER BY e.ts DESC LIMIT ?", (model, desk_id, limit)))
         return [self._vrow(r) for r in rows]
+
+    def update_vision_event_reason(self, vid: int, reason: str) -> None:
+        with self._lock:
+            self._conn.execute("UPDATE vision_events SET reason=? WHERE id=?", (reason[:300], vid))
+            self._conn.commit()
 
     def vision_events_by_ids(self, ids: list[int]) -> list[dict[str, Any]]:
         if not ids:
@@ -535,6 +556,54 @@ class Store:
     def set_vision_run(self, vid: int, run_id: str) -> None:
         with self._lock:
             self._conn.execute("UPDATE vision_events SET run_id=?, triggered=1 WHERE id=?", (run_id, vid))
+            self._conn.commit()
+
+    # ------------------------------------------------------------------ named things (the owner's registry)
+    def add_named(self, desk_id: int, name: str, kind: str = "object", label: str = "", notes: str = "",
+                  exemplars: list | None = None, emb: bytes | None = None, dim: int = 0) -> dict[str, Any]:
+        with self._lock:
+            cur = self._conn.execute("INSERT INTO named_things(desk_id,name,kind,label,notes,created,exemplars,emb,dim,sightings) "
+                                     "VALUES(?,?,?,?,?,?,?,?,?,0)",
+                                     (desk_id, name.strip(), kind, label, notes, time.time(), json.dumps(exemplars or []), emb, dim))
+            self._conn.commit()
+            return self.named(int(cur.lastrowid), emb=True)
+
+    def _nrow(self, r: dict[str, Any], emb: bool) -> dict[str, Any]:
+        try:
+            r["exemplars"] = json.loads(r.get("exemplars") or "[]")
+        except (TypeError, json.JSONDecodeError):
+            r["exemplars"] = []
+        if not emb:
+            r.pop("emb", None)
+        elif r.get("emb") is not None:
+            r["emb"] = bytes(r["emb"])
+        return r
+
+    def named(self, nid: int, emb: bool = False) -> dict[str, Any] | None:
+        rows = _rows(self._conn.execute("SELECT * FROM named_things WHERE id=?", (nid,)))
+        return self._nrow(rows[0], emb) if rows else None
+
+    def named_things(self, desk_id: int, emb: bool = False) -> list[dict[str, Any]]:
+        return [self._nrow(r, emb) for r in _rows(self._conn.execute(
+            "SELECT * FROM named_things WHERE desk_id=? ORDER BY name COLLATE NOCASE", (desk_id,)))]
+
+    def named_by_name(self, desk_id: int, name: str) -> dict[str, Any] | None:
+        rows = _rows(self._conn.execute("SELECT * FROM named_things WHERE desk_id=? AND lower(name)=lower(?)", (desk_id, name.strip())))
+        return self._nrow(rows[0], False) if rows else None
+
+    def update_named(self, nid: int, **f: Any) -> None:
+        if not f:
+            return
+        if "exemplars" in f:
+            f["exemplars"] = json.dumps(f["exemplars"])
+        with self._lock:
+            self._conn.execute(f"UPDATE named_things SET {', '.join(k + '=?' for k in f)} WHERE id=?", list(f.values()) + [nid])
+            self._conn.commit()
+
+    def delete_named(self, nid: int) -> None:
+        with self._lock:
+            self._conn.execute("UPDATE vision_objects SET name_id=0, name_score=0, name_by='' WHERE name_id=?", (nid,))
+            self._conn.execute("DELETE FROM named_things WHERE id=?", (nid,))
             self._conn.commit()
 
     def vision_stats(self, desk_id: int, since: float) -> dict[str, Any]:
@@ -834,7 +903,8 @@ class Store:
             run_ids = [r[0] for r in self._conn.execute("SELECT id FROM runs WHERE desk_id=?", (desk_id,)).fetchall()]
             for rid in run_ids:
                 self._conn.execute("DELETE FROM events WHERE run_id=?", (rid,))
-            for t in ("runs", "actions", "leads", "contacts", "jobs", "memories", "vision_events", "sec_events", "sec_detections"):
+            for t in ("runs", "actions", "leads", "contacts", "jobs", "memories", "vision_events", "sec_events", "sec_detections",
+                      "records", "record_links", "timeline", "cases", "case_records"):
                 self._conn.execute(f"DELETE FROM {t} WHERE desk_id=?", (desk_id,))
             self._conn.commit()
 
@@ -948,7 +1018,13 @@ class Store:
                 if sets:
                     self._conn.execute(f"UPDATE contacts SET {sets}, updated=? WHERE id=?", (*fields.values(), time.time(), cid))
             self._conn.commit()
-        return _rows(self._conn.execute("SELECT * FROM contacts WHERE id=?", (cid,)))[0]
+        row = _rows(self._conn.execute("SELECT * FROM contacts WHERE id=?", (cid,)))[0]
+        try:                                                  # every CRM contact is also a person record (atlas/records.py)
+            from . import records as _R
+            _R.mirror_contact(self, desk_id, row)
+        except Exception:
+            pass
+        return row
 
     # ------------------------------------------------------------------ approval queue
     def add_action(self, run_id: str, agent: str, kind: str, to: str, subject: str, body: str, reason: str,
@@ -985,6 +1061,16 @@ class Store:
                                (status, time.time(), by, note, aid))
             self._conn.commit()
         return self.action(aid)
+
+    def tag_action_case(self, aid: int, case_id: int) -> None:
+        with self._lock:
+            self._conn.execute("UPDATE actions SET case_id=? WHERE id=?", (int(case_id or 0), aid))
+            self._conn.commit()
+
+    def set_run_case(self, run_id: str, case_id: int) -> None:
+        with self._lock:
+            self._conn.execute("UPDATE runs SET case_id=? WHERE id=?", (int(case_id or 0), run_id))
+            self._conn.commit()
 
     # ------------------------------------------------------------------ leads
     def add_lead(self, name: str, company: str, email: str, phone: str, source: str, notes: str, desk_id: int = 1) -> int:
@@ -1085,6 +1171,8 @@ class DeskStore:
     def actions(self, status="", limit=200): return self.s.actions(status, limit, self.desk_id)
     def action(self, aid): return self.s.action(aid)
     def decide_action(self, *a, **k): return self.s.decide_action(*a, **k)
+    def tag_action_case(self, aid, case_id): return self.s.tag_action_case(aid, case_id)
+    def set_run_case(self, run_id, case_id): return self.s.set_run_case(run_id, case_id)
     def add_lead(self, name, company, email, phone, source, notes):
         return self.s.add_lead(name, company, email, phone, source, notes, self.desk_id)
     def leads(self, limit=200): return self.s.leads(limit, self.desk_id)
@@ -1110,6 +1198,7 @@ class DeskStore:
     def vision_vector_count(self, model=""): return self.s.vision_vector_count(self.desk_id, model)
     def unindexed_vision_events(self, model, limit=32): return self.s.unindexed_vision_events(self.desk_id, model, limit)
     def vision_events_by_ids(self, ids): return self.s.vision_events_by_ids(ids)
+    def update_vision_event_reason(self, vid, reason): return self.s.update_vision_event_reason(vid, reason)
     def last_vision_event(self, camera, triggered_only=False): return self.s.last_vision_event(self.desk_id, camera, triggered_only)
     def hook_cameras(self, since, exclude=()): return self.s.hook_cameras(self.desk_id, since, exclude)
     def set_vision_run(self, vid, run_id): return self.s.set_vision_run(vid, run_id)
@@ -1137,3 +1226,11 @@ class DeskStore:
     def upsert_sec_detection(self, det): return self.s.upsert_sec_detection(self.desk_id, det)
     def sec_detections(self, **k): return self.s.sec_detections(self.desk_id, **k)
     def set_sec_detection_run(self, det_ids, run_id): return self.s.set_sec_detection_run(self.desk_id, det_ids, run_id)
+    def add_named(self, name, **f): return self.s.add_named(self.desk_id, name, **f)
+    def named(self, nid, emb=False):
+        n = self.s.named(nid, emb)
+        return n if n and n["desk_id"] == self.desk_id else None
+    def named_things(self, emb=False): return self.s.named_things(self.desk_id, emb)
+    def named_by_name(self, name): return self.s.named_by_name(self.desk_id, name)
+    def update_named(self, nid, **f): return self.s.update_named(nid, **f)
+    def delete_named(self, nid): return self.s.delete_named(nid)

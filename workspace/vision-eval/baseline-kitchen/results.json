@@ -1,0 +1,1796 @@
+[
+ {
+  "task": "single",
+  "site": "kitchen",
+  "camera": "kitchen-overview",
+  "frame": 2,
+  "path": "/home/user/AtlasOperations/data/vision-eval/frames/kitchen-overview_2.jpg",
+  "area": "whole room from a high corner by the door",
+  "model": "google/gemini-3.1-flash-lite",
+  "text": "{\n \"people\": 1,\n \"area\": \"Kitchen prep and cooking station\",\n \"activity\": \"A person is standing at the counter, appearing to read or consult a document while facing the wall. There is a small pot on a burner and various ingredients and bottles arranged on the counter.\",\n \"issues\": []\n}",
+  "latency": 2.124677896499634,
+  "prompt_tokens": 1299,
+  "completion_tokens": 179,
+  "cost": 0.00059325,
+  "finish": "stop",
+  "raw_len": 286,
+  "parsed": {
+   "people": 1,
+   "area": "Kitchen prep and cooking station",
+   "activity": "A person is standing at the counter, appearing to read or consult a document while facing the wall. There is a small pot on a burner and various ingredients and bottles arranged on the counter.",
+   "issues": []
+  },
+  "score": {
+   "ok": true,
+   "people": 1,
+   "people_ok": true,
+   "people_near": true,
+   "hazard_hit": 0,
+   "hazard_total": 0,
+   "issues_reported": 0,
+   "judge_raw": "{\"accuracy\": 4, \"area_ok\": true, \"hallucinations\": [\"reading or consulting a document\", \"small pot on a burner\"], \"missed\": [\"foreground counter is empty\"]}",
+   "judge_cost": 0.001632,
+   "accuracy": 4,
+   "area_ok": true,
+   "hallucinations": [
+    "reading or consulting a document",
+    "small pot on a burner"
+   ],
+   "missed": [
+    "foreground counter is empty"
+   ]
+  }
+ },
+ {
+  "task": "single",
+  "site": "kitchen",
+  "camera": "kitchen-wide",
+  "frame": 3,
+  "path": "/home/user/AtlasOperations/data/vision-eval/frames/kitchen-wide_3.jpg",
+  "area": "long view down the counters from the far end toward the door",
+  "model": "google/gemini-3.1-flash-lite",
+  "text": "{\n \"people\": 1,\n \"area\": \"Kitchen prep and sink station\",\n \"activity\": \"A person is standing at the counter preparing food, specifically cutting a vegetable. They are using a knife on a cutting board near the sink.\",\n \"issues\": []\n}",
+  "latency": 2.193453788757324,
+  "prompt_tokens": 1299,
+  "completion_tokens": 169,
+  "cost": 0.00057825,
+  "finish": "stop",
+  "raw_len": 232,
+  "parsed": {
+   "people": 1,
+   "area": "Kitchen prep and sink station",
+   "activity": "A person is standing at the counter preparing food, specifically cutting a vegetable. They are using a knife on a cutting board near the sink.",
+   "issues": []
+  },
+  "score": {
+   "ok": true,
+   "people": 1,
+   "people_ok": true,
+   "people_near": true,
+   "hazard_hit": 0,
+   "hazard_total": 0,
+   "issues_reported": 0,
+   "judge_raw": "{\"accuracy\": 3, \"area_ok\": true, \"hallucinations\": [\"cutting a vegetable\", \"using a knife on a cutting board\"], \"missed\": [\"long view down counters toward door\"]}",
+   "judge_cost": 0.001634,
+   "accuracy": 3,
+   "area_ok": true,
+   "hallucinations": [
+    "cutting a vegetable",
+    "using a knife on a cutting board"
+   ],
+   "missed": [
+    "long view down counters toward door"
+   ]
+  }
+ },
+ {
+  "task": "single",
+  "site": "kitchen",
+  "camera": "kitchen-overview",
+  "frame": 1,
+  "path": "/home/user/AtlasOperations/data/vision-eval/frames/kitchen-overview_1.jpg",
+  "area": "whole room from a high corner by the door",
+  "model": "google/gemini-3.1-flash-lite",
+  "text": "{\n \"people\": 1,\n \"area\": \"Kitchen prep station\",\n \"activity\": \"A person is standing at a counter preparing food items. They appear to be organizing or handling ingredients near a small refrigerator.\",\n \"issues\": []\n}",
+  "latency": 2.217632532119751,
+  "prompt_tokens": 1299,
+  "completion_tokens": 165,
+  "cost": 0.00057225,
+  "finish": "stop",
+  "raw_len": 216,
+  "parsed": {
+   "people": 1,
+   "area": "Kitchen prep station",
+   "activity": "A person is standing at a counter preparing food items. They appear to be organizing or handling ingredients near a small refrigerator.",
+   "issues": []
+  },
+  "score": {
+   "ok": true,
+   "people": 1,
+   "people_ok": true,
+   "people_near": true,
+   "hazard_hit": 0,
+   "hazard_total": 0,
+   "issues_reported": 0,
+   "judge_raw": "{\"accuracy\": 3, \"area_ok\": true, \"hallucinations\": [\"person preparing/organizing food items near a refrigerator\"], \"missed\": [\"cucumber and orange near sink\", \"person facing away from camera\", \"empty prep counter and sink in foreground\"]}",
+   "judge_cost": 0.001964,
+   "accuracy": 3,
+   "area_ok": true,
+   "hallucinations": [
+    "person preparing/organizing food items near a refrigerator"
+   ],
+   "missed": [
+    "cucumber and orange near sink",
+    "person facing away from camera",
+    "empty prep counter and sink in foreground"
+   ]
+  }
+ },
+ {
+  "task": "single",
+  "site": "kitchen",
+  "camera": "kitchen-overview",
+  "frame": 3,
+  "path": "/home/user/AtlasOperations/data/vision-eval/frames/kitchen-overview_3.jpg",
+  "area": "whole room from a high corner by the door",
+  "model": "google/gemini-3.1-flash-lite",
+  "text": "{\n \"people\": 1,\n \"area\": \"Kitchen prep station\",\n \"activity\": \"A person is standing at a counter slicing a zucchini with a knife. There is an eggplant and some sliced vegetable pieces on the cutting board.\",\n \"issues\": []\n}",
+  "latency": 2.112790107727051,
+  "prompt_tokens": 1299,
+  "completion_tokens": 165,
+  "cost": 0.00057225,
+  "finish": "stop",
+  "raw_len": 223,
+  "parsed": {
+   "people": 1,
+   "area": "Kitchen prep station",
+   "activity": "A person is standing at a counter slicing a zucchini with a knife. There is an eggplant and some sliced vegetable pieces on the cutting board.",
+   "issues": []
+  },
+  "score": {
+   "ok": true,
+   "people": 1,
+   "people_ok": true,
+   "people_near": true,
+   "hazard_hit": 0,
+   "hazard_total": 0,
+   "issues_reported": 0,
+   "judge_raw": "{\"accuracy\": 2, \"area_ok\": true, \"hallucinations\": [\"slicing a zucchini with a knife\", \"eggplant and sliced vegetable pieces on cutting board\"], \"missed\": [\"person bending over\", \"holding a pan or bowl\"]}",
+   "judge_cost": 0.001868,
+   "accuracy": 2,
+   "area_ok": true,
+   "hallucinations": [
+    "slicing a zucchini with a knife",
+    "eggplant and sliced vegetable pieces on cutting board"
+   ],
+   "missed": [
+    "person bending over",
+    "holding a pan or bowl"
+   ]
+  }
+ },
+ {
+  "task": "single",
+  "site": "kitchen",
+  "camera": "kitchen-wide",
+  "frame": 2,
+  "path": "/home/user/AtlasOperations/data/vision-eval/frames/kitchen-wide_2.jpg",
+  "area": "long view down the counters from the far end toward the door",
+  "model": "google/gemini-3.1-flash-lite",
+  "text": "{\n \"people\": 1,\n \"area\": \"Small kitchen prep area\",\n \"activity\": \"A person is seated at a counter, facing away from the camera while working on a task. The kitchen appears to be in a state of preparation with various vegetables and cooking utensils laid out on the counter.\",\n \"issues\": [\n  \"Knife left out on the counter\"\n ]\n}",
+  "latency": 2.4258430004119873,
+  "prompt_tokens": 1299,
+  "completion_tokens": 196,
+  "cost": 0.00061875,
+  "finish": "stop",
+  "raw_len": 327,
+  "parsed": {
+   "people": 1,
+   "area": "Small kitchen prep area",
+   "activity": "A person is seated at a counter, facing away from the camera while working on a task. The kitchen appears to be in a state of preparation with various vegetables and cooking utensils laid out on the counter.",
+   "issues": [
+    "Knife left out on the counter"
+   ]
+  },
+  "score": {
+   "ok": true,
+   "people": 1,
+   "people_ok": true,
+   "people_near": true,
+   "hazard_hit": 0,
+   "hazard_total": 0,
+   "issues_reported": 1,
+   "judge_raw": "{\"accuracy\": 3, \"area_ok\": true, \"hallucinations\": [\"Person seated (human implies standing/head and shoulders view)\", \"Vegetables and cooking utensils laid out\", \"Knife left out\"], \"missed\": [\"Long view down counters toward door\"]}",
+   "judge_cost": 0.00197,
+   "accuracy": 3,
+   "area_ok": true,
+   "hallucinations": [
+    "Person seated (human implies standing/head and shoulders view)",
+    "Vegetables and cooking utensils laid out",
+    "Knife left out"
+   ],
+   "missed": [
+    "Long view down counters toward door"
+   ]
+  }
+ },
+ {
+  "task": "single",
+  "site": "kitchen",
+  "camera": "kitchen-wide",
+  "frame": 1,
+  "path": "/home/user/AtlasOperations/data/vision-eval/frames/kitchen-wide_1.jpg",
+  "area": "long view down the counters from the far end toward the door",
+  "model": "google/gemini-3.1-flash-lite",
+  "text": "{\n \"people\": 1,\n \"area\": \"Kitchen prep station\",\n \"activity\": \"A person is standing at the counter organizing or preparing items. They appear to be handling small containers or ingredients on the left side of the workspace.\",\n \"issues\": [\n  \"Knife left out on the counter near produce\"\n ]\n}",
+  "latency": 2.624591588973999,
+  "prompt_tokens": 1299,
+  "completion_tokens": 186,
+  "cost": 0.00060375,
+  "finish": "stop",
+  "raw_len": 290,
+  "parsed": {
+   "people": 1,
+   "area": "Kitchen prep station",
+   "activity": "A person is standing at the counter organizing or preparing items. They appear to be handling small containers or ingredients on the left side of the workspace.",
+   "issues": [
+    "Knife left out on the counter near produce"
+   ]
+  },
+  "score": {
+   "ok": true,
+   "people": 1,
+   "people_ok": true,
+   "people_near": true,
+   "hazard_hit": 0,
+   "hazard_total": 0,
+   "issues_reported": 1,
+   "judge_raw": "{\"accuracy\": 3, \"area_ok\": true, \"hallucinations\": [\"Knife left out on the counter near produce\"], \"missed\": [\"glass door in view\", \"boxes, bottles, plastic bag on counter\", \"bin by wall\", \"person's grey t-shirt and dark skirt\"]}",
+   "judge_cost": 0.002066,
+   "accuracy": 3,
+   "area_ok": true,
+   "hallucinations": [
+    "Knife left out on the counter near produce"
+   ],
+   "missed": [
+    "glass door in view",
+    "boxes, bottles, plastic bag on counter",
+    "bin by wall",
+    "person's grey t-shirt and dark skirt"
+   ]
+  }
+ },
+ {
+  "task": "single",
+  "site": "kitchen",
+  "camera": "kitchen-stove",
+  "frame": 1,
+  "path": "/home/user/AtlasOperations/data/vision-eval/frames/kitchen-stove_1.jpg",
+  "area": "induction hob and the corner counter, high angle",
+  "model": "google/gemini-3.1-flash-lite",
+  "text": "{\n \"people\": 1,\n \"area\": \"kitchen prep and cooking station\",\n \"activity\": \"A cook is standing at the counter preparing an item, possibly opening a small box or package. An empty saucepan sits on the induction cooktop nearby.\",\n \"issues\": []\n}",
+  "latency": 2.096503257751465,
+  "prompt_tokens": 1299,
+  "completion_tokens": 167,
+  "cost": 0.00057525,
+  "finish": "stop",
+  "raw_len": 242,
+  "parsed": {
+   "people": 1,
+   "area": "kitchen prep and cooking station",
+   "activity": "A cook is standing at the counter preparing an item, possibly opening a small box or package. An empty saucepan sits on the induction cooktop nearby.",
+   "issues": []
+  },
+  "score": {
+   "ok": true,
+   "people": 1,
+   "people_ok": true,
+   "people_near": true,
+   "hazard_hit": 0,
+   "hazard_total": 0,
+   "issues_reported": 0,
+   "judge_raw": "{\"accuracy\": 5, \"area_ok\": true, \"hallucinations\": [], \"missed\": [\"grey t-shirt\", \"oil bottles and knife block\"]}",
+   "judge_cost": 0.001592,
+   "accuracy": 5,
+   "area_ok": true,
+   "hallucinations": [],
+   "missed": [
+    "grey t-shirt",
+    "oil bottles and knife block"
+   ]
+  }
+ },
+ {
+  "task": "single",
+  "site": "kitchen",
+  "camera": "kitchen-prep",
+  "frame": 1,
+  "path": "/home/user/AtlasOperations/data/vision-eval/frames/kitchen-prep_1.jpg",
+  "area": "chopping board and sink from directly above",
+  "model": "google/gemini-3.1-flash-lite",
+  "text": "{\n \"people\": 1,\n \"area\": \"Kitchen prep and sink station\",\n \"activity\": \"A person is standing at the counter near the sink area. Various vegetables and kitchen utensils are laid out on the counter surface.\",\n \"issues\": [\n  \"Knife left out on the counter\"\n ]\n}",
+  "latency": 1.6642124652862549,
+  "prompt_tokens": 1299,
+  "completion_tokens": 187,
+  "cost": 0.00060525,
+  "finish": "stop",
+  "raw_len": 258,
+  "parsed": {
+   "people": 1,
+   "area": "Kitchen prep and sink station",
+   "activity": "A person is standing at the counter near the sink area. Various vegetables and kitchen utensils are laid out on the counter surface.",
+   "issues": [
+    "Knife left out on the counter"
+   ]
+  },
+  "score": {
+   "ok": true,
+   "people": 1,
+   "people_ok": true,
+   "people_near": true,
+   "hazard_hit": 1,
+   "hazard_total": 1,
+   "issues_reported": 1,
+   "judge_raw": "{\"accuracy\": 4, \"area_ok\": true, \"hallucinations\": [], \"missed\": [\"Specific items: cucumber, aubergine, orange, green container\", \"No cutting actually happening\"]}",
+   "judge_cost": 0.001738,
+   "accuracy": 4,
+   "area_ok": true,
+   "hallucinations": [],
+   "missed": [
+    "Specific items: cucumber, aubergine, orange, green container",
+    "No cutting actually happening"
+   ]
+  }
+ },
+ {
+  "task": "single",
+  "site": "kitchen",
+  "camera": "kitchen-prep",
+  "frame": 2,
+  "path": "/home/user/AtlasOperations/data/vision-eval/frames/kitchen-prep_2.jpg",
+  "area": "chopping board and sink from directly above",
+  "model": "google/gemini-3.1-flash-lite",
+  "text": "{\n \"people\": 1,\n \"area\": \"Kitchen sink and prep counter\",\n \"activity\": \"A person is standing at the counter near the cabinets in the background. The foreground shows a sink area with a knife, spatula, and vegetables laid out on the drainboard.\",\n \"issues\": [\n  \"Knife left out on the counter\"\n ]\n}",
+  "latency": 1.8031787872314453,
+  "prompt_tokens": 1299,
+  "completion_tokens": 181,
+  "cost": 0.00059625,
+  "finish": "stop",
+  "raw_len": 297,
+  "parsed": {
+   "people": 1,
+   "area": "Kitchen sink and prep counter",
+   "activity": "A person is standing at the counter near the cabinets in the background. The foreground shows a sink area with a knife, spatula, and vegetables laid out on the drainboard.",
+   "issues": [
+    "Knife left out on the counter"
+   ]
+  },
+  "score": {
+   "ok": true,
+   "people": 1,
+   "people_ok": true,
+   "people_near": true,
+   "hazard_hit": 1,
+   "hazard_total": 1,
+   "issues_reported": 1,
+   "judge_raw": "{\"accuracy\": 3, \"area_ok\": true, \"hallucinations\": [\"spatula on drainboard\"], \"missed\": [\"cucumber, aubergine and orange specifically\", \"white cloth or paper\"]}",
+   "judge_cost": 0.001758,
+   "accuracy": 3,
+   "area_ok": true,
+   "hallucinations": [
+    "spatula on drainboard"
+   ],
+   "missed": [
+    "cucumber, aubergine and orange specifically",
+    "white cloth or paper"
+   ]
+  }
+ },
+ {
+  "task": "single",
+  "site": "kitchen",
+  "camera": "kitchen-stove",
+  "frame": 3,
+  "path": "/home/user/AtlasOperations/data/vision-eval/frames/kitchen-stove_3.jpg",
+  "area": "induction hob and the corner counter, high angle",
+  "model": "google/gemini-3.1-flash-lite",
+  "text": "{\n \"people\": 1,\n \"area\": \"Kitchen prep and cooking station\",\n \"activity\": \"A person is standing at a counter preparing food items. An empty saucepan sits on an induction cooktop nearby.\",\n \"issues\": [\n  \"Loose plastic packaging and debris on the food preparation surface\"\n ]\n}",
+  "latency": 2.0551600456237793,
+  "prompt_tokens": 1299,
+  "completion_tokens": 177,
+  "cost": 0.00059025,
+  "finish": "stop",
+  "raw_len": 276,
+  "parsed": {
+   "people": 1,
+   "area": "Kitchen prep and cooking station",
+   "activity": "A person is standing at a counter preparing food items. An empty saucepan sits on an induction cooktop nearby.",
+   "issues": [
+    "Loose plastic packaging and debris on the food preparation surface"
+   ]
+  },
+  "score": {
+   "ok": true,
+   "people": 1,
+   "people_ok": true,
+   "people_near": true,
+   "hazard_hit": 0,
+   "hazard_total": 0,
+   "issues_reported": 1,
+   "judge_raw": "{\"accuracy\": 4, \"area_ok\": true, \"hallucinations\": [\"Loose plastic packaging and debris on the food preparation surface\"], \"missed\": [\"Person is at the sink area, top left\"]}",
+   "judge_cost": 0.001712,
+   "accuracy": 4,
+   "area_ok": true,
+   "hallucinations": [
+    "Loose plastic packaging and debris on the food preparation surface"
+   ],
+   "missed": [
+    "Person is at the sink area, top left"
+   ]
+  }
+ },
+ {
+  "task": "single",
+  "site": "kitchen",
+  "camera": "kitchen-stove",
+  "frame": 2,
+  "path": "/home/user/AtlasOperations/data/vision-eval/frames/kitchen-stove_2.jpg",
+  "area": "induction hob and the corner counter, high angle",
+  "model": "google/gemini-3.1-flash-lite",
+  "text": "{\n \"people\": 1,\n \"area\": \"Kitchen prep and cooking station\",\n \"activity\": \"A person is standing at the counter preparing ingredients near a package of pasta. A small saucepan sits on the induction cooktop.\",\n \"issues\": [\n  \"Cardboard box placed directly on the food preparation surface\"\n ]\n}",
+  "latency": 2.248563766479492,
+  "prompt_tokens": 1299,
+  "completion_tokens": 180,
+  "cost": 0.00059475,
+  "finish": "stop",
+  "raw_len": 291,
+  "parsed": {
+   "people": 1,
+   "area": "Kitchen prep and cooking station",
+   "activity": "A person is standing at the counter preparing ingredients near a package of pasta. A small saucepan sits on the induction cooktop.",
+   "issues": [
+    "Cardboard box placed directly on the food preparation surface"
+   ]
+  },
+  "score": {
+   "ok": true,
+   "people": 1,
+   "people_ok": true,
+   "people_near": true,
+   "hazard_hit": 0,
+   "hazard_total": 0,
+   "issues_reported": 1,
+   "judge_raw": "{\"accuracy\": 3, \"area_ok\": true, \"hallucinations\": [\"person preparing ingredients (activity not confirmed)\", \"cardboard box on prep surface\"], \"missed\": [\"pan is empty\", \"bottles and blue packet on counter\"]}",
+   "judge_cost": 0.001904,
+   "accuracy": 3,
+   "area_ok": true,
+   "hallucinations": [
+    "person preparing ingredients (activity not confirmed)",
+    "cardboard box on prep surface"
+   ],
+   "missed": [
+    "pan is empty",
+    "bottles and blue packet on counter"
+   ]
+  }
+ },
+ {
+  "task": "single",
+  "site": "kitchen",
+  "camera": "kitchen-prep",
+  "frame": 3,
+  "path": "/home/user/AtlasOperations/data/vision-eval/frames/kitchen-prep_3.jpg",
+  "area": "chopping board and sink from directly above",
+  "model": "google/gemini-3.1-flash-lite",
+  "text": "{\n \"people\": 1,\n \"area\": \"Kitchen prep and sink station\",\n \"activity\": \"A person is standing at a counter, using a knife to slice vegetables on a cutting board. The sink area contains various kitchen utensils and a drying rack.\",\n \"issues\": []\n}",
+  "latency": 1.6730623245239258,
+  "prompt_tokens": 1299,
+  "completion_tokens": 170,
+  "cost": 0.00057975,
+  "finish": "stop",
+  "raw_len": 245,
+  "parsed": {
+   "people": 1,
+   "area": "Kitchen prep and sink station",
+   "activity": "A person is standing at a counter, using a knife to slice vegetables on a cutting board. The sink area contains various kitchen utensils and a drying rack.",
+   "issues": []
+  },
+  "score": {
+   "ok": true,
+   "people": 1,
+   "people_ok": true,
+   "people_near": true,
+   "hazard_hit": 1,
+   "hazard_total": 1,
+   "issues_reported": 0,
+   "judge_raw": "{\"accuracy\": 3, \"area_ok\": true, \"hallucinations\": [\"Person actively slicing vegetables with knife (human says knife moved, arm holding pan)\", \"Drying rack in sink\"], \"missed\": [\"Arm holding a pan over sink\", \"Cut yellow pepper on board\"]}",
+   "judge_cost": 0.00206,
+   "accuracy": 3,
+   "area_ok": true,
+   "hallucinations": [
+    "Person actively slicing vegetables with knife (human says knife moved, arm holding pan)",
+    "Drying rack in sink"
+   ],
+   "missed": [
+    "Arm holding a pan over sink",
+    "Cut yellow pepper on board"
+   ]
+  }
+ },
+ {
+  "task": "single",
+  "site": "kitchen",
+  "camera": "kitchen-sink",
+  "frame": 2,
+  "path": "/home/user/AtlasOperations/data/vision-eval/frames/kitchen-sink_2.jpg",
+  "area": "sink and back counter from the side",
+  "model": "google/gemini-3.1-flash-lite",
+  "text": "{\n \"people\": 1,\n \"area\": \"Kitchen prep and cooking station\",\n \"activity\": \"A person is standing at a counter reading a document. A pot is on the stove in the foreground, and there are various food items and supplies on the counter.\",\n \"issues\": []\n}",
+  "latency": 1.7029502391815186,
+  "prompt_tokens": 1299,
+  "completion_tokens": 169,
+  "cost": 0.00057825,
+  "finish": "stop",
+  "raw_len": 249,
+  "parsed": {
+   "people": 1,
+   "area": "Kitchen prep and cooking station",
+   "activity": "A person is standing at a counter reading a document. A pot is on the stove in the foreground, and there are various food items and supplies on the counter.",
+   "issues": []
+  },
+  "score": {
+   "ok": true,
+   "people": 1,
+   "people_ok": true,
+   "people_near": true,
+   "hazard_hit": 0,
+   "hazard_total": 0,
+   "issues_reported": 0,
+   "judge_raw": "{\"accuracy\": 2, \"area_ok\": false, \"hallucinations\": [\"person reading a document\", \"pot on stove in foreground\"], \"missed\": [\"sink area\", \"arm outstretched toward sink\", \"dish rack\", \"bottles\"]}",
+   "judge_cost": 0.001788,
+   "accuracy": 2,
+   "area_ok": false,
+   "hallucinations": [
+    "person reading a document",
+    "pot on stove in foreground"
+   ],
+   "missed": [
+    "sink area",
+    "arm outstretched toward sink",
+    "dish rack",
+    "bottles"
+   ]
+  }
+ },
+ {
+  "task": "single",
+  "site": "kitchen",
+  "camera": "kitchen-sink",
+  "frame": 1,
+  "path": "/home/user/AtlasOperations/data/vision-eval/frames/kitchen-sink_1.jpg",
+  "area": "sink and back counter from the side",
+  "model": "google/gemini-3.1-flash-lite",
+  "text": "{\n \"people\": 1,\n \"area\": \"Kitchen prep station\",\n \"activity\": \"A person wearing headphones is standing at a counter and opening a box of food product. They are preparing to use the contents, likely to add to the pot on the stove.\",\n \"issues\": []\n}",
+  "latency": 2.014918088912964,
+  "prompt_tokens": 1299,
+  "completion_tokens": 170,
+  "cost": 0.00057975,
+  "finish": "stop",
+  "raw_len": 247,
+  "parsed": {
+   "people": 1,
+   "area": "Kitchen prep station",
+   "activity": "A person wearing headphones is standing at a counter and opening a box of food product. They are preparing to use the contents, likely to add to the pot on the stove.",
+   "issues": []
+  },
+  "score": {
+   "ok": true,
+   "people": 1,
+   "people_ok": true,
+   "people_near": true,
+   "hazard_hit": 0,
+   "hazard_total": 0,
+   "issues_reported": 0,
+   "judge_raw": "{\"accuracy\": 3, \"area_ok\": true, \"hallucinations\": [\"headphones\", \"pot on the stove\"], \"missed\": [\"grey t-shirt\", \"dish rack with plates, bottles, bowl\"]}",
+   "judge_cost": 0.001762,
+   "accuracy": 3,
+   "area_ok": true,
+   "hallucinations": [
+    "headphones",
+    "pot on the stove"
+   ],
+   "missed": [
+    "grey t-shirt",
+    "dish rack with plates, bottles, bowl"
+   ]
+  }
+ },
+ {
+  "task": "temporal",
+  "site": "kitchen",
+  "camera": "kitchen-overview",
+  "paths": [
+   "/home/user/AtlasOperations/data/vision-eval/frames/kitchen-overview_1.jpg",
+   "/home/user/AtlasOperations/data/vision-eval/frames/kitchen-overview_2.jpg",
+   "/home/user/AtlasOperations/data/vision-eval/frames/kitchen-overview_3.jpg"
+  ],
+  "model": "google/gemini-3.1-flash-lite",
+  "text": "{\n\"what_changed\": \"In the first frame, the cook stands at the back counter preparing ingredients, while the front counter holds a zucchini, eggplant, and yellow pepper. In the second frame, the cook has moved slightly to the left along the back counter, and a small pot has appeared on the hot plate. In the third frame, the cook has moved to the front counter and is actively chopping the zucchini with a knife, while the yellow pepper remains on the counter.\",\n\"people_per_frame\": [1, 1, 1]\n}",
+  "latency": 2.439173460006714,
+  "prompt_tokens": 3437,
+  "completion_tokens": 250,
+  "cost": 0.00123425,
+  "finish": "stop",
+  "raw_len": 494,
+  "parsed": {
+   "what_changed": "In the first frame, the cook stands at the back counter preparing ingredients, while the front counter holds a zucchini, eggplant, and yellow pepper. In the second frame, the cook has moved slightly to the left along the back counter, and a small pot has appeared on the hot plate. In the third frame, the cook has moved to the front counter and is actively chopping the zucchini with a knife, while the yellow pepper remains on the counter.",
+   "people_per_frame": [
+    1,
+    1,
+    1
+   ]
+  },
+  "score": {
+   "ok": true,
+   "people_frames_ok": 3,
+   "people_frames_total": 3,
+   "judge_raw": "{\"accuracy\": 4, \"hallucinations\": [], \"missed\": [\"Move is to sink area specifically, not just front counter\"]}",
+   "judge_cost": 0.001394,
+   "accuracy": 4,
+   "hallucinations": [],
+   "missed": [
+    "Move is to sink area specifically, not just front counter"
+   ]
+  }
+ },
+ {
+  "task": "single",
+  "site": "kitchen",
+  "camera": "kitchen-sink",
+  "frame": 3,
+  "path": "/home/user/AtlasOperations/data/vision-eval/frames/kitchen-sink_3.jpg",
+  "area": "sink and back counter from the side",
+  "model": "google/gemini-3.1-flash-lite",
+  "text": "{\n\"people\": 1,\n\"area\": \"Kitchen prep and cooking station\",\n\"activity\": \"A person is standing at the sink area, appearing to wash or rinse items. A pot of water is on the stove in the foreground, and various ingredients are staged on the counter.\",\n\"issues\": []\n}",
+  "latency": 2.3172128200531006,
+  "prompt_tokens": 1299,
+  "completion_tokens": 178,
+  "cost": 0.00059175,
+  "finish": "stop",
+  "raw_len": 262,
+  "parsed": {
+   "people": 1,
+   "area": "Kitchen prep and cooking station",
+   "activity": "A person is standing at the sink area, appearing to wash or rinse items. A pot of water is on the stove in the foreground, and various ingredients are staged on the counter.",
+   "issues": []
+  },
+  "score": {
+   "ok": true,
+   "people": 1,
+   "people_ok": true,
+   "people_near": true,
+   "hazard_hit": 0,
+   "hazard_total": 0,
+   "issues_reported": 0,
+   "judge_raw": "{\"accuracy\": 3, \"area_ok\": true, \"hallucinations\": [\"Pot of water on stove\", \"Ingredients staged on counter\"], \"missed\": [\"Dish rack\", \"Bottles\", \"Bowl in front\"]}",
+   "judge_cost": 0.001772,
+   "accuracy": 3,
+   "area_ok": true,
+   "hallucinations": [
+    "Pot of water on stove",
+    "Ingredients staged on counter"
+   ],
+   "missed": [
+    "Dish rack",
+    "Bottles",
+    "Bowl in front"
+   ]
+  }
+ },
+ {
+  "task": "temporal",
+  "site": "kitchen",
+  "camera": "kitchen-wide",
+  "paths": [
+   "/home/user/AtlasOperations/data/vision-eval/frames/kitchen-wide_1.jpg",
+   "/home/user/AtlasOperations/data/vision-eval/frames/kitchen-wide_2.jpg",
+   "/home/user/AtlasOperations/data/vision-eval/frames/kitchen-wide_3.jpg"
+  ],
+  "model": "google/gemini-3.1-flash-lite",
+  "text": "{\n\"what_changed\": \"In the first frame, the cook is standing at the left counter preparing ingredients, while the right counter holds whole vegetables. In the second frame, the cook has moved to the foreground and is obscured, while the left counter remains largely unchanged. In the third frame, the cook has moved to the right counter and is actively slicing the vegetables that were previously sitting there.\",\n\"people_per_frame\": [1, 1, 1]\n}",
+  "latency": 2.3321025371551514,
+  "prompt_tokens": 3437,
+  "completion_tokens": 207,
+  "cost": 0.00116975,
+  "finish": "stop",
+  "raw_len": 444,
+  "parsed": {
+   "what_changed": "In the first frame, the cook is standing at the left counter preparing ingredients, while the right counter holds whole vegetables. In the second frame, the cook has moved to the foreground and is obscured, while the left counter remains largely unchanged. In the third frame, the cook has moved to the right counter and is actively slicing the vegetables that were previously sitting there.",
+   "people_per_frame": [
+    1,
+    1,
+    1
+   ]
+  },
+  "score": {
+   "ok": true,
+   "people_frames_ok": 3,
+   "people_frames_total": 3,
+   "judge_raw": "{\"accuracy\": 2, \"hallucinations\": [\"Cook moves to right counter slicing vegetables in third frame, contradicts sink location\", \"Details about whole vegetables on right counter not in description\"], \"missed\": [\"Cook holding a box in first frame\", \"Cook ends up at sink in centre\"]}",
+   "judge_cost": 0.00192,
+   "accuracy": 2,
+   "hallucinations": [
+    "Cook moves to right counter slicing vegetables in third frame, contradicts sink location",
+    "Details about whole vegetables on right counter not in description"
+   ],
+   "missed": [
+    "Cook holding a box in first frame",
+    "Cook ends up at sink in centre"
+   ]
+  }
+ },
+ {
+  "task": "multicam",
+  "site": "kitchen",
+  "paths": {
+   "kitchen-overview": "/home/user/AtlasOperations/data/vision-eval/frames/kitchen-overview_2.jpg",
+   "kitchen-wide": "/home/user/AtlasOperations/data/vision-eval/frames/kitchen-wide_2.jpg",
+   "kitchen-stove": "/home/user/AtlasOperations/data/vision-eval/frames/kitchen-stove_2.jpg",
+   "kitchen-prep": "/home/user/AtlasOperations/data/vision-eval/frames/kitchen-prep_2.jpg",
+   "kitchen-sink": "/home/user/AtlasOperations/data/vision-eval/frames/kitchen-sink_2.jpg"
+  },
+  "model": "google/gemini-3.1-flash-lite",
+  "text": "{\n \"distinct_people\": 1,\n \"busiest\": \"prep station\",\n \"service_in_progress\": false,\n \"per_camera\": {\n  \"kitchen-overview\": \"A person is standing at the prep counter reading a document.\",\n  \"kitchen-wide\": \"The kitchen is quiet with a person standing at the prep counter and ingredients laid out near the sink.\",\n  \"kitchen-stove\": \"A pot sits on the induction stove, and a person is visible in the background reading.\",\n  \"kitchen-prep\": \"A person is standing at the counter reading a document, with various ingredients and a pot on the stove nearby.\",\n  \"kitchen-sink\": \"The sink area is clear with fresh produce like a zucchini, eggplant, and pepper laid out on the counter.\"\n },\n \"summary\": \"The kitchen is currently in a quiet preparation phase with only one individual present. The person is reviewing documentation rather than actively cooking, though ingredients are staged on the counters. No active service to customers is occurring at this time.\",\n \"top_issue\": \"none\"\n}",
+  "latency": 3.230039596557617,
+  "prompt_tokens": 5775,
+  "completion_tokens": 342,
+  "cost": 0.00195675,
+  "finish": "stop",
+  "raw_len": 980,
+  "parsed": {
+   "distinct_people": 1,
+   "busiest": "prep station",
+   "service_in_progress": false,
+   "per_camera": {
+    "kitchen-overview": "A person is standing at the prep counter reading a document.",
+    "kitchen-wide": "The kitchen is quiet with a person standing at the prep counter and ingredients laid out near the sink.",
+    "kitchen-stove": "A pot sits on the induction stove, and a person is visible in the background reading.",
+    "kitchen-prep": "A person is standing at the counter reading a document, with various ingredients and a pot on the stove nearby.",
+    "kitchen-sink": "The sink area is clear with fresh produce like a zucchini, eggplant, and pepper laid out on the counter."
+   },
+   "summary": "The kitchen is currently in a quiet preparation phase with only one individual present. The person is reviewing documentation rather than actively cooking, though ingredients are staged on the counters. No active service to customers is occurring at this time.",
+   "top_issue": "none"
+  },
+  "score": {
+   "ok": true,
+   "service_ok": true,
+   "distinct_people": 1,
+   "distinct_ok": true,
+   "judge_raw": "{\"accuracy\": 2, \"busiest_ok\": true, \"hallucinations\": [\"Person reading a document (not mentioned, contradicts cooking activity)\", \"Pot on stove instead of empty pan\", \"Pepper instead of orange\"], \"missed\": [\"Knife on chopping board\", \"Cook's grey t-shirt and dark skirt description\"]}",
+   "judge_cost": 0.002682,
+   "accuracy": 2,
+   "busiest_ok": true,
+   "hallucinations": [
+    "Person reading a document (not mentioned, contradicts cooking activity)",
+    "Pot on stove instead of empty pan",
+    "Pepper instead of orange"
+   ],
+   "missed": [
+    "Knife on chopping board",
+    "Cook's grey t-shirt and dark skirt description"
+   ]
+  }
+ },
+ {
+  "task": "temporal",
+  "site": "kitchen",
+  "camera": "kitchen-stove",
+  "paths": [
+   "/home/user/AtlasOperations/data/vision-eval/frames/kitchen-stove_1.jpg",
+   "/home/user/AtlasOperations/data/vision-eval/frames/kitchen-stove_2.jpg",
+   "/home/user/AtlasOperations/data/vision-eval/frames/kitchen-stove_3.jpg"
+  ],
+  "model": "google/gemini-3.1-flash-lite",
+  "text": "{\n\"what_changed\": \"In the first frame, the cook is standing at the counter handling a box, while in the second frame, they have moved away from the counter, leaving a package of pasta and some herbs on the surface. In the third frame, the cook has moved to the sink area on the left side of the kitchen to work. The pot on the stove remains in the same position throughout all three frames.\",\n\"people_per_frame\": [1, 1, 1]\n}",
+  "latency": 2.318059206008911,
+  "prompt_tokens": 3437,
+  "completion_tokens": 219,
+  "cost": 0.00118775,
+  "finish": "stop",
+  "raw_len": 424,
+  "parsed": {
+   "what_changed": "In the first frame, the cook is standing at the counter handling a box, while in the second frame, they have moved away from the counter, leaving a package of pasta and some herbs on the surface. In the third frame, the cook has moved to the sink area on the left side of the kitchen to work. The pot on the stove remains in the same position throughout all three frames.",
+   "people_per_frame": [
+    1,
+    1,
+    1
+   ]
+  },
+  "score": {
+   "ok": true,
+   "people_frames_ok": 3,
+   "people_frames_total": 3,
+   "judge_raw": "{\"accuracy\": 4, \"hallucinations\": [\"package of pasta and herbs left on counter not mentioned\"], \"missed\": [\"only torso visible at top in second frame\"]}",
+   "judge_cost": 0.001516,
+   "accuracy": 4,
+   "hallucinations": [
+    "package of pasta and herbs left on counter not mentioned"
+   ],
+   "missed": [
+    "only torso visible at top in second frame"
+   ]
+  }
+ },
+ {
+  "task": "temporal",
+  "site": "kitchen",
+  "camera": "kitchen-prep",
+  "paths": [
+   "/home/user/AtlasOperations/data/vision-eval/frames/kitchen-prep_1.jpg",
+   "/home/user/AtlasOperations/data/vision-eval/frames/kitchen-prep_2.jpg",
+   "/home/user/AtlasOperations/data/vision-eval/frames/kitchen-prep_3.jpg"
+  ],
+  "model": "google/gemini-3.1-flash-lite",
+  "text": "{\n\"what_changed\": \"In the first frame, a person stands at the counter, then in the second frame, they remain in the same position while a paper towel appears on the counter. In the third frame, the person moves to the right side of the frame and begins chopping vegetables on a cutting board. The knife, zucchini, eggplant, and pepper have been moved from the left side of the sink to the right side of the sink by the third frame.\",\n\"people_per_frame\": [1, 1, 1]\n}",
+  "latency": 1.9370877742767334,
+  "prompt_tokens": 3437,
+  "completion_tokens": 227,
+  "cost": 0.00119975,
+  "finish": "stop",
+  "raw_len": 465,
+  "parsed": {
+   "what_changed": "In the first frame, a person stands at the counter, then in the second frame, they remain in the same position while a paper towel appears on the counter. In the third frame, the person moves to the right side of the frame and begins chopping vegetables on a cutting board. The knife, zucchini, eggplant, and pepper have been moved from the left side of the sink to the right side of the sink by the third frame.",
+   "people_per_frame": [
+    1,
+    1,
+    1
+   ]
+  },
+  "score": {
+   "ok": true,
+   "people_frames_ok": 3,
+   "people_frames_total": 3,
+   "judge_raw": "{\"accuracy\": 3, \"hallucinations\": [\"Claims person moves to right side and starts chopping in frame 3\", \"Zucchini mentioned instead of cucumber/orange\"], \"missed\": [\"Whole orange on board\", \"Cook's arm with pan over sink\"]}",
+   "judge_cost": 0.001882,
+   "accuracy": 3,
+   "hallucinations": [
+    "Claims person moves to right side and starts chopping in frame 3",
+    "Zucchini mentioned instead of cucumber/orange"
+   ],
+   "missed": [
+    "Whole orange on board",
+    "Cook's arm with pan over sink"
+   ]
+  }
+ },
+ {
+  "task": "single",
+  "site": "kitchen",
+  "camera": "kitchen-overview",
+  "frame": 1,
+  "path": "/home/user/AtlasOperations/data/vision-eval/frames/kitchen-overview_1.jpg",
+  "area": "whole room from a high corner by the door",
+  "model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+  "text": "\n{\n  \"people\": 1,\n  \"area\": \"kitchen prep area\",\n  \"activity\": \"A woman stands at a counter facing away from the camera, appearing to prepare food or organize ingredients. She is positioned near a small refrigerator and various bottles and containers on the countertop.\",\n  \"issues\": []\n}",
+  "latency": 1.2837285995483398,
+  "prompt_tokens": 725,
+  "completion_tokens": 68,
+  "cost": 0,
+  "finish": "stop",
+  "raw_len": 288,
+  "parsed": {
+   "people": 1,
+   "area": "kitchen prep area",
+   "activity": "A woman stands at a counter facing away from the camera, appearing to prepare food or organize ingredients. She is positioned near a small refrigerator and various bottles and containers on the countertop.",
+   "issues": []
+  },
+  "score": {
+   "ok": true,
+   "people": 1,
+   "people_ok": true,
+   "people_near": true,
+   "hazard_hit": 0,
+   "hazard_total": 0,
+   "issues_reported": 0,
+   "judge_raw": "{\"accuracy\": 4, \"area_ok\": true, \"hallucinations\": [\"refrigerator and bottles/containers on countertop\"], \"missed\": [\"cucumber and orange near sink\", \"person's grey t-shirt and dark skirt description\"]}",
+   "judge_cost": 0.001934,
+   "accuracy": 4,
+   "area_ok": true,
+   "hallucinations": [
+    "refrigerator and bottles/containers on countertop"
+   ],
+   "missed": [
+    "cucumber and orange near sink",
+    "person's grey t-shirt and dark skirt description"
+   ]
+  }
+ },
+ {
+  "task": "temporal",
+  "site": "kitchen",
+  "camera": "kitchen-sink",
+  "paths": [
+   "/home/user/AtlasOperations/data/vision-eval/frames/kitchen-sink_1.jpg",
+   "/home/user/AtlasOperations/data/vision-eval/frames/kitchen-sink_2.jpg",
+   "/home/user/AtlasOperations/data/vision-eval/frames/kitchen-sink_3.jpg"
+  ],
+  "model": "google/gemini-3.1-flash-lite",
+  "text": "{\n  \"what_changed\": \"In the first frame, the cook is standing at the counter handling a box, then moves to the right side of the frame to read a paper in the second frame, and finally moves to the sink area in the third frame. A package of pasta is placed on the counter in the second frame and remains there in the third frame. The box the cook was holding in the first frame is left open on the counter in the subsequent frames.\",\n  \"people_per_frame\": [1, 1, 1]\n}",
+  "latency": 1.9309136867523193,
+  "prompt_tokens": 3437,
+  "completion_tokens": 227,
+  "cost": 0.00119975,
+  "finish": "stop",
+  "raw_len": 466,
+  "parsed": {
+   "what_changed": "In the first frame, the cook is standing at the counter handling a box, then moves to the right side of the frame to read a paper in the second frame, and finally moves to the sink area in the third frame. A package of pasta is placed on the counter in the second frame and remains there in the third frame. The box the cook was holding in the first frame is left open on the counter in the subsequent frames.",
+   "people_per_frame": [
+    1,
+    1,
+    1
+   ]
+  },
+  "score": {
+   "ok": true,
+   "people_frames_ok": 3,
+   "people_frames_total": 3,
+   "judge_raw": "{\"accuracy\": 2, \"hallucinations\": [\"Cook reads a paper - not mentioned/contradicts sink reaching\", \"Package of pasta placed on counter - not in description\"], \"missed\": [\"Cook reaching to the sink\", \"Cook standing at the sink\"]}",
+   "judge_cost": 0.001834,
+   "accuracy": 2,
+   "hallucinations": [
+    "Cook reads a paper - not mentioned/contradicts sink reaching",
+    "Package of pasta placed on counter - not in description"
+   ],
+   "missed": [
+    "Cook reaching to the sink",
+    "Cook standing at the sink"
+   ]
+  }
+ },
+ {
+  "task": "single",
+  "site": "kitchen",
+  "camera": "kitchen-overview",
+  "frame": 3,
+  "path": "/home/user/AtlasOperations/data/vision-eval/frames/kitchen-overview_3.jpg",
+  "area": "whole room from a high corner by the door",
+  "model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+  "text": "\n{\n  \"people\": 1,\n  \"area\": \"kitchen prep station\",\n  \"activity\": \"A cook is chopping vegetables on a cutting board at the prep station.\",\n  \"issues\": []\n}",
+  "latency": 1.6978034973144531,
+  "prompt_tokens": 725,
+  "completion_tokens": 46,
+  "cost": 0,
+  "finish": "stop",
+  "raw_len": 155,
+  "parsed": {
+   "people": 1,
+   "area": "kitchen prep station",
+   "activity": "A cook is chopping vegetables on a cutting board at the prep station.",
+   "issues": []
+  },
+  "score": {
+   "ok": true,
+   "people": 1,
+   "people_ok": true,
+   "people_near": true,
+   "hazard_hit": 0,
+   "hazard_total": 0,
+   "issues_reported": 0,
+   "judge_raw": "{\"accuracy\": 2, \"area_ok\": true, \"hallucinations\": [\"chopping vegetables on a cutting board\"], \"missed\": [\"person bending over holding a pan or bowl at sink\"]}",
+   "judge_cost": 0.001616,
+   "accuracy": 2,
+   "area_ok": true,
+   "hallucinations": [
+    "chopping vegetables on a cutting board"
+   ],
+   "missed": [
+    "person bending over holding a pan or bowl at sink"
+   ]
+  }
+ },
+ {
+  "task": "single",
+  "site": "kitchen",
+  "camera": "kitchen-overview",
+  "frame": 2,
+  "path": "/home/user/AtlasOperations/data/vision-eval/frames/kitchen-overview_2.jpg",
+  "area": "whole room from a high corner by the door",
+  "model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+  "text": "\n{\n  \"people\": 1,\n  \"area\": \"kitchen prep area\",\n  \"activity\": \"A person stands at the counter facing away, appearing to prepare ingredients or organize items. The scene shows a quiet moment of food preparation in an otherwise empty kitchen.\",\n  \"issues\": []\n}",
+  "latency": 0.8468117713928223,
+  "prompt_tokens": 725,
+  "completion_tokens": 63,
+  "cost": 0,
+  "finish": "stop",
+  "raw_len": 260,
+  "parsed": {
+   "people": 1,
+   "area": "kitchen prep area",
+   "activity": "A person stands at the counter facing away, appearing to prepare ingredients or organize items. The scene shows a quiet moment of food preparation in an otherwise empty kitchen.",
+   "issues": []
+  },
+  "score": {
+   "ok": true,
+   "people": 1,
+   "people_ok": true,
+   "people_near": true,
+   "hazard_hit": 0,
+   "hazard_total": 0,
+   "issues_reported": 0,
+   "judge_raw": "{\"accuracy\": 4, \"area_ok\": true, \"hallucinations\": [\"preparing ingredients/organizing items specifics\"], \"missed\": [\"window near counter\", \"foreground counter is empty\"]}",
+   "judge_cost": 0.001666,
+   "accuracy": 4,
+   "area_ok": true,
+   "hallucinations": [
+    "preparing ingredients/organizing items specifics"
+   ],
+   "missed": [
+    "window near counter",
+    "foreground counter is empty"
+   ]
+  }
+ },
+ {
+  "task": "single",
+  "site": "kitchen",
+  "camera": "kitchen-wide",
+  "frame": 1,
+  "path": "/home/user/AtlasOperations/data/vision-eval/frames/kitchen-wide_1.jpg",
+  "area": "long view down the counters from the far end toward the door",
+  "model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+  "text": "\n{\n  \"people\": 1,\n  \"area\": \"prep station\",\n  \"activity\": \"A woman is standing at the prep station, handling a blue container near a pot on the stove.\",\n  \"issues\": []\n}",
+  "latency": 1.2287776470184326,
+  "prompt_tokens": 725,
+  "completion_tokens": 50,
+  "cost": 0,
+  "finish": "stop",
+  "raw_len": 169,
+  "parsed": {
+   "people": 1,
+   "area": "prep station",
+   "activity": "A woman is standing at the prep station, handling a blue container near a pot on the stove.",
+   "issues": []
+  },
+  "score": {
+   "ok": true,
+   "people": 1,
+   "people_ok": true,
+   "people_near": true,
+   "hazard_hit": 0,
+   "hazard_total": 0,
+   "issues_reported": 0,
+   "judge_raw": "{\"accuracy\": 2, \"area_ok\": false, \"hallucinations\": [\"blue container near a pot on the stove\"], \"missed\": [\"grey t-shirt and dark skirt\", \"boxes, bottles and plastic bag on counter\", \"bin by wall\", \"glass door view\"]}",
+   "judge_cost": 0.001954,
+   "accuracy": 2,
+   "area_ok": false,
+   "hallucinations": [
+    "blue container near a pot on the stove"
+   ],
+   "missed": [
+    "grey t-shirt and dark skirt",
+    "boxes, bottles and plastic bag on counter",
+    "bin by wall",
+    "glass door view"
+   ]
+  }
+ },
+ {
+  "task": "single",
+  "site": "kitchen",
+  "camera": "kitchen-wide",
+  "frame": 2,
+  "path": "/home/user/AtlasOperations/data/vision-eval/frames/kitchen-wide_2.jpg",
+  "area": "long view down the counters from the far end toward the door",
+  "model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+  "text": "\n{\n  \"people\": 1,\n  \"area\": \"kitchen prep area\",\n  \"activity\": \"A person is standing at the left counter, appearing to prepare food with a pot on a portable burner.\",\n  \"issues\": []\n}",
+  "latency": 1.319748878479004,
+  "prompt_tokens": 725,
+  "completion_tokens": 52,
+  "cost": 0,
+  "finish": "stop",
+  "raw_len": 183,
+  "parsed": {
+   "people": 1,
+   "area": "kitchen prep area",
+   "activity": "A person is standing at the left counter, appearing to prepare food with a pot on a portable burner.",
+   "issues": []
+  },
+  "score": {
+   "ok": true,
+   "people": 1,
+   "people_ok": true,
+   "people_near": true,
+   "hazard_hit": 0,
+   "hazard_total": 0,
+   "issues_reported": 0,
+   "judge_raw": "{\"accuracy\": 3, \"area_ok\": true, \"hallucinations\": [\"pot on a portable burner\", \"preparing food\"], \"missed\": [\"person is near foreground below camera, back turned\"]}",
+   "judge_cost": 0.001632,
+   "accuracy": 3,
+   "area_ok": true,
+   "hallucinations": [
+    "pot on a portable burner",
+    "preparing food"
+   ],
+   "missed": [
+    "person is near foreground below camera, back turned"
+   ]
+  }
+ },
+ {
+  "task": "single",
+  "site": "kitchen",
+  "camera": "kitchen-wide",
+  "frame": 3,
+  "path": "/home/user/AtlasOperations/data/vision-eval/frames/kitchen-wide_3.jpg",
+  "area": "long view down the counters from the far end toward the door",
+  "model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+  "text": "\n{\n  \"people\": 1,\n  \"area\": \"kitchen prep area\",\n  \"activity\": \"A person is standing at the sink, washing or preparing a yellow vegetable.\",\n  \"issues\": []\n}",
+  "latency": 1.611929178237915,
+  "prompt_tokens": 725,
+  "completion_tokens": 46,
+  "cost": 0,
+  "finish": "stop",
+  "raw_len": 157,
+  "parsed": {
+   "people": 1,
+   "area": "kitchen prep area",
+   "activity": "A person is standing at the sink, washing or preparing a yellow vegetable.",
+   "issues": []
+  },
+  "score": {
+   "ok": true,
+   "people": 1,
+   "people_ok": true,
+   "people_near": true,
+   "hazard_hit": 0,
+   "hazard_total": 0,
+   "issues_reported": 0,
+   "judge_raw": "{\"accuracy\": 4, \"area_ok\": true, \"hallucinations\": [\"yellow vegetable detail not confirmed by human\"], \"missed\": []}",
+   "judge_cost": 0.00144,
+   "accuracy": 4,
+   "area_ok": true,
+   "hallucinations": [
+    "yellow vegetable detail not confirmed by human"
+   ],
+   "missed": []
+  }
+ },
+ {
+  "task": "single",
+  "site": "kitchen",
+  "camera": "kitchen-stove",
+  "frame": 2,
+  "path": "/home/user/AtlasOperations/data/vision-eval/frames/kitchen-stove_2.jpg",
+  "area": "induction hob and the corner counter, high angle",
+  "model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+  "text": "\n{\n  \"people\": 1,\n  \"area\": \"kitchen prep area\",\n  \"activity\": \"A cook is standing at the counter handling a plastic bag while a pot sits on the induction cooktop.\",\n  \"issues\": []\n}",
+  "latency": 1.2299103736877441,
+  "prompt_tokens": 725,
+  "completion_tokens": 52,
+  "cost": 0,
+  "finish": "stop",
+  "raw_len": 182,
+  "parsed": {
+   "people": 1,
+   "area": "kitchen prep area",
+   "activity": "A cook is standing at the counter handling a plastic bag while a pot sits on the induction cooktop.",
+   "issues": []
+  },
+  "score": {
+   "ok": true,
+   "people": 1,
+   "people_ok": true,
+   "people_near": true,
+   "hazard_hit": 0,
+   "hazard_total": 0,
+   "issues_reported": 0,
+   "judge_raw": "{\"accuracy\": 3, \"area_ok\": true, \"hallucinations\": [\"cook handling a plastic bag (pan is empty, no described action)\"], \"missed\": [\"bottles and blue packet on counter\"]}",
+   "judge_cost": 0.001686,
+   "accuracy": 3,
+   "area_ok": true,
+   "hallucinations": [
+    "cook handling a plastic bag (pan is empty, no described action)"
+   ],
+   "missed": [
+    "bottles and blue packet on counter"
+   ]
+  }
+ },
+ {
+  "task": "single",
+  "site": "kitchen",
+  "camera": "kitchen-prep",
+  "frame": 2,
+  "path": "/home/user/AtlasOperations/data/vision-eval/frames/kitchen-prep_2.jpg",
+  "area": "chopping board and sink from directly above",
+  "model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+  "text": "\n{\n  \"people\": 1,\n  \"area\": \"prep station\",\n  \"activity\": \"A person is standing at the prep station with vegetables laid out for preparation. The scene shows a knife and other tools ready for use.\",\n  \"issues\": [\n    \"knife left out on prep surface\"\n  ]\n}",
+  "latency": 0.9260463714599609,
+  "prompt_tokens": 725,
+  "completion_tokens": 68,
+  "cost": 0,
+  "finish": "stop",
+  "raw_len": 255,
+  "parsed": {
+   "people": 1,
+   "area": "prep station",
+   "activity": "A person is standing at the prep station with vegetables laid out for preparation. The scene shows a knife and other tools ready for use.",
+   "issues": [
+    "knife left out on prep surface"
+   ]
+  },
+  "score": {
+   "ok": true,
+   "people": 1,
+   "people_ok": true,
+   "people_near": true,
+   "hazard_hit": 1,
+   "hazard_total": 1,
+   "issues_reported": 1,
+   "judge_raw": "{\"accuracy\": 4, \"area_ok\": true, \"hallucinations\": [], \"missed\": [\"cucumber, aubergine, orange specifics\", \"white cloth or paper\"]}",
+   "judge_cost": 0.001614,
+   "accuracy": 4,
+   "area_ok": true,
+   "hallucinations": [],
+   "missed": [
+    "cucumber, aubergine, orange specifics",
+    "white cloth or paper"
+   ]
+  }
+ },
+ {
+  "task": "single",
+  "site": "kitchen",
+  "camera": "kitchen-stove",
+  "frame": 3,
+  "path": "/home/user/AtlasOperations/data/vision-eval/frames/kitchen-stove_3.jpg",
+  "area": "induction hob and the corner counter, high angle",
+  "model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+  "text": "\n{\n  \"people\": 1,\n  \"area\": \"kitchen prep station\",\n  \"activity\": \"A cook is standing at the counter, handling food items and placing them into a container.\",\n  \"issues\": []\n}",
+  "latency": 1.5894320011138916,
+  "prompt_tokens": 725,
+  "completion_tokens": 49,
+  "cost": 0,
+  "finish": "stop",
+  "raw_len": 175,
+  "parsed": {
+   "people": 1,
+   "area": "kitchen prep station",
+   "activity": "A cook is standing at the counter, handling food items and placing them into a container.",
+   "issues": []
+  },
+  "score": {
+   "ok": true,
+   "people": 1,
+   "people_ok": true,
+   "people_near": true,
+   "hazard_hit": 0,
+   "hazard_total": 0,
+   "issues_reported": 0,
+   "judge_raw": "{\"accuracy\": 3, \"area_ok\": true, \"hallucinations\": [\"placing food items into a container\"], \"missed\": [\"pan still on the hob\", \"person is over the sink area\"]}",
+   "judge_cost": 0.00155,
+   "accuracy": 3,
+   "area_ok": true,
+   "hallucinations": [
+    "placing food items into a container"
+   ],
+   "missed": [
+    "pan still on the hob",
+    "person is over the sink area"
+   ]
+  }
+ },
+ {
+  "task": "single",
+  "site": "kitchen",
+  "camera": "kitchen-prep",
+  "frame": 1,
+  "path": "/home/user/AtlasOperations/data/vision-eval/frames/kitchen-prep_1.jpg",
+  "area": "chopping board and sink from directly above",
+  "model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+  "text": "\n{\n  \"people\": 1,\n  \"area\": \"prep station\",\n  \"activity\": \"A person is standing at the prep station with vegetables laid out on the counter.\",\n  \"issues\": []\n}",
+  "latency": 1.4927783012390137,
+  "prompt_tokens": 725,
+  "completion_tokens": 46,
+  "cost": 0,
+  "finish": "stop",
+  "raw_len": 159,
+  "parsed": {
+   "people": 1,
+   "area": "prep station",
+   "activity": "A person is standing at the prep station with vegetables laid out on the counter.",
+   "issues": []
+  },
+  "score": {
+   "ok": true,
+   "people": 1,
+   "people_ok": true,
+   "people_near": true,
+   "hazard_hit": 0,
+   "hazard_total": 1,
+   "issues_reported": 0,
+   "judge_raw": "{\"accuracy\": 4, \"area_ok\": true, \"hallucinations\": [], \"missed\": [\"knife, cucumber, aubergine, orange, green container\", \"sink present\", \"no cutting happening\"]}",
+   "judge_cost": 0.001674,
+   "accuracy": 4,
+   "area_ok": true,
+   "hallucinations": [],
+   "missed": [
+    "knife, cucumber, aubergine, orange, green container",
+    "sink present",
+    "no cutting happening"
+   ]
+  }
+ },
+ {
+  "task": "single",
+  "site": "kitchen",
+  "camera": "kitchen-prep",
+  "frame": 3,
+  "path": "/home/user/AtlasOperations/data/vision-eval/frames/kitchen-prep_3.jpg",
+  "area": "chopping board and sink from directly above",
+  "model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+  "text": "\n{\n  \"people\": 1,\n  \"area\": \"prep station\",\n  \"activity\": \"A cook is using a knife to slice vegetables on a cutting board. The cook is standing at the counter with a zucchini and an eggplant visible.\",\n  \"issues\": [\n    \"knife in use (not left out)\",\n    \"bare hands on food (acceptable during prep)\"\n  ]\n}",
+  "latency": 1.3494200706481934,
+  "prompt_tokens": 725,
+  "completion_tokens": 85,
+  "cost": 0,
+  "finish": "stop",
+  "raw_len": 306,
+  "parsed": {
+   "people": 1,
+   "area": "prep station",
+   "activity": "A cook is using a knife to slice vegetables on a cutting board. The cook is standing at the counter with a zucchini and an eggplant visible.",
+   "issues": [
+    "knife in use (not left out)",
+    "bare hands on food (acceptable during prep)"
+   ]
+  },
+  "score": {
+   "ok": true,
+   "people": 1,
+   "people_ok": true,
+   "people_near": true,
+   "hazard_hit": 1,
+   "hazard_total": 1,
+   "issues_reported": 2,
+   "judge_raw": "{\"accuracy\": 2, \"area_ok\": true, \"hallucinations\": [\"cook slicing vegetables with knife (human says knife moved, not in use)\", \"eggplant visible\", \"zucchini visible\"], \"missed\": [\"pan held by cook over sink\", \"cut yellow pepper on board\", \"cucumber moved\"]}",
+   "judge_cost": 0.002158,
+   "accuracy": 2,
+   "area_ok": true,
+   "hallucinations": [
+    "cook slicing vegetables with knife (human says knife moved, not in use)",
+    "eggplant visible",
+    "zucchini visible"
+   ],
+   "missed": [
+    "pan held by cook over sink",
+    "cut yellow pepper on board",
+    "cucumber moved"
+   ]
+  }
+ },
+ {
+  "task": "single",
+  "site": "kitchen",
+  "camera": "kitchen-sink",
+  "frame": 1,
+  "path": "/home/user/AtlasOperations/data/vision-eval/frames/kitchen-sink_1.jpg",
+  "area": "sink and back counter from the side",
+  "model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+  "text": "\n{\n  \"people\": 1,\n  \"area\": \"prep station\",\n  \"activity\": \"A cook wearing a headset is opening a blue box on the prep table while a metal bowl sits nearby.\",\n  \"issues\": []\n}",
+  "latency": 1.5890049934387207,
+  "prompt_tokens": 725,
+  "completion_tokens": 52,
+  "cost": 0,
+  "finish": "stop",
+  "raw_len": 174,
+  "parsed": {
+   "people": 1,
+   "area": "prep station",
+   "activity": "A cook wearing a headset is opening a blue box on the prep table while a metal bowl sits nearby.",
+   "issues": []
+  },
+  "score": {
+   "ok": true,
+   "people": 1,
+   "people_ok": true,
+   "people_near": true,
+   "hazard_hit": 0,
+   "hazard_total": 0,
+   "issues_reported": 0,
+   "judge_raw": "{\"accuracy\": 2, \"area_ok\": false, \"hallucinations\": [\"headset\", \"blue box (should be white)\", \"prep station vs sink area\"], \"missed\": [\"sink area\", \"grey t-shirt\", \"dish rack with plates and bottles\"]}",
+   "judge_cost": 0.001844,
+   "accuracy": 2,
+   "area_ok": false,
+   "hallucinations": [
+    "headset",
+    "blue box (should be white)",
+    "prep station vs sink area"
+   ],
+   "missed": [
+    "sink area",
+    "grey t-shirt",
+    "dish rack with plates and bottles"
+   ]
+  }
+ },
+ {
+  "task": "single",
+  "site": "kitchen",
+  "camera": "kitchen-sink",
+  "frame": 2,
+  "path": "/home/user/AtlasOperations/data/vision-eval/frames/kitchen-sink_2.jpg",
+  "area": "sink and back counter from the side",
+  "model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+  "text": "\n{\n  \"people\": 1,\n  \"area\": \"kitchen prep area\",\n  \"activity\": \"A person is standing at a counter reviewing a document while handling a plastic bag.\",\n  \"issues\": []\n}",
+  "latency": 1.4113788604736328,
+  "prompt_tokens": 725,
+  "completion_tokens": 47,
+  "cost": 0,
+  "finish": "stop",
+  "raw_len": 167,
+  "parsed": {
+   "people": 1,
+   "area": "kitchen prep area",
+   "activity": "A person is standing at a counter reviewing a document while handling a plastic bag.",
+   "issues": []
+  },
+  "score": {
+   "ok": true,
+   "people": 1,
+   "people_ok": true,
+   "people_near": true,
+   "hazard_hit": 0,
+   "hazard_total": 0,
+   "issues_reported": 0,
+   "judge_raw": "{\"accuracy\": 2, \"area_ok\": true, \"hallucinations\": [\"reviewing a document\", \"handling a plastic bag\"], \"missed\": [\"arm outstretched toward sink\", \"dish rack\", \"bottles\"]}",
+   "judge_cost": 0.001692,
+   "accuracy": 2,
+   "area_ok": true,
+   "hallucinations": [
+    "reviewing a document",
+    "handling a plastic bag"
+   ],
+   "missed": [
+    "arm outstretched toward sink",
+    "dish rack",
+    "bottles"
+   ]
+  }
+ },
+ {
+  "task": "temporal",
+  "site": "kitchen",
+  "camera": "kitchen-wide",
+  "paths": [
+   "/home/user/AtlasOperations/data/vision-eval/frames/kitchen-wide_1.jpg",
+   "/home/user/AtlasOperations/data/vision-eval/frames/kitchen-wide_2.jpg",
+   "/home/user/AtlasOperations/data/vision-eval/frames/kitchen-wide_3.jpg"
+  ],
+  "model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+  "text": "\n```json\n{\n  \"what_changed\": \"In the first frame, a person is standing at the left counter preparing food. In the second frame, the person has moved to the foreground, partially obscuring the view, and is no longer visible at the left counter. In the third frame, the person is standing at the right counter near the sink, peeling a yellow vegetable, and the items on the left counter have been rearranged, including a plastic bag with tomatoes and a blue package.\",\n  \"people_per_frame\": [1, 1, 1]\n}\n```",
+  "latency": 1.2315318584442139,
+  "prompt_tokens": 1699,
+  "completion_tokens": 120,
+  "cost": 0,
+  "finish": "stop",
+  "raw_len": 504,
+  "parsed": {
+   "what_changed": "In the first frame, a person is standing at the left counter preparing food. In the second frame, the person has moved to the foreground, partially obscuring the view, and is no longer visible at the left counter. In the third frame, the person is standing at the right counter near the sink, peeling a yellow vegetable, and the items on the left counter have been rearranged, including a plastic bag with tomatoes and a blue package.",
+   "people_per_frame": [
+    1,
+    1,
+    1
+   ]
+  },
+  "score": {
+   "ok": true,
+   "people_frames_ok": 3,
+   "people_frames_total": 3,
+   "judge_raw": "{\"accuracy\": 4, \"hallucinations\": [\"Peeling a yellow vegetable specifically not confirmed\"], \"missed\": [\"Cook was holding a box in first frame\"]}",
+   "judge_cost": 0.001556,
+   "accuracy": 4,
+   "hallucinations": [
+    "Peeling a yellow vegetable specifically not confirmed"
+   ],
+   "missed": [
+    "Cook was holding a box in first frame"
+   ]
+  }
+ },
+ {
+  "task": "single",
+  "site": "kitchen",
+  "camera": "kitchen-sink",
+  "frame": 3,
+  "path": "/home/user/AtlasOperations/data/vision-eval/frames/kitchen-sink_3.jpg",
+  "area": "sink and back counter from the side",
+  "model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+  "text": "\n{\n  \"people\": 1,\n  \"area\": \"kitchen prep area\",\n  \"activity\": \"A person is standing at a counter washing dishes or preparing food. The person is facing away from the camera and working at the sink area.\",\n  \"issues\": []\n}",
+  "latency": 2.5461902618408203,
+  "prompt_tokens": 725,
+  "completion_tokens": 59,
+  "cost": 0,
+  "finish": "stop",
+  "raw_len": 222,
+  "parsed": {
+   "people": 1,
+   "area": "kitchen prep area",
+   "activity": "A person is standing at a counter washing dishes or preparing food. The person is facing away from the camera and working at the sink area.",
+   "issues": []
+  },
+  "score": {
+   "ok": true,
+   "people": 1,
+   "people_ok": true,
+   "people_near": true,
+   "hazard_hit": 0,
+   "hazard_total": 0,
+   "issues_reported": 0,
+   "judge_raw": "{\"accuracy\": 4, \"area_ok\": true, \"hallucinations\": [], \"missed\": [\"dish rack, bottles, and a bowl in front\"]}",
+   "judge_cost": 0.001482,
+   "accuracy": 4,
+   "area_ok": true,
+   "hallucinations": [],
+   "missed": [
+    "dish rack, bottles, and a bowl in front"
+   ]
+  }
+ },
+ {
+  "task": "temporal",
+  "site": "kitchen",
+  "camera": "kitchen-stove",
+  "paths": [
+   "/home/user/AtlasOperations/data/vision-eval/frames/kitchen-stove_1.jpg",
+   "/home/user/AtlasOperations/data/vision-eval/frames/kitchen-stove_2.jpg",
+   "/home/user/AtlasOperations/data/vision-eval/frames/kitchen-stove_3.jpg"
+  ],
+  "model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+  "text": "\n```json\n{\n  \"what_changed\": \"In the first frame, a person is standing at the counter opening a box. In the second frame, the person is no longer visible, and a bag of chips and a small pile of green herbs are on the counter. In the third frame, the person is now at the sink on the left, and the counter remains unchanged from the second frame.\",\n  \"people_per_frame\": [1, 0, 1]\n}\n```",
+  "latency": 2.7274796962738037,
+  "prompt_tokens": 1699,
+  "completion_tokens": 100,
+  "cost": 0,
+  "finish": "stop",
+  "raw_len": 385,
+  "parsed": {
+   "what_changed": "In the first frame, a person is standing at the counter opening a box. In the second frame, the person is no longer visible, and a bag of chips and a small pile of green herbs are on the counter. In the third frame, the person is now at the sink on the left, and the counter remains unchanged from the second frame.",
+   "people_per_frame": [
+    1,
+    0,
+    1
+   ]
+  },
+  "score": {
+   "ok": true,
+   "people_frames_ok": 2,
+   "people_frames_total": 3,
+   "judge_raw": "{\"accuracy\": 2, \"hallucinations\": [\"Person not visible contradicts torso showing at top\", \"People count of 0 in frame 2 contradicts torso visible\"], \"missed\": [\"Torso still visible in second frame\", \"Pan stays empty on hob throughout\"]}",
+   "judge_cost": 0.001814,
+   "accuracy": 2,
+   "hallucinations": [
+    "Person not visible contradicts torso showing at top",
+    "People count of 0 in frame 2 contradicts torso visible"
+   ],
+   "missed": [
+    "Torso still visible in second frame",
+    "Pan stays empty on hob throughout"
+   ]
+  }
+ },
+ {
+  "task": "multicam",
+  "site": "kitchen",
+  "paths": {
+   "kitchen-overview": "/home/user/AtlasOperations/data/vision-eval/frames/kitchen-overview_2.jpg",
+   "kitchen-wide": "/home/user/AtlasOperations/data/vision-eval/frames/kitchen-wide_2.jpg",
+   "kitchen-stove": "/home/user/AtlasOperations/data/vision-eval/frames/kitchen-stove_2.jpg",
+   "kitchen-prep": "/home/user/AtlasOperations/data/vision-eval/frames/kitchen-prep_2.jpg",
+   "kitchen-sink": "/home/user/AtlasOperations/data/vision-eval/frames/kitchen-sink_2.jpg"
+  },
+  "model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+  "text": "\n{\n  \"distinct_people\": 1,\n  \"busiest\": \"kitchen-prep\",\n  \"service_in_progress\": false,\n  \"per_camera\": {\n    \"kitchen-overview\": \"A person in a grey shirt and dark skirt stands at a counter in a kitchen, facing away from the camera.\",\n    \"kitchen-wide\": \"The kitchen is visible with a person partially in frame on the left, a sink area on the right, and glass doors in the background.\",\n    \"kitchen-stove\": \"A metal pot sits on a black induction cooktop on a counter with various bottles and a blue package nearby.\",\n    \"kitchen-prep\": \"A person in a grey shirt and dark skirt stands at a counter, handling a plastic bag, with bottles and a blue package on the counter.\",\n    \"kitchen-sink\": \"A sink area with a knife, zucchini, eggplant, and yellow pepper on a draining board, and a dish rack with cups to the right.\"\n  },\n  \"summary\": \"The kitchen is occupied by a single person preparing food at a counter. The space is organized with a sink, stove, and prep areas, but no customers are present. The environment appears clean and ready for service, though currently inactive.\",\n  \"top_issue\": \"none\"\n}",
+  "latency": 6.352978229522705,
+  "prompt_tokens": 2866,
+  "completion_tokens": 276,
+  "cost": 0,
+  "finish": "stop",
+  "raw_len": 1108,
+  "parsed": {
+   "distinct_people": 1,
+   "busiest": "kitchen-prep",
+   "service_in_progress": false,
+   "per_camera": {
+    "kitchen-overview": "A person in a grey shirt and dark skirt stands at a counter in a kitchen, facing away from the camera.",
+    "kitchen-wide": "The kitchen is visible with a person partially in frame on the left, a sink area on the right, and glass doors in the background.",
+    "kitchen-stove": "A metal pot sits on a black induction cooktop on a counter with various bottles and a blue package nearby.",
+    "kitchen-prep": "A person in a grey shirt and dark skirt stands at a counter, handling a plastic bag, with bottles and a blue package on the counter.",
+    "kitchen-sink": "A sink area with a knife, zucchini, eggplant, and yellow pepper on a draining board, and a dish rack with cups to the right."
+   },
+   "summary": "The kitchen is occupied by a single person preparing food at a counter. The space is organized with a sink, stove, and prep areas, but no customers are present. The environment appears clean and ready for service, though currently inactive.",
+   "top_issue": "none"
+  },
+  "score": {
+   "ok": true,
+   "service_ok": true,
+   "distinct_people": 1,
+   "distinct_ok": true,
+   "judge_raw": "{\"accuracy\": 3, \"busiest_ok\": true, \"hallucinations\": [\"yellow pepper instead of orange on board\"], \"missed\": [\"knife/cucumber/aubergine/orange on chopping board not clearly matched\", \"empty pan on hob not pot with bottles\"]}",
+   "judge_cost": 0.002574,
+   "accuracy": 3,
+   "busiest_ok": true,
+   "hallucinations": [
+    "yellow pepper instead of orange on board"
+   ],
+   "missed": [
+    "knife/cucumber/aubergine/orange on chopping board not clearly matched",
+    "empty pan on hob not pot with bottles"
+   ]
+  }
+ },
+ {
+  "task": "temporal",
+  "site": "kitchen",
+  "camera": "kitchen-prep",
+  "paths": [
+   "/home/user/AtlasOperations/data/vision-eval/frames/kitchen-prep_1.jpg",
+   "/home/user/AtlasOperations/data/vision-eval/frames/kitchen-prep_2.jpg",
+   "/home/user/AtlasOperations/data/vision-eval/frames/kitchen-prep_3.jpg"
+  ],
+  "model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+  "text": "\n```json\n{\n  \"what_changed\": \"In the first frame, a person is standing near the back cabinets. In the second frame, the person has moved slightly to the left. In the third frame, a person is actively chopping vegetables on a cutting board. The vegetables on the counter have been rearranged, with the knife and spatula moved, and the yellow pepper is now partially cut.\",\n  \"people_per_frame\": [1, 1, 1]\n}\n```",
+  "latency": 1.2195310592651367,
+  "prompt_tokens": 1699,
+  "completion_tokens": 101,
+  "cost": 0,
+  "finish": "stop",
+  "raw_len": 409,
+  "parsed": {
+   "what_changed": "In the first frame, a person is standing near the back cabinets. In the second frame, the person has moved slightly to the left. In the third frame, a person is actively chopping vegetables on a cutting board. The vegetables on the counter have been rearranged, with the knife and spatula moved, and the yellow pepper is now partially cut.",
+   "people_per_frame": [
+    1,
+    1,
+    1
+   ]
+  },
+  "score": {
+   "ok": true,
+   "people_frames_ok": 3,
+   "people_frames_total": 3,
+   "judge_raw": "{\"accuracy\": 2, \"hallucinations\": [\"Person standing near back cabinets not mentioned\", \"Spatula mentioned but not in description\"], \"missed\": [\"Whole cucumber, aubergine, orange, knife on board\", \"Cloth appearing\", \"Cook's arm with pan over sink\"]}",
+   "judge_cost": 0.001948,
+   "accuracy": 2,
+   "hallucinations": [
+    "Person standing near back cabinets not mentioned",
+    "Spatula mentioned but not in description"
+   ],
+   "missed": [
+    "Whole cucumber, aubergine, orange, knife on board",
+    "Cloth appearing",
+    "Cook's arm with pan over sink"
+   ]
+  }
+ },
+ {
+  "task": "temporal",
+  "site": "kitchen",
+  "camera": "kitchen-overview",
+  "paths": [
+   "/home/user/AtlasOperations/data/vision-eval/frames/kitchen-overview_1.jpg",
+   "/home/user/AtlasOperations/data/vision-eval/frames/kitchen-overview_2.jpg",
+   "/home/user/AtlasOperations/data/vision-eval/frames/kitchen-overview_3.jpg"
+  ],
+  "model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+  "text": "\n```json\n{\n  \"what_changed\": \"In the first frame, a person is standing at the counter facing away from the camera. In the second frame, the person is still at the counter but has turned slightly towards the left. In the third frame, the person is now at the sink area, actively cutting a cucumber with a knife. The items on the counter have also changed, with a pot appearing on the stove in the second frame and the cucumber being cut in the third frame.\",\n  \"people_per_frame\": [1, 1, 1]\n}\n```",
+  "latency": 3.558405876159668,
+  "prompt_tokens": 1699,
+  "completion_tokens": 121,
+  "cost": 0,
+  "finish": "stop",
+  "raw_len": 495,
+  "parsed": {
+   "what_changed": "In the first frame, a person is standing at the counter facing away from the camera. In the second frame, the person is still at the counter but has turned slightly towards the left. In the third frame, the person is now at the sink area, actively cutting a cucumber with a knife. The items on the counter have also changed, with a pot appearing on the stove in the second frame and the cucumber being cut in the third frame.",
+   "people_per_frame": [
+    1,
+    1,
+    1
+   ]
+  },
+  "score": {
+   "ok": true,
+   "people_frames_ok": 3,
+   "people_frames_total": 3,
+   "judge_raw": "{\"accuracy\": 4, \"hallucinations\": [\"Cutting cucumber with knife not confirmed by human description\"], \"missed\": [\"Cook was at counter by window, not just generic counter\"]}",
+   "judge_cost": 0.00157,
+   "accuracy": 4,
+   "hallucinations": [
+    "Cutting cucumber with knife not confirmed by human description"
+   ],
+   "missed": [
+    "Cook was at counter by window, not just generic counter"
+   ]
+  }
+ },
+ {
+  "task": "single",
+  "site": "kitchen",
+  "camera": "kitchen-stove",
+  "frame": 1,
+  "path": "/home/user/AtlasOperations/data/vision-eval/frames/kitchen-stove_1.jpg",
+  "area": "induction hob and the corner counter, high angle",
+  "model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+  "text": "\n{\n  \"people\": 1,\n  \"area\": \"kitchen prep station\",\n  \"activity\": \"A cook is opening a small box and handling its contents while standing at a counter with a saucepan on an induction cooktop.\",\n  \"issues\": []\n}",
+  "latency": 15.142049789428711,
+  "prompt_tokens": 725,
+  "completion_tokens": 57,
+  "cost": 0,
+  "finish": "stop",
+  "raw_len": 210,
+  "parsed": {
+   "people": 1,
+   "area": "kitchen prep station",
+   "activity": "A cook is opening a small box and handling its contents while standing at a counter with a saucepan on an induction cooktop.",
+   "issues": []
+  },
+  "score": {
+   "ok": true,
+   "people": 1,
+   "people_ok": true,
+   "people_near": true,
+   "hazard_hit": 0,
+   "hazard_total": 0,
+   "issues_reported": 0,
+   "judge_raw": "{\"accuracy\": 4, \"area_ok\": true, \"hallucinations\": [], \"missed\": [\"grey t-shirt detail\", \"oil bottles and knife block on counter\"]}",
+   "judge_cost": 0.001612,
+   "accuracy": 4,
+   "area_ok": true,
+   "hallucinations": [],
+   "missed": [
+    "grey t-shirt detail",
+    "oil bottles and knife block on counter"
+   ]
+  }
+ },
+ {
+  "task": "temporal",
+  "site": "kitchen",
+  "camera": "kitchen-sink",
+  "paths": [
+   "/home/user/AtlasOperations/data/vision-eval/frames/kitchen-sink_1.jpg",
+   "/home/user/AtlasOperations/data/vision-eval/frames/kitchen-sink_2.jpg",
+   "/home/user/AtlasOperations/data/vision-eval/frames/kitchen-sink_3.jpg"
+  ],
+  "model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+  "text": "\n```json\n{\n  \"what_changed\": \"In the first frame, the person is standing at the counter opening a box. In the second frame, the person is standing at the counter holding a piece of paper. In the third frame, the person is standing at the sink. The box is open on the counter in the first and third frames, but closed in the second frame. The piece of paper is on the counter in the second frame, but not in the first or third frames.\",\n  \"people_per_frame\": [1, 1, 1]\n}\n```",
+  "latency": 3.3668558597564697,
+  "prompt_tokens": 1699,
+  "completion_tokens": 119,
+  "cost": 0,
+  "finish": "stop",
+  "raw_len": 473,
+  "parsed": {
+   "what_changed": "In the first frame, the person is standing at the counter opening a box. In the second frame, the person is standing at the counter holding a piece of paper. In the third frame, the person is standing at the sink. The box is open on the counter in the first and third frames, but closed in the second frame. The piece of paper is on the counter in the second frame, but not in the first or third frames.",
+   "people_per_frame": [
+    1,
+    1,
+    1
+   ]
+  },
+  "score": {
+   "ok": true,
+   "people_frames_ok": 3,
+   "people_frames_total": 3,
+   "judge_raw": "{\"accuracy\": 3, \"hallucinations\": [\"Person holding a piece of paper not mentioned\", \"Box described as closed/open switching not supported\"], \"missed\": [\"Cook reaching to the sink\"]}",
+   "judge_cost": 0.001606,
+   "accuracy": 3,
+   "hallucinations": [
+    "Person holding a piece of paper not mentioned",
+    "Box described as closed/open switching not supported"
+   ],
+   "missed": [
+    "Cook reaching to the sink"
+   ]
+  }
+ }
+]

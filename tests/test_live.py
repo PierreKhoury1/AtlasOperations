@@ -153,7 +153,11 @@ class FakeStream:
 def test_write_note_streams_when_someone_listens(tmp_path, monkeypatch):
     fs = FakeStream()
     monkeypatch.setattr(V, "chat_images_stream", fs)
-    monkeypatch.setattr(V, "chat_images", lambda *a, **k: pytest.fail("non-streaming path used while a listener exists"))
+    def audit_only(system, text, images, **k):           # the verify pass is one plain call; the note itself must stream
+        if system != JR.VERIFY_SYSTEM:
+            pytest.fail("non-streaming path used while a listener exists")
+        return '{"note": ' + json.dumps(text.split("NOTE TO AUDIT:\n", 1)[1].rsplit("\n\nReturn the JSON.", 1)[0]) + ', "removed": [], "softened": []}'
+    monkeypatch.setattr(V, "chat_images", audit_only)
     q = JR.subscribe(1)
     jpeg = _jpeg(tmp_path / "a.jpg")
     text = JR.write_note((1, "till"), "till", JR.config({"journal": "1"}), jpeg, {"person": 2}, why="first note")
@@ -241,3 +245,51 @@ def test_journal_sse_endpoint(app_client):
     assert ev["kind"] == "note_delta" and ev["text"] == "hello "
     r.close()
     assert _wait(lambda: JR.subscribers(desk_id) == 0)
+
+
+def test_recordings_play_on_one_shared_clock(clip, tmp_path, monkeypatch):
+    """Two cameras cut from the same moment show the same instant, however far apart they were opened: the position is
+    (now - SYNC_EPOCH) mod the clip's length, for the live loop and for a one-off grab alike."""
+    import shutil
+    other = str(tmp_path / "clip-b.mp4")
+    shutil.copy(clip, other)                             # a second camera: same length, same moment
+    monkeypatch.setattr(V, "SYNC_EPOCH", time.time() - 0.7)   # the shared clock started 0.7 s ago
+    assert abs(V.video_position(2.0) - 0.7) < 0.05 and V.video_position(0.2) == 0.0
+    a = LIVE.open(clip, "cam-a")
+    assert _wait(lambda: a.seq >= 3), a.error
+    time.sleep(0.6)                                      # the second camera is opened later
+    b = LIVE.open(other, "cam-b")
+    assert _wait(lambda: b.seq >= 3), b.error
+    for _ in range(5):
+        want = V.video_position(2.0)
+        gap = min(abs(a.pos_s - b.pos_s), 2.0 - abs(a.pos_s - b.pos_s))          # positions wrap at the clip's end
+        assert gap < 0.35, (a.pos_s, b.pos_s)
+        assert min(abs(a.pos_s - want), 2.0 - abs(a.pos_s - want)) < 0.4, (a.pos_s, want)
+        time.sleep(0.25)
+
+
+def test_live_loop_tracks_people_on_the_openvino_runtime(tmp_path, monkeypatch):
+    """The real detector on the OpenVINO runtime (exported on first use) in the live loop on a sample clip: people are
+    found with ByteTrack ids, boxes in the clip's own pixels, and the feed reports which runtime it runs."""
+    pytest.importorskip("ultralytics")
+    pytest.importorskip("openvino")
+    import shutil
+    from pathlib import Path
+    root = Path(__file__).resolve().parents[1]
+    weights, clip = root / "data" / "models" / "yolo11n.pt", root / "samples" / "videos" / "hotel-lobby_Browse4.mp4"
+    if not weights.exists() or not clip.exists():
+        pytest.skip("needs data/models/yolo11n.pt and samples/videos")
+    shutil.copy(weights, tmp_path / "yolo11n.pt")              # the export lands next to the weights: keep it in tmp
+    det = V.Detector(str(tmp_path / "yolo11n.pt"), runtime="openvino")
+    monkeypatch.setattr(V, "DETECTOR", det)
+    f = LIVE.open(str(clip), "lobby")
+    f.attach()
+    try:
+        assert _wait(lambda: any(d["id"] is not None for d in f.dets), timeout=50), f.error
+        assert f.status()["detector"] == "yolo11n (openvino)" and det.runtime == "openvino"
+        assert (tmp_path / "yolo11n_384x640_openvino_model").is_dir()
+        w, h = f.size
+        people = [d for d in f.dets if d["label"] == "person"]
+        assert people and all(0 <= d["box"][0] < d["box"][2] <= w and 0 <= d["box"][1] < d["box"][3] <= h for d in people)
+    finally:
+        f.detach()

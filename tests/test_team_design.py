@@ -63,7 +63,14 @@ def test_validate_rejects_bad_structure_but_stays_usable():
     assert by["d"]["reports_to"] == "atlas"                                          # too deep -> flattened
     msgs = " | ".join(errors)
     assert "cycle" in msgs and "ghost" in msgs and "deeper" in msgs and "reserved" in msgs and "used twice" in msgs
-    assert "g: needs at least 2 standing orders" in msgs and "workflow step #1 names no known agent" in msgs
+    assert "g: needs at least" not in msgs and "workflow step #1 names no known agent" in msgs   # one short rule is enough
+    assert "f: has no function, only text" in msgs and "record_find" in by["f"]["tools"]          # text-only agents get flagged + eyes
+    lone, errs = TM.validate_team({"agents": [{"id": "x", "name": "X", "role": "r", "tools": ["web_fetch"],
+                                               "goal": "word " * 80, "instructions": ["r" * 300, "b", "c", "d", "e"]}]})
+    x = lone["agents"][0]
+    assert errs == [] and len(x["instructions"]) == TM.MAX_RULES and len(x["instructions"][0]) == TM.RULE_CHARS
+    assert len(x["goal"]) <= TM.GOAL_CHARS + 1 and x["goal"].endswith("…")
+    assert "x: needs at least 1 rule" in TM.validate_team({"agents": [{"id": "x", "name": "X", "role": "r", "tools": ["web_fetch"]}]})[1][0]
     assert team["workflow"]                                                          # default plan from the top level
     big, errs = TM.validate_team({"agents": [{"id": f"a{i}", "name": "x", "role": "r", "instructions": ["a", "b"]} for i in range(12)]}, max_agents=8)
     assert len(big["agents"]) == 8 and any("too large" in e for e in errs)

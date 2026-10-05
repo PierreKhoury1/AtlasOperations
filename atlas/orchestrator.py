@@ -23,7 +23,9 @@ from typing import Any, Callable
 
 from . import integrations as I
 from . import mcp_client as M
+from . import cases as C
 from . import policy as P
+from . import records as R
 from . import secure as S
 from . import tools as T
 from .config import RUNS_DIR
@@ -100,6 +102,10 @@ def _slack_text(s: str) -> str:
     return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
+PARALLEL_SAFE = {"delegate", "camera_look", "camera_events", "camera_ask", "web_fetch", "read_file", "list_files", "crm_lookup",
+                 "recall", "http_request", "calendar_free_slots", "list_agents", "browse", "record_find", "record_get", "case_list"}
+
+
 class Orchestrator:
     def __init__(self, configs: dict[str, Any], store: Store | None, emit: Callable[[Event], None]):
         self.configs = configs
@@ -121,6 +127,7 @@ class Orchestrator:
         self._policy_hits: dict[tuple[str, str], int] = {}
         self._tl = threading.local()                      # per-thread current agent instance (parallel delegations)
         self._inst_counts: dict[str, int] = {}
+        self.case_id: int | None = configs.get("case_id") or None   # the case this run works (atlas/cases.py), if any
 
     # ------------------------------------------------------------------ events
     def emit(self, kind: str, agent: str = "system", text: str = "", **data):
@@ -139,6 +146,11 @@ class Orchestrator:
             cur = getattr(self._tl, "inst", None)
             if cur and cur.split("#")[0] == agent:
                 data["inst"] = cur
+        if kind == "approval" and self.case_id and data.get("action_id") and self.store is not None and hasattr(self.store, "tag_action_case"):
+            try:                                           # every approval queued in a case run belongs to that case
+                self.store.tag_action_case(int(data["action_id"]), self.case_id)
+            except Exception:
+                pass
         ev = Event(kind, agent, text, data)
         if self.store and self.run_id and kind not in ("usage", "token"):
             try:
@@ -229,6 +241,12 @@ class Orchestrator:
             else:
                 parts.append("No cameras connected yet (the owner adds them under Cameras).")
         parts.extend(self._security_context(agent))
+        if "record_find" in agent.get("tools", []) and self.store is not None and hasattr(self.store, "desk_id"):
+            try:
+                txt = R.summary_text(self.store)
+            except Exception:
+                txt = ""
+            parts.append(txt or "No business records yet - save people, bookings and orders you learn about with record_save.")
         if "recall" in agent.get("tools", []) and self.store is not None and hasattr(self.store, "recall"):
             mem = self.store.recall("", 15)
             if mem:
@@ -533,8 +551,9 @@ class Orchestrator:
                 self.emit("error", agent["id"], f"{call.name}: {exc}")
                 return (call.id, call.name, f"{type(exc).__name__}: {exc}", True)
 
-        delegations = [c for c in calls if c.name == "delegate"]
-        if len(delegations) > 1:
+        # Independent calls run side by side: several delegations, or a fan-out of reads (five camera_look calls used
+        # to take five round trips). Anything that writes, spends or finishes stays in order.
+        if len(calls) > 1 and all(c.name in PARALLEL_SAFE for c in calls):
             with ThreadPoolExecutor(max_workers=min(6, len(calls))) as ex:
                 return list(ex.map(one, calls))
         return [one(c) for c in calls]
@@ -844,7 +863,10 @@ class Orchestrator:
                                         int(args.get("frames") or 8))
         if name in ("finish", "queue_action") and aid == "atlas" and not getattr(self, "_delegated", True) and getattr(self, "_team_nudges", 0) < 2:
             team = [a for a in self.agents.values() if a["id"] != "atlas" and a.get("enabled", True)]
-            if team and self.orch.get("require_delegation", True):
+            # a camera alert is a look-and-decide task: Atlas may answer it alone (it wasted two turns and drafted
+            # sales emails when forced to brief a sales team about a person at the fridge)
+            alert = "CAMERA ALERT" in (getattr(self, "_task", "") or "")
+            if team and self.orch.get("require_delegation", True) and not alert:
                 self._team_nudges = getattr(self, "_team_nudges", 0) + 1
                 self.emit("policy", aid, "Atlas tried to " + name + " without briefing the team - sent back to delegate")
                 return ("NOT ALLOWED YET: this desk has a team and you have not delegated anything. Your job is to brief them, "
@@ -1037,6 +1059,21 @@ class Orchestrator:
             return self._enrich(aid, args)
         if name == "correlate":
             return self._correlate(aid, args)
+        if name in ("record_find", "record_get", "record_save"):
+            return self._record_tool(aid, name, args)
+        if name in C.TOOL_NAMES:
+            if not self.store or not hasattr(self.store, "desk_id"):
+                return "no cases in this context"
+            try:
+                out, bound = C.tool(self.store, name, args, aid, self.run_id, self.case_id)
+            except Exception as exc:
+                return f"ERROR: {name} failed: {type(exc).__name__}: {str(exc)[:200]}"
+            if bound and bound != self.case_id:
+                self.case_id = bound
+                if hasattr(self.store, "set_run_case"):
+                    self.store.set_run_case(self.run_id, bound)
+            self.emit("tool", aid, f"{name} → {out[:140]}")
+            return out
         if name == "remember":
             if not self.store or not hasattr(self.store, "remember"):
                 return "no memory in this context"
@@ -1107,6 +1144,49 @@ class Orchestrator:
         assert self._ws is not None
         return self._ws.call(name, args)
 
+    def _record_tool(self, aid: str, name: str, args: dict[str, Any]) -> str:
+        if not self.store or not hasattr(self.store, "desk_id"):
+            return "no business records in this context"
+        st = self.store
+        try:
+            if name == "record_find":
+                rows = R.search(st, rtype=str(args.get("type") or ""), query=str(args.get("query") or ""),
+                                limit=max(1, min(int(args.get("limit") or 15), 50)))
+                what = repr(str(args.get("query") or "")) + (f", {args['type']}" if args.get("type") else "")
+                self.emit("tool", aid, f"record_find({what}) → {len(rows)}")
+                return "\n".join("- " + R.brief(r) for r in rows) or "no matching records"
+            if name == "record_get":
+                ref = args.get("id") or args.get("record") or ""
+                rec = R.resolve_ref(st, None, ref)
+                self.emit("tool", aid, f"record_get {ref} → {'found' if rec else 'none'}")
+                return R.describe(st, rec["id"]) if rec else f"no record {ref!r} (record_find searches by name, email, ref...)"
+            if name == "record_save":
+                rtype = str(args.get("type") or "").strip()
+                fields = args.get("fields") if isinstance(args.get("fields"), dict) else {}
+                rec, changed = R.upsert(st, None, rtype, fields, key=str(args.get("key") or ""), title=str(args.get("title") or ""),
+                                        source="agent", actor=aid, run_id=self.run_id)
+                linked = []
+                for l in (args.get("links") or [])[:12]:
+                    if not isinstance(l, dict):
+                        continue
+                    dst = R.resolve_ref(st, None, l.get("to"))
+                    if dst and R.link(st, None, rec["id"], str(l.get("rel") or "related_to"), dst["id"], source="agent", actor=aid):
+                        linked.append(f"{l.get('rel')} #{dst['id']}")
+                    elif not dst:
+                        linked.append(f"(no record {l.get('to')!r} to link)")
+                if args.get("note"):
+                    R.add_timeline(st, None, record_id=rec["id"], kind="note", actor=aid, text=str(args["note"])[:2000], run_id=self.run_id)
+                if self.case_id:
+                    C.attach(st.s, st.desk_id, self.case_id, rec["id"], "related")
+                self.emit("tool", aid, f"record_save {rec['type']} #{rec['id']} {rec['title'][:60]}" + (f" ({', '.join(changed[:5])})" if changed else ""))
+                return (f"saved {rec['type']} #{rec['id']} {rec['title']}" + (f" - changed {', '.join(changed)}" if changed else " - no new facts")
+                        + (f"; linked {', '.join(linked)}" if linked else ""))
+        except ValueError as exc:
+            return f"ERROR: {exc}"
+        except Exception as exc:
+            return f"ERROR: {name} failed: {type(exc).__name__}: {str(exc)[:200]}"
+        return f"unknown record tool {name}"
+
     # ------------------------------------------------------------------ entry
     def run(self, task: str, mode: str = "auto") -> RunResult:
         self._cancel.clear()
@@ -1130,9 +1210,13 @@ class Orchestrator:
             self.emit("deliverable", "system", str(p), path=str(p))
 
         self._ws = T.WorkspaceTools(self.run_dir, on_deliverable)
+        self.case_id = self.configs.get("case_id") or None
         if self.store:
             self.store.create_run(self.run_id, task, mode, str(self.run_dir))
-        self.emit("log", "system", f"run {self.run_id}  mode={mode}  business={self.business.get('name')}")
+            if self.case_id and hasattr(self.store, "set_run_case"):
+                self.store.set_run_case(self.run_id, self.case_id)
+        self.emit("log", "system", f"run {self.run_id}  mode={mode}  business={self.business.get('name')}"
+                  + (f"  case=#{self.case_id}" if self.case_id else ""))
         status, summary = "done", ""
         try:
             if mode == "auto":
