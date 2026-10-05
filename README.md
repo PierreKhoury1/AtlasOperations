@@ -106,6 +106,28 @@ A run is one job. **Cases** are the work that spans days: answer the lead, wait 
 Agents are defined by their functions: designed agents get a one-line goal, at most three short rules, and at least one
 tool that acts; an agent with no function is given read access to the records and flagged.
 
+## Security operations desk (`/desk/cyber`)
+
+Template `soc_desk`: the desk reads security logs, runs deterministic detection rules and proposes containment that a
+person approves. Design contract: `docs/cyber-desk-spec.md`.
+
+- **Parsers** (`atlas/cyber.py`): sshd syslog, Zeek TSV (notice / ssh / conn), Snort or Suricata `fast.log`,
+  Apache/Nginx combined. **Rules**: `ssh_bruteforce`, `success_after_failures`, `wordlist_fingerprint`, `scan`,
+  `ids_high`, `web_probe`. Log fields are attacker-controlled data: cleaned, never used in titles, passed to agents
+  only as JSON fields.
+- **Agent tools**: `log_search`, `enrich` (RIPEstat, optional DB-IP Lite, CISA KEV, NVD; cached, rate-limited; offline
+  with `CYBER_OFFLINE=1`), `correlate` (entity graph: IPs, hosts, users, signatures, cameras, every edge cites its events).
+- **Ingest**: `POST /hook/<token>/logs`, `POST /api/cyber/upload`, and the job kinds `log_replay` / `log_watch`
+  (files under `workspace/inputs` or `CYBER_LOG_ROOTS`). Detection passes are throttled per desk
+  (`CYBER_DETECT_EVERY_S`, default 10 s); new or escalated detections queue until a run may start
+  (`CYBER_RUN_COOLDOWN_S`, default 120 s). The run investigates and proposes; it never blocks anything itself.
+- **Console APIs**: `/api/cyber/events`, `timeline`, `detections`, `detect`, `graph`, `incident`, `incident/report`,
+  `containment`, `config`, `recordings`.
+- **Containment** is an approval (`kind: containment`): checked again at dispatch against the cited evidence, sent to an
+  HTTP connector's `containment_path` only if that connector requires approval, otherwise simulated. For demos,
+  `py scripts/lab_containment.py` is a stand-in firewall that records requests and blocks nothing.
+- Samples: `samples/cyber` (MACCDC 2012, auth log); replay bundles via `scripts/cyber_replay_bundle.py`.
+
 ## Integrations (what an approved action actually does)
 
 Every outbound action still goes through the approval queue. Connectors decide what happens when you click **Approve**. Add them under **Integrations** in the portal (or `POST /api/connectors`); each has a **Test** button. Secrets are stored server-side and returned masked.
