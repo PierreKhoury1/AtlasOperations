@@ -101,7 +101,8 @@ HERMES_KEY=""
 [ -f "$ENVF" ] && HERMES_KEY="$(grep '^HERMES_AGENT_KEY=' "$ENVF" | cut -d= -f2- || true)"
 [ -n "$HERMES_KEY" ] || HERMES_KEY="atlas-$(rand 18)"
 if [ ! -x $HOME_DIR/.local/bin/hermes ]; then
-  sudo -u $APP_USER -H bash -c "curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash </dev/null" \
+  # download first: `curl | bash </dev/null` would hand bash /dev/null instead of the script (curl exit 23)
+  sudo -u $APP_USER -H bash -c "curl -fsSL https://hermes-agent.nousresearch.com/install.sh -o /tmp/hermes-install.sh && bash /tmp/hermes-install.sh --non-interactive </dev/null" \
     || echo "hermes installer returned non-zero - check output above"
 fi
 sudo -u $APP_USER -H bash -c "mkdir -p ~/.hermes && touch ~/.hermes/.env && chmod 600 ~/.hermes/.env"
