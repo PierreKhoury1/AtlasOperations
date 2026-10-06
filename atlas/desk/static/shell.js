@@ -22,7 +22,7 @@
   };
   const svg = k => `<svg viewBox="0 0 24 24">${IC[k] || ''}</svg>`;
   const NAV = [
-    ['Work', [['home', 'Home', '/desk#dash', 'home'], ['cases', 'Cases', '/desk/ops', 'inbox'], ['inbox', 'Messages', '/desk#inbox', 'chat'], ['approvals', 'Approvals', '/desk#approvals', 'check'],
+    ['Work', [['home', 'Home', '/desk#dash', 'home'], ['cases', 'Cases', '/desk/ops', 'inbox'], ['inbox', 'Messages', '/desk#inbox', 'chat'], ['studio', 'Ad studio', '/desk#studio', 'spark'], ['approvals', 'Approvals', '/desk#approvals', 'check'],
               ['live', 'Live runs', '/desk#live', 'pulse'], ['leads', 'Leads', '/desk#leads', 'leads'], ['crm', 'Contacts', '/desk#crm', 'db']]],
     ['See', [['cameras', 'Cameras', '/desk#cameras', 'camera'], ['objects', 'Objects', '/desk/objects', 'grid'], ['review', 'Review', '/desk/review', 'film'],
              ['security', 'Security', '/desk/cyber', 'shield']]],

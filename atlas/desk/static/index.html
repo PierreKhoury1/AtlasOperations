@@ -644,6 +644,30 @@ aside.simple [data-lvl="full"]{display:none}
   <div class="ticker panel"><div class="ph"><h2>Hand-offs, tools, approvals</h2><button class="link" onclick="go('runs')">Explore ›</button></div><div class="pb"><div class="log" id="live-log" style="border:0;padding:0;background:transparent">(waiting for a run)</div></div></div>
 </section>
 
+<!-- AD STUDIO -->
+<section id="p-studio" class="hide">
+  <div class="phead"><div><h1>Ad studio</h1><p class="lead">Advertising from scratch: say what you're promoting and the team writes platform-ready copy — and a hero image when an image connector is attached. Nothing is published; you get drafts to use anywhere.</p></div></div>
+  <div class="grid g2" style="grid-template-columns:minmax(0,1fr) minmax(0,1.3fr);align-items:start">
+    <div class="panel"><div class="ph"><h2>New campaign</h2></div><div class="pb">
+      <label>What are you promoting?</label><textarea id="ad-what" rows="2" placeholder="Sunday jazz brunch from 12, two courses £24 — launching November"></textarea>
+      <label>Who is it for?</label><input id="ad-who" placeholder="locals 25-45, families, regulars…">
+      <label>Where will it run?</label>
+      <div class="row" id="ad-platforms" style="flex-wrap:wrap;gap:6px;margin:4px 0 8px">
+        <button class="btn sm on" data-p="Instagram">Instagram</button><button class="btn sm on" data-p="Facebook">Facebook</button><button class="btn sm" data-p="Google ads">Google ads</button><button class="btn sm" data-p="Poster / flyer">Poster</button><button class="btn sm" data-p="Email promo">Email</button>
+      </div>
+      <label>Tone (from your desk setup, change if you like)</label><input id="ad-tone">
+      <label>Anything the ads must say or avoid</label><input id="ad-notes" placeholder="mention free parking; never say 'cheap'">
+      <label style="display:flex;gap:8px;align-items:center;margin-top:6px"><input type="checkbox" id="ad-img" style="width:auto"> Generate a hero image <span class="hint" id="ad-img-hint" style="margin:0"></span></label>
+      <div class="row" style="margin-top:12px"><button class="btn p" id="ad-go" onclick="adCreate()">Create the campaign →</button></div>
+    </div></div>
+    <div class="hm-col">
+      <div class="panel"><div class="ph"><h2>Campaigns</h2><button class="link" onclick="go('runs')">All runs ›</button></div><div id="ad-list"><div class="hm-none">None yet — brief the team on the left.</div></div></div>
+      <div class="panel" id="ad-out-p" style="display:none"><div class="ph"><h2 id="ad-out-t">Campaign</h2><div class="ctl"><button class="btn sm" onclick="adCopy()">Copy all</button></div></div>
+        <div class="pb repmd" id="ad-out" style="max-height:560px"></div></div>
+    </div>
+  </div>
+</section>
+
 <!-- MESSAGES -->
 <section id="p-inbox" class="hide">
   <div class="phead"><div><h1>Messages</h1><p class="lead">One thread per customer across email, WhatsApp and SMS. The agents draft and wait for approval; here you can also reply yourself.</p></div>
@@ -921,6 +945,7 @@ async function refresh(){
   if (page==='team') loadTeam();
   if (page==='crm') loadCrm();
   if (page==='inbox') loadInbox();
+  if (page==='studio') adLoadPage();
   if (page==='runs') { loadRuns(); if (curRun) loadRun(curRun, true); }
   if (page==='audit') loadAudit();
   if (page==='integrations') loadConnectors();
@@ -1172,6 +1197,63 @@ async function decide(id, status){
   toast(status==='approved' ? `Sent (simulated) to ${r.to}` : 'Rejected'); refresh();
 }
 
+// ---- Ad studio: a precise brief in, platform-ready copy out, through the normal run + approval machinery
+const AD = {t: 0, cur: null, md: ''};
+document.querySelectorAll('#ad-platforms button').forEach(b => b.onclick = () => b.classList.toggle('on'));
+const AD_LIMITS = {
+  'Instagram': 'a caption up to 2,200 characters with 5-8 relevant hashtags and a one-line art direction note',
+  'Facebook': 'primary text up to 125 characters, a headline up to 40, a description up to 30, and a one-line art direction note',
+  'Google ads': 'a responsive search ad: 5 headlines of at most 30 characters and 4 descriptions of at most 90',
+  'Poster / flyer': 'a headline, a subhead, three short bullets and a call to action, laid out top to bottom',
+  'Email promo': 'a subject of at most 50 characters, a preview line, and body copy of about 120 words',
+};
+async function adLoadPage(){
+  if (!$('#ad-tone').value) $('#ad-tone').value = (CFG.business || {}).tone || '';
+  const media = ((CFG.agents || []).some(a => (a.tools || []).includes('generate_media')));
+  const conn = await api('/connectors'); const hig = !!(conn && (conn.connectors || []).some(c => c.kind === 'higgsfield'));
+  const can = media && hig;
+  $('#ad-img').disabled = !can;
+  $('#ad-img-hint').textContent = can ? '(through your image connector)' : '— needs an image connector (Integrations → Higgsfield)';
+  adList();
+}
+async function adList(){
+  if (Date.now() - AD.t < 4000) return; AD.t = Date.now();
+  const R = await api('/runs'); if (!R || page !== 'studio') return;
+  const mine = R.filter(r => (r.task || '').startsWith('[Ad studio]'));
+  $('#ad-list').innerHTML = mine.length ? mine.slice(0, 10).map(r => { const st = r.active ? ['writing…', 'on'] : /error|fail/.test(r.status) ? ['failed', 'bad'] : ['ready', ''];
+    return `<div class="hm-row" onclick="adOpen('${r.id}')"><span class="m"><b>${esc((r.task.match(/Promoting: ([^\n]+)/) || [,'Campaign'])[1].slice(0, 70))}</b><small>${esc(ago(r.created))} ago${r.summary ? ' · ' + esc(r.summary.slice(0, 80)) : ''}</small></span><span class="st ${st[1]}">${st[0]}</span></div>`; }).join('')
+    : '<div class="hm-none">None yet — brief the team on the left.</div>';
+  if (mine.some(r => r.active)) AD.t = Date.now() - 2500;
+}
+async function adCreate(){
+  const what = $('#ad-what').value.trim(); if (!what) return $('#ad-what').focus();
+  const plats = [...document.querySelectorAll('#ad-platforms button.on')].map(b => b.dataset.p);
+  if (!plats.length) return toast('Pick at least one platform');
+  const img = $('#ad-img').checked && !$('#ad-img').disabled;
+  const date = new Date().toISOString().slice(0, 10);
+  const task = `[Ad studio] Create ready-to-post advertising for ${(CFG.business || {}).name || 'the business'}.
+Promoting: ${what}
+Audience: ${$('#ad-who').value.trim() || 'the business\'s usual customers'}
+Tone: ${$('#ad-tone').value.trim() || 'the business\'s usual tone'}
+Platforms: ${plats.join(', ')}
+${$('#ad-notes').value.trim() ? 'Must respect: ' + $('#ad-notes').value.trim() : ''}
+Save ONE deliverable named ads-${date}.md (save_deliverable). Structure: a '## <platform>' section per platform, each with TWO distinct variants. Per platform produce ${plats.map(p => `for ${p}: ${AD_LIMITS[p]}`).join('; ')}.
+Ground every claim in the business profile and this brief; never invent prices, dates or offers that are not given. Plain language, no clichés, one clear next step per ad.${img ? "\nAlso generate ONE hero image with generate_media: prompt it from your strongest art direction note, then add an '## Image' section with the output URL." : "\nDo not attempt image generation."}`;
+  const btn = $('#ad-go'); btn.disabled = true;
+  const r = await api('/runs', {method: 'POST', body: {task, mode: 'auto'}});
+  btn.disabled = false;
+  if (!r || r.error) return toast(r?.error || 'failed');
+  toast('The team is writing — the campaign appears on the right'); AD.t = 0; adList();
+}
+async function adOpen(id){
+  const r = await api('/runs/' + id); if (!r || r.error) return;
+  const del = (r.deliverables || []).find(d => d.name.startsWith('ads-')) || (r.deliverables || [])[0];
+  AD.cur = id; AD.md = del ? del.content : '';
+  $('#ad-out-p').style.display = '';
+  $('#ad-out-t').textContent = del ? del.name : (r.active ? 'Still writing…' : 'No deliverable yet');
+  $('#ad-out').innerHTML = del ? mdHtml(del.content) : `<div class="hm-none">${r.active ? 'The team is still writing. Open it again in a moment.' : 'This run saved no ads file — open it under Run history to see why.'}</div>`;
+}
+function adCopy(){ if (!AD.md) return; navigator.clipboard.writeText(AD.md).then(() => toast('Copied as markdown')); }
 const MSG = {key: null, threads: [], ch: {}, t: 0};
 const msgKey = a => a.includes('@') ? a.toLowerCase() : '+' + a.replace(/\D/g, '');   // same key the server builds
 async function loadInbox(){
