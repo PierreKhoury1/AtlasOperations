@@ -52,7 +52,7 @@ def _camera_pool() -> "ThreadPoolExecutor":
             _pool = ThreadPoolExecutor(max_workers=max(1, CAMERA_WORKERS), thread_name_prefix="camera")
         return _pool
 MIN_CAMERA_S = 5                                         # fastest camera_watch cadence (the portal allows every_s >= 5)
-LIVE = lambda: True                                       # replaced by the app: is this desk on live models?
+LIVE = lambda desk=None: True                             # replaced by the app: is this desk on live models?
 BASE_URL = lambda: ""                                     # replaced by the app: public URL for snapshot links
 DISPATCH = None                                           # replaced by the app: send an approved action for real
 LEAD_RUN = None                                           # replaced by the app: work a new lead as an enquiry case
@@ -895,7 +895,7 @@ def _run_job(store, job: dict[str, Any], start_run: Callable, desk_for: Callable
             cams = [c for c in cams if c["name"] == spec["connector"]]
         if not cams:
             return "no camera connector"
-        live = bool(LIVE())
+        live = bool(LIVE(desk))
         out = []
         for c in cams:
             try:

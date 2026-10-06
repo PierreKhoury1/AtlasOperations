@@ -114,10 +114,25 @@ def _mode() -> str:
     return "live"      # auto = live. Scripted agents only when DESK_MODE=demo is set on purpose, never as a silent fallback.
 
 
-def _live_reason() -> str:
+def _desk_byo(desk: dict[str, Any] | None) -> dict[str, Any]:
+    """The desk's own model accounts: {"default": name, "entries": {name: encrypted-config}}."""
+    return ((desk or {}).get("config") or {}).get("byo") or {}
+
+
+def _desk_byo_default(desk: dict[str, Any] | None) -> dict[str, Any] | None:
+    """The decrypted entry the desk runs on, when the owner brought their own model account."""
+    byo = _desk_byo(desk)
+    blob = (byo.get("entries") or {}).get(byo.get("default") or "")
+    e = SEC.decrypt_config(blob) if blob else {}
+    return e if e.get("api_key") or e.get("preset") == "custom" else None
+
+
+def _live_reason(desk: dict[str, Any] | None = None) -> str:
     """Why real runs cannot happen right now ('' = ready). A live desk without a model key says so instead of
     quietly running the scripted designer/agents in its place."""
     if _mode() == "demo":
+        return ""
+    if _desk_byo_default(desk):
         return ""
     prov = cfg.load("providers", cfg.DEFAULT_PROVIDERS)
     name = os.environ.get("DESK_PROVIDER", "").strip() or prov.get("default_provider", "openrouter")
@@ -130,8 +145,8 @@ def _live_reason() -> str:
     return f"no model key: set {env} for provider '{name}' - real models only, no scripted stand-in"
 
 
-def _require_live() -> None:
-    r = _live_reason()
+def _require_live(desk: dict[str, Any] | None = None) -> None:
+    r = _live_reason(desk)
     if r:
         abort(Response(json.dumps({"error": "no_model_key", "message": r}), 503, mimetype="application/json"))
 
@@ -188,6 +203,13 @@ def desk_configs(desk: dict[str, Any]) -> dict[str, Any]:
         for name, pc in cfg.DEFAULT_PROVIDERS["providers"].items():   # backfill presets added later
             providers.setdefault("providers", {}).setdefault(name, dict(pc))
         prov = os.environ.get("DESK_PROVIDER", "").strip() or providers.get("default_provider", "openrouter")
+        byo = over.get("byo") or {}                      # the owner's own model accounts, keys encrypted at rest
+        for n, blob in (byo.get("entries") or {}).items():
+            e = SEC.decrypt_config(blob)
+            if e.get("type"):
+                providers.setdefault("providers", {})["desk:" + n] = {k: v for k, v in e.items() if k not in ("preset", "last_test")}
+        if byo.get("default") and ("desk:" + byo["default"]) in (providers.get("providers") or {}):
+            prov = "desk:" + byo["default"]
         providers["default_provider"] = prov
         for a in agents:
             a["provider"] = prov
@@ -771,7 +793,7 @@ def _design_team_for(desk: dict[str, Any], task: str, reuse: bool = False) -> di
         team = TM.demo_team(configs["business"], task, cams)
         res: dict[str, Any] = {"team": team, "errors": [], "warnings": [], "turns": 0}
     else:
-        _require_live()
+        _require_live(desk)
         from ..providers import ProviderPool
         atlas_agent = next((a for a in configs["agents"] if a["id"] == "atlas"), {})
         prov = ProviderPool(configs["providers"]).get(atlas_agent.get("provider") or "")
@@ -810,6 +832,137 @@ def _owned_desk(did: int) -> dict[str, Any]:
     if not d or (u and d["owner_id"] != u["id"] and not OPEN):
         abort(404)
     return d
+
+
+# ---- the owner's own model accounts: paste an OpenAI / Anthropic / OpenRouter key (or point at any
+# OpenAI-compatible server) and the desk's agents run on it. Keys are encrypted at rest and never echoed back.
+BYO_PRESETS: dict[str, dict[str, Any]] = {
+    "anthropic":  {"type": "anthropic", "label": "Claude (Anthropic API)", "key_hint": "sk-ant-…",
+                   "default_model": "claude-sonnet-4-5", "models": ["claude-opus-5", "claude-sonnet-4-5", "claude-haiku-4-5"],
+                   "effort": "high", "thinking": "adaptive", "fallbacks": True, "max_tokens": 16000, "timeout": 600},
+    "openai":     {"type": "openai", "label": "OpenAI (your ChatGPT / Codex API account)", "key_hint": "sk-…",
+                   "base_url": "https://api.openai.com/v1", "default_model": "gpt-5.4-mini",
+                   "models": ["gpt-5.4", "gpt-5.4-mini"], "temperature": 0.2, "max_tokens": 8000, "timeout": 600},
+    "openrouter": {"type": "openai", "label": "OpenRouter (your account, any model)", "key_hint": "sk-or-…",
+                   "base_url": "https://openrouter.ai/api/v1", "default_model": "anthropic/claude-sonnet-4.5",
+                   "models": [],                       # filled from MODEL_CATALOG below, once it exists
+                   "temperature": 0.2, "max_tokens": 8000, "timeout": 600},
+    "custom":     {"type": "openai", "label": "Your own server (OpenAI-compatible: vLLM, Ollama, TGI, a rented GPU)",
+                   "key_hint": "key, if the server wants one", "default_model": "", "models": [],
+                   "temperature": 0.2, "max_tokens": 8000, "timeout": 600},
+}
+
+
+def _own_desk(did: int) -> dict[str, Any]:
+    u = current_user()
+    d = store.desk(did)
+    if not d or (u and d["owner_id"] != u["id"] and not OPEN):
+        abort(404)
+    return d
+
+
+def _byo_public(name: str, e: dict[str, Any]) -> dict[str, Any]:
+    key = e.get("api_key") or ""
+    return {"name": name, "preset": e.get("preset") or "custom",
+            "label": BYO_PRESETS.get(e.get("preset") or "", {}).get("label", name),
+            "base_url": e.get("base_url", ""), "model": e.get("default_model", ""),
+            "key_hint": ("…" + key[-4:]) if len(key) >= 8 else ("set" if key else ""),
+            "last_test": e.get("last_test") or None}
+
+
+@app.get("/api/desks/<int:did>/providers")
+def api_desk_providers(did):
+    d = _own_desk(did)
+    byo = _desk_byo(d)
+    entries = [_byo_public(n, SEC.decrypt_config(b)) for n, b in (byo.get("entries") or {}).items()]
+    return jsonify({"default": byo.get("default") or "", "entries": entries,
+                    "presets": [{"id": k, "label": v["label"], "key_hint": v["key_hint"], "models": v["models"],
+                                 "default_model": v["default_model"], "needs_url": k == "custom"} for k, v in BYO_PRESETS.items()],
+                    "house_reason": _live_reason()})
+
+
+@app.post("/api/desks/<int:did>/providers")
+def api_desk_provider_set(did):
+    d = _own_desk(did)
+    b = request.get_json(force=True) or {}
+    preset = str(b.get("preset") or "")
+    if preset not in BYO_PRESETS:
+        return jsonify({"error": "unknown preset"}), 400
+    p = BYO_PRESETS[preset]
+    conf = d.get("config") or {}
+    byo = conf.setdefault("byo", {})
+    old = SEC.decrypt_config((byo.get("entries") or {}).get(preset)) if (byo.get("entries") or {}).get(preset) else {}
+    key = str(b.get("api_key") or "").strip() or old.get("api_key", "")   # keep the stored key when the field is left blank
+    if preset != "custom" and not key:
+        return jsonify({"error": "paste the API key"}), 400
+    base = str(b.get("base_url") or "").strip() or p.get("base_url", "")
+    if preset == "custom":
+        if not base.startswith(("http://", "https://")):
+            return jsonify({"error": "give the server's base URL (https://…/v1)"}), 400
+        why = SEC.private_url_reason(base)
+        if why:
+            return jsonify({"error": f"that URL is not reachable from here: {why}"}), 400
+    entry = {k: v for k, v in p.items() if k not in ("label", "key_hint", "models")}
+    entry.update({"preset": preset, "api_key": key, "base_url": base,
+                  "default_model": str(b.get("model") or "").strip() or p["default_model"]})
+    if old.get("last_test"):
+        entry["last_test"] = old["last_test"]
+    byo.setdefault("entries", {})[preset] = SEC.encrypt_config(entry)
+    if b.get("make_default") or not byo.get("default"):
+        byo["default"] = preset
+    store.update_desk(d["id"], config=conf)
+    return jsonify({"ok": True, "entry": _byo_public(preset, entry), "default": byo.get("default") or ""})
+
+
+@app.post("/api/desks/<int:did>/providers/<name>/test")
+def api_desk_provider_test(did, name):
+    d = _own_desk(did)
+    byo = _desk_byo(d)
+    blob = (byo.get("entries") or {}).get(name)
+    if not blob:
+        abort(404)
+    e = SEC.decrypt_config(blob)
+    from ..providers import make_provider
+    pcfg = {k: v for k, v in e.items() if k not in ("preset", "last_test")}
+    pcfg["max_tokens"] = 64
+    pcfg["timeout"] = 45
+    try:
+        note = make_provider(pcfg).test(e.get("default_model") or "")
+        ok = True
+    except Exception as exc:
+        note, ok = f"{type(exc).__name__}: {str(exc)[:240]}", False
+    e["last_test"] = {"ok": ok, "note": note, "ts": time.time()}
+    conf = d.get("config") or {}
+    conf.setdefault("byo", {}).setdefault("entries", {})[name] = SEC.encrypt_config(e)
+    store.update_desk(d["id"], config=conf)
+    return jsonify({"ok": ok, "note": note})
+
+
+@app.post("/api/desks/<int:did>/providers/default")
+def api_desk_provider_default(did):
+    d = _own_desk(did)
+    name = str((request.get_json(force=True) or {}).get("name") or "")
+    conf = d.get("config") or {}
+    byo = conf.setdefault("byo", {})
+    if name and name not in (byo.get("entries") or {}):
+        abort(404)
+    byo["default"] = name                              # "" = back to the house models
+    store.update_desk(d["id"], config=conf)
+    return jsonify({"ok": True, "default": name})
+
+
+@app.delete("/api/desks/<int:did>/providers/<name>")
+def api_desk_provider_del(did, name):
+    d = _own_desk(did)
+    conf = d.get("config") or {}
+    byo = conf.get("byo") or {}
+    if name not in (byo.get("entries") or {}):
+        abort(404)
+    byo["entries"].pop(name)
+    if byo.get("default") == name:
+        byo["default"] = next(iter(byo["entries"]), "")
+    store.update_desk(d["id"], config=conf)
+    return jsonify({"ok": True, "default": byo.get("default") or ""})
 
 
 @app.post("/api/desks/<int:did>/team/design")
@@ -857,6 +1010,9 @@ MODEL_CATALOG = [
 ]
 
 
+BYO_PRESETS["openrouter"]["models"] = [m["id"] for m in MODEL_CATALOG if m.get("provider") == "openrouter"]
+
+
 @app.get("/api/models")
 def api_models():
     return jsonify({"models": MODEL_CATALOG, "paid_unlocked": not _free_tier_hint()})
@@ -873,7 +1029,7 @@ def api_config():
     if not desk:
         return jsonify({"mode": _mode(), "needs_desk": True, "protected": not OPEN})
     c = desk_configs(desk)
-    reason = _live_reason()
+    reason = _live_reason(desk)
     return jsonify({
         "mode": c["mode"], "live_ready": not reason, "live_reason": reason,
         "template": desk["template"], "tier": desk.get("tier", "free"), "business": c["business"],
@@ -930,7 +1086,7 @@ def _prune_runs() -> None:
 
 def _preflight(desk: dict[str, Any]) -> dict[str, Any]:
     """Refuse a run the desk cannot pay for or has no model for (503 no key / 402 spend cap). Returns the configs."""
-    _require_live()
+    _require_live(desk)
     configs = desk_configs(desk)
     paid = any(":free" not in (a.get("model") or "") and a.get("model") for a in configs["agents"])
     if configs["mode"] != "demo" and paid:                # free-tier desks cost nothing and are never blocked by the spend cap
@@ -2305,7 +2461,7 @@ def api_object_call(oid):
     ds.update_vision_object(oid, watch=1 if on else 0)
     if not on:
         return jsonify({"ok": True, "object": _obj_public(ds.vision_object(oid))})
-    _require_live()
+    _require_live(desk)
     frame, box, model = _object_live(desk, o)
     try:
         res = OBJ.call(store, o, model=model, frame=frame, box=box)
@@ -2322,7 +2478,7 @@ def api_object_ask(oid):
     q = str((request.get_json(force=True) or {}).get("question") or "").strip()[:500]
     if not q:
         return jsonify({"error": "empty question"}), 400
-    _require_live()
+    _require_live(desk)
     frame, box, model = _object_live(desk, o)
     try:
         text = OBJ.ask(store, o, q, model=model, frame=frame, box=box)
@@ -4373,7 +4529,7 @@ if _n_enc:
     print(f"encrypted {_n_enc} legacy connector config(s)")
 if OPEN and os.environ.get("RENDER"):
     print("WARNING: DESK_OPEN=1 on a public deployment - the portal and every desk are reachable without login")
-scheduler.LIVE = lambda: _mode() != "demo" and not _live_reason()
+scheduler.LIVE = lambda desk=None: _mode() != "demo" and not _live_reason(desk)
 scheduler.DISPATCH = _dispatch
 scheduler.LEAD_RUN = _lead_case_run
 C.START_RUN = _start_run

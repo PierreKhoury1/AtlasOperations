@@ -431,6 +431,7 @@ aside.simple [data-lvl="full"]{display:none}
 .hm-pfoot{display:flex;gap:6px;padding:10px 18px;border-top:1px solid var(--line);flex-wrap:wrap}
 .hm-none{padding:16px 18px;color:var(--muted);font-size:12.5px}
 #p-dash .hcams{margin:0!important}
+.byorow{padding:9px 0;border-bottom:1px solid var(--line)}.byorow:last-child{border-bottom:0}.byorow .bt{margin-bottom:6px}.byorow.on .bt b{color:var(--accent)}
 :root[data-theme="dark"] .btn.ok{color:#0d1a12}
 #hz-body>.grid{grid-template-columns:repeat(auto-fit,minmax(140px,1fr))!important}
 @media(max-width:640px){body{font-size:12.5px}main{padding:12px!important}h1{font-size:17px}.hm-head h1{font-size:18px}.hm-head .lead{font-size:12px}.hm-eyebrow{font-size:9.5px}.hm-pill{padding:4px 8px;font-size:11px}.hm-stat b{font-size:16px}.hm-stat{padding:8px 10px}.hm-stat small{font-size:10.5px}.hm-q{padding:8px 10px}.hm-q b{font-size:12px}.hm-q small{font-size:10.5px}.hm-q svg{width:15px;height:15px}.btn{padding:5px 10px;font-size:12px}.kpi b{font-size:19px}.kpi{min-height:66px}.card,.panel{padding:10px 12px}.panel .ph{padding:8px 10px}.panel .pb{padding:10px 12px}.hm-need{padding:9px 12px}.hm-ev{padding:7px 12px}.hm-row{padding:8px 12px}.hm-none,.hm-clear{padding:12px}.hm-modes{overflow-x:auto;scrollbar-width:none}.hm-modes button{padding:3px 9px 7px;font-size:11.5px;white-space:nowrap;flex:0 0 auto}.hm-sugg{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;-webkit-overflow-scrolling:touch;margin-top:8px}.hm-sugg button{font-size:11px;padding:3px 8px;white-space:nowrap;flex:0 0 auto}.phead{flex-wrap:wrap}.panel .ph{flex-wrap:wrap;gap:6px 10px}.panel .ph .hint{white-space:normal;margin:0!important}.row{flex-wrap:wrap}.row>input,.row>select{min-width:0;max-width:100%}.grid{grid-template-columns:minmax(0,1fr)!important}.grid>*{min-width:0}main table{display:block;overflow-x:auto;max-width:100%}}
@@ -822,6 +823,8 @@ aside.simple [data-lvl="full"]{display:none}
 <section id="p-setup" class="hide">
   <h1>Desk setup</h1><p class="lead">Business profile, agents and workflows this desk runs on. Edited by your ops lead; shown here for transparency.</p>
   <div class="grid g2"><div class="card" id="setup-biz"></div><div class="card" id="setup-agents"></div></div>
+  <div class="panel" style="margin-top:14px"><div class="ph"><h2>Your AI accounts</h2><span class="hint">bring your own key — OpenAI (ChatGPT/Codex), Claude, OpenRouter, or any OpenAI-compatible server — and the agents run and bill on your account</span></div>
+    <div class="pb" id="setup-byo"><div class="empty">Loading…</div></div></div>
   <div class="panel" style="margin-top:14px"><div class="ph"><h2>Model landscape</h2><span class="hint">who thinks with what — per-agent engine and model; changes apply to the next run</span></div>
     <div class="pb" id="setup-models"><div class="empty">Loading…</div></div></div>
   <div class="panel" style="margin-top:14px"><div class="ph"><h2>Desk memory</h2><span class="hint">facts the agents keep between runs (they add with <code>remember</code>; you can add or delete)</span></div><div class="pb">
@@ -882,7 +885,7 @@ async function refresh(){
   if (page==='runs') { loadRuns(); if (curRun) loadRun(curRun, true); }
   if (page==='audit') loadAudit();
   if (page==='integrations') loadConnectors();
-  if (page==='setup') loadMem();
+  if (page==='setup') { loadMem(); loadByo(); }
   if (page==='automations') loadJobs();
   if (page==='cameras') { loadCameras(); loadVisionEvents(); }
   if (page==='report') loadReport();
@@ -2255,6 +2258,52 @@ async function renderModels(){
       <td><select style="width:280px" ${isHermes?'disabled':''} onchange="setModelOv('${a.id}', {engine:'atlas', model:this.value, provider:'openrouter'})">${opts(a.model)}</select></td>
       <td class="model">${esc(a.model || '(default)')}</td></tr>`;
   }).join('') + `</table><p class="hint" style="margin-top:8px">Paid models need OpenRouter credits. The Hermes Agent runtime uses the desk's Hermes connector (or the global instance) and brings its own browser, terminal, memory and skills.</p>`;
+}
+let BYO = null;
+async function loadByo(){
+  const did = (CFG.desk || {}).id, el = document.getElementById('setup-byo'); if (!did || !el) return;
+  BYO = await api(`/desks/${did}/providers`); if (!BYO || BYO.error) { el.innerHTML = '<div class="empty">Could not load.</div>'; return; }
+  const on = BYO.default, have = Object.fromEntries(BYO.entries.map(e => [e.name, e]));
+  el.innerHTML = `<div class="hint" style="margin:0 0 10px">${on ? `Agents run on <b>your ${esc((have[on]||{}).label || on)}</b> account.` : 'Agents run on the house models' + (BYO.house_reason ? ` — <span style="color:var(--danger)">${esc(BYO.house_reason)}</span>` : '') + '. Add your own account below and they run (and bill) on yours instead.'}</div>`
+    + BYO.presets.map(p => { const e = have[p.id], isOn = on === p.id;
+      return `<div class="byorow ${isOn ? 'on' : ''}">
+        <div class="bt"><b>${esc(p.label)}</b>${e ? ` <span class="tag ${isOn?'done':''}">${isOn ? 'in use' : 'saved'}</span><span class="model"> key ${esc(e.key_hint)}${e.model ? ' · ' + esc(e.model) : ''}</span>` : ''}
+          ${e && e.last_test ? `<small class="model" style="color:${e.last_test.ok ? 'var(--ok)' : 'var(--danger)'}"> · test ${e.last_test.ok ? 'passed' : 'failed'}: ${esc(String(e.last_test.note).slice(0, 90))}</small>` : ''}</div>
+        <div class="row" style="gap:6px;flex-wrap:wrap">
+          <input id="byo-k-${p.id}" type="password" placeholder="${e ? 'key saved — paste to replace' : p.key_hint}" style="width:230px" autocomplete="off">
+          ${p.needs_url ? `<input id="byo-u-${p.id}" placeholder="https://your-box:8000/v1" style="width:220px">` : ''}
+          <input id="byo-m-${p.id}" list="byo-ml-${p.id}" placeholder="model · default ${esc(p.default_model || 'from the server')}" value="${e ? esc(e.model) : ''}" style="width:220px">
+          <datalist id="byo-ml-${p.id}">${p.models.map(m => `<option value="${esc(m)}">`).join('')}</datalist>
+          <button class="btn sm p" onclick="byoSave('${p.id}')">${e ? 'Update' : 'Connect'}</button>
+          ${e ? `<button class="btn sm" onclick="byoTest('${p.id}', this)">Test</button>` : ''}
+          ${e && !isOn ? `<button class="btn sm" onclick="byoDefault('${p.id}')">Use for this desk</button>` : ''}
+          ${e && isOn ? `<button class="btn sm" onclick="byoDefault('')">Back to house models</button>` : ''}
+          ${e ? `<button class="btn sm d" onclick="byoDel('${p.id}')">Remove</button>` : ''}
+        </div></div>`; }).join('');
+}
+async function byoSave(preset){
+  const did = (CFG.desk || {}).id;
+  const r = await api(`/desks/${did}/providers`, {method: 'POST', body: {preset, api_key: $(`#byo-k-${preset}`).value,
+    model: $(`#byo-m-${preset}`).value, base_url: ($(`#byo-u-${preset}`) || {}).value || '', make_default: true}});
+  if (!r || r.error) return toast(r?.error || 'failed');
+  toast('Saved. Run a test to confirm the key works.'); await loadCfg(); loadByo();
+}
+async function byoTest(preset, btn){
+  const did = (CFG.desk || {}).id; if (btn) { btn.disabled = true; btn.textContent = 'Testing…'; }
+  const r = await api(`/desks/${did}/providers/${preset}/test`, {method: 'POST', body: {}});
+  toast(r && r.ok ? 'Key works: ' + (r.note || '') : 'Test failed: ' + ((r && r.note) || 'no reply')); loadByo();
+}
+async function byoDefault(name){
+  const did = (CFG.desk || {}).id;
+  const r = await api(`/desks/${did}/providers/default`, {method: 'POST', body: {name}});
+  if (!r || r.error) return toast(r?.error || 'failed');
+  toast(name ? 'This desk now runs on your account' : 'Back on the house models'); await loadCfg(); loadByo(); renderModels();
+}
+async function byoDel(preset){
+  const did = (CFG.desk || {}).id;
+  const r = await api(`/desks/${did}/providers/${preset}`, {method: 'DELETE'});
+  if (!r || r.error) return toast(r?.error || 'failed');
+  toast('Removed'); await loadCfg(); loadByo();
 }
 async function setTier(t){
   const did = (CFG.desk || {}).id; if (!did) return;
