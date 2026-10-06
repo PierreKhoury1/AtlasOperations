@@ -1354,6 +1354,23 @@ def api_actions():
     return jsonify(ds().actions(request.args.get("status", "")))
 
 
+def _contact_touch(dstore, addr: str) -> dict[str, Any]:
+    """The contact a message went to: matched by email or phone digits, created only when truly new, and an owner-set
+    stage is never knocked back (only New -> Contacted)."""
+    c = dstore.contact_for(addr)
+    if c:
+        fields: dict[str, Any] = {"next_action": "Follow up in 3 days if no reply"}
+        if (c.get("stage") or "New") == "New":
+            fields["stage"] = "Contacted"
+        return dstore.upsert_contact(c.get("email") or c.get("name") or addr, fields)
+    f: dict[str, Any] = {"stage": "Contacted", "next_action": "Follow up in 3 days if no reply"}
+    if "@" in (addr or ""):
+        f["email"] = addr
+    else:
+        f["phone"] = "+" + "".join(ch for ch in (addr or "") if ch.isdigit())
+    return dstore.upsert_contact(addr, f)
+
+
 @app.post("/api/actions/<int:aid>/decide")
 def api_decide(aid):
     desk = need_desk()
@@ -1375,7 +1392,9 @@ def api_decide(aid):
             row = dstore.decide_action(aid, "sent", by=by, note=(note + " " + result).strip())
             dstore.add_event(row["run_id"], "sent", "owner", f"{row['kind']} → {row['to']} — {row['subject']} ({result})")
             if row["kind"] in ("email", "whatsapp", "sms") and row["to"]:
-                contact = dstore.upsert_contact(row["to"], {"stage": "Contacted", "next_action": "Follow up in 3 days if no reply"})
+                dstore.add_message(row["kind"], "out", row["to"], row.get("body") or "", subject=row.get("subject") or "",
+                                   actor=row.get("agent") or "", status="sent", run_id=row.get("run_id") or "", action_id=row["id"])
+                contact = _contact_touch(dstore, row["to"])
                 for m in I.crm_sync(dstore.connectors(), contact):
                     dstore.add_event(row["run_id"], "tool", "owner", f"crm sync → {m}")
             I.notify(dstore.connectors(), f":outbox_tray: *Sent* — {row['kind']} → {row['to']}: {row['subject'] or (row['body'] or '')[:80]} {result}")
@@ -1383,6 +1402,9 @@ def api_decide(aid):
             err = f"{type(exc).__name__}: {str(exc)[:300]}"
             row = dstore.decide_action(aid, "failed", by=by, note=(note + " send failed: " + err).strip())
             dstore.add_event(row["run_id"], "error", "owner", f"{row['kind']} → {row['to']} failed: {err}")
+            if row["kind"] in ("email", "whatsapp", "sms") and row["to"]:
+                dstore.add_message(row["kind"], "out", row["to"], row.get("body") or "", subject=row.get("subject") or "",
+                                   actor=row.get("agent") or "", status="failed", run_id=row.get("run_id") or "", action_id=row["id"])
     else:
         dstore.add_event(row["run_id"], "rejected", "owner", f"{row['kind']} to {row['to']} rejected — {d.get('note','')}")
     _action_to_case(desk, row, by, d.get("note", ""))
@@ -1412,6 +1434,90 @@ def _action_to_case(desk: dict[str, Any], row: dict[str, Any], by: str, note: st
 
 
 # ---------------------------------------------------------------------------- api: crm / audit / report
+# ---------------------------------------------------------------------------- api: messages (one thread per customer)
+def _backfill_messages(desk: dict[str, Any]) -> None:
+    """First visit on an older desk: the thread view starts from what already happened (sent approvals, inbound leads)."""
+    ds = store.for_desk(desk["id"])
+    if ds.message_count():
+        return
+    for a in ds.actions("", 500):
+        if a["kind"] in ("email", "whatsapp", "sms") and a.get("to") and a["status"] in ("sent", "failed"):
+            ds.add_message(a["kind"], "out", a["to"], a.get("body") or "", subject=a.get("subject") or "",
+                           actor=a.get("agent") or "", status=a["status"], run_id=a.get("run_id") or "",
+                           action_id=a["id"], ts=a.get("decided_at") or a.get("created"))
+    for l in ds.leads(500):
+        addr = l.get("email") or l.get("phone")
+        if not addr:
+            continue
+        src = (l.get("source") or "").lower()
+        ch = "email" if "email" in src else "whatsapp" if "whatsapp" in src else "sms" if src == "sms" else "form"
+        ds.add_message(ch, "in", addr, l.get("notes") or "(no message)", actor=l.get("name") or addr, ts=l.get("created"))
+
+
+def _thread_public(ds, t: dict[str, Any]) -> dict[str, Any]:
+    c = ds.contact_for(t["contact_key"]) or {}
+    return {"key": t["contact_key"], "name": c.get("name") or t.get("actor") or t["contact_key"], "stage": c.get("stage") or "",
+            "email": c.get("email") or ("" if "@" not in t["contact_key"] else t["contact_key"]),
+            "phone": c.get("phone") or ("" if "@" in t["contact_key"] else t["contact_key"]),
+            "channels": t["channels"], "count": t["count"], "last": {k: t[k] for k in ("channel", "dir", "subject", "body", "status", "ts", "actor")}}
+
+
+@app.get("/api/messages/threads")
+def api_message_threads():
+    desk = need_desk()
+    _backfill_messages(desk)
+    ds = store.for_desk(desk["id"])
+    conns = ds.connectors()
+    return jsonify({"threads": [_thread_public(ds, t) for t in ds.message_threads()],
+                    "channels": {k: bool(I.outbound_connector(conns, k)) for k in ("email", "whatsapp", "sms")}})
+
+
+@app.get("/api/messages")
+def api_messages():
+    desk = need_desk()
+    key = store.message_key(request.args.get("contact") or "")
+    if not key:
+        return jsonify({"error": "contact required"}), 400
+    ds = store.for_desk(desk["id"])
+    c = ds.contact_for(key)
+    pend = [a for a in ds.actions("pending", 100) if store.message_key(a.get("to") or "") == key]
+    return jsonify({"key": key, "contact": c, "messages": ds.messages(key),
+                    "pending": [{"id": a["id"], "kind": a["kind"], "subject": a["subject"], "body": a["body"]} for a in pend]})
+
+
+@app.post("/api/messages/send")
+def api_message_send():
+    """The owner replies in their own words: sent through the connector at once (the owner IS the approval)."""
+    desk = need_desk()
+    d = request.get_json(force=True) or {}
+    kind, to = str(d.get("channel") or ""), str(d.get("to") or "").strip()
+    subject, body = str(d.get("subject") or "").strip(), str(d.get("body") or "").strip()
+    if kind not in ("email", "whatsapp", "sms"):
+        return jsonify({"error": "channel must be email, whatsapp or sms"}), 400
+    if not to or not body:
+        return jsonify({"error": "to and body required"}), 400
+    ds = store.for_desk(desk["id"])
+    conn = I.outbound_connector(ds.connectors(), kind)
+    if not conn:
+        return jsonify({"error": f"no {kind} connector yet — add one under Integrations"}), 400
+    try:
+        result, ok = I.deliver(conn, kind, to, subject, body), True
+    except Exception as exc:
+        result, ok = f"{type(exc).__name__}: {str(exc)[:200]}", False
+    mid = ds.add_message(kind, "out", to, body, subject=subject, actor=_who(), status="sent" if ok else "failed")
+    ds.add_event("", "sent" if ok else "error", "owner", f"{kind} → {to} — {subject or body[:80]} ({result})")
+    contact = _contact_touch(ds, to)
+    try:
+        person = R.person_for(store, desk["id"], email=to if "@" in to else "", phone="" if "@" in to else to)
+        if person:
+            R.add_timeline(store, desk["id"], record_id=person["id"], kind="sent", actor=_who(),
+                           text=f"{kind} → {to}: {subject or body[:120]}", data={"message_id": mid, "body": body[:1500]})
+    except Exception:
+        pass
+    return (jsonify({"ok": True, "id": mid, "note": result, "contact": contact}) if ok
+            else (jsonify({"ok": False, "id": mid, "error": result}), 502))
+
+
 @app.get("/api/contacts")
 def api_contacts():
     return jsonify(ds().contacts(request.args.get("q", "")))
@@ -4465,7 +4571,9 @@ def hook(token):
     dstore = store.for_desk(desk["id"])
     lid = dstore.add_lead(name or email_.split("@")[0], (d.get("company") or "").strip(), email_, (d.get("phone") or "").strip(),
                           (d.get("source") or "webhook").strip(), notes)
-    if email_:
+    if email_ or notes:
+        dstore.add_message("form", "in", email_ or name, notes or "(no message)", actor=name or email_)
+    if email_ and not dstore.contact_for(email_):
         dstore.upsert_contact(email_, {"name": name, "company": d.get("company", ""), "email": email_, "phone": d.get("phone", ""), "stage": "New", "notes": "Inbound via webhook"})
     rid = _lead_case_run(desk, lid)
     return jsonify({"ok": True, "lead_id": lid, "run_id": rid})
@@ -4478,15 +4586,19 @@ def _inbound_message(desk: dict[str, Any], phone: str, name: str, text: str, sou
     phone = "+" + I._digits(phone) if phone else ""
     channel = "whatsapp" if "whatsapp" in source else "sms"
     how = f"This arrived by {source}. Reply on the same channel (queue_action kind={channel}, to={phone}) — keep it short."
+    dstore.add_message(channel, "in", phone or (name or "unknown"), text, actor=name or phone)
     open_ = C.match_open(store, desk["id"], phone=phone) if phone and C.enabled(desk, "lead_cases") else None
     if open_:
         return C.inbound_reply(store, desk, open_, source, text, actor=name or phone, extra=how) or open_.get("active_run") or ""
-    known = next((c for c in dstore.contacts(phone) if c.get("phone") == phone), None) if phone else None
+    known = dstore.contact_for(phone) if phone else None
     name = name or (known or {}).get("name") or (phone or "unknown")
     lid = dstore.add_lead(name, (known or {}).get("company", ""), (known or {}).get("email", "") or "", phone, source, text)
-    key = (known or {}).get("email") or name
-    dstore.upsert_contact(key, {"name": name, "phone": phone, "stage": (known or {}).get("stage") or "New",
-                                "notes": f"Inbound via {source}: {text[:200]}"})
+    if known:                                            # an existing customer keeps their stage and notes
+        if not known.get("name") and name and name != phone:
+            dstore.upsert_contact(known.get("email") or known.get("name"), {"name": name})
+    else:
+        dstore.upsert_contact(name if name != phone else phone, {"name": name if name != phone else "", "phone": phone,
+                                                                 "stage": "New", "notes": f"First contact via {source}"})
     return _lead_case_run(desk, lid, extra=how)
 
 

@@ -67,7 +67,7 @@ def test_seed_runs_approvals_crm_report(app_client):
     r = J(c.post(f"/api/actions/{a['id']}/decide", json={"status": "approved", "note": "ok"}))
     assert r["status"] == "sent" and "simulated" in r["note"]
     contact = next(x for x in J(c.get("/api/contacts")) if x["email"] == a["to"])
-    assert contact["stage"] == "Contacted"
+    assert contact["stage"] != "New" and contact["next_action"]   # moved on by the send; an agent-set stage (e.g. Qualified) is kept
     rej = pend[1]
     assert J(c.post(f"/api/actions/{rej['id']}/decide", json={"status": "rejected", "note": "tone"}))["status"] == "rejected"
     rep = J(c.get("/api/report"))

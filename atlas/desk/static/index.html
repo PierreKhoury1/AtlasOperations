@@ -431,6 +431,22 @@ aside.simple [data-lvl="full"]{display:none}
 .hm-pfoot{display:flex;gap:6px;padding:10px 18px;border-top:1px solid var(--line);flex-wrap:wrap}
 .hm-none{padding:16px 18px;color:var(--muted);font-size:12.5px}
 #p-dash .hcams{margin:0!important}
+.msgwrap{padding:0;display:grid;grid-template-columns:300px minmax(0,1fr);min-height:460px}
+.mlist{border-right:1px solid var(--line);max-height:640px;overflow:auto}
+.mrow{padding:10px 14px;border-bottom:1px solid var(--line);cursor:pointer}
+.mrow:hover{background:var(--panel2)}.mrow.on{background:var(--accent-soft)}
+.mrow b{display:block;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mrow small{display:block;color:var(--muted);font-size:11.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px}
+.mrow .mt{float:right;color:var(--faint);font-family:var(--mono);font-size:10px}
+.mthread{display:flex;flex-direction:column;min-width:0}
+.mhead{padding:10px 14px;border-bottom:1px solid var(--line);display:flex;gap:8px;align-items:center;min-height:40px}
+.mbody{flex:1;overflow:auto;padding:14px;display:flex;flex-direction:column;gap:8px;max-height:460px}
+.mb{max-width:72%;border:1px solid var(--line);border-radius:6px;padding:8px 11px;font-size:12.5px;line-height:1.5;background:var(--panel2)}
+.mb.out{align-self:flex-end;background:var(--accent-soft);border-color:color-mix(in srgb,var(--accent) 30%,var(--panel))}
+.mb .mm{display:block;color:var(--faint);font-family:var(--mono);font-size:9.5px;letter-spacing:.06em;text-transform:uppercase;margin-bottom:3px}
+.mb.failed{border-color:var(--danger)}.mb .sub{font-weight:600;display:block;margin-bottom:2px}
+.mcomp{border-top:1px solid var(--line);padding:10px 14px}
+@media(max-width:900px){.msgwrap{grid-template-columns:1fr}.mlist{max-height:240px;border-right:0;border-bottom:1px solid var(--line)}}
 .byorow{padding:9px 0;border-bottom:1px solid var(--line)}.byorow:last-child{border-bottom:0}.byorow .bt{margin-bottom:6px}.byorow.on .bt b{color:var(--accent)}
 :root[data-theme="dark"] .btn.ok{color:#0d1a12}
 #hz-body>.grid{grid-template-columns:repeat(auto-fit,minmax(140px,1fr))!important}
@@ -625,6 +641,23 @@ aside.simple [data-lvl="full"]{display:none}
   </div>
   <div class="stage" id="stage"><svg id="edges"></svg><div class="sgrid" id="sgrid"></div></div>
   <div class="ticker panel"><div class="ph"><h2>Hand-offs, tools, approvals</h2><button class="link" onclick="go('runs')">Explore ›</button></div><div class="pb"><div class="log" id="live-log" style="border:0;padding:0;background:transparent">(waiting for a run)</div></div></div>
+</section>
+
+<!-- MESSAGES -->
+<section id="p-inbox" class="hide">
+  <div class="phead"><div><h1>Messages</h1><p class="lead">One thread per customer across email, WhatsApp and SMS. The agents draft and wait for approval; here you can also reply yourself.</p></div>
+    <div class="ctl" id="msg-conns"></div></div>
+  <div class="panel msgwrap">
+    <div class="mlist" id="mlist"><div class="hm-none">Loading…</div></div>
+    <div class="mthread">
+      <div class="mhead" id="mhead"><span class="hint" style="margin:0">Pick a conversation — or start one from a contact.</span></div>
+      <div class="mbody" id="mbody"></div>
+      <div class="mcomp" id="mcomp" style="display:none">
+        <div class="row" style="gap:6px"><select id="mc-ch" style="width:120px" onchange="msgChChange()"></select><input id="mc-subj" placeholder="Subject" style="flex:1"></div>
+        <div class="row" style="gap:6px;margin-top:6px"><textarea id="mc-body" rows="2" placeholder="Write a reply — sent at once, in your name" style="flex:1" onkeydown="if(event.key==='Enter'&&(event.ctrlKey||event.metaKey))msgSend()"></textarea><button class="btn p" id="mc-send" onclick="msgSend()">Send</button></div>
+      </div>
+    </div>
+  </div>
 </section>
 
 <!-- LEADS -->
@@ -882,6 +915,7 @@ async function refresh(){
   if (page==='approvals') loadApprovals();
   if (page==='team') loadTeam();
   if (page==='crm') loadCrm();
+  if (page==='inbox') loadInbox();
   if (page==='runs') { loadRuns(); if (curRun) loadRun(curRun, true); }
   if (page==='audit') loadAudit();
   if (page==='integrations') loadConnectors();
@@ -1133,10 +1167,56 @@ async function decide(id, status){
   toast(status==='approved' ? `Sent (simulated) to ${r.to}` : 'Rejected'); refresh();
 }
 
+const MSG = {key: null, threads: [], ch: {}, t: 0};
+const msgKey = a => a.includes('@') ? a.toLowerCase() : '+' + a.replace(/\D/g, '');   // same key the server builds
+async function loadInbox(){
+  if (Date.now() - MSG.t < 4000) return; MSG.t = Date.now();
+  const r = await api('/messages/threads'); if (!r || !r.threads || page !== 'inbox') return;
+  MSG.threads = r.threads; MSG.ch = r.channels || {};
+  $('#msg-conns').innerHTML = ['email', 'whatsapp', 'sms'].map(k => `<span class="kv"><span class="dot ${MSG.ch[k] ? 'live' : ''}"></span>${k}</span>`).join('')
+    + `<button class="btn sm" onclick="go('integrations')">Connect a channel</button>`;
+  $('#mlist').innerHTML = MSG.threads.length ? MSG.threads.map(t => `<div class="mrow ${MSG.key === t.key ? 'on' : ''}" onclick="msgOpen('${esc(t.key)}')">
+      <b>${esc(t.name)}<span class="mt">${ago(t.last.ts)}</span></b>
+      <small>${t.last.dir === 'out' ? '↑ ' : '↓ '}${esc(t.last.subject || t.last.body || '').slice(0, 64)}</small>
+      <small>${t.channels.map(c => `<span class="tag">${esc(c)}</span>`).join(' ')} · ${t.count}</small></div>`).join('')
+    : '<div class="hm-none">No conversations yet. They start when an enquiry arrives or an approved message is sent.</div>';
+  if (MSG.key) msgRender();
+}
+async function msgOpen(key){
+  MSG.key = key; MSG.t = 0;
+  document.querySelectorAll('.mrow').forEach(r => r.classList.remove('on'));
+  await msgRender(); loadInbox();
+}
+async function msgRender(){
+  const r = await api('/messages?contact=' + encodeURIComponent(MSG.key)); if (!r || r.error) return;
+  const c = r.contact || {}, t = MSG.threads.find(x => x.key === MSG.key) || {};
+  $('#mhead').innerHTML = `<b>${esc(c.name || t.name || MSG.key)}</b><span class="hint" style="margin:0">${esc([c.email, c.phone, c.stage].filter(Boolean).join(' · '))}</span>
+    <span class="spacer" style="flex:1"></span>${c.email || c.phone ? `<button class="btn sm" onclick="go('crm')">Open in Contacts</button>` : ''}`;
+  $('#mbody').innerHTML = r.messages.map(m => `<div class="mb ${m.dir} ${m.status === 'failed' ? 'failed' : ''}">
+      <span class="mm">${esc(m.dir === 'out' ? (m.actor || 'desk') : (m.actor || 'them'))} · ${esc(m.channel)} · ${when(m.ts)}${m.status === 'failed' ? ' · FAILED' : ''}</span>
+      ${m.subject ? `<span class="sub">${esc(m.subject)}</span>` : ''}${esc(m.body)}</div>`).join('')
+    + (r.pending || []).map(a => `<div class="mb out" style="border-style:dashed"><span class="mm">draft waiting for approval</span>${a.subject ? `<span class="sub">${esc(a.subject)}</span>` : ''}${esc((a.body || '').slice(0, 400))}<div class="row" style="margin-top:6px"><button class="btn sm p" onclick="go('approvals')">Review in Approvals</button></div></div>`).join('')
+    || '<div class="hm-none">Nothing here yet.</div>';
+  $('#mbody').scrollTop = 1e9;
+  const chans = ['email', 'whatsapp', 'sms'].filter(k => k === 'email' ? (c.email || MSG.key.includes('@')) : (c.phone || !MSG.key.includes('@')));
+  $('#mc-ch').innerHTML = chans.map(k => `<option value="${k}" ${MSG.ch[k] ? '' : 'disabled'}>${k}${MSG.ch[k] ? '' : ' (no connector)'}</option>`).join('');
+  $('#mcomp').style.display = ''; msgChChange();
+}
+function msgChChange(){ const email = $('#mc-ch').value === 'email'; $('#mc-subj').style.display = email ? '' : 'none'; }
+async function msgSend(){
+  const c = (MSG.threads.find(x => x.key === MSG.key) || {});
+  const to = $('#mc-ch').value === 'email' ? (c.email || MSG.key) : (c.phone || MSG.key);
+  const body = $('#mc-body').value.trim(); if (!body) return;
+  $('#mc-send').disabled = true;
+  const r = await api('/messages/send', {method: 'POST', body: {channel: $('#mc-ch').value, to, subject: $('#mc-subj').value.trim(), body}});
+  $('#mc-send').disabled = false;
+  if (!r || r.error) return toast(r?.error || 'failed');
+  $('#mc-body').value = ''; $('#mc-subj').value = ''; toast('Sent'); MSG.t = 0; msgRender();
+}
 async function loadCrm(){
   const C = await api('/contacts?q=' + encodeURIComponent($('#crm-q').value||''));
   const stages = ['New','Contacted','Qualified','Proposal','Won','Lost'];
-  $('#crm-table').innerHTML = C.length ? `<table><tr><th>Contact</th><th>Company</th><th>Stage</th><th>Notes</th><th>Next action</th><th>Updated</th></tr>` + C.map(c=>`<tr><td><b>${esc(c.name)}</b><br><span style="color:var(--muted)">${esc(c.email||'')} ${esc(c.phone||'')}</span></td><td>${esc(c.company||'')}</td><td><select onchange="stage('${esc(c.email||c.name)}', this.value)" style="width:130px">${stages.map(s=>`<option ${s===c.stage?'selected':''}>${s}</option>`).join('')}</select></td><td style="max-width:320px">${esc(c.notes||'')}</td><td>${esc(c.next_action||'')}</td><td>${when(c.updated)}</td></tr>`).join('') + '</table>' : '<div class="empty">No contacts yet</div>';
+  $('#crm-table').innerHTML = C.length ? `<table><tr><th>Contact</th><th>Company</th><th>Stage</th><th>Notes</th><th>Next action</th><th>Updated</th></tr>` + C.map(c=>`<tr><td><b>${esc(c.name)}</b><br><span style="color:var(--muted)">${esc(c.email||'')} ${esc(c.phone||'')}</span><br><button class="link" style="padding:0" onclick="go('inbox');setTimeout(()=>msgOpen(msgKey('${esc(c.email||c.phone||'')}')),400)">Messages ›</button></td><td>${esc(c.company||'')}</td><td><select onchange="stage('${esc(c.email||c.name)}', this.value)" style="width:130px">${stages.map(s=>`<option ${s===c.stage?'selected':''}>${s}</option>`).join('')}</select></td><td style="max-width:320px">${esc(c.notes||'')}</td><td>${esc(c.next_action||'')}</td><td>${when(c.updated)}</td></tr>`).join('') + '</table>' : '<div class="empty">No contacts yet</div>';
 }
 async function stage(contact, s){ await api('/contacts', {method:'POST', body:{contact, fields:{stage:s}}}); toast('Stage → '+s); }
 
