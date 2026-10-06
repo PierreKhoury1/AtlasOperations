@@ -420,11 +420,16 @@ def login():
         store.touch_login(u["id"])
         if request.is_json:
             return jsonify({"ok": True})
-        nxt = request.args.get("next", "/desk/workspace")          # the workspace chat is the front door
-        return redirect(nxt if nxt.startswith("/desk") else "/desk/workspace")
+        nxt = request.args.get("next") or _front_door(u)
+        return redirect(nxt if nxt.startswith("/desk") else _front_door(u))
     if current_user():
-        return redirect("/desk/workspace")
+        return redirect(_front_door(current_user()))
     return _page("login.html", error="", email="")
+
+
+def _front_door(u: dict[str, Any] | None) -> str:
+    """Owners with a desk land on its Home; new owners start in the workspace chat, where Atlas builds the first one."""
+    return "/desk" if u and store.desks_for(u["id"]) else "/desk/workspace"
 
 
 @app.route("/signup", methods=["GET", "POST"])
@@ -454,7 +459,7 @@ def signup():
             return jsonify({"ok": True})
         return redirect("/desk/workspace")                     # new owners start in the workspace chat
     if current_user():
-        return redirect("/desk/workspace")
+        return redirect(_front_door(current_user()))
     return _page("signup.html", error="", name="", company="", email="")
 
 

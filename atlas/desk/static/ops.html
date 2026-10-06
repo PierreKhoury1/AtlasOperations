@@ -192,8 +192,11 @@ td.dim{color:var(--muted)}
 .toast.on{opacity:1}
 .err{color:var(--bad);font-size:12px}
 @media (max-width:1180px){.shell{grid-template-columns:200px minmax(0,1fr)}.insp{position:fixed;right:0;top:48px;bottom:0;width:min(420px,100%);transform:translateX(100%);transition:transform .2s;z-index:20;box-shadow:-10px 0 30px rgba(0,0,0,.25)}.insp.open{transform:none}.bpills{display:none}}
-@media (max-width:760px){.shell{grid-template-columns:1fr}.side{display:none}.crumb,.kbtn span{display:none}.ph input{width:140px}}
+@media (max-width:760px){.shell{grid-template-columns:1fr}.side{display:none}.crumb,.kbtn span{display:none}.ph input{width:140px}#palbtn,#themebtn{display:none}.bar .tabs button svg{display:none}}
+body.sh-on .bar>.brand{display:none}   /* inside the app frame the rail carries the brand */
 </style>
+<link rel="stylesheet" href="/desk/static/shell.css">
+<script src="/desk/static/shell.js" defer></script>
 </head>
 <body>
 <header class="bar">

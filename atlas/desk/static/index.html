@@ -351,8 +351,97 @@ aside.simple [data-lvl="full"]{display:none}
 .citepop .ch b{color:var(--text)}
 .citepop .cx{margin-left:auto;cursor:pointer;color:var(--faint)}
 @media (max-width:900px){.wall .wbody{grid-template-columns:1fr}.wall .wticker{border-left:0;border-top:1px solid var(--line);height:320px}}
+/* ---------- Home: the command centre */
+.hm-head{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;margin-bottom:18px;flex-wrap:wrap}
+.hm-eyebrow{font-family:var(--mono);font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--faint);margin-bottom:6px}
+.hm-head h1{font-size:26px}
+.hm-head .lead{margin:4px 0 0;max-width:760px;font-size:14px;color:var(--text2)}
+.hm-head .lead b{font-weight:600}.hm-head .lead b.warn{color:var(--warn)}.hm-head .lead b.ok{color:var(--ok)}
+.hm-pills{display:flex;gap:8px;flex-wrap:wrap}
+.hm-pill{display:inline-flex;align-items:center;gap:7px;border:1px solid var(--line);background:var(--panel);border-radius:3px;padding:6px 10px;font-size:12px;color:var(--muted);cursor:pointer;white-space:nowrap}
+.hm-pill:hover{border-color:var(--line2);color:var(--text)}
+.hm-pill b{color:var(--text);font-variant-numeric:tabular-nums;font-weight:600}
+.hm-pill>i{width:7px;height:7px;border-radius:50%;background:var(--faint);flex:0 0 auto}
+.hm-pill.ok>i{background:var(--ok)}.hm-pill.warn{color:var(--warn)}.hm-pill.warn>i{background:var(--warn)}.hm-pill.bad{color:var(--danger)}.hm-pill.bad>i{background:var(--danger)}
+.hm-cmd{padding:12px 16px 14px;margin-bottom:12px;border-color:var(--line2)}
+.hm-modes{display:flex;gap:2px;margin-bottom:10px;border-bottom:1px solid var(--line)}
+.hm-modes button{background:none;border:0;border-bottom:2px solid transparent;color:var(--muted);padding:4px 12px 8px;margin-bottom:-1px;font:inherit;font-weight:600;font-size:12.5px;cursor:pointer}
+.hm-modes button:hover{color:var(--text)}
+.hm-modes button.on{color:var(--text);border-bottom-color:var(--accent)}
+.hm-cmdrow{display:flex;gap:8px}
+.hm-cmdrow input{flex:1;font-size:14px;padding:11px 14px;min-width:0}
+.hm-cmdrow .btn{white-space:nowrap}
+.hm-sugg{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}
+.hm-sugg button{background:var(--panel2);border:1px solid var(--line);color:var(--muted);border-radius:3px;padding:4px 10px;font:inherit;font-size:12px;cursor:pointer}
+.hm-sugg button:hover{color:var(--text);border-color:var(--line2)}
+.hm-out{margin-top:12px;border-top:1px solid var(--line);padding-top:12px;font-size:13.5px;color:var(--text2);line-height:1.55}
+.hm-out .hint{color:var(--muted);margin:0}.hm-out .bad{color:var(--danger)}
+.hm-out .link,.hm-more .link{background:none;border:0;color:var(--accent);font:inherit;font-weight:600;font-size:12.5px;cursor:pointer;padding:0}
+.hm-evid{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:8px;font-size:12px}
+.hm-quick{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:8px;margin-bottom:16px}
+.hm-q{display:flex;gap:10px;align-items:flex-start;text-align:left;background:var(--panel);border:1px solid var(--line);border-radius:3px;padding:12px;cursor:pointer;color:var(--text);font:inherit;transition:border-color .12s,background .12s;min-width:0}
+.hm-q:hover{border-color:var(--accent);background:var(--panel2)}
+.hm-q svg{width:18px;height:18px;flex:0 0 auto;stroke:var(--accent);fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;margin-top:1px}
+.hm-q b{display:block;font-size:13px;font-weight:600}
+.hm-q small{display:block;color:var(--muted);font-size:11.5px;line-height:1.35;margin-top:2px}
+.hm-stats{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:1px;background:var(--line);border:1px solid var(--line);border-radius:3px;overflow:hidden;margin-bottom:16px}
+.hm-stat{background:var(--panel);padding:12px 14px;cursor:pointer;min-width:0}
+.hm-stat:hover{background:var(--panel2)}
+.hm-stat span{display:block;font-family:var(--mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--faint)}
+.hm-stat b{display:block;font-size:22px;font-weight:600;font-variant-numeric:tabular-nums;margin:4px 0 1px;letter-spacing:-.02em}
+.hm-stat small{display:block;color:var(--muted);font-size:11.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hm-stat.warn b{color:var(--warn)}.hm-stat.bad b{color:var(--danger)}.hm-stat.ok b{color:var(--ok)}
+.hm-grid{display:grid;grid-template-columns:minmax(0,1.75fr) minmax(300px,1fr);gap:16px;align-items:start}
+.hm-col{display:flex;flex-direction:column;gap:16px;min-width:0}
+.hm-col>.panel{margin:0!important}
+.hm-n{display:inline-block;min-width:20px;padding:0 6px;border-radius:2px;background:var(--panel2);color:var(--muted);font-size:11px;font-weight:600;text-align:center;margin-left:8px;vertical-align:2px;line-height:18px}
+.hm-n.hot{background:var(--warn);color:#14171b}
+.hm-need{display:grid;grid-template-columns:86px minmax(0,1fr) auto;gap:12px;align-items:center;padding:11px 18px;border-bottom:1px solid var(--line)}
+.hm-need:last-child{border-bottom:0}
+.hm-need .k{font-family:var(--mono);font-size:9.5px;letter-spacing:.08em;text-transform:uppercase;padding:2px 4px;border-radius:2px;border:1px solid currentColor;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hm-need .k.appr{color:var(--warn)}.hm-need .k.case{color:var(--accent)}.hm-need .k.gap{color:var(--muted)}.hm-need .k.bad{color:var(--danger)}.hm-need .k.cam{color:var(--ok)}
+.hm-need .t{min-width:0}
+.hm-need .t b{font-size:13.5px;font-weight:600;line-height:1.35;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.hm-need .t small{color:var(--muted);font-size:12px;line-height:1.4;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;margin-top:1px}
+.hm-need .a{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
+.hm-clear{padding:20px 18px;color:var(--muted);font-size:13px;display:flex;gap:12px;align-items:center}
+.hm-clear i{width:24px;height:24px;border-radius:50%;background:var(--ok-soft);color:var(--ok);display:grid;place-items:center;font-style:normal;font-weight:700;flex:0 0 auto}
+.hm-more{padding:8px 18px;border-top:1px solid var(--line)}
+.hm-tabs{display:flex;gap:2px;margin:0 auto 0 16px;flex-wrap:wrap}
+.hm-tabs button{background:none;border:1px solid transparent;color:var(--muted);border-radius:3px;padding:3px 9px;font:inherit;font-size:12px;font-weight:600;cursor:pointer}
+.hm-tabs button:hover{color:var(--text)}
+.hm-tabs button.on{border-color:var(--line2);color:var(--text);background:var(--panel2)}
+.hm-feed{max-height:440px;overflow:auto}
+.hm-ev{display:grid;grid-template-columns:44px 120px minmax(0,1fr);gap:10px;padding:8px 18px;border-bottom:1px solid var(--line);font-size:12.5px;cursor:pointer;align-items:baseline}
+.hm-ev:hover{background:var(--panel2)}
+.hm-ev .tm{font-family:var(--mono);font-size:11px;color:var(--faint)}
+.hm-ev .who{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:12px}
+.hm-ev .tx{color:var(--text2);overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;line-height:1.45}
+.hm-ev .tx em{font-style:normal;font-family:var(--mono);font-size:9.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--faint);margin-right:7px}
+.hm-ev.alert .tx em{color:var(--danger)}
+.hm-row{display:flex;gap:10px;align-items:center;padding:9px 18px;border-bottom:1px solid var(--line);cursor:pointer;min-width:0;color:inherit}
+.hm-row:hover{background:var(--panel2)}
+.hm-row:last-child{border-bottom:0}
+.hm-row .sw{width:9px;height:9px;border-radius:2px;flex:0 0 auto}
+.hm-row .m{min-width:0;flex:1}
+.hm-row .m b{display:block;font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hm-row .m small{display:block;color:var(--muted);font-size:11.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hm-row .st{font-family:var(--mono);font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--faint);white-space:nowrap;flex:0 0 auto}
+.hm-row .st.on{color:var(--ok)}.hm-row .st.warn{color:var(--warn)}.hm-row .st.bad{color:var(--danger)}
+.hm-pfoot{display:flex;gap:6px;padding:10px 18px;border-top:1px solid var(--line);flex-wrap:wrap}
+.hm-none{padding:16px 18px;color:var(--muted);font-size:12.5px}
+#p-dash .hcams{margin:0!important}
+:root[data-theme="dark"] .btn.ok{color:#0d1a12}
+#hz-body>.grid{grid-template-columns:repeat(auto-fit,minmax(140px,1fr))!important}
+@media(max-width:640px){main{padding:16px!important}.phead{flex-wrap:wrap}.panel .ph{flex-wrap:wrap;gap:6px 10px}.panel .ph .hint{white-space:normal;margin:0!important}.row{flex-wrap:wrap}.row>input,.row>select{min-width:0;max-width:100%}.grid{grid-template-columns:minmax(0,1fr)!important}.grid>*{min-width:0}main table{display:block;overflow-x:auto;max-width:100%}}
+#p-dash .hcams .ph h2{white-space:nowrap}#p-dash .hcams .ph .hint{min-width:0;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}#p-dash .hcams .ph .link{white-space:nowrap}
+@media(max-width:1380px){.hm-quick{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media(max-width:1100px){.hm-grid{grid-template-columns:minmax(0,1fr)}.hm-stats{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media(max-width:640px){.hm-quick,.hm-stats{grid-template-columns:repeat(2,minmax(0,1fr))}.hm-need{grid-template-columns:minmax(0,1fr)}.hm-need .k{justify-self:start}.hm-need .a{justify-content:flex-start}.hm-ev{grid-template-columns:40px minmax(0,1fr)}.hm-ev .who{display:none}.hm-cmdrow{flex-direction:column}.hm-tabs{margin:8px 0 0;order:3;width:100%}.panel .ph{flex-wrap:wrap}}
 </style>
 <link rel="stylesheet" href="/desk/static/studio.css">
+<link rel="stylesheet" href="/desk/static/shell.css">
+<script src="/desk/static/shell.js" defer></script>
 </head>
 <body>
 <div class="layout">
@@ -470,29 +559,56 @@ aside.simple [data-lvl="full"]{display:none}
   </div>
 </section>
 
-<!-- DASHBOARD -->
+<!-- HOME: the command centre: what needs the owner, a command bar, every camera, agent, case and job at a glance -->
 <section id="p-dash">
-  <div class="phead"><div><h1>Dashboard</h1><p class="lead">What the desk did, what's waiting for you.</p></div>
-    <div class="ctl"><span class="kv"><span class="dot" id="d-dot"></span><b id="k-active">0</b> running</span><button class="btn p sm" onclick="seed()">▶ Seed 3 demo leads</button><button class="btn sm" onclick="go('leads')">+ Add lead</button><button class="btn sm d" onclick="resetDemo()">Reset</button></div></div>
-  <div class="grid g5" style="margin-bottom:14px">
-    <div class="card kpi"><span>Leads handled</span><b id="k-leads">0</b><small id="k-leads-s">this month</small></div>
-    <div class="card kpi"><span>Awaiting approval</span><b id="k-pending" style="color:var(--warn)">0</b><small>needs you</small></div>
-    <div class="card kpi"><span>Approved &amp; sent</span><b id="k-sent" style="color:var(--ok)">0</b><small>after your OK</small></div>
-    <div class="card kpi"><span>Qualified contacts</span><b id="k-qual">0</b><small>in CRM</small></div>
-    <div class="card kpi"><span>Tokens used</span><b id="k-tok">0</b><small id="k-cost">model cost £0.00</small></div>
+  <div class="hm-head">
+    <div><div class="hm-eyebrow" id="hm-date"></div><h1 id="hm-greet">Home</h1><p class="lead" id="hm-sum">Loading the desk…</p></div>
+    <div class="hm-pills">
+      <span class="hm-pill" onclick="go('live')" title="runs in progress"><span class="dot" id="d-dot"></span><b id="k-active">0</b> running</span>
+      <span class="hm-pill" id="hm-brain" onclick="go('setup')" title="the models the agents run on"></span>
+      <span class="hm-pill" id="hm-hpill" onclick="document.getElementById('hm-hz').scrollIntoView({behavior:'smooth'})" title="system health"><i></i><span>checking…</span></span>
+    </div>
   </div>
-  <div class="panel hcams" id="home-cams" style="margin-bottom:14px;display:none"><div class="ph"><h2 style="display:flex;align-items:center;gap:8px"><span class="dot live"></span>Cameras now</h2><span class="hint" id="hc-hint" style="margin:0 auto 0 12px"></span><button class="link" onclick="go('cameras')">All cameras ›</button></div>
-    <div class="wall"><div class="wgrid" id="hc-grid"></div></div></div>
-  <div class="panel" style="margin-bottom:14px"><div class="ph"><h2>Give the team a job</h2><span class="hint">any task — the agents plan, research, draft; anything outbound waits for your approval</span></div>
-    <div class="pb"><div class="row"><input id="d-task" placeholder="e.g. Research our 5 nearest competitors and draft a one-page comparison · Chase every quote that went quiet this month · Prepare Monday's client update" style="flex:1" onkeydown="if(event.key==='Enter')dashTask()"><button class="btn p" onclick="dashTask()">Deploy the team →</button></div></div></div>
-  <div class="grid g2" style="grid-template-columns:1.5fr 1fr">
-    <div class="panel"><div class="ph"><h2>Live activity</h2><button class="link" onclick="go('audit')">Explore ›</button></div><div class="pb"><div class="log" id="dash-log" style="max-height:340px;border:0;padding:0;background:transparent">(nothing yet)</div></div></div>
-    <div class="panel"><div class="ph"><h2>Agents on this desk</h2><button class="link" onclick="go('team')">Explore ›</button></div><div class="pb" id="agents"></div></div>
+
+  <div class="panel hm-cmd">
+    <div class="hm-modes" id="hm-modes"><button data-m="job" class="on">Give the team a job</button><button data-m="ask">Ask the cameras</button><button data-m="design">Change the team</button></div>
+    <div class="hm-cmdrow"><input id="d-task" autocomplete="off" onkeydown="if(event.key==='Enter')homeSend()"><button class="btn p" id="hm-send" onclick="homeSend()">Deploy the team →</button></div>
+    <div class="hm-sugg" id="hm-sugg"></div>
+    <div class="hm-out hide" id="hm-out"></div>
   </div>
-  <div class="panel" style="margin-top:14px"><div class="ph"><h2>System health</h2><span id="hz-badge" class="tag">…</span></div>
+
+  <div class="hm-quick">
+    <button class="hm-q" onclick="shell&&shell.go('/desk/ops','newCase')"><svg viewBox="0 0 24 24"><path d="M4 13h4l2 3h4l2-3h4"/><path d="M5 5h14l1 8v6H4v-6z"/></svg><span><b>New case</b><small>An enquiry, incident or task to see through</small></span></button>
+    <button class="hm-q" onclick="homeAddCamera()"><svg viewBox="0 0 24 24"><path d="M3 7h12v10H3z"/><path d="M15 10l6-3v10l-6-3"/></svg><span><b>Add a camera</b><small>A stream, a webcam or a recording</small></span></button>
+    <button class="hm-q" onclick="go('team');homeAfter(()=>teamAddReady(),()=>document.getElementById('tm-i-name'))"><svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.2"/><path d="M3 20c.6-3.3 3-5 6-5s5.4 1.7 6 5"/><path d="M18 8v6M15 11h6"/></svg><span><b>Add an agent</b><small>A new specialist on the team</small></span></button>
+    <button class="hm-q" onclick="go('integrations')"><svg viewBox="0 0 24 24"><path d="M9 15l6-6"/><path d="M11 6l1-1a4 4 0 0 1 6 6l-1 1"/><path d="M13 18l-1 1a4 4 0 0 1-6-6l1-1"/></svg><span><b>Connect an app</b><small>Email, WhatsApp, SMS, calendar, Slack</small></span></button>
+    <button class="hm-q" onclick="go('automations')"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 7v5l3 2"/></svg><span><b>Schedule a job</b><small>Daily reports, follow-ups, checks</small></span></button>
+    <button class="hm-q" onclick="location.href='/desk/review'"><svg viewBox="0 0 24 24"><path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12z"/><circle cx="12" cy="12" r="2.5"/></svg><span><b>Review footage</b><small>Check what the detector saw, frame by frame</small></span></button>
+  </div>
+
+  <div class="hm-stats" id="hm-stats"></div>
+
+  <div class="hm-grid">
+    <div class="hm-col">
+      <div class="panel" id="hm-needs-p"><div class="ph"><h2>Needs you<span class="hm-n" id="hm-needs-n">0</span></h2><button class="link" onclick="go('approvals')">Approval queue ›</button></div><div id="hm-needs"><div class="hm-none">Loading…</div></div></div>
+      <div class="panel hcams" id="home-cams" style="display:none"><div class="ph"><h2 style="display:flex;align-items:center;gap:8px"><span class="dot live"></span>Cameras now</h2><span class="hint" id="hc-hint" style="margin:0 auto 0 12px"></span><button class="link" onclick="go('cameras')">All cameras ›</button></div>
+        <div class="wall"><div class="wgrid" id="hc-grid"></div></div></div>
+      <div class="panel"><div class="ph"><h2>Activity</h2><div class="hm-tabs" id="hm-ftabs"><button data-f="all" class="on">All</button><button data-f="job">Jobs</button><button data-f="cam">Cameras</button><button data-f="case">Cases</button><button data-f="you">Your decisions</button></div><button class="link" onclick="go('audit')">Full log ›</button></div><div class="hm-feed" id="hm-feed"><div class="hm-none">Loading…</div></div></div>
+    </div>
+    <div class="hm-col">
+      <div class="panel"><div class="ph"><h2>Agents<span class="hm-n" id="hm-agents-n">0</span></h2><button class="link" onclick="go('team')">Team canvas ›</button></div><div id="hm-agents"></div>
+        <div class="hm-pfoot"><button class="btn sm" onclick="go('team');homeAfter(()=>teamAddReady(),()=>document.getElementById('tm-i-name'))">+ Add an agent</button><button class="btn sm" onclick="homeMode('design');$('#d-task').focus();scrollTo({top:0,behavior:'smooth'})">Change the team with Atlas</button></div></div>
+      <div class="panel"><div class="ph"><h2>Open cases<span class="hm-n" id="hm-cases-n">0</span></h2><a href="/desk/ops">Cases ›</a></div><div id="hm-cases"></div>
+        <div class="hm-pfoot"><button class="btn sm" onclick="shell&&shell.go('/desk/ops','newCase')">+ New case</button></div></div>
+      <div class="panel"><div class="ph"><h2>Recent jobs</h2><button class="link" onclick="go('runs')">All runs ›</button></div><div id="hm-runs"></div></div>
+    </div>
+  </div>
+
+  <div class="panel" id="hm-hz" style="margin-top:16px"><div class="ph"><h2>System health</h2><span id="hz-badge" class="tag">…</span></div>
     <div class="pb" id="hz-body"><div class="empty">Loading…</div></div></div>
-  <div class="panel" style="margin-top:14px"><div class="ph"><h2>How a lead flows</h2><span style="color:var(--faint);font-size:12px">Nothing leaves without approval — email, WhatsApp, SMS, publishing, refunds, contracts</span></div>
-    <div class="pb"><div class="stepper" id="flow"><span>Lead in</span><span>Atlas plans</span><span>Research</span><span>Draft</span><span>QA</span><span>CRM update</span><span>Approval queue</span><span>You approve</span><span>Sent + logged</span></div></div></div>
+
+  <!-- kept for the code that still writes them (refresh, loadCfg) -->
+  <div hidden><b id="k-leads"></b><small id="k-leads-s"></small><b id="k-pending"></b><b id="k-sent"></b><b id="k-qual"></b><b id="k-tok"></b><small id="k-cost"></small><div id="dash-log"></div><div id="agents"></div></div>
 </section>
 
 <!-- LIVE DESK -->
@@ -723,7 +839,7 @@ const api = async (p, opt) => { const r = await fetch('/api' + p, opt ? {headers
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const when = ts => new Date(ts * 1000).toLocaleString('en-GB', {day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit'});
 const hms = ts => new Date(ts * 1000).toLocaleTimeString('en-GB');
-let CFG = {}, colors = {}, af = 'pending', curRun = null, page = 'dash';
+let CFG = {}, colors = {}, af = 'pending', curRun = null, page = 'dash', ME = null;
 function toast(m){ const t=$('#toast'); t.textContent=m; t.classList.add('on'); setTimeout(()=>t.classList.remove('on'), 2600); }
 function go(p){ if(p==='design'){ page=p; openStudio(false); return; } page=p; if(location.hash!=='#'+p) history.replaceState(null,'','#'+p); document.querySelectorAll('main > section').forEach(s=>s.classList.toggle('hide', s.id!=='p-'+p)); document.querySelectorAll('#nav button').forEach(b=>b.classList.toggle('on', b.dataset.p===p)); refresh(); }
 document.querySelectorAll('#nav button').forEach(b=>b.onclick=()=>go(b.dataset.p));
@@ -733,7 +849,7 @@ async function loadCfg(){
   CFG = await api('/config');
   if (CFG && CFG.needs_desk) { await showOnboarding(); return false; }
   loadDesks();
-  const me = await api('/me'); if (me && me.id) { $('#who').textContent = me.name; $('#whoco').textContent = me.company || me.email; $('#whoav').textContent = (me.name||'?').trim()[0].toUpperCase(); } else { $('#who').textContent = 'Guest'; $('#whoco').textContent = 'open test mode'; document.querySelectorAll('a[href="/logout"]').forEach(a => a.remove()); }
+  const me = await api('/me'); ME = me; if (me && me.id) { $('#who').textContent = me.name; $('#whoco').textContent = me.company || me.email; $('#whoav').textContent = (me.name||'?').trim()[0].toUpperCase(); } else { $('#who').textContent = 'Guest'; $('#whoco').textContent = 'open test mode'; document.querySelectorAll('a[href="/logout"]').forEach(a => a.remove()); }
   colors = Object.fromEntries(CFG.agents.map(a=>[a.id, a.color || '#7c3aed']));
   applyLevel(); fillNotify();
   $('#bizname').textContent = CFG.business.name; $('#wshint').textContent = (CFG.template || '').replace('_', ' ') + ' · ' + CFG.mode;
@@ -757,7 +873,7 @@ async function refresh(){
   $('#n-leads').textContent = s.leads; $('#n-pending').textContent = s.pending;
   $('#k-leads').textContent = s.leads; $('#k-pending').textContent = s.pending; $('#k-sent').textContent = s.approved; $('#k-qual').textContent = s.qualified; $('#k-active').textContent = s.active_runs; $('#d-dot').classList.toggle('live', s.active_runs > 0); $('#k-tok').textContent = ((s.tokens_in||0)+(s.tokens_out||0)).toLocaleString(); $('#k-cost').textContent = 'model cost £' + (((s.tokens_in||0)*5+(s.tokens_out||0)*25)/1e6*0.78).toFixed(2);
   $('#n-live').classList.toggle('live', s.active_runs > 0);
-  if (page==='dash') { loadDashLog(); loadHealth(); homeCams(); }
+  if (page==='dash') { loadHome(s); loadHealth(); homeCams(); }
   if (page==='live') liveRefreshList();
   if (page==='leads') loadLeads();
   if (page==='approvals') loadApprovals();
@@ -781,7 +897,7 @@ function evLine(e){
 const HOME = {ids: '', t: 0};
 async function homeCams(){
   if (Date.now() - HOME.t < 5000) return; HOME.t = Date.now();
-  const R = await api('/cameras'); if (!R || page !== 'dash') return; const cams = R.cameras || [], box = $('#home-cams');
+  const R = await api('/cameras'); if (!R || page !== 'dash') return; HM.camR = R; const cams = R.cameras || [], box = $('#home-cams');
   if (!cams.length) { box.style.display = 'none'; return; }
   CAMS = cams; box.style.display = ''; $('#n-cams').textContent = cams.length + (R.nodes || []).length;
   const show = cams.slice(0, 8), ids = show.map(c => c.id).join(',');
@@ -795,6 +911,193 @@ async function homeCams(){
   $('#hc-hint').textContent = `${cams.length} camera${cams.length === 1 ? '' : 's'}${cams.length > 8 ? ', first 8 shown' : ''} · live, every frame through the local detector · hover for the latest note`;
 }
 function homeCamsStop(){ if (!HOME.ids) return; document.querySelectorAll('#hc-grid img').forEach(i => i.src = ''); $('#hc-grid').innerHTML = ''; HOME.ids = ''; HOME.t = 0; }
+// ---- Home: the command centre. Pending approvals, cases on you, failed jobs, planned cameras and agent gaps in one list
+// with the fix next to each; a command bar for jobs, camera questions and team changes; one activity feed for everything.
+const HM = {t: 0, slow: 0, mode: 'job', filter: 'all', all: false, actions: [], runs: [], audit: [], vis: [], ops: [], cases: [], camR: null, health: null, nkey: '', fkey: ''};
+const ago = ts => { const s = Math.max(0, Date.now() / 1000 - ts); return s < 60 ? 'now' : s < 3600 ? Math.floor(s / 60) + 'm' : s < 86400 ? Math.floor(s / 3600) + 'h' : Math.floor(s / 86400) + 'd'; };
+const plural = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
+const HM_SUGG = {
+  job: ['Summarise what the cameras saw today', 'Draft replies to every enquiry still waiting', 'Prepare tomorrow\'s staff briefing', 'Research our five nearest competitors'],
+  ask: ['How busy was it in the last hour?', 'Was anyone at the stations after closing?', 'When was it busiest today?'],
+  design: ['Answer every WhatsApp enquiry within 10 minutes', 'Email me a report of the day every evening', 'Watch the bar for long queues and tell the floor manager'],
+};
+function homeMode(m){
+  HM.mode = m; document.querySelectorAll('#hm-modes button').forEach(b => b.classList.toggle('on', b.dataset.m === m));
+  const inp = $('#d-task');
+  inp.placeholder = {job: 'Describe a job. The agents plan, research and draft; anything outbound waits for your approval.',
+    ask: 'Ask what the cameras saw. Answers come only from their journal, with the moments they come from.',
+    design: 'Describe the work. Atlas proposes the team for it on the canvas; nothing changes until you apply it.'}[m];
+  $('#hm-send').textContent = {job: 'Deploy the team →', ask: 'Ask →', design: 'Propose a team →'}[m];
+  let sugg = HM_SUGG[m];
+  if (m === 'ask' && (CAMS || []).length) sugg = [`What happened on ${CAMS[0].name} in the last hour?`, ...sugg.slice(0, 2)];
+  $('#hm-sugg').innerHTML = sugg.map(t => `<button>${esc(t)}</button>`).join('');
+  $('#hm-sugg').querySelectorAll('button').forEach(b => b.onclick = () => { inp.value = b.textContent; inp.focus(); });
+}
+document.querySelectorAll('#hm-modes button').forEach(b => b.onclick = () => { homeMode(b.dataset.m); $('#d-task').focus(); });
+document.querySelectorAll('#hm-ftabs button').forEach(b => b.onclick = () => { HM.filter = b.dataset.f; HM.fkey = ''; document.querySelectorAll('#hm-ftabs button').forEach(x => x.classList.toggle('on', x === b)); homeFeed(); });
+async function homeSend(){
+  const inp = $('#d-task'), t = inp.value.trim(); if (!t) return inp.focus();
+  if (HM.mode === 'design') { inp.value = ''; go('team'); homeAfter(() => teamDesignFor(t), () => { const p = $('#tm-proposal'); return p && !p.classList.contains('hide'); }); return; }
+  const out = $('#hm-out'), btn = $('#hm-send'); out.classList.remove('hide'); btn.disabled = true;
+  try {
+    if (HM.mode === 'job') {
+      const r = await api('/runs', {method: 'POST', body: {task: t, mode: 'auto'}});
+      if (!r || r.error) { out.innerHTML = `<span class="bad">${esc(r?.error || 'Could not start the job')}</span>`; return; }
+      inp.value = ''; HM.t = 0;
+      out.innerHTML = `<b>Started.</b> ${esc(t)} <span class="hint">Atlas is planning it and briefing the team.</span> <button class="link" onclick="curRun='${r.run_id}';liveWant='${r.run_id}';go('live')">Watch it live ›</button>`;
+      refresh();
+    } else {
+      out.innerHTML = '<span class="hint">Reading the camera journal…</span>';
+      const r = await api('/vision/ask', {method: 'POST', body: {question: t, hours: 24}});
+      if (!r || r.error) { out.innerHTML = `<span class="bad">${esc(r?.error || 'Could not read the journal')}</span>`; return; }
+      const ev = r.evidence || [];
+      out.innerHTML = `<div class="hm-ans">${fmtNote(r.answer || 'Nothing in the journal answers that yet.')}</div>`
+        + (ev.length ? `<div class="hm-evid"><span class="hint">from ${plural(ev.length, 'logged moment')}:</span>${ev.slice(0, 8).map(e => `<span class="tag" title="${esc(String(e.answer || e.seen || '').slice(0, 300))}">${esc(e.camera || '')} ${e.ts ? hms(e.ts) : ''}</span>`).join('')}<button class="link" onclick="go('cameras')">Open the cameras ›</button></div>` : '');
+    }
+  } finally { btn.disabled = false; }
+}
+// an action on another tab that needs that tab's data first: retried until it took effect
+function homeAfter(fn, done){ let n = 0; const t = setInterval(() => { n++; if (n > 2) { try { fn(); } catch (e) {} if (!done || done()) clearInterval(t); } if (n > 30) clearInterval(t); }, 300); }
+function homeAddCamera(){ go('cameras'); homeAfter(() => { const n = $('#cam-name'); if (n) { n.scrollIntoView({behavior: 'smooth', block: 'center'}); n.focus(); } }, () => document.activeElement === $('#cam-name')); }
+async function homeDecide(id, status){
+  const a = HM.actions.find(x => x.id === id); if (!a) return;
+  document.querySelectorAll(`[data-act="${id}"] button`).forEach(b => b.disabled = true);
+  const r = await api(`/actions/${id}/decide`, {method: 'POST', body: {status, subject: a.subject, body: a.body, note: ''}});
+  if (!r || r.error) return toast(r?.error || 'failed');
+  toast(status === 'rejected' ? 'Rejected' : r.status === 'failed' ? `Could not send: ${r.note || ''}` : `Sent to ${r.to}`);
+  HM.t = 0; HM.nkey = ''; refresh();
+}
+async function homeRetry(id){
+  const r0 = HM.runs.find(r => r.id === id); if (!r0) return;
+  const r = await api('/runs', {method: 'POST', body: {task: r0.task, mode: r0.mode || 'auto'}});
+  if (!r || r.error) return toast(r?.error || 'failed');
+  toast('Running it again'); HM.t = 0; refresh();
+}
+function homeOpenRun(id){ go('runs'); curRun = id; setTimeout(() => loadRun(id), 300); }
+function homeOpenCam(name){ const c = (CAMS || []).find(x => x.name === name); go('cameras'); if (c) homeAfter(() => openLive(c.id), () => document.getElementById('live-img')); }
+function homeOpenAgent(id){ go('team'); homeAfter(() => window.teamOpenId && teamOpenId(id), () => document.getElementById('tm-i-name')); }
+
+async function loadHome(s){
+  if (!s) return;
+  const now = Date.now();
+  if (now - HM.t < 4000) { homeRender(s); return; }
+  HM.t = now;
+  const slow = now - HM.slow > 15000; if (slow) HM.slow = now;
+  const q = [api('/actions?status=pending'), api('/runs'), api('/audit')];
+  if (slow) q.push(api('/vision/events?limit=400&hours=24'), api('/cases?open=1&limit=60'), api('/ops/activity?limit=60'), loadLinks());
+  const [acts, runs, audit, vis, cases, ops] = await Promise.all(q);
+  if (page !== 'dash') return;
+  HM.actions = Array.isArray(acts) ? acts : []; HM.runs = Array.isArray(runs) ? runs : []; HM.audit = Array.isArray(audit) ? audit : [];
+  if (slow) { HM.vis = Array.isArray(vis) ? vis : []; HM.cases = (cases && cases.cases) || []; HM.ops = Array.isArray(ops) ? ops : []; }
+  homeRender(s);
+}
+function homeRender(s){
+  const H = new Date().getHours(), first = String((ME && ME.name) || '').trim().split(/\s+/)[0];
+  $('#hm-date').textContent = new Date().toLocaleDateString('en-GB', {weekday: 'long', day: 'numeric', month: 'long'}) + ' · ' + ((CFG.business || {}).name || '');
+  $('#hm-greet').textContent = (H < 12 ? 'Good morning' : H < 18 ? 'Good afternoon' : 'Good evening') + (first ? ', ' + first : '');
+  if (!$('#d-task').placeholder) homeMode(HM.mode);
+  const day = Date.now() / 1000 - 86400, specs = (CFG.agents || []).filter(a => a.id !== 'atlas' && a.enabled !== false);
+  const jobs = HM.runs.filter(r => r.created > day), failed = jobs.filter(r => /error|fail/.test(r.status)), running = HM.runs.filter(r => r.active);
+  const needs = homeNeeds();
+  const cams = (HM.camR && HM.camR.cameras) || CAMS || [], cst = (HM.camR && HM.camR.stats) || {};
+  const notes = HM.vis.filter(v => v.answer).length, alerts = cst.triggered ?? HM.vis.filter(v => v.triggered).length;
+  // the sentence under the greeting: what needs the owner first, then what the desk is doing
+  const bits = [];
+  bits.push(needs.length ? `<b class="warn">${plural(needs.length, 'thing')} need${needs.length === 1 ? 's' : ''} you.</b>` : '<b class="ok">Nothing is waiting on you.</b>');
+  if (running.length) bits.push(`The team is working on ${plural(running.length, 'job')} right now.`);
+  bits.push(`${plural(specs.length, 'agent')}${cams.length ? `, ${plural(cams.length, 'camera')} watching` : ''}, ${plural(jobs.length, 'job')} in the last 24 hours.`);
+  $('#hm-sum').innerHTML = bits.join(' ');
+  const br = $('#hm-brain');
+  br.className = 'hm-pill ' + (CFG.live_reason ? 'bad' : CFG.mode === 'demo' ? 'warn' : 'ok');
+  br.innerHTML = `<i></i>${CFG.live_reason ? 'Models unreachable' : CFG.mode === 'demo' ? 'Demo agents (scripted)' : 'Live models · ' + esc(CFG.tier || '')}`;
+  // today strip
+  const cost = (((s.tokens_in || 0) * 5 + (s.tokens_out || 0) * 25) / 1e6 * 0.78);
+  const cell = (k, v, sub, cls, on) => `<div class="hm-stat ${cls || ''}" onclick="${on}"><span>${k}</span><b>${v}</b><small>${sub}</small></div>`;
+  const C = s.cases || {};
+  $('#hm-stats').innerHTML = cell('Needs you', needs.length, HM.actions.length ? plural(HM.actions.length, 'draft') + ' to approve' : 'approvals, cases, setup', needs.length ? 'warn' : 'ok', "document.getElementById('hm-needs-p').scrollIntoView({behavior:'smooth'})")
+    + cell('Jobs · 24h', jobs.length, `${jobs.length - failed.length - running.length} done · ${failed.length} failed · ${running.length} running`, failed.length ? 'bad' : '', "go('runs')")
+    + cell('Open cases', C.open || 0, `${C.you || 0} on you · ${C.atlas || 0} with Atlas${C.breached ? ' · ' + C.breached + ' overdue' : ''}`, C.breached ? 'bad' : '', "location.href='/desk/ops'")
+    + cell('Camera notes · 24h', cst.notes ?? notes, `${plural(alerts || 0, 'alert')} · ${plural(cams.length, 'camera')}`, alerts ? 'warn' : '', "go('cameras')")
+    + cell('Sent', s.approved || 0, `after your OK · ${s.rejected || 0} rejected`, '', "go('approvals')")
+    + cell('Model cost', '£' + cost.toFixed(2), `${((s.tokens_in || 0) + (s.tokens_out || 0)).toLocaleString()} tokens, all time`, '', "go('setup')");
+  homeNeedsRender(needs); homeFeed(); homeAgents(running); homeCases(); homeRuns();
+}
+function homeNeeds(){
+  const out = [];
+  if (CFG.live_reason) out.push({k: 'bad', kl: 'models', t: 'The agents cannot reach their models', d: CFG.live_reason, a: `<button class="btn sm" onclick="go('setup')">Fix in desk setup</button>`});
+  for (const a of HM.actions) out.push({id: a.id, k: 'appr', kl: a.kind || 'draft', t: `${a.subject || '(no subject)'} → ${a.to || ''}`,
+    d: (a.flags ? '⚠ flagged: ' + a.flags + ' · ' : '') + `${agentName(a.agent)} wrote: ${String(a.body || '').replace(/\s+/g, ' ').slice(0, 220)}`,
+    a: `<button class="btn sm ok" onclick="homeDecide(${a.id},'approved')">Approve &amp; send</button><button class="btn sm" onclick="go('approvals')">Edit</button><button class="btn sm d" onclick="homeDecide(${a.id},'rejected')">Reject</button>`});
+  for (const c of HM.cases.filter(c => c.lane === 'you')) out.push({k: 'case', kl: 'case', t: c.title || `Case ${c.id}`,
+    d: [c.type_label, c.state_label, c.breached ? 'overdue' : '', c.brief].filter(Boolean).join(' · '), a: `<a class="btn sm" href="/desk/ops#case/${c.id}">Open case</a>`});
+  const day = Date.now() / 1000 - 86400;
+  for (const r of HM.runs.filter(r => /error|fail/.test(r.status) && r.created > day).slice(0, 3)) out.push({k: 'bad', kl: 'job failed', t: r.task,
+    d: r.summary || r.status, a: `<button class="btn sm" onclick="homeOpenRun('${r.id}')">See why</button><button class="btn sm" onclick="homeRetry('${r.id}')">Run again</button>`});
+  for (const p of (HM.camR && HM.camR.planned) || []) out.push({k: 'cam', kl: 'camera', t: `Connect ${p.name}`,
+    d: `Atlas planned this camera${p.focus ? ' to watch ' + p.focus : ''}. Give it a stream address or sample footage.`, a: `<button class="btn sm" onclick="go('cameras')">Connect it</button>`});
+  for (const al of ((HM.health && HM.health.alerts) || []).filter(a => a.level === 'critical')) out.push({k: 'bad', kl: 'health', t: al.text, d: '', a: `<button class="btn sm" onclick="document.getElementById('hm-hz').scrollIntoView({behavior:'smooth'})">Details</button>`});
+  if (LINKS) for (const [aid, e] of Object.entries(LINKS.agents || {})) for (const g of e.gaps || []) out.push({k: 'gap', kl: 'agent', t: `${agentName(aid)}: ${g}`,
+    d: 'Part of this agent\'s job cannot happen until this is fixed.', a: gapFix(g, aid) || `<button class="btn sm" onclick="homeOpenAgent('${aid}')">Open agent</button>`});
+  return out;
+}
+function homeNeedsRender(items){
+  $('#hm-needs-n').textContent = items.length; $('#hm-needs-n').classList.toggle('hot', items.length > 0);
+  const key = JSON.stringify([items.map(i => [i.t, i.d]), HM.all]); if (key === HM.nkey) return; HM.nkey = key;
+  if (!items.length) { $('#hm-needs').innerHTML = '<div class="hm-clear"><i>✓</i><span>All clear. Drafts the agents write, cases that need a decision and anything that stops the team working will show up here.</span></div>'; return; }
+  const show = HM.all ? items : items.slice(0, 6);
+  $('#hm-needs').innerHTML = show.map(i => `<div class="hm-need" ${i.id ? `data-act="${i.id}"` : ''}><span class="k ${i.k}">${esc(i.kl)}</span><div class="t"><b title="${esc(i.t)}">${esc(i.t)}</b>${i.d ? `<small>${esc(i.d)}</small>` : ''}</div><div class="a">${i.a}</div></div>`).join('')
+    + (items.length > 6 ? `<div class="hm-more"><button class="link" onclick="HM.all=!HM.all;homeNeedsRender(homeNeeds())">${HM.all ? 'Show fewer' : `Show all ${items.length}`}</button></div>` : '');
+}
+function homeFeed(){
+  const rows = [];
+  for (const e of HM.audit) {
+    if (['tool', 'agent_start', 'text', 'token', 'thinking'].includes(e.kind)) continue;
+    const you = e.agent === 'owner' || ['sent', 'rejected'].includes(e.kind);
+    rows.push({ts: e.ts, f: you ? 'you' : 'job', who: you ? 'You' : agentName(e.agent), col: you ? 'var(--ok)' : (colors[e.agent] || 'var(--muted)'),
+      tag: {approval: 'needs OK', error: 'error', deliverable: 'saved', done: 'done', sent: 'sent', rejected: 'rejected', agent_end: 'finished'}[e.kind] || e.kind,
+      txt: e.text, bad: e.kind === 'error', on: e.run_id ? `homeOpenRun('${e.run_id}')` : `go('audit')`});
+  }
+  for (const v of HM.vis) {
+    if (!(v.answer || v.triggered || v.question)) continue;
+    rows.push({ts: v.ts, f: 'cam', who: v.camera, col: 'var(--accent)', tag: v.triggered ? 'alert' : v.question ? 'asked' : 'note',
+      txt: v.question ? `${v.question}: ${v.answer}` : (v.answer || v.reason || v.seen), bad: !!v.triggered, on: `homeOpenCam(${esc(JSON.stringify(v.camera))})`});
+  }
+  for (const o of HM.ops) {
+    const you = o.actor && !/^(atlas|system)$/.test(o.actor) && !(CFG.agents || []).some(a => a.id === o.actor);
+    rows.push({ts: o.ts, f: you ? 'you' : 'case', who: o.case_title || o.record_title || 'case', col: 'var(--warn)', tag: o.kind || 'case',
+      txt: o.text, on: o.case_id ? `location.href='/desk/ops#case/${o.case_id}'` : `location.href='/desk/ops'`});
+  }
+  const list = rows.filter(r => HM.filter === 'all' || r.f === HM.filter).sort((a, b) => b.ts - a.ts).slice(0, 60);
+  const key = JSON.stringify([HM.filter, list.map(r => [r.ts, r.tag])]); if (key === HM.fkey) return; HM.fkey = key;
+  $('#hm-feed').innerHTML = list.length ? list.map(r => `<div class="hm-ev ${r.bad ? 'alert' : ''}" onclick="${r.on}"><span class="tm" title="${esc(when(r.ts))}">${hms(r.ts).slice(0, 5)}</span><span class="who" style="color:${r.col}" title="${esc(r.who)}">${esc(r.who)}</span><span class="tx"><em>${esc(r.tag)}</em>${esc(String(r.txt || '').slice(0, 400))}</span></div>`).join('')
+    : `<div class="hm-none">${{all: 'Nothing yet. Give the team a job above, or add a camera.', job: 'No jobs yet.', cam: 'No camera notes in the last 24 hours.', case: 'No case activity yet.', you: 'You have not approved or rejected anything yet.'}[HM.filter]}</div>`;
+}
+function homeAgents(running){
+  const live = new Set(running.map(r => r.id)), busy = new Set(), done = new Set();
+  for (const e of HM.audit) { if (!live.has(e.run_id)) continue; if (e.kind === 'agent_end') done.add(e.agent); else if (!done.has(e.agent)) busy.add(e.agent); }
+  const ags = (CFG.agents || []);
+  $('#hm-agents-n').textContent = ags.filter(a => a.enabled !== false).length;
+  $('#hm-agents').innerHTML = ags.map(a => {
+    const L = (LINKS && LINKS.agents[a.id]) || {}, gaps = (L.gaps || []).length;
+    const what = a.id === 'atlas' ? 'team lead: plans each job, briefs the agents, checks their work'
+      : [L.cameras && L.cameras.length ? 'watches ' + L.cameras.join(', ') : L.any_camera ? 'any camera' : '', (L.connectors || []).length ? 'sends via ' + L.connectors.join(', ') : '', a.role].filter(Boolean).join(' · ');
+    const st = a.enabled === false ? ['off', ''] : busy.has(a.id) ? ['working', 'on'] : gaps ? [plural(gaps, 'gap'), 'warn'] : ['ready', ''];
+    return `<div class="hm-row" onclick="homeOpenAgent('${a.id}')" title="open ${esc(a.name)} on the team canvas" ${a.enabled === false ? 'style="opacity:.55"' : ''}><span class="sw" style="background:${a.color || '#7c3aed'}"></span><span class="m"><b>${esc(a.name)}</b><small>${esc(what)}</small></span><span class="st ${st[1]}">${esc(st[0])}</span></div>`;
+  }).join('') || '<div class="hm-none">No agents yet.</div>';
+}
+function homeCases(){
+  const C = HM.cases; $('#hm-cases-n').textContent = C.length;
+  const lane = {you: ['on you', 'warn'], atlas: ['Atlas', 'on'], customer: ['waiting reply', ''], scheduled: ['scheduled', '']};
+  $('#hm-cases').innerHTML = C.length ? C.slice(0, 7).map(c => { const l = c.breached ? ['overdue', 'bad'] : (lane[c.lane] || [c.lane, '']);
+    return `<a class="hm-row" href="/desk/ops#case/${c.id}"><span class="m"><b>${esc(c.title || 'Case ' + c.id)}</b><small>${esc([c.type_label, c.state_label, c.subject && c.subject.title].filter(Boolean).join(' · '))}</small></span><span class="st ${l[1]}">${esc(l[0])}</span></a>`; }).join('')
+    : '<div class="hm-none">No open cases. Enquiries, camera incidents and tasks the desk is seeing through appear here.</div>';
+}
+function homeRuns(){
+  const R = HM.runs.slice(0, 6);
+  $('#hm-runs').innerHTML = R.length ? R.map(r => { const st = r.active ? ['running', 'on'] : /error|fail/.test(r.status) ? ['failed', 'bad'] : r.status === 'done' ? ['done', ''] : [r.status, ''];
+    return `<div class="hm-row" onclick="homeOpenRun('${r.id}')"><span class="m"><b title="${esc(r.task)}">${esc(String(r.task || '').replace(/^Run workflow /, ''))}</b><small>${esc(ago(r.created))} ago${r.summary ? ' · ' + esc(r.summary) : ''}</small></span><span class="st ${st[1]}">${esc(st[0])}</span></div>`; }).join('')
+    : '<div class="hm-none">No jobs yet. Give the team one with the bar at the top.</div>';
+}
 async function loadDashLog(){ const ev = await api('/audit'); $('#dash-log').innerHTML = ev.length ? ev.slice(0,40).reverse().map(evLine).join('') : '(nothing yet — seed demo leads)'; $('#dash-log').scrollTop = 1e9; }
 
 async function seed(){ toast('Seeding 3 leads…'); const r = await api('/demo/seed', {method:'POST', body:{}}); if (r && r[0]) liveWant = r[0].run_id; go('live'); }
@@ -1314,6 +1617,7 @@ function teamTool(i, t, el){
   const c = document.getElementById('tools-' + tkid(a._k)); if (c) c.textContent = a.tools.length + ' tool' + (a.tools.length === 1 ? '' : 's');
   teamSetDirty(true);
 }
+function teamAddReady(){ if (TEAM.key) teamAdd(); }   // from Home or the palette: only once the roster has loaded, so a save never drops agents
 function teamAdd(){
   const n = TEAM.agents.length; const atlas = TEAM.agents.find(a => a.id === 'atlas'); const A = atlas && document.getElementById(tkid(atlas._k));
   const k = 'new' + (++TEAM.seq);
@@ -1357,6 +1661,7 @@ async function teamDesignJob(){
   $('#tm-prop-warn').textContent = (r.errors || []).length ? 'Still off-contract: ' + r.errors.join('; ') : ((r.warnings || []).length ? 'Repaired after the first draft: ' + r.warnings.join('; ') : '');
   $('#tm-prop-meta').textContent = r.mode === 'demo' ? 'demo design (no model) — structure only' : `designed by ${(r.team.source || {}).model || 'the desk model'} in ${r.turns} turn(s)`;
 }
+function teamDesignFor(t){ const i = $('#tm-task'); if (!i) return; i.value = t; teamDesignJob(); }   // from Home or the Ask Atlas panel
 async function teamApplyProposal(deploy){
   const did = (CFG.desk || {}).id; if (!did || !TMPROP) return;
   const r = await api(`/desks/${did}/team/apply`, {method:'POST', body:{team:TMPROP}});
@@ -1922,6 +2227,7 @@ async function loadHealth(){
   if (Date.now() - _hzT < 10000) return; _hzT = Date.now();
   const h = await api('/health/full'); if (!h || h.error) return;
   const badge = $('#hz-badge'); badge.textContent = h.ok ? 'healthy' : 'attention'; badge.className = 'tag ' + (h.ok ? 'done' : 'error');
+  HM.health = h; { const hp = $('#hm-hpill'); if (hp) { hp.className = 'hm-pill ' + (h.ok ? 'ok' : 'warn'); hp.querySelector('span').textContent = h.ok ? 'Healthy' : plural(h.alerts.length, 'alert'); } }
   const navBtn = document.querySelector('#nav button[data-p="dash"]'); if (navBtn) navBtn.classList.toggle('alert', !h.ok);
   const r = h.runs, fmt = v => v == null ? '–' : v + 's';
   const stat = (k, v, sub) => `<div class="kpi"><span>${k}</span><b style="font-size:20px">${v}</b><small>${sub||''}</small></div>`;
