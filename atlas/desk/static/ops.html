@@ -5,7 +5,7 @@
 <title>Atlas Desk · Operations</title>
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
-<script>try{document.documentElement.dataset.theme=localStorage.getItem("atlas-theme")||"dark"}catch(e){document.documentElement.dataset.theme="dark"}</script>
+<script>try{var t=localStorage.getItem("atlas-theme");document.documentElement.dataset.theme=t||(matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light")}catch(e){document.documentElement.dataset.theme="light"}</script>
 <style>
 :root{--appbar:#1c2127;--appbar-text:#f6f7f9;--bg:#f4f5f7;--panel:#fff;--panel2:#f6f7f9;--panel3:#eceef1;--line:#e1e4e8;--line2:#d0d5db;
   --text:#14171c;--text2:#3d4550;--muted:#59616d;--faint:#7c8591;--accent:#2d72d2;--accent2:#215db0;--accent-soft:rgba(45,114,210,.10);

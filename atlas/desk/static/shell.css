@@ -3,6 +3,7 @@
 :root{--sh-w:224px;--sh-bg:#17181b;--sh-panel:#1f2024;--sh-panel2:#26282d;--sh-line:#2e3036;--sh-line2:#3b3e45;--sh-text:#e6e7ea;
   --sh-text2:#b9bcc4;--sh-muted:#8a8f99;--sh-faint:#636873;--sh-acc:#4a8fe7;--sh-acc-soft:rgba(74,143,231,.16);--sh-orange:#e8820d;
   --sh-ok:#5fb97c;--sh-warn:#d8a13c;--sh-bad:#e0605a;--sh-font:Inter,"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif}
+:root[data-theme="light"]{--sh-bg:#eef1f5;--sh-panel:#ffffff;--sh-panel2:#e4e8ee;--sh-line:#d5dae2;--sh-line2:#bec6d1;--sh-text:#141922;--sh-text2:#38414d;--sh-muted:#5d6878;--sh-faint:#8a94a3;--sh-acc:#2d72d2;--sh-acc-soft:rgba(45,114,210,.12);--sh-orange:#c96a00;--sh-ok:#1c8f5f;--sh-warn:#a66a00;--sh-bad:#c23030}
 body.sh-on{padding-left:var(--sh-w)!important;box-sizing:border-box}
 body.sh-on.sh-mini{--sh-w:58px}
 #sh-rail{position:fixed;left:0;top:0;bottom:0;width:var(--sh-w);z-index:900;background:var(--sh-bg);border-right:1px solid var(--sh-line);
@@ -98,11 +99,11 @@ body.sh-mini #sh-rail .sh-top{flex-direction:column}
 #sh-ask .foot a{color:var(--sh-muted)}
 /* phones: the rail slides in from a top bar */
 #sh-mbar{display:none}
-@media (max-width:760px){body.sh-on{padding-left:0!important;padding-top:48px!important}#sh-rail{transform:translateX(-100%);transition:transform .2s;box-shadow:0 0 40px rgba(0,0,0,.5)}body.sh-open #sh-rail{transform:none}
-  #sh-mbar{display:flex;align-items:center;gap:10px;position:fixed;left:0;right:0;top:0;height:48px;z-index:899;background:var(--sh-bg);border-bottom:1px solid var(--sh-line);padding:0 10px;font-family:var(--sh-font);color:var(--sh-text)}
-  #sh-mbar button{background:none;border:1px solid var(--sh-line);color:var(--sh-text2);border-radius:7px;height:32px;min-width:34px;display:grid;place-items:center;cursor:pointer;font:600 12.5px var(--sh-font);padding:0 10px}
+@media (max-width:760px){body.sh-on{padding-left:0!important;padding-top:42px!important}#sh-rail{transform:translateX(-100%);transition:transform .2s;box-shadow:0 0 40px rgba(0,0,0,.5)}body.sh-open #sh-rail{transform:none}
+  #sh-mbar{display:flex;align-items:center;gap:8px;position:fixed;left:0;right:0;top:0;height:42px;z-index:899;background:var(--sh-bg);border-bottom:1px solid var(--sh-line);padding:0 8px;font-family:var(--sh-font);color:var(--sh-text)}
+  #sh-mbar button{background:none;border:1px solid var(--sh-line);color:var(--sh-text2);border-radius:6px;height:28px;min-width:30px;display:grid;place-items:center;cursor:pointer;font:600 12px var(--sh-font);padding:0 9px}
   #sh-mbar button svg{width:17px;height:17px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
-  #sh-mbar b{flex:1;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  #sh-mbar b{flex:1;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   #sh-mbar .ask{background:var(--sh-acc);border-color:var(--sh-acc);color:#fff}
   body.sh-open::after{content:"";position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:898}}
 /* the main desk page: the frame replaces its own sidebar */
