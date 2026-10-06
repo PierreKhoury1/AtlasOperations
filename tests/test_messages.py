@@ -83,3 +83,27 @@ def test_backfill_builds_threads_from_history(app_client):
 
 def J2(r):
     return json.loads(r.data)
+
+
+def test_daily_report_send_now_and_daily_at_jobs(app_client, monkeypatch):
+    c = app_client
+    did, tok = _desk(c, "msg5@example.com")
+    # no channel configured yet
+    r = c.post("/api/report/day/send", json={})
+    assert r.status_code == 400 and "channel" in J2(r)["error"]
+    J(c.patch(f"/api/desks/{did}", json={"notify": {"channel": "email", "to": "owner@example.com", "report": True, "report_time": "06:45"}}))
+    out = J(c.post("/api/report/day/send", json={}))
+    assert out["ok"] and out["status"] == "pending"                      # queued for approval (auto is off)
+    pend = J(c.get("/api/actions?status=pending"))
+    assert any("Camera report" in (a["subject"] or "") for a in pend)
+    jobs = J(c.get("/api/jobs"))["jobs"]
+    rep = next(j for j in jobs if j["kind"] == "daily_report")           # saving notify scheduled the morning report
+    assert rep["every_min"] == 1440
+    import time as _t
+    assert _t.localtime(rep["next_run"])[3:5] == (6, 45)
+    # a plain task automation daily at 08:15, then edited to 09:30
+    j = J(c.post("/api/jobs", json={"kind": "task", "name": "Morning brief", "task": "Prepare the brief", "at": "08:15"}))
+    assert j["every_min"] == 1440 and _t.localtime(j["next_run"])[3:5] == (8, 15)
+    j2 = J(c.patch(f"/api/jobs/{j['id']}", json={"at": "09:30", "task": "Prepare the brief, shorter"}))
+    assert _t.localtime(J(c.get("/api/jobs"))["jobs"][-1]["next_run"] if False else j2.get("next_run") or next(x for x in J(c.get("/api/jobs"))["jobs"] if x["id"] == j["id"])["next_run"])[3:5] == (9, 30)
+    assert c.post("/api/jobs", json={"kind": "task", "name": "x", "task": "y", "at": "25:99"}).status_code == 400

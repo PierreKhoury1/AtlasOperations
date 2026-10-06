@@ -28,7 +28,7 @@
              ['security', 'Security', '/desk/cyber', 'shield']]],
     ['Team', [['team', 'Agents', '/desk#team', 'team'], ['design', 'Atlas workspace', '/desk/workspace', 'spark'], ['automations', 'Automations', '/desk#automations', 'clock'],
               ['runs', 'Run history', '/desk#runs', 'list']]],
-    ['Connect', [['integrations', 'Integrations', '/desk#integrations', 'link'], ['audit', 'Audit log', '/desk#audit', 'doc'], ['report', 'Monthly report', '/desk#report', 'chart'],
+    ['Connect', [['integrations', 'Integrations', '/desk#integrations', 'link'], ['audit', 'Audit log', '/desk#audit', 'doc'], ['report', 'Reports', '/desk#report', 'chart'],
                  ['setup', 'Desk setup', '/desk#setup', 'gear']]],
   ];
   const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));

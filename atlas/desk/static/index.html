@@ -431,6 +431,7 @@ aside.simple [data-lvl="full"]{display:none}
 .hm-pfoot{display:flex;gap:6px;padding:10px 18px;border-top:1px solid var(--line);flex-wrap:wrap}
 .hm-none{padding:16px 18px;color:var(--muted);font-size:12.5px}
 #p-dash .hcams{margin:0!important}
+.repmd{max-height:480px;overflow:auto;font-size:12.5px;line-height:1.6}.repmd h2{font-size:15px;margin:2px 0 8px}.repmd h3{font-size:12.5px;margin:14px 0 6px;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);font-family:var(--mono);font-weight:600}.repmd h4{font-size:13px;margin:10px 0 3px}.repmd ul{margin:0 0 8px 18px}.repmd p{margin:0 0 8px}
 .msgwrap{padding:0;display:grid;grid-template-columns:300px minmax(0,1fr);min-height:460px}
 .mlist{border-right:1px solid var(--line);max-height:640px;overflow:auto}
 .mrow{padding:10px 14px;border-bottom:1px solid var(--line);cursor:pointer}
@@ -766,8 +767,8 @@ aside.simple [data-lvl="full"]{display:none}
       <div id="j-task-wrap"><label>Task for Atlas</label><textarea id="j-task" placeholder="Review every contact at Qualified, draft a next-step email for each and queue for approval."></textarea></div>
       <div id="j-poll-wrap" class="hide"><label>Connector name</label><input id="j-conn" placeholder="crm-api"><label>Path</label><input id="j-path" placeholder="/v1/orders?status=new"><label>What to do with the result</label><textarea id="j-prompt" placeholder="For every new order, draft a confirmation email and queue it."></textarea></div>
       <div id="j-days-wrap" class="hide"><label>Chase after (days)</label><input id="j-days" type="number" value="3"></div>
-      <div class="grid g2"><div><label>Every (minutes, 0 = once)</label><input id="j-every" type="number" value="60"></div><div><label>First run in (minutes)</label><input id="j-in" type="number" value="0"></div></div>
-      <div class="row" style="margin-top:12px"><button class="btn p" onclick="addJob()">Add automation</button></div>
+      <div class="grid g3"><div><label>Daily at (HH:MM)</label><input id="j-at" placeholder="07:30 — beats the interval"></div><div><label>Every (minutes, 0 = once)</label><input id="j-every" type="number" value="60"></div><div><label>First run in (minutes)</label><input id="j-in" type="number" value="0"></div></div>
+      <div class="row" style="margin-top:12px"><button class="btn p" id="j-add-btn" onclick="addJob()">Add automation</button><button class="btn hide" id="j-cancel-btn" onclick="jobEditEnd()">Cancel edit</button></div>
     </div></div>
   </div>
 </section>
@@ -847,7 +848,11 @@ aside.simple [data-lvl="full"]{display:none}
 
 <!-- REPORT -->
 <section id="p-report" class="hide">
-  <h1>Monthly report</h1><p class="lead">What you get every month: volume, approval rate, time saved, cost, what we changed.</p>
+  <h1>Reports</h1><p class="lead">The daily camera report by name, and the monthly business report.</p>
+  <div class="panel" style="margin-bottom:14px"><div class="ph"><h2>Daily camera report</h2>
+    <div class="ctl"><input type="date" id="dr-date" style="width:150px" onchange="loadDayReport()"><a class="btn sm" id="dr-dl" target="_blank">Download</a><button class="btn sm p" onclick="sendDayReport(this)">Send it to me now</button></div></div>
+    <div class="pb"><div class="hint" id="dr-sched" style="margin:0 0 10px"></div><div id="dr-body" class="repmd"><div class="empty">Loading…</div></div></div></div>
+  <h2 style="margin:4px 0 10px">Monthly report</h2>
   <div id="report"></div>
   <div class="panel" id="perf-panel" style="margin-top:14px"><div class="ph"><h2>Performance &amp; capacity</h2><span class="hint">computed from every run on this desk</span></div><div class="pb" id="perf"></div></div>
 </section>
@@ -922,7 +927,7 @@ async function refresh(){
   if (page==='setup') { loadMem(); loadByo(); }
   if (page==='automations') loadJobs();
   if (page==='cameras') { loadCameras(); loadVisionEvents(); }
-  if (page==='report') loadReport();
+  if (page==='report') { loadReport(); loadDayReport(); }
 }
 
 function evLine(e){
@@ -1254,6 +1259,38 @@ async function loadPerf(){
       <tr><td>Mean run (24h)</td><td>${cap.mean_run_s}s</td></tr><tr><td>Runs per hour per slot</td><td>${cap.est_runs_per_hour_per_slot??'–'}</td></tr>
       <tr><td>Empty model replies</td><td>${m.empty_replies}</td></tr><tr><td>Provider errors</td><td>${m.provider_errors}</td></tr>
       <tr><td>Throughput (observed)</td><td>${m.throughput_runs_per_min??'–'} runs/min</td></tr></table><p class="hint" style="margin-top:8px">${esc(cap.note)}</p></div></div>`;
+}
+function mdHtml(md){
+  const inline = t => esc(t).replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>');
+  const out = []; let ul = false;
+  for (const l of String(md || '').split('\n')) {
+    if (l.startsWith('- ')) { if (!ul) { out.push('<ul>'); ul = true; } out.push('<li>' + inline(l.slice(2)) + '</li>'); continue; }
+    if (ul) { out.push('</ul>'); ul = false; }
+    if (l.startsWith('# ')) out.push('<h2>' + inline(l.slice(2)) + '</h2>');
+    else if (l.startsWith('## ')) out.push('<h3>' + inline(l.slice(3)) + '</h3>');
+    else if (l.startsWith('### ')) out.push('<h4>' + inline(l.slice(4)) + '</h4>');
+    else if (l.trim()) out.push('<p>' + inline(l) + '</p>');
+  }
+  if (ul) out.push('</ul>');
+  return out.join('');
+}
+async function loadDayReport(){
+  const d = $('#dr-date'); if (!d) return;
+  if (!d.value) d.value = new Date().toISOString().slice(0, 10);
+  $('#dr-dl').href = `/api/report/day?date=${d.value}&format=md`;
+  const n = (CFG.desk || {}).notify || {};
+  $('#dr-sched').innerHTML = n.report !== false && n.channel
+    ? `Arrives every day at <b>${esc(n.report_time || '07:00')}</b> by ${esc(n.channel)}${n.to ? ' to ' + esc(n.to) : ''} · <button class="link" style="padding:0" onclick="go('cameras')">change</button>`
+    : `Not scheduled yet — set the alert channel under <button class="link" style="padding:0" onclick="go('cameras')">Cameras</button> and it arrives every morning.`;
+  const r = await fetch(`/api/report/day?date=${d.value}&format=md`);
+  $('#dr-body').innerHTML = r.ok ? mdHtml(await r.text()) : '<div class="empty">Could not load that day.</div>';
+}
+async function sendDayReport(btn){
+  btn.disabled = true;
+  const r = await api('/report/day/send', {method: 'POST', body: {date: $('#dr-date').value}});
+  btn.disabled = false;
+  if (!r || r.error) return toast(r?.error || 'failed');
+  toast('Report ' + r.note); refresh();
 }
 async function loadReport(){
   loadPerf();
@@ -2291,15 +2328,27 @@ async function loadJobs(){
   if (!$('#j-kind').options.length) { $('#j-kind').innerHTML = Object.entries(JOBK).map(([k,v])=>`<option value="${k}">${esc(v)}</option>`).join(''); jobFields(); }
   $('#n-jobs').textContent = R.jobs.filter(j=>j.enabled).length;
   const rel = t => !t ? '—' : (t - R.now > 0 ? 'in ' + Math.round((t-R.now)/60) + ' min' : Math.round((R.now-t)/60) + ' min ago');
-  $('#job-list').innerHTML = R.jobs.length ? `<table><tr><th>Name</th><th>Kind</th><th>Every</th><th>Next</th><th>Last result</th><th>On</th><th></th></tr>` + R.jobs.map(j=>`<tr><td><b>${esc(j.name)}</b><div class="hint" style="max-width:260px">${esc((j.task||'').slice(0,90))}</div></td><td><span class="tag">${esc(j.kind)}</span></td><td>${j.every_min?j.every_min+' min':'once'}</td><td>${j.enabled?rel(j.next_run):'paused'}</td><td class="hint" style="max-width:220px">${esc(j.last_result||'')}${j.last_run?'<br>'+rel(j.last_run):''}</td><td><input type="checkbox" style="width:auto" ${j.enabled?'checked':''} onchange="api('/jobs/${j.id}',{method:'PATCH',body:{enabled:this.checked}}).then(loadJobs)"></td><td class="row"><button class="btn sm" onclick="api('/jobs/${j.id}/run',{method:'POST',body:{}}).then(()=>{toast('Queued — runs within 20s');setTimeout(loadJobs,1500)})">Run now</button><button class="btn sm d" onclick="api('/jobs/${j.id}',{method:'DELETE',body:{}}).then(loadJobs)">✕</button></td></tr>`).join('') + '</table>' : '<div class="empty">No automations yet. Add an inbox watcher, a follow-up chaser or a scheduled task.</div>';
+  window.jstr = v => JSON.stringify(String(v)).replace(/'/g, '\\u0027').replace(/</g, '\\u003c');   // safe inside a single-quoted attribute
+  window.jobWords = j => j.every_min === 1440 && j.next_run ? 'daily at ' + new Date(j.next_run*1000).toTimeString().slice(0,5) : j.every_min ? 'every ' + (j.every_min % 60 ? j.every_min + ' min' : (j.every_min/60) + 'h') : 'once';
+  $('#job-list').innerHTML = R.jobs.length ? `<table><tr><th>Name</th><th>Kind</th><th>Every</th><th>Next</th><th>Last result</th><th>On</th><th></th></tr>` + R.jobs.map(j=>`<tr><td><b>${esc(j.name)}</b><div class="hint" style="max-width:260px">${esc((j.task||'').slice(0,90))}</div></td><td><span class="tag">${esc(j.kind)}</span></td><td>${jobWords(j)}</td><td>${j.enabled?rel(j.next_run):'paused'}</td><td class="hint" style="max-width:220px">${esc(j.last_result||'')}${j.last_run?'<br>'+rel(j.last_run):''}</td><td><input type="checkbox" style="width:auto" ${j.enabled?'checked':''} onchange="api('/jobs/${j.id}',{method:'PATCH',body:{enabled:this.checked}}).then(loadJobs)"></td><td class="row"><button class="btn sm" onclick="api('/jobs/${j.id}/run',{method:'POST',body:{}}).then(()=>{toast('Queued — runs within 20s');setTimeout(loadJobs,1500)})">Run now</button>${j.kind==='task'?`<button class="btn sm" onclick='jobEdit(${j.id}, ${jstr(j.name)}, ${jstr(j.task||"")}, ${j.every_min})'>Edit</button>`:''}<button class="btn sm d" onclick="api('/jobs/${j.id}',{method:'DELETE',body:{}}).then(loadJobs)">✕</button></td></tr>`).join('') + '</table>' : '<div class="empty">No automations yet. Add an inbox watcher, a follow-up chaser or a scheduled task.</div>';
 }
 function jobFields(){ const k=$('#j-kind').value; $('#j-task-wrap').classList.toggle('hide', k!=='task'); $('#j-poll-wrap').classList.toggle('hide', k!=='http_poll'); $('#j-days-wrap').classList.toggle('hide', k!=='followups'); }
 async function addJob(){
   const k=$('#j-kind').value; let task=$('#j-task').value;
   if (k==='http_poll') task = JSON.stringify({connector:$('#j-conn').value, path:$('#j-path').value, prompt:$('#j-prompt').value});
-  const r = await api('/jobs', {method:'POST', body:{kind:k, name:$('#j-name').value, task, every_min:+$('#j-every').value||0, in_min:+$('#j-in').value||0, days:+$('#j-days').value||3}});
-  if (!r || r.error) return toast(r?.error||'failed'); toast('Automation added'); $('#j-name').value=''; $('#j-task').value=''; loadJobs();
+  const body = {kind:k, name:$('#j-name').value, task, every_min:+$('#j-every').value||0, in_min:+$('#j-in').value||0, days:+$('#j-days').value||3, at:$('#j-at').value.trim()};
+  const r = JOB_EDIT ? await api('/jobs/'+JOB_EDIT, {method:'PATCH', body:{name:body.name, task:body.task, every_min:body.every_min, at:body.at}})
+                     : await api('/jobs', {method:'POST', body});
+  if (!r || r.error) return toast(r?.error||'failed');
+  toast(JOB_EDIT ? 'Automation updated' : 'Automation added'); jobEditEnd(); loadJobs();
 }
+let JOB_EDIT = null;
+function jobEdit(id, name, task, every){
+  JOB_EDIT = id; $('#j-name').value = name; $('#j-task').value = task; $('#j-every').value = every; $('#j-at').value = '';
+  $('#j-add-btn').textContent = 'Save changes'; $('#j-cancel-btn').classList.remove('hide');
+  $('#j-task').scrollIntoView({behavior:'smooth', block:'center'});
+}
+function jobEditEnd(){ JOB_EDIT = null; $('#j-name').value=''; $('#j-task').value=''; $('#j-at').value=''; $('#j-add-btn').textContent='Add automation'; $('#j-cancel-btn').classList.add('hide'); }
 async function addPreset(k){
   const body = k==='inbox_watch' ? {kind:k, name:'Inbox watcher', every_min:2, in_min:0} : {kind:k, name:'Follow-up chaser', every_min:1440, in_min:0, days:3};
   const r = await api('/jobs', {method:'POST', body}); if (r && !r.error) { toast(k==='inbox_watch' ? 'Inbox watcher on — needs an IMAP connector' : 'Follow-up chaser on'); loadJobs(); }

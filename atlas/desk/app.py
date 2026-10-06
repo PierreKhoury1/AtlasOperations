@@ -2026,7 +2026,14 @@ def api_add_job():
     kind = d.get("kind") if d.get("kind") in JOB_KINDS else "task"
     every = int(d.get("every_min") or 0)
     delay = int(d.get("in_min") or 0)
-    nxt = time.time() + (delay * 60 if delay else (every * 60 if every and not d.get("run_now") else 0))
+    at = str(d.get("at") or "").strip()                 # "07:30" = daily at that local time, instead of a bare interval
+    if at:
+        if not re.fullmatch(r"[0-2]?\d:[0-5]\d", at) or int(at.split(":")[0]) > 23:
+            return jsonify({"error": "at must be HH:MM"}), 400
+        from .. import alerts as AL
+        every, nxt = 1440, AL.report_due(at)
+    else:
+        nxt = time.time() + (delay * 60 if delay else (every * 60 if every and not d.get("run_now") else 0))
     task = d.get("task") or ""
     if kind in scheduler.LOG_JOB_KINDS:                 # runs every tick until done; validated before it is stored
         spec, err = _log_job_spec(kind, task)
@@ -2051,6 +2058,12 @@ def api_update_job(jid):
         abort(404)
     d = request.get_json(force=True) or {}
     fields = {k: d[k] for k in ("name", "task", "every_min") if k in d}
+    at = str(d.get("at") or "").strip()
+    if at:
+        if not re.fullmatch(r"[0-2]?\d:[0-5]\d", at) or int(at.split(":")[0]) > 23:
+            return jsonify({"error": "at must be HH:MM"}), 400
+        from .. import alerts as AL
+        fields["every_min"], fields["next_run"] = 1440, AL.report_due(at)
     if j["kind"] in scheduler.LOG_JOB_KINDS:
         fields.pop("every_min", None)
         if "task" in d:                                # an edited replay/watch is re-validated and starts over
@@ -2662,6 +2675,29 @@ def api_name_delete(nid):
         abort(404)
     ds.delete_named(nid)
     return jsonify({"ok": True})
+
+
+@app.post("/api/report/day/send")
+def api_report_day_send():
+    """Queue (or auto-send) the named day's camera report through the alert channel, right now."""
+    from .. import alerts as AL
+    from .. import report as REP
+    desk = need_desk()
+    d = request.get_json(silent=True) or {}
+    date = d.get("date") or time.strftime("%Y-%m-%d")
+    try:
+        data = REP.daily(store, desk["id"], date)
+    except ValueError:
+        return jsonify({"error": "date must be YYYY-MM-DD"}), 400
+    nc = AL.config(desk)
+    channel, to = d.get("channel") or nc["channel"], d.get("to") or nc["to"]
+    if not channel or not to:
+        return jsonify({"error": "set the alert channel and recipient first (Cameras → alert settings)"}), 400
+    biz = ((desk.get("config") or {}).get("business") or {}).get("name") or desk.get("name") or ""
+    subj, body = AL.report_message(desk, date, REP.markdown(data, biz), channel)
+    row = AL.queue(store, desk, channel, to, subj, body, f"daily camera report {date}", nc["auto"], _dispatch)
+    return jsonify({"ok": True, "status": row["status"], "action_id": row["id"],
+                    "note": "sent" if row["status"] == "sent" else ("queued for your approval" if row["status"] == "pending" else row.get("note") or row["status"])})
 
 
 @app.get("/api/report/day")

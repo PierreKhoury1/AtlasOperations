@@ -162,6 +162,8 @@ def queue(store, desk: dict[str, Any], kind: str, to: str, subject: str, body: s
             row = ds.decide_action(aid, "sent", by="auto", note=result)
         except Exception as exc:
             row = ds.decide_action(aid, "failed", by="auto", note=f"send failed: {type(exc).__name__}: {str(exc)[:200]}")
+        if kind in ("email", "whatsapp", "sms"):         # auto-sent alerts belong on the customer-facing thread too
+            ds.add_message(kind, "out", to, body, subject=subject, actor="cameras", status=row["status"], action_id=aid)
     return row
 
 
