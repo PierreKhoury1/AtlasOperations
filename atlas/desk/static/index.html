@@ -431,6 +431,23 @@ aside.simple [data-lvl="full"]{display:none}
 .hm-pfoot{display:flex;gap:6px;padding:10px 18px;border-top:1px solid var(--line);flex-wrap:wrap}
 .hm-none{padding:16px 18px;color:var(--muted);font-size:12.5px}
 #p-dash .hcams{margin:0!important}
+.veil{position:fixed;inset:0;background:rgba(10,13,17,.55);z-index:950;display:flex;align-items:center;justify-content:center;padding:16px}
+.veil.hide{display:none}
+.fdlg{width:560px;max-width:100%;max-height:92vh;overflow:auto;background:var(--panel);border:1px solid var(--line2);border-radius:4px;box-shadow:0 24px 70px rgba(0,0,0,.35)}
+.fdlg .fh{display:flex;align-items:center;gap:8px;padding:10px 14px;border-bottom:1px solid var(--line)}
+.fdlg .fb{padding:12px 14px}
+.fdlg .ff{display:flex;gap:8px;padding:10px 14px;border-top:1px solid var(--line)}
+.fdrop{border:1.5px dashed var(--line2);border-radius:4px;padding:22px 14px;text-align:center;cursor:pointer;color:var(--muted)}
+.fdrop:hover{border-color:var(--accent);color:var(--text)}
+.fdrop b{display:block;font-size:13px;color:var(--text)}
+.fdrop.done{border-color:var(--ok);border-style:solid}
+.fprev{margin-top:10px;aspect-ratio:16/9;background:#05070a;border-radius:3px;display:grid;place-items:center;color:var(--faint);font-size:12px;overflow:hidden}
+.fprev img{width:100%;height:100%;object-fit:contain}
+.cam.plan{border-style:dashed}
+.cam.plan .shot{display:grid;place-items:center;background:var(--panel2);color:var(--muted);cursor:pointer;font-size:12.5px}
+.cam.addtile{border-style:dashed;display:grid;place-items:center;min-height:230px;cursor:pointer;color:var(--muted)}
+.cam.addtile:hover{border-color:var(--accent);color:var(--accent)}
+.cam.addtile b{font-size:14px}
 .repmd{max-height:480px;overflow:auto;font-size:12.5px;line-height:1.6}.repmd h2{font-size:15px;margin:2px 0 8px}.repmd h3{font-size:12.5px;margin:14px 0 6px;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);font-family:var(--mono);font-weight:600}.repmd h4{font-size:13px;margin:10px 0 3px}.repmd ul{margin:0 0 8px 18px}.repmd p{margin:0 0 8px}
 .msgwrap{padding:0;display:grid;grid-template-columns:300px minmax(0,1fr);min-height:460px}
 .mlist{border-right:1px solid var(--line);max-height:640px;overflow:auto}
@@ -896,12 +913,32 @@ aside.simple [data-lvl="full"]{display:none}
 
 </main></div>
 <div class="toast" id="toast"></div>
+<div class="veil hide" id="feed-veil" onclick="if(event.target===this)feedClose()">
+  <div class="fdlg">
+    <div class="fh"><b id="fd-title">Connect a camera</b><span class="hint" id="fd-sub" style="margin:0 auto 0 12px"></span><button class="btn sm" onclick="feedClose()">✕</button></div>
+    <div class="fb">
+      <div id="fd-name-row"><label>Camera name (the agents refer to it by this)</label><input id="fd-name" placeholder="front-door, bar-cam, terrace…"></div>
+      <div class="hm-tabs" id="fd-tabs" style="margin:10px 0 8px">
+        <button data-k="stream" class="on">Stream address</button><button data-k="webcam">Webcam</button><button data-k="upload">Upload a video</button><button data-k="sample">Sample footage</button></div>
+      <div class="fpane" data-k="stream"><label>RTSP or snapshot URL</label><input id="fd-stream" placeholder="rtsp://user:pass@192.168.1.20:554/… or http://…/snapshot.jpg"></div>
+      <div class="fpane hide" data-k="webcam"><label>Device number</label><input id="fd-webcam" placeholder="0" style="width:100px"><p class="hint">0 is the first camera on the machine Atlas runs on.</p></div>
+      <div class="fpane hide" data-k="upload">
+        <div class="fdrop" id="fd-drop" onclick="$('#fd-file').click()"><b>Drop a video or image here</b><span>or click to choose a file — mp4, mov, mkv, jpg… It plays on a loop as this camera's feed.</span></div>
+        <input type="file" id="fd-file" accept="video/*,image/*" class="hide" onchange="feedUpload(this)"></div>
+      <div class="fpane hide" data-k="sample"><label>Footage</label><select id="fd-sample"></select><p class="hint">Bundled demo footage: kitchens, a hotel lobby, a shop floor.</p></div>
+      <div class="fprev" id="fd-prev"><span>Test the source to see a frame from it.</span></div>
+      <div class="hint" id="fd-msg" style="margin:6px 0 0"></div>
+    </div>
+    <div class="ff"><button class="btn" id="fd-test" onclick="feedTest(this)">Test the source</button><span class="spacer" style="flex:1"></span><button class="btn p" id="fd-go" onclick="feedAttach(this)">Attach feed →</button></div>
+  </div>
+</div>
 
 <script>
 window.addEventListener('hashchange', ()=>{const h=location.hash.slice(1); if(document.getElementById('p-'+h)) go(h);});
 const $ = s => document.querySelector(s);
 const api = async (p, opt) => { const r = await fetch('/api' + p, opt ? {headers:{'Content-Type':'application/json'}, ...opt, body: opt.body ? JSON.stringify(opt.body) : undefined} : undefined); if (r.status === 401) { location.href = '/login?next=/desk'; return; } if (r.status === 409) { const j = await r.json(); if (j.error === 'no_desk') { showOnboarding(); return null; } return j; } return r.json(); };
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const jstr = v => JSON.stringify(String(v ?? '')).replace(/'/g, '\\u0027').replace(/</g, '\\u003c');   // a JS string literal safe inside a single-quoted attribute
 const when = ts => new Date(ts * 1000).toLocaleString('en-GB', {day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit'});
 const hms = ts => new Date(ts * 1000).toLocaleTimeString('en-GB');
 let CFG = {}, colors = {}, af = 'pending', curRun = null, page = 'dash', ME = null;
@@ -2152,7 +2189,8 @@ function wallEvent(ev){
 }
 async function loadCameras(){
   const R = await api('/cameras'); if (!R) return; CAMS = R.cameras; const NODES = R.nodes || [];
-  renderPlanned(R.planned || [], R.samples || []);
+  FEED.samples = R.samples || [];
+  const planned = R.planned || [];
   $('#n-cams').textContent = CAMS.length + NODES.length;
   try { const st = R.stats || {}; const live = CAMS.filter(c => c.watch_job && c.watch_job.enabled).length;
     $('#cs-live').textContent = live; $('#cs-dot').className = 'dot' + (live ? ' live' : '');
@@ -2173,7 +2211,16 @@ async function loadCameras(){
         <div class="hint" style="margin:0">${n.events} event${n.events===1?'':'s'} · ${n.alerts} alert${n.alerts===1?'':'s'} in 24h · watched continuously by the node, every frame</div>
         <div class="act"><button class="btn sm" onclick="$('#ev-cam').value='${esc(n.name)}';loadVisionEvents();document.getElementById('ev-list').scrollIntoView({behavior:'smooth'})">Events ›</button><span class="spacer"></span>${le.run_id ? `<button class="btn sm" onclick="liveWant='${le.run_id}';go('live')">See run ›</button>` : ''}</div>
       </div></div>`; }).join('');
-  if (!CAMS.length && !NODES.length) { $('#cam-grid').innerHTML = '<div class="empty" style="grid-column:1/-1">No cameras yet. Add your laptop webcam (source <b>0</b>) to try it in ten seconds, or an RTSP / snapshot URL for a real camera.</div>'; return; }
+  const who = n => (CFG.agents || []).filter(a => a.id !== 'atlas' && JSON.stringify([a.goal, a.role, a.instructions]).toLowerCase().includes(String(n).toLowerCase()));
+  const planTiles = planned.map(p => `<div class="cam plan">
+      <div class="shot" onclick="feedOpen(null, '${esc(p.name)}', '')"><span>no feed yet — click to connect<br>a stream, a webcam or a video file</span></div>
+      <div class="body"><h3>${esc(p.name)}<small>planned by Atlas</small></h3>
+        <div class="hint" style="margin:0">${esc(p.notes || p.focus || 'Part of the designed team; waiting for its feed.')}</div>
+        <div class="camagents">${who(p.name).map(a => agentChip(a.id)).join('') || '<span class="none">no agent named it yet</span>'}</div>
+        <div class="act"><button class="btn sm p" onclick="feedOpen(null, '${esc(p.name)}', '')">Connect the feed →</button></div>
+      </div></div>`).join('');
+  const addTile = `<div class="cam addtile" onclick="feedOpen(null, '', '')" title="Connect a camera: RTSP, a webcam, an uploaded recording or sample footage"><div style="text-align:center"><b>+ Connect a camera</b><br><small>stream · webcam · upload a video · sample</small></div></div>`;
+  if (!CAMS.length && !NODES.length) { $('#cam-grid').innerHTML = planTiles + addTile; return; }
   $('#cam-grid').innerHTML = CAMS.map(c => {
     const s = c.seen || {}, le = c.last_event, ts = s.ts || (le && le.ts), busy = _camBusy.has(c.id);
     const seenTxt = s.counts ? countsText(s.counts) : (le ? le.seen : '—');
@@ -2181,7 +2228,7 @@ async function loadCameras(){
     const src = c.config.source || '';
     const hasFrame = !!(s.ts || (le && le.snapshot_url));
     return `<div class="cam" id="cam-${c.id}">
-      <div class="shot" onclick="${hasFrame?`zoom('/api/cameras/${c.id}/frame.jpg?t='+Date.now())`:''}">${hasFrame ? `<img src="/api/cameras/${c.id}/frame.jpg?t=${Math.floor((ts||0)*1000)}" alt="">` : `<span>${busy?'grabbing…':'no frame yet — Look now'}</span>`}
+      <div class="shot" onclick="${hasFrame?`zoom('/api/cameras/${c.id}/frame.jpg?t='+Date.now())`:`feedOpen(${c.id}, '${esc(c.name)}', ${jstr(src)})`}" ${hasFrame?'':'style="cursor:pointer" title="no frame yet — click to check or change the feed"'}>${hasFrame ? `<img src="/api/cameras/${c.id}/frame.jpg?t=${Math.floor((ts||0)*1000)}" alt="">` : `<span>${busy?'grabbing…':'no frame yet — Look now'}</span>`}
         <div class="ov">${s.counts ? Object.entries(s.counts).map(([k,n])=>`<span class="tag">${n} ${esc(k)}</span>`).join('') : ''}${s.triggered ? '<span class="tag" style="color:var(--warn);border-color:var(--warn)">alert</span>' : ''}</div>
         <span class="live ${watching?'on':''}">${watching ? 'watching · '+(JSON.parse(c.watch_job.task||'{}').every_s||30)+'s' : 'idle'}</span></div>
       <div class="body">
@@ -2191,8 +2238,8 @@ async function loadCameras(){
         <div class="hint" style="margin:0">watch for <b>${esc(c.rule.labels.join(', '))}</b> ≥${c.rule.min_count}${c.rule.dwell_min > 0 ? ' for '+c.rule.dwell_min+' min' : ''}${c.rule.hours ? ' during '+esc(c.rule.hours) : ''} · cooldown ${c.rule.cooldown_min}m · ${c.rule.repeat==='always' ? 'repeats' : c.rule.repeat==='once' ? 'once per stay' : 'repeats on change'}${s.present_s ? ' · present '+Math.round(s.present_s/60)+'m' : ''}${['1','true','on','yes'].includes(String((c.config||{}).journal||'').toLowerCase()) ? ' · <b>journal on</b>' : ''}${c.rule.alerts===false ? ' · alerts off' : ''}${c.rule.question ? ` · asks “${esc(c.rule.question)}”` : ''}</div>
         ${(s.answer || (le && le.answer)) ? `<div class="ans">${esc(s.answer || le.answer)}</div>` : ''}
         <div class="act"><input id="camq-${c.id}" placeholder="ask the analyst about this frame…" onkeydown="if(event.key==='Enter')lookCam(${c.id})"><button class="btn sm p" onclick="lookCam(${c.id})" ${busy?'disabled':''}>${busy?'…':'Look now'}</button><button class="btn sm ${LIVE.id===c.id?'p':''}" onclick="${LIVE.id===c.id?'closeLive()':`openLive(${c.id})`}" title="Watch this camera as live video with detections, and the journal being written in real time">${LIVE.id===c.id?'Close live':'Live'}</button></div>
-        <div class="act"><button class="btn sm ${watching?'':'p'}" onclick="watchCam(${c.id}, ${watching?'false':'true'}, ${['1','true','on','yes'].includes(String((c.config||{}).journal||'').toLowerCase()) ? 8 : 30})">${watching ? 'Stop watching' : 'Watch'}</button><button class="btn sm" onclick="lookCam(${c.id}, true)" title="Force an alert run now (demo / test)">Trigger alert</button><span class="spacer"></span>${s.run_id ? `<button class="btn sm" onclick="liveWant='${s.run_id}';go('live')">See run ›</button>` : ''}<button class="btn sm d" onclick="delCam(${c.id})">✕</button></div>
-      </div></div>`; }).join('') + nodeCards;
+        <div class="act"><button class="btn sm ${watching?'':'p'}" onclick="watchCam(${c.id}, ${watching?'false':'true'}, ${['1','true','on','yes'].includes(String((c.config||{}).journal||'').toLowerCase()) ? 8 : 30})">${watching ? 'Stop watching' : 'Watch'}</button><button class="btn sm" onclick="lookCam(${c.id}, true)" title="Force an alert run now (demo / test)">Trigger alert</button><button class="btn sm" onclick="feedOpen(${c.id}, '${esc(c.name)}', ${jstr(src)})" title="swap this camera onto a different stream, webcam, upload or sample">Feed</button><span class="spacer"></span>${s.run_id ? `<button class="btn sm" onclick="liveWant='${s.run_id}';go('live')">See run ›</button>` : ''}<button class="btn sm d" onclick="delCam(${c.id})">✕</button></div>
+      </div></div>`; }).join('') + planTiles + nodeCards + addTile;
   loadLinks().then(renderCamAgents);
 }
 // ---- agents on every tab: who watches which camera, who sends through which connector, and what is missing
@@ -2247,7 +2294,8 @@ function renderConnLinks(){
   $('#needs-list').innerHTML = rows.map(([id, g]) => `<div class="needrow">${agentChip(id)}<span>${esc(g)}</span>${gapFix(g, id)}</div>`).join('');
 }
 // cameras Atlas planned while designing the team but that have no stream address yet
-function renderPlanned(planned, samples){
+function renderPlanned(planned, samples){   // superseded by the planned tiles in the camera grid
+  return;
   const box = $('#cam-planned'); if (!box) return; box.classList.toggle('hide', !planned.length); if (!planned.length) { box.innerHTML = ''; box.dataset.key = ''; return; }
   const key = JSON.stringify([planned, samples.length, (CFG.agents || []).map(a => a.id)]);   // the page refreshes every few seconds: never wipe what is being typed
   if (box.dataset.key === key) return; box.dataset.key = key;
@@ -2397,6 +2445,57 @@ async function askCams(){
   const how = m.embedder ? `<div class="hint" style="margin:0 0 4px">retrieval: ${esc(m.embedder)} · window ${esc(m.window || '')} · ${m.considered ?? 0} events, ${m.indexed ?? 0} indexed · ${esc(m.grounding || '')}${(m.looked_at || []).length ? ' · re-looked at ' + m.looked_at.map(id => `<span class="cite">#${id}</span>`).join(' ') : ''}</div>` : '';
   $('#ask-ev').innerHTML = how + ((r.evidence||[]).length ? `${r.events_considered||r.evidence.length} event(s) considered · ` + r.evidence.slice(-6).map(e=>`<span class="cite">#${e.id}</span> ${esc(e.camera)} ${hms(e.ts).slice(0,5)}${e.snapshot_url?` <a href="#" onclick="zoom('${e.snapshot_url}');return false">↗</a>`:''}`).join(' · ') : '');
 }
+const FEED = {cid: null, name: '', tab: 'stream', uploaded: '', source: '', samples: []};
+function feedOpen(cid, name, src){
+  FEED.cid = cid || null; FEED.name = name || ''; FEED.uploaded = ''; FEED.source = '';
+  $('#fd-title').textContent = name ? name : 'Connect a camera';
+  $('#fd-sub').textContent = cid ? 'change this camera\u2019s feed' : (name ? 'planned by Atlas — give it a feed' : 'a new camera object on this desk');
+  $('#fd-name-row').style.display = name ? 'none' : ''; $('#fd-name').value = name || '';
+  $('#fd-stream').value = src && /^(rtsp|https?):/.test(src) ? src : ''; $('#fd-webcam').value = src && /^\d+$/.test(src) ? src : '';
+  $('#fd-prev').innerHTML = '<span>Test the source to see a frame from it.</span>'; $('#fd-msg').textContent = '';
+  $('#fd-go').textContent = cid ? 'Switch feed →' : 'Attach feed →';
+  const sel = $('#fd-sample'); sel.innerHTML = (FEED.samples || []).map(x => `<option value="sample:${esc(x.name)}">${esc(x.label || x.name)}</option>`).join('') || '<option value="">no samples bundled</option>';
+  feedTab(src && String(src).startsWith('sample:') ? 'sample' : /^\d+$/.test(String(src||'')) ? 'webcam' : 'stream');
+  $('#feed-veil').classList.remove('hide');
+  setTimeout(() => (name ? $('#fd-' + (FEED.tab === 'upload' ? 'file' : FEED.tab)) || $('#fd-stream') : $('#fd-name')).focus(), 60);
+}
+function feedClose(){ $('#feed-veil').classList.add('hide'); }
+function feedTab(k){ FEED.tab = k; document.querySelectorAll('#fd-tabs button').forEach(b => b.classList.toggle('on', b.dataset.k === k)); document.querySelectorAll('.fpane').forEach(p => p.classList.toggle('hide', p.dataset.k !== k)); }
+document.querySelectorAll('#fd-tabs button').forEach(b => b.onclick = () => feedTab(b.dataset.k));
+function feedSource(){
+  if (FEED.tab === 'stream') return $('#fd-stream').value.trim();
+  if (FEED.tab === 'webcam') return $('#fd-webcam').value.trim();
+  if (FEED.tab === 'upload') return FEED.uploaded;
+  return $('#fd-sample').value;
+}
+async function feedUpload(inp){
+  const f = inp.files && inp.files[0]; if (!f) return;
+  const d = $('#fd-drop'); d.querySelector('b').textContent = 'Uploading ' + f.name + '…';
+  const fd = new FormData(); fd.append('file', f);
+  const r = await fetch('/api/cameras/upload', {method: 'POST', body: fd}).then(x => x.json()).catch(() => null);
+  if (!r || r.error) { d.querySelector('b').textContent = 'Drop a video or image here'; return toast(r?.error || 'upload failed'); }
+  FEED.uploaded = r.source; d.classList.add('done');
+  d.querySelector('b').textContent = f.name + ' · uploaded'; d.querySelector('span').textContent = 'click to choose a different file';
+  feedTest($('#fd-test'));
+}
+async function feedTest(btn){
+  const src = feedSource(); if (!src) return toast(FEED.tab === 'upload' ? 'Choose a file first' : 'Give a source first');
+  btn.disabled = true; btn.textContent = 'Testing…'; $('#fd-msg').textContent = '';
+  const r = await api('/cameras/probe', {method: 'POST', body: {source: src}});
+  btn.disabled = false; btn.textContent = 'Test the source';
+  if (!r || !r.ok) { $('#fd-prev').innerHTML = '<span>no frame</span>'; $('#fd-msg').textContent = (r && r.error) || 'Could not read that source.'; return; }
+  $('#fd-prev').innerHTML = `<img src="${r.preview}" alt="">`; $('#fd-msg').textContent = 'Working ' + r.kind + ' feed.';
+}
+async function feedAttach(btn){
+  const name = FEED.name || $('#fd-name').value.trim(); const src = feedSource();
+  if (!name) return $('#fd-name').focus();
+  if (!src) return toast(FEED.tab === 'upload' ? 'Choose a file first' : 'Give a source first');
+  btn.disabled = true;
+  const r = await api('/cameras/attach', {method: 'POST', body: {name, source: src, cid: FEED.cid || undefined}});
+  btn.disabled = false;
+  if (!r || r.error) return toast(r?.error || 'failed');
+  toast(`${r.camera.name} is live: watching and writing its journal`); feedClose(); HOME.t = 0; loadCameras();
+}
 function zoom(url){ const d = document.createElement('div'); d.className = 'lightbox'; d.innerHTML = `<img src="${url}">`; d.onclick = ()=>d.remove(); document.body.appendChild(d); }
 async function testVisionHook(){
   const r = await fetch($('#vision-hook-url').value, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({camera:'test-sensor', labels:{person:1}, note:'PIR test event from the portal', motion:0.4})});
@@ -2410,7 +2509,6 @@ async function loadJobs(){
   if (!$('#j-kind').options.length) { $('#j-kind').innerHTML = Object.entries(JOBK).map(([k,v])=>`<option value="${k}">${esc(v)}</option>`).join(''); jobFields(); }
   $('#n-jobs').textContent = R.jobs.filter(j=>j.enabled).length;
   const rel = t => !t ? '—' : (t - R.now > 0 ? 'in ' + Math.round((t-R.now)/60) + ' min' : Math.round((R.now-t)/60) + ' min ago');
-  window.jstr = v => JSON.stringify(String(v)).replace(/'/g, '\\u0027').replace(/</g, '\\u003c');   // safe inside a single-quoted attribute
   window.jobWords = j => j.every_min === 1440 && j.next_run ? 'daily at ' + new Date(j.next_run*1000).toTimeString().slice(0,5) : j.every_min ? 'every ' + (j.every_min % 60 ? j.every_min + ' min' : (j.every_min/60) + 'h') : 'once';
   $('#job-list').innerHTML = R.jobs.length ? `<table><tr><th>Name</th><th>Kind</th><th>Every</th><th>Next</th><th>Last result</th><th>On</th><th></th></tr>` + R.jobs.map(j=>`<tr><td><b>${esc(j.name)}</b><div class="hint" style="max-width:260px">${esc((j.task||'').slice(0,90))}</div></td><td><span class="tag">${esc(j.kind)}</span></td><td>${jobWords(j)}</td><td>${j.enabled?rel(j.next_run):'paused'}</td><td class="hint" style="max-width:220px">${esc(j.last_result||'')}${j.last_run?'<br>'+rel(j.last_run):''}</td><td><input type="checkbox" style="width:auto" ${j.enabled?'checked':''} onchange="api('/jobs/${j.id}',{method:'PATCH',body:{enabled:this.checked}}).then(loadJobs)"></td><td class="row"><button class="btn sm" onclick="api('/jobs/${j.id}/run',{method:'POST',body:{}}).then(()=>{toast('Queued — runs within 20s');setTimeout(loadJobs,1500)})">Run now</button>${j.kind==='task'?`<button class="btn sm" onclick='jobEdit(${j.id}, ${jstr(j.name)}, ${jstr(j.task||"")}, ${j.every_min})'>Edit</button>`:''}<button class="btn sm d" onclick="api('/jobs/${j.id}',{method:'DELETE',body:{}}).then(loadJobs)">✕</button></td></tr>`).join('') + '</table>' : '<div class="empty">No automations yet. Add an inbox watcher, a follow-up chaser or a scheduled task.</div>';
 }
