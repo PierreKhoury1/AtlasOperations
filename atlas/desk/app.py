@@ -1391,19 +1391,21 @@ def api_decide(aid):
             result = _dispatch(desk, row)
             row = dstore.decide_action(aid, "sent", by=by, note=(note + " " + result).strip())
             dstore.add_event(row["run_id"], "sent", "owner", f"{row['kind']} → {row['to']} — {row['subject']} ({result})")
-            if row["kind"] in ("email", "whatsapp", "sms") and row["to"]:
-                dstore.add_message(row["kind"], "out", row["to"], row.get("body") or "", subject=row.get("subject") or "",
+            if row["kind"] in ("email", "whatsapp", "sms", "instagram") and row["to"]:
+                to_key = ("ig:" + row["to"]) if row["kind"] == "instagram" and not str(row["to"]).startswith("ig:") else row["to"]
+                dstore.add_message(row["kind"], "out", to_key, row.get("body") or "", subject=row.get("subject") or "",
                                    actor=row.get("agent") or "", status="sent", run_id=row.get("run_id") or "", action_id=row["id"])
-                contact = _contact_touch(dstore, row["to"])
-                for m in I.crm_sync(dstore.connectors(), contact):
+                contact = _contact_touch(dstore, row["to"]) if row["kind"] != "instagram" else None
+                for m in (I.crm_sync(dstore.connectors(), contact) if contact else []):
                     dstore.add_event(row["run_id"], "tool", "owner", f"crm sync → {m}")
             I.notify(dstore.connectors(), f":outbox_tray: *Sent* — {row['kind']} → {row['to']}: {row['subject'] or (row['body'] or '')[:80]} {result}")
         except Exception as exc:
             err = f"{type(exc).__name__}: {str(exc)[:300]}"
             row = dstore.decide_action(aid, "failed", by=by, note=(note + " send failed: " + err).strip())
             dstore.add_event(row["run_id"], "error", "owner", f"{row['kind']} → {row['to']} failed: {err}")
-            if row["kind"] in ("email", "whatsapp", "sms") and row["to"]:
-                dstore.add_message(row["kind"], "out", row["to"], row.get("body") or "", subject=row.get("subject") or "",
+            if row["kind"] in ("email", "whatsapp", "sms", "instagram") and row["to"]:
+                to_key = ("ig:" + row["to"]) if row["kind"] == "instagram" and not str(row["to"]).startswith("ig:") else row["to"]
+                dstore.add_message(row["kind"], "out", to_key, row.get("body") or "", subject=row.get("subject") or "",
                                    actor=row.get("agent") or "", status="failed", run_id=row.get("run_id") or "", action_id=row["id"])
     else:
         dstore.add_event(row["run_id"], "rejected", "owner", f"{row['kind']} to {row['to']} rejected — {d.get('note','')}")
@@ -1469,7 +1471,7 @@ def api_message_threads():
     ds = store.for_desk(desk["id"])
     conns = ds.connectors()
     return jsonify({"threads": [_thread_public(ds, t) for t in ds.message_threads()],
-                    "channels": {k: bool(I.outbound_connector(conns, k)) for k in ("email", "whatsapp", "sms")}})
+                    "channels": {k: bool(I.outbound_connector(conns, k)) for k in ("email", "whatsapp", "sms", "instagram")}})
 
 
 @app.get("/api/messages")
@@ -1492,8 +1494,8 @@ def api_message_send():
     d = request.get_json(force=True) or {}
     kind, to = str(d.get("channel") or ""), str(d.get("to") or "").strip()
     subject, body = str(d.get("subject") or "").strip(), str(d.get("body") or "").strip()
-    if kind not in ("email", "whatsapp", "sms"):
-        return jsonify({"error": "channel must be email, whatsapp or sms"}), 400
+    if kind not in ("email", "whatsapp", "sms", "instagram"):
+        return jsonify({"error": "channel must be email, whatsapp, sms or instagram"}), 400
     if not to or not body:
         return jsonify({"error": "to and body required"}), 400
     ds = store.for_desk(desk["id"])
@@ -1501,10 +1503,11 @@ def api_message_send():
     if not conn:
         return jsonify({"error": f"no {kind} connector yet — add one under Integrations"}), 400
     try:
-        result, ok = I.deliver(conn, kind, to, subject, body), True
+        result, ok = I.deliver(conn, kind, to.replace("ig:", "") if kind == "instagram" else to, subject, body), True
     except Exception as exc:
         result, ok = f"{type(exc).__name__}: {str(exc)[:200]}", False
-    mid = ds.add_message(kind, "out", to, body, subject=subject, actor=_who(), status="sent" if ok else "failed")
+    mid = ds.add_message(kind, "out", ("ig:" + to) if kind == "instagram" and not to.startswith("ig:") else to,
+                         body, subject=subject, actor=_who(), status="sent" if ok else "failed")
     ds.add_event("", "sent" if ok else "error", "owner", f"{kind} → {to} — {subject or body[:80]} ({result})")
     contact = _contact_touch(ds, to)
     try:
@@ -1899,6 +1902,7 @@ def api_connectors():
     hook = request.host_url.rstrip("/") + "/hook/" + store.ensure_hook_token(desk["id"])
     return jsonify({"connectors": [_conn_public(c) for c in store.connectors(desk["id"])],
                     "kinds": I.KINDS, "hook_url": hook, "whatsapp_hook_url": hook + "/whatsapp", "sms_hook_url": hook + "/sms",
+                    "instagram_hook_url": hook + "/instagram",
                     "channels": {k: bool(I.outbound_connector(store.connectors(desk["id"]), k)) for k in I.CHANNELS}})
 
 
@@ -4651,6 +4655,30 @@ def hook_whatsapp(token):
         return jsonify({"error": "verify_token mismatch or no WhatsApp connector"}), 403
     msgs = I.parse_whatsapp_webhook(request.get_json(silent=True) or {})
     runs = [_inbound_message(desk, m["from"], m["name"], m["text"], "whatsapp") for m in msgs if m.get("from")]
+    return jsonify({"ok": True, "messages": len(msgs), "runs": runs})
+
+
+@app.route("/hook/<token>/instagram", methods=["GET", "POST"])
+def hook_instagram(token):
+    desk = store.desk_by_token(token)
+    if not desk:
+        abort(404)
+    conn = next((c for c in store.connectors(desk["id"]) if c["kind"] == "instagram"), None)
+    if request.method == "GET":                      # Meta verification handshake, same dance as WhatsApp
+        want = (conn or {}).get("config", {}).get("verify_token") or ""
+        if request.args.get("hub.mode") == "subscribe" and want and request.args.get("hub.verify_token") == want:
+            return request.args.get("hub.challenge", ""), 200
+        return jsonify({"error": "verify_token mismatch or no Instagram connector"}), 403
+    msgs = I.parse_instagram_webhook(request.get_json(silent=True) or {})
+    dstore = store.for_desk(desk["id"])
+    runs = []
+    for m in msgs:
+        dstore.add_message("instagram", "in", "ig:" + m["from"], m["text"], actor=m["name"] or ("ig " + m["from"]))
+        name = m["name"] or f"Instagram user {m['from'][-4:]}"
+        lid = dstore.add_lead(name, "", "", "", "instagram", m["text"])
+        how = (f"This arrived as an Instagram DM. Reply on the same channel "
+               f"(queue_action kind=instagram, to={m['from']}) — keep it short and warm.")
+        runs.append(_lead_case_run(desk, lid, extra=how))
     return jsonify({"ok": True, "messages": len(msgs), "runs": runs})
 
 

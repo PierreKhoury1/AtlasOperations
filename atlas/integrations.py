@@ -52,6 +52,8 @@ KINDS = {
                "hint": "resend.com — HTTPS email API, works where SMTP ports are blocked (Render, Fly). Verify your sending domain in Resend first; from_email must be on that domain."},
     "whatsapp": {"label": "WhatsApp (Meta Cloud API)", "fields": ["phone_number_id", "access_token", "verify_token", "notes"],
                  "hint": "Meta for Developers → WhatsApp → API setup: copy the Phone number ID and a permanent System User access token. Set the webhook URL shown below with your verify_token to receive replies. First message to a new contact must be a template unless they wrote first (24h window)."},
+    "instagram": {"label": "Instagram DMs (Meta Graph API)", "fields": ["page_id", "access_token", "verify_token", "notes"],
+                  "hint": "Meta for Developers → your app → Instagram → API setup with Instagram login OR Messenger → Instagram settings: the Facebook Page linked to the professional Instagram account (page_id) and a long-lived access token with instagram_manage_messages. Set the webhook URL shown below (field 'messages') with your verify_token to receive DMs. Like WhatsApp, you can reply to people who message you (within 24h), not cold-message."},
     "twilio": {"label": "SMS + WhatsApp (Twilio)", "fields": ["account_sid", "auth_token", "from_number", "whatsapp_from"],
                "hint": "Twilio console → Account SID + Auth token. from_number = your Twilio number (+44…). whatsapp_from = your WhatsApp-enabled sender (or the sandbox +14155238886) if you want WhatsApp via Twilio. Point the number's inbound webhook at the SMS hook URL below."},
     "hubspot": {"label": "CRM sync (HubSpot)", "fields": ["access_token"],
@@ -65,7 +67,7 @@ KINDS = {
 }
 
 # outbound channel → connector kinds that can carry it, in order of preference
-CHANNELS = {"email": ("smtp", "resend"), "whatsapp": ("whatsapp", "twilio"), "sms": ("twilio",), "booking": ("gcal",),
+CHANNELS = {"email": ("smtp", "resend"), "whatsapp": ("whatsapp", "twilio"), "sms": ("twilio",), "instagram": ("instagram",), "booking": ("gcal",),
             "slack": ("slack",)}
 CRM_KINDS = ("hubspot", "pipedrive")
 
@@ -438,6 +440,8 @@ def test_connector(kind: str, cfg: dict[str, Any]) -> str:
         return test_resend(cfg)
     if kind == "whatsapp":
         return test_whatsapp(cfg)
+    if kind == "instagram":
+        return test_instagram(cfg)
     if kind == "twilio":
         return test_twilio(cfg)
     if kind == "hubspot":
@@ -558,6 +562,42 @@ def send_whatsapp(cfg: dict[str, Any], to: str, body: str) -> str:
                          "type": "text", "text": {"preview_url": False, "body": body}})
     mid = ((r.get("messages") or [{}])[0]).get("id", "?")
     return f"sent via WhatsApp Cloud API to +{to_} (id {mid})"
+
+
+def send_instagram(cfg: dict[str, Any], to: str, body: str) -> str:
+    """Reply to an Instagram DM. `to` is the Instagram-scoped sender id (IGSID) from the inbound webhook."""
+    _need(cfg, "Instagram", "page_id", "access_token")
+    to_ = "".join(ch for ch in str(to) if ch.isdigit())
+    if not to_:
+        raise RuntimeError(f"Instagram needs the sender id from their DM (digits), got {to!r}")
+    r = _http("POST", f"{GRAPH}/{cfg['page_id'].strip()}/messages",
+              headers={"Authorization": f"Bearer {cfg['access_token'].strip()}"},
+              json_body={"recipient": {"id": to_}, "messaging_type": "RESPONSE", "message": {"text": body}})
+    return f"sent via Instagram DM to {to_} (id {r.get('message_id', '?')})"
+
+
+def test_instagram(cfg: dict[str, Any]) -> str:
+    _need(cfg, "Instagram", "page_id", "access_token")
+    r = _http("GET", f"{GRAPH}/{cfg['page_id'].strip()}", params={"fields": "name,instagram_business_account"},
+              headers={"Authorization": f"Bearer {cfg['access_token'].strip()}"}, timeout=15)
+    ig = (r.get("instagram_business_account") or {}).get("id")
+    if not ig:
+        return f"page {r.get('name', '?')} reachable, but no professional Instagram account is linked to it"
+    return f"ok: page {r.get('name', '?')} → Instagram account {ig}"
+
+
+def parse_instagram_webhook(payload: dict[str, Any]) -> list[dict[str, str]]:
+    """Meta Instagram messaging webhook -> [{from, name, text}]. Echoes of our own sends are skipped."""
+    out = []
+    for entry in payload.get("entry") or []:
+        for m in entry.get("messaging") or []:
+            msg = m.get("message") or {}
+            if msg.get("is_echo") or not msg.get("text"):
+                continue
+            sender = str((m.get("sender") or {}).get("id") or "")
+            if sender:
+                out.append({"from": sender, "name": "", "text": str(msg["text"])[:4000]})
+    return out
 
 
 def test_whatsapp(cfg: dict[str, Any]) -> str:
@@ -837,6 +877,9 @@ def deliver(conn: dict[str, Any], kind: str, to: str, subject: str, body: str) -
         return send_whatsapp(cfg, to, text) if k == "whatsapp" else send_twilio(cfg, to, text, "whatsapp")
     if kind == "sms":
         return send_twilio(cfg, to, body, "sms")
+    if kind == "instagram":
+        text = (subject + "\n\n" + body).strip() if subject and subject not in body else body
+        return send_instagram(cfg, to, text)
     if kind == "slack":
         return slack_notify(cfg, (("*" + subject + "*\n") if subject else "") + (body or ""))
     if kind == "booking":

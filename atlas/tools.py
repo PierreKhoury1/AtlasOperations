@@ -116,7 +116,7 @@ SCHEMAS: dict[str, dict[str, Any]] = {
         "parameters": {
             "type": "object",
             "properties": {
-                "kind": {"type": "string", "enum": ["email", "whatsapp", "sms", "publish", "refund", "contract", "containment", "other"]},
+                "kind": {"type": "string", "enum": ["email", "whatsapp", "sms", "instagram", "publish", "refund", "contract", "containment", "other"]},
                 "to": {"type": "string", "description": "Recipient (email/phone/handle) or target. For containment: a short label of the targets."},
                 "subject": {"type": "string"},
                 "body": {"type": "string", "description": "Message text. For containment: 2-3 plain sentences of justification for the approver."},

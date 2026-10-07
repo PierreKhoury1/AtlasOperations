@@ -107,3 +107,35 @@ def test_daily_report_send_now_and_daily_at_jobs(app_client, monkeypatch):
     j2 = J(c.patch(f"/api/jobs/{j['id']}", json={"at": "09:30", "task": "Prepare the brief, shorter"}))
     assert _t.localtime(J(c.get("/api/jobs"))["jobs"][-1]["next_run"] if False else j2.get("next_run") or next(x for x in J(c.get("/api/jobs"))["jobs"] if x["id"] == j["id"])["next_run"])[3:5] == (9, 30)
     assert c.post("/api/jobs", json={"kind": "task", "name": "x", "task": "y", "at": "25:99"}).status_code == 400
+
+
+def test_instagram_dms_thread_and_reply(app_client, monkeypatch):
+    c = app_client
+    did, tok = _desk(c, "msg6@example.com")
+    A.store.add_connector(did, "instagram", "insta", {"page_id": "123", "access_token": "tok", "verify_token": "v1"}, False)
+    # Meta verification handshake
+    ok = c.get(f"/hook/{tok}/instagram?hub.mode=subscribe&hub.verify_token=v1&hub.challenge=ch42")
+    assert ok.status_code == 200 and ok.get_data(as_text=True) == "ch42"
+    assert c.get(f"/hook/{tok}/instagram?hub.mode=subscribe&hub.verify_token=WRONG").status_code == 403
+    # an inbound DM (echoes of our own sends are skipped)
+    payload = {"entry": [{"messaging": [
+        {"sender": {"id": "778899"}, "message": {"text": "Do you take walk-ins?"}},
+        {"sender": {"id": "1"}, "message": {"is_echo": True, "text": "our own echo"}},
+    ]}]}
+    r = J(c.post(f"/hook/{tok}/instagram", json=payload))
+    assert r["messages"] == 1
+    th = J(c.get("/api/messages/threads"))["threads"]
+    ig = next(t for t in th if t["key"] == "ig:778899")
+    assert ig["channels"] == ["instagram"]
+    # the owner replies straight from the thread
+    sent = {}
+    monkeypatch.setattr(A.I, "deliver", lambda conn, kind, to, subject, body: sent.update(kind=kind, to=to) or "sent via test")
+    out = J(c.post("/api/messages/send", json={"channel": "instagram", "to": "ig:778899", "body": "Yes, before 7pm!"}))
+    assert out["ok"] and sent == {"kind": "instagram", "to": "778899"}
+    msgs = J(c.get("/api/messages?contact=ig%3A778899"))["messages"]
+    assert [m["dir"] for m in msgs] == ["in", "out"] and all(m["channel"] == "instagram" for m in msgs)
+    # an agent-queued instagram reply flows through approvals onto the same thread
+    aid = A.store.for_desk(did).add_action("r-ig", "host", "instagram", "778899", "", "See you at 6.", "")
+    J(c.post(f"/api/actions/{aid}/decide", json={"status": "approved", "subject": "", "body": "See you at 6."}))
+    msgs = J(c.get("/api/messages?contact=ig%3A778899"))["messages"]
+    assert len(msgs) == 3 and msgs[-1]["actor"] == "host"

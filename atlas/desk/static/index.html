@@ -431,6 +431,13 @@ aside.simple [data-lvl="full"]{display:none}
 .hm-pfoot{display:flex;gap:6px;padding:10px 18px;border-top:1px solid var(--line);flex-wrap:wrap}
 .hm-none{padding:16px 18px;color:var(--muted);font-size:12.5px}
 #p-dash .hcams{margin:0!important}
+.appwall{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px}
+.appt{display:flex;gap:9px;align-items:center;border:1px solid var(--line);border-radius:3px;padding:9px 10px;cursor:pointer;background:var(--panel);min-width:0}
+.appt:hover{border-color:var(--accent)}
+.appt.on{border-color:color-mix(in srgb,var(--ok) 50%,var(--line))}
+.appt i{width:26px;height:26px;border-radius:4px;display:grid;place-items:center;font:700 12px var(--mono);color:#fff;flex:0 0 auto;font-style:normal}
+.appt b{display:block;font-size:12px;line-height:1.25}
+.appt small{display:block;color:var(--muted);font-size:10.5px}
 .veil{position:fixed;inset:0;background:rgba(10,13,17,.55);z-index:950;display:flex;align-items:center;justify-content:center;padding:16px}
 .veil.hide{display:none}
 .fdlg{width:560px;max-width:100%;max-height:92vh;overflow:auto;background:var(--panel);border:1px solid var(--line2);border-radius:4px;box-shadow:0 24px 70px rgba(0,0,0,.35)}
@@ -771,6 +778,8 @@ aside.simple [data-lvl="full"]{display:none}
   <div class="phead"><div><h1>Integrations</h1><p class="lead">Connect the desk to the real world. Email (SMTP or Resend), WhatsApp (Meta or Twilio), SMS, HubSpot / Pipedrive CRM sync, Google Calendar, Slack pings, any HTTP API or MCP server, inbound webhooks. Writes need your approval unless you switch a connector to auto.</p></div></div>
   <div class="grid g2" style="grid-template-columns:1.2fr 1fr">
     <div>
+      <div class="panel" style="margin-bottom:14px"><div class="ph"><h2>Apps</h2><span class="hint" style="margin:0">click one to connect it — or change it</span></div>
+        <div class="pb"><div class="appwall" id="app-wall"><div class="empty">Loading…</div></div></div></div>
       <div class="panel hide" id="needs-panel" style="margin-bottom:14px"><div class="ph"><h2>What your agents need</h2><span class="hint" style="margin:0">from each agent's job and tools</span></div><div class="pb" id="needs-list"></div></div>
       <div class="panel" style="margin-bottom:14px"><div class="ph"><h2>Connected systems</h2></div><div class="pb" id="conn-list"></div></div>
       <div class="panel" style="margin-bottom:14px"><div class="ph"><h2>Channels</h2><span class="hint">what an approved action actually does</span></div><div class="pb" id="conn-channels"></div></div>
@@ -780,6 +789,8 @@ aside.simple [data-lvl="full"]{display:none}
         <p class="hint" style="margin-top:6px">POST JSON <code>{name, email, phone, company, notes, source}</code>. Every hit becomes a lead and a run — same approvals, same audit log.</p>
         <label style="margin-top:12px">WhatsApp Cloud API callback URL (Meta → Webhooks, field <code>messages</code>)</label>
         <div class="row"><input id="wa-hook-url" readonly style="flex:1;font-family:Consolas,monospace;font-size:12px"><button class="btn sm" onclick="navigator.clipboard.writeText($('#wa-hook-url').value);toast('Copied')">Copy</button></div>
+        <label style="margin-top:12px">Instagram DM callback URL (Meta → Webhooks, field <code>messages</code>)</label>
+        <div class="row"><input id="ig-hook-url" readonly style="flex:1;font-family:Consolas,monospace;font-size:12px"><button class="btn sm" onclick="navigator.clipboard.writeText($('#ig-hook-url').value);toast('Copied')">Copy</button></div>
         <label style="margin-top:12px">Twilio inbound URL (SMS or WhatsApp sandbox, HTTP POST)</label>
         <div class="row"><input id="sms-hook-url" readonly style="flex:1;font-family:Consolas,monospace;font-size:12px"><button class="btn sm" onclick="navigator.clipboard.writeText($('#sms-hook-url').value);toast('Copied')">Copy</button></div>
         <p class="hint" style="margin-top:6px">Replies from prospects come in as leads with the channel noted; Atlas answers on the same channel through your approval queue.</p>
@@ -963,7 +974,7 @@ async function loadCfg(){
   const modes = ['<option value="auto">auto (Atlas decides)</option>'].concat(CFG.workflows.map(w=>`<option value="${w.id}">${esc(w.name)}</option>`)).join('');
   $('#l-mode').innerHTML = modes; $('#r-mode').innerHTML = modes;
   $('#setup-biz').innerHTML = `<h2>Business</h2><div class="md">${esc(Object.entries(CFG.business).map(([k,v])=>`${k}: ${Array.isArray(v)?v.join(', '):v}`).join('\n'))}</div>`;
-  $('#setup-agents').innerHTML = `<h2>Agents &amp; tools</h2>` + CFG.agents.map(a=>`<div style="margin-bottom:10px"><div class="agentline"><i style="background:${a.color||'#7c3aed'}"></i><b>${esc(a.name)}</b> <span class="tag">${a.id}</span> ${a.engine==='hermes_agent' ? '<span class="tag" style="background:#0b5fcb;color:#fff">Hermes Agent runtime</span>' : (a.id==='atlas' ? '<span class="tag">orchestrator loop</span>' : '<span class="tag">built-in loop</span>')}${a.engine_note ? ' <span style="color:#b45309;font-size:12px">⚠ ' + esc(a.engine_note) + '</span>' : ''}</div><div style="color:var(--muted);font-size:12px;margin-left:18px">${esc(a.role)} <span class="model">· ${esc(a.model||'')}</span><br>tools: ${a.tools.map(t=>`<span class="tag">${t}</span>`).join(' ')}</div></div>`).join('') + `<h2 style="margin-top:14px">Workflows</h2>` + CFG.workflows.map(w=>`<div><b>${esc(w.name)}</b> <span style="color:var(--muted)">— ${esc(w.description)}</span></div>`).join('');
+  $('#setup-agents').innerHTML = `<h2>Agents &amp; tools</h2>` + CFG.agents.map(a=>`<div style="margin-bottom:10px"><div class="agentline"><i style="background:${a.color||'#7c3aed'}"></i><b title="internal id: ${a.id}">${esc(a.name)}</b> ${a.engine==='hermes_agent' ? '<span class="tag" style="background:#0b5fcb;color:#fff">Hermes Agent runtime</span>' : (a.id==='atlas' ? '<span class="tag">orchestrator loop</span>' : '<span class="tag">built-in loop</span>')}${a.engine_note ? ' <span style="color:#b45309;font-size:12px">⚠ ' + esc(a.engine_note) + '</span>' : ''}</div><div style="color:var(--muted);font-size:12px;margin-left:18px">${esc(a.role)} <span class="model">· ${esc(a.model||'')}</span><br>tools: ${a.tools.map(t=>`<span class="tag">${t}</span>`).join(' ')}</div></div>`).join('') + `<h2 style="margin-top:14px">Workflows</h2>` + CFG.workflows.map(w=>`<div><b>${esc(w.name)}</b> <span style="color:var(--muted)">— ${esc(w.description)}</span></div>`).join('');
   if (document.getElementById('setup-models')) renderModels();
   return true;
 }
@@ -995,7 +1006,7 @@ async function refresh(){
 function evLine(e){
   const col = e.agent==='owner' ? 'var(--ok)' : (colors[e.agent] || (e.agent==='system' ? '#9aa0a6' : '#7c3aed'));
   const icon = {tool:'⚙ ', approval:'⏸ ', error:'✖ ', deliverable:'📄 ', done:'✔ ', sent:'📤 ', rejected:'✖ ', agent_start:'→ ', agent_end:'← '}[e.kind] || '';
-  return `<div><span class="t">${hms(e.ts)}</span><span class="ag" style="color:${col}">[${esc(e.agent)}]</span> ${icon}${esc(e.text)}</div>`;
+  return `<div><span class="t">${hms(e.ts)}</span><span class="ag" style="color:${col}">[${esc(e.agent === 'owner' ? 'you' : e.agent === 'system' ? 'system' : agentName(e.agent))}]</span> ${icon}${esc(e.text)}</div>`;
 }
 // ---- Home: every camera live and small, with what it counts and its last note; click one to open it with its journal
 const HOME = {ids: '', t: 0};
@@ -1221,7 +1232,7 @@ function setAf(f){ af=f; document.querySelectorAll('#p-approvals .tabs button').
 async function loadApprovals(){
   const A = await api('/actions' + (af?`?status=${af}`:''));
   $('#approvals').innerHTML = A.length ? A.map(a=>`<div class="card appr" id="a${a.id}">
-    <div class="row"><span class="tag ${a.status}">${a.status}</span><span class="tag">${esc(a.kind)}</span><b>to ${esc(a.to)}</b><span class="spacer"></span><span class="meta">queued ${when(a.created)} by <span style="color:${colors[a.agent]||'var(--text)'}">${esc(a.agent)}</span> · run ${esc(a.run_id)}</span></div>
+    <div class="row"><span class="tag ${a.status}">${a.status}</span><span class="tag">${esc(a.kind)}</span><b>to ${esc(a.to)}</b><span class="spacer"></span><span class="meta">queued ${when(a.created)} by <span style="color:${colors[a.agent]||'var(--text)'}">${esc(agentName(a.agent))}</span> · run ${esc(a.run_id)}</span></div>
     ${a.flags?`<div class="flag">⚠ Policy flagged this after repeated attempts — check before sending: ${esc(a.flags)}</div>`:''}
     ${a.reason?`<div class="meta" style="margin-top:6px">${esc(a.reason)}</div>`:''}
     <label>Subject</label><input id="s${a.id}" value="${esc(a.subject)}" ${a.status!=='pending'?'disabled':''}>
@@ -1297,7 +1308,7 @@ async function loadInbox(){
   if (Date.now() - MSG.t < 4000) return; MSG.t = Date.now();
   const r = await api('/messages/threads'); if (!r || !r.threads || page !== 'inbox') return;
   MSG.threads = r.threads; MSG.ch = r.channels || {};
-  $('#msg-conns').innerHTML = ['email', 'whatsapp', 'sms'].map(k => `<span class="kv"><span class="dot ${MSG.ch[k] ? 'live' : ''}"></span>${k}</span>`).join('')
+  $('#msg-conns').innerHTML = ['email', 'whatsapp', 'sms', 'instagram'].map(k => `<span class="kv"><span class="dot ${MSG.ch[k] ? 'live' : ''}"></span>${k}</span>`).join('')
     + `<button class="btn sm" onclick="go('integrations')">Connect a channel</button>`;
   $('#mlist').innerHTML = MSG.threads.length ? MSG.threads.map(t => `<div class="mrow ${MSG.key === t.key ? 'on' : ''}" onclick="msgOpen('${esc(t.key)}')">
       <b>${esc(t.name)}<span class="mt">${ago(t.last.ts)}</span></b>
@@ -1322,17 +1333,19 @@ async function msgRender(){
     + (r.pending || []).map(a => `<div class="mb out" style="border-style:dashed"><span class="mm">draft waiting for approval</span>${a.subject ? `<span class="sub">${esc(a.subject)}</span>` : ''}${esc((a.body || '').slice(0, 400))}<div class="row" style="margin-top:6px"><button class="btn sm p" onclick="go('approvals')">Review in Approvals</button></div></div>`).join('')
     || '<div class="hm-none">Nothing here yet.</div>';
   $('#mbody').scrollTop = 1e9;
-  const chans = ['email', 'whatsapp', 'sms'].filter(k => k === 'email' ? (c.email || MSG.key.includes('@')) : (c.phone || !MSG.key.includes('@')));
+  const chans = MSG.key.startsWith('ig:') ? ['instagram']
+    : ['email', 'whatsapp', 'sms'].filter(k => k === 'email' ? (c.email || MSG.key.includes('@')) : (c.phone || !MSG.key.includes('@')));
   $('#mc-ch').innerHTML = chans.map(k => `<option value="${k}" ${MSG.ch[k] ? '' : 'disabled'}>${k}${MSG.ch[k] ? '' : ' (no connector)'}</option>`).join('');
   $('#mcomp').style.display = ''; msgChChange();
 }
 function msgChChange(){ const email = $('#mc-ch').value === 'email'; $('#mc-subj').style.display = email ? '' : 'none'; }
 async function msgSend(){
   const c = (MSG.threads.find(x => x.key === MSG.key) || {});
-  const to = $('#mc-ch').value === 'email' ? (c.email || MSG.key) : (c.phone || MSG.key);
+  const ch = $('#mc-ch').value;
+  const to = ch === 'instagram' ? MSG.key.replace('ig:', '') : ch === 'email' ? (c.email || MSG.key) : (c.phone || MSG.key);
   const body = $('#mc-body').value.trim(); if (!body) return;
   $('#mc-send').disabled = true;
-  const r = await api('/messages/send', {method: 'POST', body: {channel: $('#mc-ch').value, to, subject: $('#mc-subj').value.trim(), body}});
+  const r = await api('/messages/send', {method: 'POST', body: {channel: ch, to, subject: $('#mc-subj').value.trim(), body}});
   $('#mc-send').disabled = false;
   if (!r || r.error) return toast(r?.error || 'failed');
   $('#mc-body').value = ''; $('#mc-subj').value = ''; toast('Sent'); MSG.t = 0; msgRender();
@@ -1360,7 +1373,7 @@ async function loadRun(id, quiet){
     ${r.deliverables.map(d=>`<details style="margin-top:10px"><summary style="cursor:pointer;font-weight:600">📄 ${esc(d.name)}</summary><div class="md" style="margin-top:8px;background:var(--panel2);padding:12px;border-radius:8px">${esc(d.content)}</div></details>`).join('')}`;
   const lg = $('#runlog'); if (lg) lg.scrollTop = 1e9;
 }
-async function loadAudit(){ const ev = await api('/audit'); $('#audit-table').innerHTML = ev.length ? `<table><tr><th>When</th><th>Run</th><th>Agent</th><th>Kind</th><th>Detail</th></tr>` + ev.map(e=>`<tr><td>${when(e.ts)}</td><td style="color:var(--muted);font-size:12px">${esc(e.run_id)}</td><td style="color:${colors[e.agent]||'var(--text)'}">${esc(e.agent)}</td><td><span class="tag">${e.kind}</span></td><td class="md" style="max-width:600px">${esc(e.text).slice(0,300)}</td></tr>`).join('') + '</table>' : '<div class="empty">Empty</div>'; }
+async function loadAudit(){ const ev = await api('/audit'); $('#audit-table').innerHTML = ev.length ? `<table><tr><th>When</th><th>Run</th><th>Agent</th><th>Kind</th><th>Detail</th></tr>` + ev.map(e=>`<tr><td>${when(e.ts)}</td><td style="color:var(--muted);font-size:12px">${esc(e.run_id)}</td><td style="color:${colors[e.agent]||'var(--text)'}">${esc(e.agent === 'owner' ? 'you' : agentName(e.agent))}</td><td><span class="tag">${e.kind}</span></td><td class="md" style="max-width:600px">${esc(e.text).slice(0,300)}</td></tr>`).join('') + '</table>' : '<div class="empty">Empty</div>'; }
 async function loadPerf(){
   const m = await api('/metrics'); const cap = await api('/capacity'); if (!m || !cap) return;
   if (!m.runs) { $('#perf').innerHTML = '<div class="empty">No runs yet.</div>'; return; }
@@ -1827,7 +1840,7 @@ function teamInspect(i){
   document.querySelectorAll('#tm-nodes .tmn').forEach(el => el.classList.toggle('sel', +el.dataset.i === i));
   const chips = teamCatalogue(a).map(t => { const on = a.tools.includes(t.id), gated = TOOL_GATED.includes(t.id);
     return `<label class="tchip ${on ? 'on' : ''}" title="${esc(t.description || t.id)}${gated ? ' — approval-gated' : ''}"><input type="checkbox" ${on ? 'checked' : ''} onchange="teamTool(${i},'${esc(t.id)}',this)">${esc(t.id)}${gated ? ' <span class="g" title="approval-gated">⏸</span>' : ''}</label>`; }).join('');
-  insp.innerHTML = `<div class="hd"><input type="color" value="${esc(a.color)}" title="Colour" oninput="teamField(${i},'color',this.value)"><input class="nm" id="tm-i-name" value="${esc(a.name)}" placeholder="Name" oninput="teamField(${i},'name',this.value)">${isAtlas ? '<span class="tag" title="Atlas leads the desk and cannot be removed">lead</span>' : ''}<button class="x" onclick="teamClose()" title="Close (Esc)">×</button></div>
+  insp.innerHTML = `<div class="hd"><input type="color" value="${esc(a.color)}" title="Colour" oninput="teamField(${i},'color',this.value)"><input class="nm" id="tm-i-name" value="${esc(a.name)}" placeholder="A clear job title — Bookings Manager, Enquiry Responder…" oninput="teamField(${i},'name',this.value)">${isAtlas ? '<span class="tag" title="Atlas leads the desk and cannot be removed">lead</span>' : ''}<button class="x" onclick="teamClose()" title="Close (Esc)">×</button></div>
     <label>Role</label><input value="${esc(a.role)}" placeholder="${isAtlas ? 'Role — e.g. Orchestrator' : 'Role — e.g. Researcher'}" oninput="teamField(${i},'role',this.value)">
     <label class="act" title="${isAtlas ? 'Atlas is always active' : 'Inactive agents are skipped on the next run'}"><input type="checkbox" ${a.enabled ? 'checked' : ''} ${isAtlas ? 'disabled' : ''} onchange="teamField(${i},'enabled',this.checked)"> active</label>
     ${isAtlas ? '' : `<label>Reports to</label><select onchange="teamField(${i},'reports_to',this.value)"><option value="atlas" ${(!a.reports_to || a.reports_to === 'atlas') ? 'selected' : ''}>Atlas (top level)</option>${TEAM.agents.filter(x => x.id && x.id !== 'atlas' && x.id !== a.id && (!x.reports_to || x.reports_to === 'atlas')).map(x => `<option value="${esc(x.id)}" ${a.reports_to === x.id ? 'selected' : ''}>${esc(x.name)} (sub-team lead)</option>`).join('')}</select><div class="hint" style="margin-top:4px">A sub-team lead delegates only to its members and hands Atlas one merged result.</div>`}
@@ -1865,7 +1878,7 @@ function teamAdd(){
   teamSetDirty(true); renderTeam();
   const a = TEAM.agents[TEAM.agents.length - 1], el = document.getElementById(tkid(k)); if (el) a.pos = { x: el.offsetLeft, y: el.offsetTop };   // keep the clamped position
   teamInspect(TEAM.agents.length - 1);
-  const nm = $('#tm-i-name'); if (nm) { nm.focus(); nm.select(); }
+  const nm = $('#tm-i-name'); if (nm) { nm.placeholder = 'A clear job title — Bookings Manager, Enquiry Responder…'; nm.focus(); nm.select(); }
 }
 function teamRemove(i){
   const a = TEAM.agents[i]; if (!a || a.id === 'atlas') return;
@@ -2084,8 +2097,30 @@ function teamApply(e){
 let KINDS = {};
 async function loadConnectors(){
   const R = await api('/connectors'); if (!R) return;
-  KINDS = R.kinds; $('#hook-url').value = R.hook_url; $('#wa-hook-url').value = R.whatsapp_hook_url || ''; $('#sms-hook-url').value = R.sms_hook_url || '';
-  const CH = {email:'Email', whatsapp:'WhatsApp', sms:'SMS', booking:'Calendar booking'};
+  KINDS = R.kinds; $('#hook-url').value = R.hook_url; $('#wa-hook-url').value = R.whatsapp_hook_url || ''; $('#sms-hook-url').value = R.sms_hook_url || ''; $('#ig-hook-url').value = R.instagram_hook_url || '';
+  const CH = {email:'Email', whatsapp:'WhatsApp', sms:'SMS', instagram:'Instagram DMs', booking:'Calendar booking'};
+  // the app wall: one tile per thing you can connect, lit when a connector of that kind exists
+  const APPS = [
+    ['whatsapp', 'WhatsApp', '#25D366', 'WA', 'customer chat via Meta'],
+    ['instagram', 'Instagram', '#C13584', 'IG', 'answer DMs'],
+    ['smtp', 'Email (SMTP)', '#2d72d2', '@', 'send from your mailbox'],
+    ['resend', 'Email (Resend)', '#111827', 'R', 'API email sending'],
+    ['imap', 'Inbox watcher', '#0e7490', 'IN', 'read incoming mail'],
+    ['twilio', 'SMS · Twilio', '#F22F46', 'TW', 'texts + WhatsApp'],
+    ['gcal', 'Google Calendar', '#1a73e8', 'GC', 'free slots + bookings'],
+    ['slack', 'Slack', '#611f69', 'SL', 'pings to your team'],
+    ['hubspot', 'HubSpot', '#ff7a59', 'HS', 'CRM sync'],
+    ['pipedrive', 'Pipedrive', '#1aaa55', 'PD', 'CRM sync'],
+    ['higgsfield', 'Higgsfield', '#7c3aed', 'HF', 'image & video generation'],
+    ['http', 'Any HTTP API', '#5f6b7a', '{}', 'your own systems'],
+    ['mcp', 'MCP server', '#b45309', 'MC', 'any tool provider'],
+    ['hermes_agent', 'Hermes Agent', '#0b5fcb', 'HA', 'Nous agent runtime'],
+  ];
+  const have = {}; R.connectors.forEach(c => { (have[c.kind] = have[c.kind] || []).push(c); });
+  $('#app-wall').innerHTML = APPS.map(([k, label, col, mono, sub]) => { const got = have[k] || [];
+    const ok = got.some(c => String(c.status || '').startsWith('ok'));
+    return `<div class="appt ${got.length ? 'on' : ''}" onclick="connectKind('${k}')" title="${esc((KINDS[k] || {}).hint || '').slice(0, 220)}">
+      <i style="background:${col}">${mono}</i><span style="min-width:0"><b>${esc(label)}</b><small>${got.length ? (got.length + ' connected' + (ok ? ' · test ok' : '')) : esc(sub)}</small></span></div>`; }).join('');
   $('#conn-channels').innerHTML = Object.entries(CH).map(([k,l])=>`<span class="tag" style="margin:0 8px 6px 0;${R.channels && R.channels[k] ? 'color:var(--ok);border-color:var(--ok)' : ''}">${l}: ${R.channels && R.channels[k] ? 'live' : 'simulated'}</span>`).join('');
   if (!$('#c-kind').options.length) { $('#c-kind').innerHTML = Object.entries(KINDS).filter(([k])=>k!=='webhook').map(([k,v])=>`<option value="${k}">${esc(v.label)}</option>`).join(''); connFields(); }
   $('#conn-list').innerHTML = R.connectors.length ? `<table><tr><th>Name</th><th>Type</th><th>Details</th><th>Writes</th><th>Used by</th><th>Status</th><th></th></tr>` + R.connectors.map(c=>`<tr><td><b>${esc(c.name)}</b></td><td><span class="tag">${esc(c.kind)}</span></td><td class="model">${esc(Object.entries(c.config).filter(([k])=>k!=='notes').map(([k,v])=>k+'='+v).join('  ').slice(0,90))}</td><td><label style="margin:0;display:flex;gap:6px;align-items:center"><input type="checkbox" style="width:auto" ${c.auto?'checked':''} onchange="api('/connectors/${c.id}',{method:'PATCH',body:{auto:this.checked}})"> auto</label></td><td class="usedby" data-c="${esc(c.name)}"></td><td class="hint">${esc(c.status||'untested')}</td><td class="row"><button class="btn sm" onclick="testConn(${c.id})">Test</button><button class="btn sm d" onclick="delConn(${c.id})">✕</button></td></tr>`).join('') + '</table>' : '<div class="empty">No connectors yet. Add email sending, an inbox or an API on the right.</div>';
@@ -2262,7 +2297,7 @@ function renderCamAgents(){
   }
 }
 // channel / tool -> the connector type to preselect in "Add a connector"
-const NEED_KIND = {email: 'smtp', whatsapp: 'whatsapp', sms: 'twilio', slack: 'slack', gcal: 'gcal', http: 'http', mcp: 'mcp', higgsfield: 'higgsfield'};
+const NEED_KIND = {email: 'smtp', whatsapp: 'whatsapp', sms: 'twilio', instagram: 'instagram', slack: 'slack', gcal: 'gcal', http: 'http', mcp: 'mcp', higgsfield: 'higgsfield'};
 function gapFix(g, aid){
   const m = g.match(/no (\w+) connector|needs a (\w+)/); const kind = m && NEED_KIND[m[1] || m[2]];
   if (kind) return `<button class="btn sm" onclick="connectKind('${kind}')">Connect ${esc(KINDS && KINDS[kind] ? KINDS[kind].label : kind)} →</button>`;

@@ -1006,6 +1006,8 @@ class Store:
     def message_key(addr: str) -> str:
         """One key per customer across channels: a lowercased email, or '+' and the digits of a phone number."""
         a = (addr or "").strip()
+        if a.lower().startswith("ig:"):                  # an Instagram-scoped sender id keeps its own namespace
+            return a.lower()
         if "@" in a:
             return a.lower()
         digits = "".join(ch for ch in a if ch.isdigit())
