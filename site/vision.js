@@ -67,7 +67,9 @@
   }
   async function loadDetector() {
     setDet("loading runtime…", "busy");
-    await loadScript(ORT_URL + "ort.min.js");
+    // the wasm-only build: the full ort.min.js carries the WebGL backend's protobuf code, whose eval("require") probe
+    // the page's Content-Security-Policy (no 'unsafe-eval') refuses. This demo only ever runs the wasm provider.
+    await loadScript(ORT_URL + "ort.wasm.min.js");
     const ort = window.ort; ort.env.wasm.wasmPaths = ORT_URL; ort.env.wasm.numThreads = 1; ort.env.wasm.simd = true;
     setDet("downloading yolov8n.onnx…", "busy");
     const buf = await fetchWithProgress(MODEL_URL, (p) => { if (bar) bar.style.transform = "scaleX(" + p.toFixed(3) + ")"; });
