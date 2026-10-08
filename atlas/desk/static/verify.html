@@ -1,0 +1,28 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Check your email — Atlas Desk</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/desk/static/auth.css">
+</head>
+<body>
+<div class="top"><a class="brand" href="/"><i></i>Atlas Desks</a><a class="alt" href="/login">Wrong account? <b>Start again</b></a></div>
+<div class="wrap">
+  <div class="pitch">
+    <div class="crumb"><a href="/" style="color:inherit;text-decoration:none">Home</a><span>/</span><a href="/login" style="color:inherit;text-decoration:none">Log in</a><span>/</span><b>Second step</b></div>
+    <h1>One more <b>step</b>.</h1>
+    <p>We emailed a six-digit code to <b>{{email}}</b>. Enter it here to finish signing in.</p>
+    <ul><li>Codes expire after 10 minutes</li><li>Nobody at Atlas will ever ask you for this code</li><li>You can trust this device for 30 days</li></ul>
+  </div>
+  <form method="post" action="/login/verify">
+    <h2>Enter your code</h2>
+    <p class="sub">Check your inbox (and spam) for a message from Atlas Desks.</p>
+    <div class="err">{{error}}</div>
+    <div class="ok">{{notice}}</div>
+    <label>Sign-in code</label><input class="code" type="text" name="code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="one-time-code" placeholder="000000" required autofocus>
+    <label class="check"><input type="checkbox" name="trust" value="1" checked> Trust this device for 30 days</label>
+    <button type="submit">Continue →</button>
+    <button type="submit" class="ghost" name="resend" value="1" formnovalidate>Send a new code</button>
+    <div class="foot">Not you? <a href="/logout">Cancel and log out</a></div>
+  </form>
+</div>
+</body></html>

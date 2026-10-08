@@ -205,10 +205,15 @@ def _grab_http(url: str) -> bytes:
     if u.username:
         auth = httpx.DigestAuth(u.username, u.password or "")
         url = str(u.copy_with(username=None, password=None))
-    with httpx.Client(timeout=FRAME_TIMEOUT, follow_redirects=True) as c:
-        r = c.get(url, auth=auth)
-        if r.status_code == 401 and auth is not None:
-            r = c.get(url, auth=(u.username, u.password or ""))
+    from . import secure as SEC
+    with httpx.Client(timeout=FRAME_TIMEOUT, follow_redirects=False) as c:
+        try:
+            # a camera may sit on the LAN, but never on loopback or at the cloud metadata address, and not behind a redirect to either
+            r = SEC.send_checked(c, "GET", url, guard=SEC.internal_target_reason, auth=auth)
+            if r.status_code == 401 and auth is not None:
+                r = SEC.send_checked(c, "GET", url, guard=SEC.internal_target_reason, auth=(u.username, u.password or ""))
+        except SEC.UnsafeTarget as exc:
+            raise RuntimeError(f"camera source refused: {exc}") from None
         r.raise_for_status()
         data = r.content
     ctype = r.headers.get("content-type", "")

@@ -27,3 +27,16 @@ button:hover{background:#000}
 .foot{color:#5f6b7a;font-size:13px;text-align:center;margin-top:16px}.foot a{color:#2d72d2;font-weight:500;text-decoration:none}
 .fine{color:#8b97a6;font-size:11px;margin-top:12px;line-height:1.5}
 @media(max-width:900px){.wrap{grid-template-columns:1fr;gap:34px;margin-top:30px}}
+/* sign-in extras: Google button, divider, one-time code (atlas/desk/auth.py) */
+.gbtn{display:flex;align-items:center;justify-content:center;gap:10px;width:100%;box-sizing:border-box;margin:4px 0 0;background:#fff;border:1px solid #c1cad6;color:#10161d;padding:11px 13px;border-radius:3px;font:inherit;font-weight:500;text-decoration:none}
+.gbtn:hover{border-color:#2d72d2;background:#f6f9fe}
+.gbtn.off,.or.off{display:none}
+.or{display:flex;align-items:center;gap:12px;color:#8b97a6;font-size:12px;margin:18px 0 4px}
+.or::before,.or::after{content:"";flex:1;border-top:1px solid #d9dfe8}
+input.code{font-size:26px;letter-spacing:.42em;text-align:center;font-variant-numeric:tabular-nums;padding:12px 10px 12px 18px}
+label.check{display:flex;align-items:center;gap:8px;font-weight:400;color:#5f6b7a;margin-top:14px}
+label.check input{width:auto;margin:0}
+button.ghost{background:#fff;color:#2f3a47;border-color:#c1cad6;margin-top:8px}
+button.ghost:hover{background:#f3f5f8;color:#10161d}
+.ok{background:#eaf7f0;border:1px solid #b9e2cb;color:#1c6e48;padding:10px 12px;border-radius:3px;font-size:13px;margin-bottom:6px}
+.ok:empty{display:none}

@@ -97,7 +97,15 @@ and nothing after it:
 "intent" is "design" when the turn shapes the desk and "answer" when you only answered a question (then "blueprint"
 is null and "suggestions" are natural follow-up questions, or an empty list).
 On a design turn the blueprint must be COMPLETE (full current state, not a diff). On the very first turn, before the owner
-has said anything substantive, "blueprint" may be null."""
+has said anything substantive, "blueprint" may be null.
+
+Editing an existing sketch - the canvas is the owner's, not yours
+- Start from the "Current blueprint" you are given and change ONLY what this turn calls for. Every agent, workflow,
+  connector and business field the owner did not mention is copied over unchanged, word for word.
+- An agent's "id" is permanent. Renaming, re-scoping or moving an agent keeps its id; only a genuinely new agent gets a
+  new id. Never re-slug ids from names.
+- Remove an agent only when the owner asks for that (or agrees to your suggestion to drop it), and say which one went.
+- Keep the agents in their existing order; append new ones at the end."""
 
 GREETING = ("Describe the business and the work to take off your plate: enquiries, proposals, invoices, an inbox, cameras. "
             "The team is drafted on the canvas as you go, and nothing is sent without your approval. "
@@ -303,8 +311,42 @@ def _slug(s: str) -> str:
     return s[:24] or "agent"
 
 
-def normalise(bp: dict[str, Any] | None, prev: dict[str, Any] | None = None) -> dict[str, Any] | None:
-    """Coerce a model-produced blueprint into the canonical shape; fall back to `prev` for missing sections."""
+REMOVAL_WORDS = re.compile(r"\b(remove|delete|drop|get rid|without|merge|combine|consolidat\w*|fewer|smaller team|simpl\w*|"
+                           r"cut|scrap|replace|instead of|swap|lose|kill|no longer|don'?t need|do not need|only keep|just keep)\b", re.I)
+
+
+def _name_tokens(s: str) -> set[str]:
+    return {t for t in re.split(r"[^a-z0-9]+", str(s or "").lower()) if len(t) > 2 and t not in ("the", "and", "for", "agent")}
+
+
+def _match_prev(a: dict[str, Any], aid: str, prev_agents: list[dict[str, Any]], taken: set[str]) -> str | None:
+    """The id the canvas already knows for this agent, when the model re-slugged or renamed it."""
+    name = str(a.get("name") or "").strip().lower()
+    role = str(a.get("role") or "").strip().lower()
+    free = [p for p in prev_agents if p["id"] not in taken]
+    for p in free:                                                   # exact name, or the same slug
+        if name and str(p.get("name") or "").strip().lower() == name:
+            return p["id"]
+        if aid == _slug(p.get("name")) or aid == p["id"]:
+            return p["id"]
+    toks = _name_tokens(name)
+    best, score = None, 0.0
+    for p in free:                                                   # "Enquiry writer" -> "Enquiry reply writer": shared words
+        pt = _name_tokens(p.get("name"))
+        if toks and pt:
+            s = len(toks & pt) / max(1, min(len(toks), len(pt)))
+            if role and str(p.get("role") or "").strip().lower() == role:
+                s += 0.5
+            if s > score:
+                best, score = p["id"], s
+    return best if score >= 0.5 else None
+
+
+def normalise(bp: dict[str, Any] | None, prev: dict[str, Any] | None = None, keep_missing: bool = False) -> dict[str, Any] | None:
+    """Coerce a model-produced blueprint into the canonical shape; fall back to `prev` for missing sections.
+    Agents keep the id (and colour, and the owner's canvas position) they had in `prev` when the model re-slugged or
+    renamed them. With keep_missing, agents the model silently left out are carried over - the owner did not ask for a
+    removal, so a truncated or lazy reply must not shrink the team."""
     if not isinstance(bp, dict):
         return prev
     prev = prev or {}
@@ -325,16 +367,17 @@ def normalise(bp: dict[str, Any] | None, prev: dict[str, Any] | None = None) -> 
     agents_in = bp.get("agents") if isinstance(bp.get("agents"), list) else prev.get("agents") or []
     agents: list[dict[str, Any]] = []
     seen: set[str] = set()
-    prev_ids = {a["id"] for a in prev.get("agents") or []}
-    prev_by_name = {str(a.get("name") or "").strip().lower(): a["id"] for a in prev.get("agents") or []}
+    prev_agents = [a for a in (prev.get("agents") or []) if isinstance(a, dict) and a.get("id")]
+    prev_ids = {a["id"] for a in prev_agents}
     renamed: dict[str, str] = {}                       # id the model used this turn -> id the agent already has
     for i, a in enumerate(agents_in):
         if not isinstance(a, dict):
             continue
         aid = _slug(a.get("id") or a.get("name") or f"agent_{i}")
-        keep = prev_by_name.get(str(a.get("name") or "").strip().lower())
-        if keep and aid not in prev_ids and keep not in seen:      # same agent, new slug: keep the id the canvas knows
-            renamed[aid] = aid = keep
+        if aid not in prev_ids or aid in seen:                       # same agent, new slug or new name: keep the id the canvas knows
+            keep = _match_prev(a, aid, prev_agents, seen)
+            if keep and keep not in seen:
+                renamed[aid] = aid = keep
         if aid in seen:
             continue
         seen.add(aid)
@@ -359,10 +402,34 @@ def normalise(bp: dict[str, Any] | None, prev: dict[str, Any] | None = None) -> 
             "engine": "hermes_agent" if str(a.get("engine") or "").lower() in ("hermes_agent", "hermes") else "atlas",
             "instructions": instr,
         })
-    agents = [a for a in agents if a["id"] != "atlas"][:8]
-    for i, a in enumerate(agents):
-        a["color"] = PALETTE[i % len(PALETTE)]
+    agents = [a for a in agents if a["id"] != "atlas"]
+    if keep_missing and prev_agents:                                 # the owner asked for no removal: nobody disappears
+        kept = [dict(p) for p in prev_agents if p["id"] not in seen and p["id"] != "atlas"]
+        for p in kept:
+            p.pop("members", None)
+        agents.extend(kept)
+        out["carried_over"] = [p["id"] for p in kept]
+    agents = agents[:8]
+    # colours stick to the agent, not to its position in the list; new agents take the first unused one
+    prev_color = {p["id"]: p.get("color") for p in prev_agents if p.get("color")}
+    used = {prev_color[a["id"]] for a in agents if a["id"] in prev_color}
+    spare = [c for c in PALETTE if c not in used] or list(PALETTE)
+    for a in agents:
+        c = prev_color.get(a["id"])
+        if not c:
+            if not spare:
+                spare = list(PALETTE)
+            c = spare.pop(0)
+        a["color"] = c
         a["reports_to"] = renamed.get(a["reports_to"], a["reports_to"])
+    # the owner's canvas positions (POST /api/design/<sid>/layout) ride along with the blueprint
+    lay_in = bp.get("layout") if isinstance(bp.get("layout"), dict) else prev.get("layout") or {}
+    layout = {}
+    for k, v in lay_in.items():
+        if isinstance(v, dict) and isinstance(v.get("x"), (int, float)) and isinstance(v.get("y"), (int, float)):
+            kid = renamed.get(str(k), str(k))
+            layout[kid] = {"x": int(v["x"]), "y": int(v["y"])}
+    out["layout"] = layout
     # hierarchy contract shared with atlas/team.py: unknown leads, cycles and chains deeper than 2 collapse to atlas
     from . import team as TM
     shape, _errs = TM.validate_team({"agents": [{**a, "instructions": a.get("instructions") or ["as briefed", "as briefed"]} for a in agents]},
@@ -517,8 +584,14 @@ def reply(session: DesignSession, user_text: str, on_token: Callable[[str], None
             sg = data.get("suggestions")
             if isinstance(sg, list):
                 suggestions = [str(x).strip()[:60] for x in sg if str(x).strip()][:4]
-            bp = normalise(data.get("blueprint"), session.blueprint)
+            # a follow-up that never mentioned dropping anyone must not shrink the team (truncated / lazy replies did)
+            protect = bool(session.blueprint and session.blueprint.get("agents")) and not REMOVAL_WORDS.search(user_text)
+            bp = normalise(data.get("blueprint"), session.blueprint, keep_missing=protect)
             if bp and (bp.get("agents") or bp.get("business")):
+                carried = bp.pop("carried_over", [])
+                if carried:
+                    names = [a["name"] for a in bp["agents"] if a["id"] in carried]
+                    prose += "\n\n_Kept from the previous draft: " + ", ".join(names) + ". Say \"remove …\" to drop one._"
                 session.blueprint = bp
             if isinstance(data.get("ready"), bool):
                 session.ready = data["ready"] and bool(session.blueprint and session.blueprint.get("agents"))
@@ -606,14 +679,17 @@ def _live_turn(session: DesignSession, providers_cfg: dict[str, Any] | None, mod
     substantive = bool(session.blueprint) or bool(session.profile) or len(said.split()) >= 12
     answered = bool(data) and str(data.get("intent") or "").lower() == "answer"     # a plain question: no team for it
     if substantive and not answered and not (data and isinstance(data.get("blueprint"), dict)):
+        if session.blueprint:
+            ask = ("Output ONLY the <atlas-design>{...}</atlas-design> block, nothing else. Start from the Current blueprint "
+                   "in your instructions and apply ONLY the changes your last reply described - same ids, same order, "
+                   "everything else copied unchanged. Keep the same suggestions.")
+        else:
+            ask = ("Output ONLY the <atlas-design>{...}</atlas-design> block, nothing else. Include your best FIRST-DRAFT "
+                   "blueprint for what has been said so far (make reasonable assumptions; the owner can adjust it on the "
+                   "canvas). Keep the same suggestions. If the owner has only asked general questions and not described "
+                   "work to take on, set \"intent\": \"answer\" and \"blueprint\": null instead.")
         try:
-            fix = prov.chat(system, msgs + [{"role": "assistant", "content": raw},
-                                           prov.user_message("Output ONLY the <atlas-design>{...}</atlas-design> block, nothing else. "
-                                                             "Include your best FIRST-DRAFT blueprint for what has been said so far (make reasonable "
-                                                             "assumptions; the owner can adjust it on the canvas). Keep the same suggestions. If the owner has only "
-                                                             "asked general questions and not described work to take on, set \"intent\": \"answer\" "
-                                                             "and \"blueprint\": null instead.")],
-                            [], model or "")
+            fix = prov.chat(system, msgs + [{"role": "assistant", "content": raw}, prov.user_message(ask)], [], model or "")
             _, data2 = split_reply(fix.text or "")
             if data2:
                 raw = split_reply(raw)[0] + chr(10) + "<atlas-design>" + json.dumps(data2, ensure_ascii=False) + "</atlas-design>"

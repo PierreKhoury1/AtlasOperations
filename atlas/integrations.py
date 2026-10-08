@@ -265,9 +265,15 @@ def http_call(cfg: dict[str, Any], method: str, path: str, params: dict[str, Any
     headers, qp, auth = _headers(cfg)
     qp.update({k: str(v) for k, v in (params or {}).items()})
     method = (method or "GET").upper()
-    with httpx.Client(timeout=timeout, follow_redirects=True) as c:
-        r = c.request(method, url, params=qp, headers=headers, auth=auth,
-                      json=body if (body is not None and method in ("POST", "PUT", "PATCH", "DELETE")) else None)
+    from . import secure as SEC
+    with httpx.Client(timeout=timeout, follow_redirects=False) as c:
+        try:
+            # A connector is any signed-up user's config, and it may send any verb. Loopback (Caddy's admin API among
+            # other things) and the cloud metadata service are refused, on the first hop and on every redirect.
+            r = SEC.send_checked(c, method, url, guard=SEC.internal_target_reason, params=qp, headers=headers, auth=auth,
+                                 json=body if (body is not None and method in ("POST", "PUT", "PATCH", "DELETE")) else None)
+        except SEC.UnsafeTarget as exc:
+            raise RuntimeError(f"connector call refused: {exc}") from None
     out: dict[str, Any] = {"status": r.status_code, "url": str(r.url)}
     ctype = r.headers.get("content-type", "")
     if "json" in ctype:

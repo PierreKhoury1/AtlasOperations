@@ -97,30 +97,89 @@ class RateLimiter:
 
 # ---------------------------------------------------------------------------- SSRF guard
 _ALLOW_PRIVATE = os.environ.get("ALLOW_PRIVATE_FETCH", "").strip() in ("1", "true", "yes")
+# Cloud instance-metadata endpoints: Hetzner, AWS/GCP/Azure, Alibaba. Anything that can read these can read the box's identity.
+_METADATA_IPS = {ipaddress.ip_address(a) for a in ("169.254.169.254", "100.100.100.200", "fd00:ec2::254")}
+_INTERNAL_NAMES = ("localhost", ".localhost", ".local", ".internal")
 
 
-def private_url_reason(url: str) -> str | None:
-    """Return a reason string when a URL points at private/internal address space, else None.
-    Applied to agent-driven fetches (web_fetch, link study) - owner-configured connector base_urls are exempt."""
-    if _ALLOW_PRIVATE:
+class UnsafeTarget(ValueError):
+    """A URL the server will not fetch: an internal address, a metadata endpoint, or a redirect chain that leads there."""
+
+
+def _ip(text: str):
+    try:
+        ip = ipaddress.ip_address(text)
+    except ValueError:
         return None
+    if ip.version == 6 and ip.ipv4_mapped is not None:      # ::ffff:127.0.0.1 is 127.0.0.1
+        ip = ip.ipv4_mapped
+    return ip
+
+
+def _targets(url: str):
+    """(host, [resolved ips]) for a URL, or (reason, None) when it cannot be checked at all."""
     try:
         host = urlparse(url).hostname or ""
     except ValueError:
-        return "unparseable URL"
+        return "unparseable URL", None
     if not host:
-        return "no host in URL"
-    if host.lower() in ("localhost",) or host.lower().endswith(".localhost") or host.lower().endswith(".local") or host.lower().endswith(".internal"):
-        return f"internal hostname '{host}'"
+        return "no host in URL", None
+    if host.lower() == "localhost" or host.lower().endswith(_INTERNAL_NAMES[1:]):
+        return f"internal hostname '{host}'", None
     try:
         infos = socket.getaddrinfo(host, None)
     except socket.gaierror:
-        return None                                  # unresolvable: let the fetch fail naturally
-    for info in infos:
-        try:
-            ip = ipaddress.ip_address(info[4][0])
-        except ValueError:
-            continue
-        if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_multicast or ip.is_unspecified:
+        return None, []                              # unresolvable: let the fetch fail naturally
+    ips = [_ip(i[4][0].split("%")[0]) for i in infos]
+    return None, [ip for ip in ips if ip is not None]
+
+
+def private_url_reason(url: str) -> str | None:
+    """Reason string when a URL reaches anything that is not public internet space, else None.
+    Used for agent-driven fetches (web_fetch, link study, the browser agent): a model that reads an attacker's page
+    must not be able to point the next request at the LAN, loopback or the metadata service."""
+    if _ALLOW_PRIVATE:
+        return None
+    reason, ips = _targets(url)
+    if reason:
+        return reason
+    for ip in ips or []:
+        # is_global is False for private, loopback, link-local, CGNAT (100.64/10), reserved and documentation ranges
+        if not ip.is_global or ip.is_multicast or ip in _METADATA_IPS:
             return f"resolves to non-public address {ip}"
     return None
+
+
+def internal_target_reason(url: str) -> str | None:
+    """Narrower guard for endpoints an owner configured (HTTP connectors, camera snapshots). These may legitimately sit
+    on the LAN (a camera on the office network), so only what a server reaches from the inside is refused: loopback
+    (Caddy's admin API, Postgres' HTTP neighbours, the Hermes gateway), link-local and the cloud metadata service."""
+    if _ALLOW_PRIVATE:
+        return None
+    reason, ips = _targets(url)
+    if reason:
+        return reason
+    for ip in ips or []:
+        if ip.is_loopback or ip.is_link_local or ip.is_unspecified or ip.is_multicast or ip in _METADATA_IPS:
+            return f"refused - {ip} is a server-internal address"
+    return None
+
+
+def send_checked(client, method: str, url: str, *, guard=private_url_reason, max_hops: int = 5, **kw):
+    """client.request() with every hop checked. Redirects are followed by hand so each new Location goes through
+    `guard` again: a public URL that 302s to 127.0.0.1 or to the metadata address is refused, not fetched.
+    Use with an httpx.Client(follow_redirects=False). A 307/308 keeps the method and body; any other redirect is a GET."""
+    for _ in range(max_hops + 1):
+        reason = guard(url)
+        if reason:
+            raise UnsafeTarget(reason)
+        r = client.request(method, url, **kw)
+        if not (r.is_redirect and r.headers.get("location")):
+            return r
+        url = str(r.url.join(r.headers["location"]))
+        if r.status_code in (307, 308):
+            kw = {k: v for k, v in kw.items() if k != "params"}
+        else:
+            method = "GET"
+            kw = {k: v for k, v in kw.items() if k in ("headers", "auth", "timeout")}
+    raise UnsafeTarget("too many redirects")

@@ -125,6 +125,8 @@ _MIGRATIONS = [
     ("events", "data", "TEXT DEFAULT ''"),
     ("actions", "case_id", "INTEGER DEFAULT 0"),                 # the case an approval belongs to (atlas/cases.py)
     ("runs", "case_id", "INTEGER DEFAULT 0"),
+    ("users", "google_sub", "TEXT DEFAULT ''"),                   # Google account id when the owner signs in with Google
+    ("users", "two_factor", "INTEGER DEFAULT 1"),                 # mailed code on password login (atlas/desk/auth.py)
 ]
 
 STAGES = ("New", "Contacted", "Qualified", "Proposal", "Won", "Lost")
@@ -1099,20 +1101,36 @@ class Store:
             self._conn.commit()
 
     # ------------------------------------------------------------------ users
-    def add_user(self, email: str, name: str, company: str, pw_hash: str) -> dict[str, Any]:
+    def add_user(self, email: str, name: str, company: str, pw_hash: str, google_sub: str = "") -> dict[str, Any]:
         with self._lock:
-            cur = self._conn.execute("INSERT INTO users(email,name,company,pw_hash,created) VALUES(?,?,?,?,?)",
-                                     (email.strip().lower(), name.strip(), company.strip(), pw_hash, time.time()))
+            cur = self._conn.execute("INSERT INTO users(email,name,company,pw_hash,created,google_sub) VALUES(?,?,?,?,?,?)",
+                                     (email.strip().lower(), name.strip(), company.strip(), pw_hash, time.time(), google_sub))
             self._conn.commit()
             return self.user(cur.lastrowid)  # type: ignore[return-value]
 
     def user(self, uid: int) -> dict[str, Any] | None:
-        rows = _rows(self._conn.execute("SELECT id,email,name,company,created,last_login FROM users WHERE id=?", (uid,)))
+        rows = _rows(self._conn.execute("SELECT id,email,name,company,created,last_login,google_sub,two_factor FROM users WHERE id=?", (uid,)))
         return rows[0] if rows else None
 
     def user_by_email(self, email: str) -> dict[str, Any] | None:
         rows = _rows(self._conn.execute("SELECT * FROM users WHERE email=?", (email.strip().lower(),)))
         return rows[0] if rows else None
+
+    def user_by_google(self, sub: str) -> dict[str, Any] | None:
+        if not sub:
+            return None
+        rows = _rows(self._conn.execute("SELECT * FROM users WHERE google_sub=?", (sub,)))
+        return rows[0] if rows else None
+
+    def link_google(self, uid: int, sub: str) -> None:
+        with self._lock:
+            self._conn.execute("UPDATE users SET google_sub=? WHERE id=?", (sub, uid))
+            self._conn.commit()
+
+    def set_two_factor(self, uid: int, on: bool) -> None:
+        with self._lock:
+            self._conn.execute("UPDATE users SET two_factor=? WHERE id=?", (1 if on else 0, uid))
+            self._conn.commit()
 
     def touch_login(self, uid: int) -> None:
         with self._lock:

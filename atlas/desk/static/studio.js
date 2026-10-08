@@ -135,6 +135,10 @@ async function dsSend(text) {
   const node = addMsg('a', ''); node.classList.add('typing'); const tx = node.querySelector('.tx');
   DSG.busy = true; $('#ds-sendbtn').disabled = true;
   try {
+    if (DSG.saveT) {                                              // an edit on the canvas is still in its save debounce: land it before the model sees the sketch
+      clearTimeout(DSG.saveT); DSG.saveT = null;
+      try { await api(`/design/${DSG.sid}/blueprint`, {method: 'POST', body: {blueprint: DSG.bp}}); } catch (_) {}
+    }
     const r = await fetch(`/api/design/${DSG.sid}/say`, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({text})});
     if (!r.ok) throw new Error('HTTP ' + r.status);
     const rd = r.body.getReader(); const dec = new TextDecoder(); let buf = '';
@@ -316,7 +320,7 @@ function selectNode(key) {
   }
   if (key.startsWith('ag:')) {
     const a = bp.agents.find(x => 'ag:' + x.id === key); if (!a) return;
-    I.innerHTML = `<h3><i style="background:${a.color}"></i>${esc(a.name)}${xbtn()}</h3>
+    I.innerHTML = `<h3><i style="background:${esc(a.color)}"></i>${esc(a.name)}${xbtn()}</h3>
       <label>Name</label><input value="${esc(a.name)}" oninput="agEdit('${a.id}','name',this.value)">
       <label>Role</label><input value="${esc(a.role)}" oninput="agEdit('${a.id}','role',this.value)">
       <label>Goal &amp; quality bar</label><textarea style="min-height:110px" oninput="agEdit('${a.id}','goal',this.value)">${esc(a.goal || '')}</textarea>

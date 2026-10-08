@@ -145,6 +145,17 @@ DATABASE_URL=postgresql://atlas:$PGPASS@127.0.0.1:5432/atlas
 ATLAS_DATA_DIR=$ROOT/data
 SPEND_CAP_USD=10
 PORT=8094
+# sign-in extras (atlas/desk/auth.py). Google: OAuth web client, redirect URI https://$HOST/auth/google/callback.
+# Mail: the portal's own sender for 2FA codes (Gmail app password or Resend). TWO_FACTOR=auto|required|off.
+GOOGLE_CLIENT_ID=
+GOOGLE_CLIENT_SECRET=
+ATLAS_SMTP_HOST=
+ATLAS_SMTP_PORT=587
+ATLAS_SMTP_USER=
+ATLAS_SMTP_PASSWORD=
+ATLAS_MAIL_FROM=
+ATLAS_MAIL_FROM_NAME=Atlas Desks
+TWO_FACTOR=auto
 PUBLIC_URL=https://$HOST
 PYTHONIOENCODING=utf-8
 PYTHONUNBUFFERED=1
@@ -154,7 +165,9 @@ else
   [ -z "$OPENROUTER" ] || setenv "$ENVF" OPENROUTER_API_KEY "$OPENROUTER"
   setenv "$ENVF" PUBLIC_URL "https://$HOST"
 fi
-chown root:$APP_USER "$ENVF"; chmod 640 "$ENVF"
+# root-only: systemd reads EnvironmentFile as root, so the service user never needs the file itself. Left group-readable,
+# a model-written run_python script (which runs as that user) could read every key in it.
+chown root:root "$ENVF"; chmod 600 "$ENVF"
 
 echo "== systemd"
 cat > /etc/systemd/system/hermes.service <<EOT
@@ -238,6 +251,10 @@ EOT
 echo "== caddy ($HOST)"
 install -d -o caddy -g caddy /var/log/caddy
 cat > /etc/caddy/Caddyfile <<EOT
+{
+	# no admin API on loopback: it answers any local request with config read/write. Reload = systemctl restart caddy.
+	admin off
+}
 $HOST {
 	encode zstd gzip
 	log {

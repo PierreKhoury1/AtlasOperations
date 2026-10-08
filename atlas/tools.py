@@ -6,11 +6,24 @@ the rest operate on the run's workspace directory.
 from __future__ import annotations
 
 import html
+import os
 import re
 from pathlib import Path
 from typing import Any, Callable
 
 from .config import INPUTS_DIR
+
+# What a model-written script may inherit. The portal's environment holds the OpenRouter key, the database URL and
+# DESK_SECRET (the session-signing key). A script the agent wrote after reading a page it was told to trust must not
+# be able to print those or send them anywhere, so only what Python needs to start survives.
+_SNIPPET_ENV_KEEP = ("PATH", "SYSTEMROOT", "SYSTEMDRIVE", "WINDIR", "TEMP", "TMP", "LANG", "LC_ALL")
+
+
+def _snippet_env(run_dir: Path) -> dict[str, str]:
+    env = {k: os.environ[k] for k in _SNIPPET_ENV_KEEP if k in os.environ}
+    env.update({"PYTHONIOENCODING": "utf-8", "PYTHONUTF8": "1", "HOME": str(run_dir), "USERPROFILE": str(run_dir)})
+    return env
+
 
 SCHEMAS: dict[str, dict[str, Any]] = {
     "delegate": {
@@ -484,12 +497,12 @@ class WorkspaceTools:
         if not re.match(r"^https?://", url):
             return "error: only http(s) URLs"
         from . import secure as SEC
-        reason = SEC.private_url_reason(url)
-        if reason:
-            return f"error: refused - {reason}. Agent fetches may only target public addresses."
         try:
-            r = httpx.get(url, follow_redirects=True, timeout=30,
-                          headers={"User-Agent": "Atlas/0.1 (+desktop research agent)"})
+            # every redirect hop is checked too: a public page that 302s to the metadata service is refused, not followed
+            with httpx.Client(timeout=30, follow_redirects=False) as c:
+                r = SEC.send_checked(c, "GET", url, headers={"User-Agent": "Atlas/0.1 (+desktop research agent)"})
+        except SEC.UnsafeTarget as exc:
+            return f"error: refused - {exc}. Agent fetches may only target public addresses."
         except Exception as exc:
             return f"error: {type(exc).__name__}: {exc}"
         ctype = r.headers.get("content-type", "")
@@ -514,7 +527,7 @@ class WorkspaceTools:
         script.write_text(code, encoding="utf-8")
         try:
             r = subprocess.run([_sys.executable, "-I", str(script)], cwd=str(run_dir), capture_output=True,
-                               text=True, timeout=60, encoding="utf-8", errors="replace")
+                               text=True, timeout=60, encoding="utf-8", errors="replace", env=_snippet_env(run_dir))
         except subprocess.TimeoutExpired:
             return "error: script exceeded 60s"
         finally:

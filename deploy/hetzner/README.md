@@ -61,6 +61,8 @@ Then delete the Render services and point camera hooks (`node.json` -> `hook`) a
 
 * Accounts ON by default (`DESK_OPEN=0`). The 2 Sep 2026 audit still applies: `run_python` is unsandboxed and MCP
   connectors run as the `atlas` user. Desks for trusted customers only; no public signup yet.
-* Hermes API server listens on localhost only. `/etc/atlas/atlas.env` (root:atlas 640) and `/home/atlas/.hermes/.env`
-  hold every key. Never commit them.
+* Hermes API server listens on localhost only. `/etc/atlas/atlas.env` (root:root 600, read by systemd as root) and
+  `/home/atlas/.hermes/.env` (atlas 600, Hermes' own key) hold every key. Never commit them. The second file is still
+  readable by `run_python` (same user): until snippets run in a sandbox with another uid, treat the Hermes key as exposed
+  to any agent code. Caddy has its admin API off (`admin off`); reload with `systemctl restart caddy`.
 * ssh is key-only, fail2ban bans after 5 failures, ufw allows 22/80/443 only, security updates unattended.

@@ -10,6 +10,8 @@ Env:  DESK_MODE=demo|live|auto     demo = scripted provider (no API key needed);
       DESK_SECRET=...              session-cookie secret (auto-generated into data/secret.key if unset)
       DESK_OPEN=1                  skip accounts (portal public on the built-in demo desk) — local dev only
       DEMO_DELAY=0.6               demo provider pacing
+      GOOGLE_CLIENT_ID/SECRET      "Continue with Google" (see atlas/desk/auth.py)
+      ATLAS_SMTP_* / ATLAS_RESEND_KEY + ATLAS_MAIL_FROM   portal mail; TWO_FACTOR=auto|required|off (emailed code)
 """
 from __future__ import annotations
 
@@ -23,6 +25,7 @@ import itertools
 import mimetypes
 import re
 import secrets
+import sys
 import threading
 import time
 from collections import OrderedDict
@@ -45,6 +48,7 @@ from .. import vision as V
 from .. import rag as RAG
 from .. import team as TM
 from . import scheduler
+from . import auth as AUTH
 from ..orchestrator import Event, Orchestrator
 from ..store import Store
 
@@ -53,6 +57,22 @@ SITE_DIR = ROOT / "site"
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 DB_PATH = cfg.DATA_DIR / "desk.db"
 mimetypes.add_type("font/woff2", ".woff2")           # the cyber page's local IBM Plex fonts (Windows maps it oddly)
+
+
+def _no_peeking() -> None:
+    """Linux: mark this process non-dumpable. Its /proc/<pid>/environ then belongs to root, so a child process running as
+    the same user (a model-written run_python script, say) cannot read the keys the portal was started with. Scrubbing
+    the child's own environment is not enough on its own: a child can read its parent's environment unless this is set."""
+    if not sys.platform.startswith("linux"):
+        return
+    try:
+        import ctypes
+        ctypes.CDLL("libc.so.6", use_errno=True).prctl(4, 0, 0, 0, 0)     # PR_SET_DUMPABLE = 4
+    except (OSError, AttributeError):
+        pass
+
+
+_no_peeking()
 
 app = Flask(__name__, static_folder=None)
 # DATABASE_URL (postgres://...) makes accounts, desks and approvals survive deploys; without it SQLite in DATA_DIR.
@@ -70,8 +90,11 @@ def _secret() -> str:
 
 
 app.secret_key = _secret()
+# Served over HTTPS wherever it is public: Render, or Caddy on the Hetzner box (PUBLIC_URL is https there). The session
+# cookie must never travel in plain HTTP, so Secure follows that, not the platform name alone.
+_HTTPS = bool(os.environ.get("RENDER")) or os.environ.get("PUBLIC_URL", "").strip().lower().startswith("https://")
 app.config.update(SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE="Lax",
-                  SESSION_COOKIE_SECURE=bool(os.environ.get("RENDER")), PERMANENT_SESSION_LIFETIME=30 * 86400)
+                  SESSION_COOKIE_SECURE=_HTTPS, PERMANENT_SESSION_LIFETIME=30 * 86400)
 OPEN = os.environ.get("DESK_OPEN", "").strip() in ("1", "true", "yes")
 DEFAULT_TEMPLATE = os.environ.get("DESK_TEMPLATE", "sales_desk")
 
@@ -348,24 +371,60 @@ _RL_VISION = SEC.RateLimiter(int(os.environ.get("RL_VISION_PER_MIN", "12")), 60)
 _VISION_SLOTS = threading.BoundedSemaphore(int(os.environ.get("VISION_DEMO_CONCURRENCY", "3") or 3))
 
 
+# The pages call only this origin. The marketing site also loads gsap and lenis from cdnjs / jsDelivr and the fonts from
+# Google. Inline scripts and handlers are still allowed ('unsafe-inline': the pages are written that way), but whatever
+# gets injected cannot send the session, a key or the typed input to a host of its choosing: connect, img, form and
+# frame targets are all this origin.
+_CSP = "; ".join([
+    "default-src 'self'",
+    # 'wasm-unsafe-eval' lets the vision demo compile its WebAssembly; plain eval stays blocked
+    "script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net",
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+    "font-src 'self' https://fonts.gstatic.com data:",
+    "img-src 'self' data: blob:",
+    "media-src 'self' blob:",
+    # the home page's vision demo fetches the ONNX Runtime WASM from jsDelivr, and may start its worker from there
+    "connect-src 'self' https://cdn.jsdelivr.net",
+    "worker-src 'self' blob: https://cdn.jsdelivr.net",
+    "frame-src 'self'",
+    "object-src 'none'",
+    "base-uri 'self'",
+    "form-action 'self'",
+    "frame-ancestors 'none'",
+])
+
+
 @app.after_request
 def _security_headers(resp):
     resp.headers.setdefault("X-Content-Type-Options", "nosniff")
     resp.headers.setdefault("X-Frame-Options", "DENY")
     resp.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
     resp.headers.setdefault("Permissions-Policy", "camera=(self), microphone=(), geolocation=(), payment=()")   # camera: the site's vision demo
-    if os.environ.get("RENDER"):
+    resp.headers.setdefault("Content-Security-Policy", _CSP)
+    if _HTTPS:
         resp.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
     return resp
 
 
+def _client_ip() -> str:
+    """The address the rate limits key on. Behind Caddy (or Render's router) the TCP peer is the proxy, and the proxy
+    appends the real client to X-Forwarded-For, so the LAST entry is the one to trust. The first entry is whatever the
+    client sent: keying on it let anyone pick a fresh address per request and get past every per-IP limit."""
+    peer = request.remote_addr or "?"
+    if peer in ("127.0.0.1", "::1") or os.environ.get("RENDER"):
+        hops = [h.strip() for h in request.headers.get("X-Forwarded-For", "").split(",") if h.strip()]
+        if hops:
+            return hops[-1]
+    return peer
+
+
 @app.before_request
 def _rate_limits():
-    ip = (request.headers.get("X-Forwarded-For", "").split(",")[0].strip() or request.remote_addr or "?")
+    ip = _client_ip()
     p = request.path
     if p.startswith("/hook/") and not _RL_HOOK.allow(f"{p}:{ip}"):
         return Response(json.dumps({"error": "rate limited"}), 429, mimetype="application/json")
-    if request.method == "POST" and p in ("/login", "/signup", "/desk/login") and not _RL_AUTH.allow(ip):
+    if request.method == "POST" and p in ("/login", "/signup", "/desk/login", "/login/verify") and not _RL_AUTH.allow(ip):
         return Response(json.dumps({"error": "too many attempts - wait a few minutes"}), 429, mimetype="application/json")
     if request.method == "POST" and p.startswith("/api/design/") and (p.endswith("/say") or p.endswith("/study")) and not _RL_MODEL.allow(ip):
         return Response(json.dumps({"error": "rate limited - slow down a little"}), 429, mimetype="application/json")
@@ -398,7 +457,7 @@ def _page(template: str, **vars_) -> str:
     html = (STATIC_DIR / template).read_text(encoding="utf-8")
     for k, v in vars_.items():
         html = html.replace("{{%s}}" % k, _esc(str(v)))
-    return html
+    return re.sub(r"\{\{\w+\}\}", "", html)                 # optional slots (e.g. a notice) render empty
 
 
 @app.route("/login", methods=["GET", "POST"])
@@ -409,22 +468,126 @@ def login():
         email = (d.get("email") or "").strip().lower()
         pw = d.get("password") or ""
         u = store.user_by_email(email) if email else None
-        if not u or not check_password_hash(u["pw_hash"], pw):
+        if not u or not u.get("pw_hash") or not check_password_hash(u["pw_hash"], pw):
             time.sleep(0.8)   # slow down guessing
             if request.is_json:
                 return jsonify({"error": "wrong email or password"}), 401
-            return _page("login.html", error="Wrong email or password.", email=email), 401
-        session.clear()
-        session.permanent = True
-        session["uid"] = u["id"]
-        store.touch_login(u["id"])
+            return _page("login.html", error="Wrong email or password.", email=email, google=_google_cls()), 401
+        nxt = request.args.get("next", "/desk/workspace")          # the workspace chat is the front door
+        nxt = nxt if nxt.startswith("/desk") else "/desk/workspace"
+        if _needs_code(u):
+            try:
+                rec = AUTH.challenge(u["id"], u["email"], app.secret_key, nxt)
+            except Exception as e:                                  # mail down: never let the password alone through
+                print("2fa mail failed:", e)
+                if request.is_json:
+                    return jsonify({"error": "could not send the sign-in code - try again in a minute"}), 503
+                return _page("login.html", error="We could not send your sign-in code. Try again in a minute.",
+                             email=email, google=_google_cls()), 503
+            session.clear()
+            session["mfa"] = rec
+            if request.is_json:
+                return jsonify({"ok": False, "mfa": True, "verify": "/login/verify"}), 202
+            return redirect("/login/verify")
+        _sign_in(u["id"])
         if request.is_json:
             return jsonify({"ok": True})
-        nxt = request.args.get("next", "/desk/workspace")          # the workspace chat is the front door
-        return redirect(nxt if nxt.startswith("/desk") else "/desk/workspace")
+        return redirect(nxt)
     if current_user():
         return redirect("/desk/workspace")
-    return _page("login.html", error="", email="")
+    return _page("login.html", error="", email="", google=_google_cls())
+
+
+def _sign_in(uid: int) -> None:
+    session.clear()
+    session.permanent = True
+    session["uid"] = uid
+    store.touch_login(uid)
+
+
+def _google_cls() -> str:
+    """Class on the login/signup Google button: shown only when the OAuth client is configured."""
+    return "on" if AUTH.google_ready() else "off"
+
+
+def _needs_code(u: dict[str, Any]) -> bool:
+    """Second factor on a password login: platform policy on, the account has not opted out, and this browser is not
+    trusted. Accounts that only ever sign in with Google never reach here."""
+    if not AUTH.two_factor_active() or not int(u.get("two_factor") or 0):
+        return False
+    return AUTH.trusted_uid(request.cookies.get("atlas_trust"), app.secret_key) != u["id"]
+
+
+@app.route("/login/verify", methods=["GET", "POST"])
+def login_verify():
+    rec = session.get("mfa")
+    if not rec:
+        return redirect("/login")
+    masked = rec["email"][:2] + "…@" + rec["email"].split("@")[-1]
+    if request.method == "POST":
+        d = request.form if request.form else (request.get_json(silent=True) or {})
+        if d.get("resend"):
+            if not AUTH.can_resend(rec):
+                return _page("verify.html", error="A code was sent moments ago - check your spam folder, then try again.",
+                             email=masked), 429
+            try:
+                session["mfa"] = AUTH.challenge(rec["uid"], rec["email"], app.secret_key, rec.get("next", "/desk/workspace"))
+            except Exception as e:
+                print("2fa mail failed:", e)
+                return _page("verify.html", error="We could not send a new code. Try again in a minute.", email=masked), 503
+            return _page("verify.html", error="", email=masked, notice="New code sent.")
+        ok, err = AUTH.check_code(rec, str(d.get("code") or ""), app.secret_key)
+        session["mfa"] = rec                                   # persist the attempt counter
+        if not ok:
+            if request.is_json:
+                return jsonify({"error": err}), 401
+            return _page("verify.html", error=err, email=masked), 401
+        nxt = rec.get("next") or "/desk/workspace"
+        _sign_in(rec["uid"])
+        resp = jsonify({"ok": True}) if request.is_json else redirect(nxt)
+        if d.get("trust"):
+            resp.set_cookie("atlas_trust", AUTH.trust_token(rec["uid"], app.secret_key), max_age=AUTH.TRUST_DAYS * 86400,
+                            httponly=True, secure=_HTTPS, samesite="Lax")
+        return resp
+    return _page("verify.html", error="", email=masked)
+
+
+@app.get("/auth/google")
+def auth_google():
+    if not AUTH.google_ready():
+        abort(404)
+    state = secrets.token_urlsafe(24)
+    nxt = request.args.get("next", "/desk/workspace")
+    session["oauth"] = {"state": state, "next": nxt if nxt.startswith("/desk") else "/desk/workspace"}
+    return redirect(AUTH.google_auth_url(state, _google_redirect()))
+
+
+@app.get("/auth/google/callback")
+def auth_google_callback():
+    pend = session.pop("oauth", None) or {}
+    if not AUTH.google_ready() or not pend or request.args.get("state") != pend.get("state"):
+        return _page("login.html", error="Google sign-in did not complete - try again.", email="", google=_google_cls()), 400
+    if request.args.get("error") or not request.args.get("code"):
+        return _page("login.html", error="Google sign-in was cancelled.", email="", google=_google_cls()), 400
+    try:
+        g = AUTH.google_exchange(request.args["code"], _google_redirect())
+    except Exception as e:
+        print("google exchange failed:", e)
+        return _page("login.html", error="Google sign-in failed - try again or use your password.", email="", google=_google_cls()), 400
+    u = store.user_by_google(g["sub"])
+    if not u:
+        u = store.user_by_email(g["email"])                    # same verified address: link the existing account
+        if u:
+            store.link_google(u["id"], g["sub"])
+        else:
+            u = store.add_user(g["email"], g["name"], "", "", google_sub=g["sub"])
+    _sign_in(u["id"])
+    return redirect(pend.get("next") or "/desk/workspace")
+
+
+def _google_redirect() -> str:
+    base = os.environ.get("PUBLIC_URL", "").strip().rstrip("/") or request.url_root.rstrip("/")
+    return base + "/auth/google/callback"
 
 
 @app.route("/signup", methods=["GET", "POST"])
@@ -445,17 +608,15 @@ def signup():
         if err:
             if request.is_json:
                 return jsonify({"error": err}), 400
-            return _page("signup.html", error=err, name=name, company=company, email=email), 400
+            return _page("signup.html", error=err, name=name, company=company, email=email, google=_google_cls()), 400
         u = store.add_user(email, name, company, generate_password_hash(pw))
-        session.clear()
-        session.permanent = True
-        session["uid"] = u["id"]
+        _sign_in(u["id"])
         if request.is_json:
             return jsonify({"ok": True})
         return redirect("/desk/workspace")                     # new owners start in the workspace chat
     if current_user():
         return redirect("/desk/workspace")
-    return _page("signup.html", error="", name="", company="", email="")
+    return _page("signup.html", error="", name="", company="", email="", google=_google_cls())
 
 
 @app.route("/logout", methods=["GET", "POST"])
@@ -467,7 +628,25 @@ def logout():
 @app.get("/api/me")
 def api_me():
     u = current_user()
-    return jsonify(u or {"id": None, "name": "Guest", "email": "", "company": "", "open": OPEN})
+    if not u:
+        return jsonify({"id": None, "name": "Guest", "email": "", "company": "", "open": OPEN})
+    out = {k: v for k, v in u.items() if k != "google_sub"}
+    out["google"] = bool(u.get("google_sub"))
+    out["two_factor"] = bool(int(u.get("two_factor") or 0)) and AUTH.two_factor_active()
+    out["two_factor_available"] = AUTH.two_factor_active()
+    return jsonify(out)
+
+
+@app.patch("/api/me")
+def api_me_patch():
+    """Account settings: {two_factor: bool} turns the mailed sign-in code on or off for this account."""
+    u = current_user()
+    if not u:
+        abort(401)
+    d = request.get_json(silent=True) or {}
+    if "two_factor" in d:
+        store.set_two_factor(u["id"], bool(d["two_factor"]))
+    return api_me()
 
 
 from . import showrun as _SR
@@ -495,7 +674,8 @@ def api_health():
     reason = _live_reason()
     return jsonify({"ok": True, "mode": _mode(), "live_ready": not reason, "live_reason": reason,
                     "hermes_agent": bool(os.environ.get("HERMES_AGENT_URL", "").strip()),
-                    "db": store.backend, "db_ok": store.ping()})
+                    "db": store.backend, "db_ok": store.ping(),
+                    "mail": AUTH.mail_ready(), "two_factor": AUTH.two_factor_active(), "google": AUTH.google_ready()})
 
 
 # ---------------------------------------------------------------------------- static
@@ -2701,7 +2881,7 @@ def api_vision_demo():
     a few concurrent slots, tiny answers, subject to the spend cap — real model, no scripted fallback."""
     import base64
 
-    ip = (request.headers.get("X-Forwarded-For", "").split(",")[0].strip() or request.remote_addr or "?")
+    ip = _client_ip()
     hdr = {"Cache-Control": "no-cache", "X-Accel-Buffering": "no"}
     if not _RL_VISION.allow(ip):
         return Response(_sse({"error": "rate limited - one narration every few seconds per visitor"}), 429, mimetype="text/event-stream", headers=hdr)
@@ -2815,7 +2995,7 @@ def api_vision_demo_ask():
     """Public site demo, the RAG half: the browser sends the question plus its own event log (one entry per narration:
     counts + analyst text + clock time). We retrieve the best-matching events, tell the browser which ones ([#n]) were
     used, then stream the model's answer, which must cite them. Stateless - nothing is stored server side."""
-    ip = (request.headers.get("X-Forwarded-For", "").split(",")[0].strip() or request.remote_addr or "?")
+    ip = _client_ip()
     hdr = {"Cache-Control": "no-cache", "X-Accel-Buffering": "no"}
     if not _RL_VISION.allow(ip):
         return Response(_sse({"error": "rate limited - a few questions a minute per visitor"}), 429, mimetype="text/event-stream", headers=hdr)
@@ -4032,6 +4212,15 @@ def _save_design(s: DS.DesignSession) -> None:
         print("design session save failed:", exc)
 
 
+def _design_spend_gate(s) -> None:
+    """Paid designer turns stop at the OpenRouter cap, the same rule as paid desk runs. Free-model turns cost nothing.
+    Before this, the studio's say / study / build routes never checked the cap at all."""
+    if s.mode != "demo" and s.tier != "free":
+        blocked = _spend_blocked()
+        if blocked:
+            abort(Response(json.dumps({"error": blocked}), 402, mimetype="application/json"))
+
+
 @app.post("/api/design/start")
 def api_design_start():
     u = current_user()
@@ -4067,6 +4256,7 @@ def api_design_study(sid):
     s.links = links
     if s.mode != "demo":
         _require_live()
+    _design_spend_gate(s)
     import queue
     q: "queue.Queue[dict[str, Any] | None]" = queue.Queue()
     providers = None if s.mode == "demo" else _providers_cfg()
@@ -4122,6 +4312,7 @@ def api_design_say(sid):
         return jsonify({"error": "empty"}), 400
     if s.mode != "demo":
         _require_live()
+    _design_spend_gate(s)
     import queue
     q: "queue.Queue[dict[str, Any] | None]" = queue.Queue()
     providers = None if s.mode == "demo" else _providers_cfg()
@@ -4172,6 +4363,22 @@ def api_design_blueprint(sid):
         s.ready = bool(bp.get("agents"))
         _save_design(s)
     return jsonify({"blueprint": s.blueprint, "ready": s.ready})
+
+
+@app.post("/api/design/<sid>/layout")
+def api_design_layout(sid):
+    """Where the owner dragged the cards: {positions: {agent_id: {x, y}}}. Stored with the blueprint so the next
+    designer turn (and the next browser) draws the team where they left it."""
+    s = _design_session(sid)
+    d = request.get_json(force=True) or {}
+    pos = d.get("positions") if isinstance(d.get("positions"), dict) else {}
+    if s.blueprint is None:
+        return jsonify({"layout": {}})
+    bp = dict(s.blueprint)
+    bp["layout"] = pos
+    s.blueprint = DS.normalise(bp, s.blueprint) or s.blueprint
+    _save_design(s)
+    return jsonify({"layout": s.blueprint.get("layout", {})})
 
 
 @app.post("/api/design/<sid>/tier")

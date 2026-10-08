@@ -279,6 +279,9 @@ class BrowserHand:
             user_agent="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
             args=["--disable-blink-features=AutomationControlled"], ignore_https_errors=False)
         self.ctx.set_default_timeout(ACTION_TIMEOUT_MS)
+        # Before any page exists: every request the browser makes is checked, redirects and sub-resources included, so a
+        # page the agent visits cannot send it (or the visitor's session) to the LAN, loopback or the metadata service.
+        self.ctx.route("**/*", self._guard_request)
         self.page = self.ctx.pages[0] if self.ctx.pages else self.ctx.new_page()
         self.page.on("dialog", lambda d: d.dismiss())
         self.ctx.on("page", self._on_new_page)
@@ -286,6 +289,14 @@ class BrowserHand:
         self.macro_steps: list[dict[str, Any]] = []
         self.last_obs: Observation | None = None
         self.allow_submit = False
+
+    def _guard_request(self, route) -> None:
+        from . import secure as SEC
+        url = route.request.url
+        if url.startswith(("http://", "https://")) and SEC.private_url_reason(url):
+            route.abort("blockedbyclient")
+        else:
+            route.continue_()
 
     def _on_new_page(self, page) -> None:                      # links that open a new tab: follow them
         try:

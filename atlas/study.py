@@ -113,9 +113,13 @@ def _fetch(url: str, timeout: float = 15.0) -> tuple[int, str, str]:
     if reason:
         return 403, url, ""                      # never study internal address space
     hdrs = {"User-Agent": UA, "Accept": "text/html,*/*;q=0.8", "Accept-Language": "en-GB,en;q=0.9"}
-    r = httpx.get(url, follow_redirects=True, timeout=timeout, headers=hdrs)
-    if r.status_code in (401, 403, 406, 429, 503):
-        r = httpx.get(url, follow_redirects=True, timeout=timeout, headers={**hdrs, "User-Agent": _BROWSER_UA})
+    try:
+        with httpx.Client(timeout=timeout, follow_redirects=False) as c:
+            r = SEC.send_checked(c, "GET", url, headers=hdrs)       # each redirect hop is checked as well
+            if r.status_code in (401, 403, 406, 429, 503):
+                r = SEC.send_checked(c, "GET", url, headers={**hdrs, "User-Agent": _BROWSER_UA})
+    except SEC.UnsafeTarget:
+        return 403, url, ""                      # a redirect that leads to internal address space
     ctype = r.headers.get("content-type", "")
     body = r.text if ("html" in ctype or "text" in ctype) else ""
     if r.status_code in (403, 503) or _is_challenge(body):
