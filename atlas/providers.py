@@ -210,6 +210,11 @@ class OpenAICompatProvider(Provider):
         model = model or self.default_model
         if not self.base_url:
             raise RuntimeError("OpenAI-compatible provider: base_url not set (Settings).")
+        if self.cfg.get("url_guard"):                   # a desk owner's own endpoint (BYO): public addresses only, every call
+            from . import secure as SEC
+            why = SEC.private_url_reason(self.base_url)
+            if why:
+                raise RuntimeError(f"model endpoint refused: {why}")
         if not model:
             raise RuntimeError("OpenAI-compatible provider: model not set (Settings or agent).")
         msgs = ([{"role": "system", "content": system}] if system else []) + list(messages)

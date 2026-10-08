@@ -15,7 +15,7 @@ from . import integrations as I
 
 CAMERA_TOOLS = ("camera_ask", "camera_events", "camera_look")
 # channel -> words in an agent's job that mean it delivers through that channel
-CHANNEL_WORDS = {"email": r"e-?mails?", "whatsapp": r"whats\s?app", "sms": r"sms|text messages?", "slack": r"slack"}
+CHANNEL_WORDS = {"email": r"e-?mails?", "whatsapp": r"whats\s?app", "sms": r"sms|text messages?", "instagram": r"insta\s?gram|ig dms?", "slack": r"slack"}
 # tool -> connector kinds it needs (any one of them)
 TOOL_KINDS = {"calendar_free_slots": ("gcal",), "calendar_book": ("gcal",), "http_request": ("http",), "mcp": ("mcp",),
               "generate_media": ("higgsfield",)}

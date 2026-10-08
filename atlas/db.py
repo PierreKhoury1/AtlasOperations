@@ -15,7 +15,7 @@ import threading
 from typing import Any, Iterable
 
 # tables whose ``id`` is an auto-increment key (INSERTs into these get ``RETURNING id`` so lastrowid works)
-SERIAL_TABLES = {"contacts", "actions", "users", "desks", "connectors", "jobs", "memories", "leads", "vision_events",
+SERIAL_TABLES = {"contacts", "actions", "users", "desks", "connectors", "jobs", "memories", "leads", "messages", "vision_events",
                  "vision_objects", "vision_object_notes", "named_things", "records", "record_links", "timeline", "cases",
                  "case_records", "sec_events", "sec_detections"}
 # primary key per table for INSERT OR REPLACE -> ON CONFLICT

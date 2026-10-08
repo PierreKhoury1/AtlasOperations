@@ -257,14 +257,19 @@ def test_build_creates_journal_cameras(app_client, samples):
     assert len(c.get("/api/cameras").get_json()["cameras"]) == 1 and len(r2["cameras"]) == 1
 
 
-def test_login_lands_in_workspace(app_client):
+def test_login_lands_in_workspace_then_home(app_client):
     c = app_client
     c.post("/signup", json={"name": "L", "company": "L", "email": "ws-land@example.com", "password": "password1"})
     c.get("/logout")
     r = c.post("/login", data={"email": "ws-land@example.com", "password": "password1"})
     assert r.status_code == 302 and r.headers["Location"].endswith("/desk/workspace")
     page = c.get("/desk/workspace").get_data(as_text=True)
-    assert 'id="camstrip"' in page and 'id="guide"' in page and "How Atlas works" in page
+    assert 'id="camstrip"' in page and 'id="guide"' in page and "How to use Atlas" in page
+    c.post("/api/desks", json={"name": "L", "template": "site_watch", "tier": "free"})   # with a desk, its Home is the front door
+    c.get("/logout")
+    r = c.post("/login", data={"email": "ws-land@example.com", "password": "password1"})
+    assert r.status_code == 302 and r.headers["Location"].endswith("/desk")
+    assert c.get("/login").headers["Location"].endswith("/desk")
 
 
 def test_free_quota_offers_paid_switch(app_client):
