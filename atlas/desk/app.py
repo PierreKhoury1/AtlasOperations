@@ -114,10 +114,25 @@ def _mode() -> str:
     return "live"      # auto = live. Scripted agents only when DESK_MODE=demo is set on purpose, never as a silent fallback.
 
 
-def _live_reason() -> str:
+def _desk_byo(desk: dict[str, Any] | None) -> dict[str, Any]:
+    """The desk's own model accounts: {"default": name, "entries": {name: encrypted-config}}."""
+    return ((desk or {}).get("config") or {}).get("byo") or {}
+
+
+def _desk_byo_default(desk: dict[str, Any] | None) -> dict[str, Any] | None:
+    """The decrypted entry the desk runs on, when the owner brought their own model account."""
+    byo = _desk_byo(desk)
+    blob = (byo.get("entries") or {}).get(byo.get("default") or "")
+    e = SEC.decrypt_config(blob) if blob else {}
+    return e if e.get("api_key") or e.get("preset") == "custom" else None
+
+
+def _live_reason(desk: dict[str, Any] | None = None) -> str:
     """Why real runs cannot happen right now ('' = ready). A live desk without a model key says so instead of
     quietly running the scripted designer/agents in its place."""
     if _mode() == "demo":
+        return ""
+    if _desk_byo_default(desk):
         return ""
     prov = cfg.load("providers", cfg.DEFAULT_PROVIDERS)
     name = os.environ.get("DESK_PROVIDER", "").strip() or prov.get("default_provider", "openrouter")
@@ -130,8 +145,8 @@ def _live_reason() -> str:
     return f"no model key: set {env} for provider '{name}' - real models only, no scripted stand-in"
 
 
-def _require_live() -> None:
-    r = _live_reason()
+def _require_live(desk: dict[str, Any] | None = None) -> None:
+    r = _live_reason(desk)
     if r:
         abort(Response(json.dumps({"error": "no_model_key", "message": r}), 503, mimetype="application/json"))
 
@@ -188,6 +203,13 @@ def desk_configs(desk: dict[str, Any]) -> dict[str, Any]:
         for name, pc in cfg.DEFAULT_PROVIDERS["providers"].items():   # backfill presets added later
             providers.setdefault("providers", {}).setdefault(name, dict(pc))
         prov = os.environ.get("DESK_PROVIDER", "").strip() or providers.get("default_provider", "openrouter")
+        byo = over.get("byo") or {}                      # the owner's own model accounts, keys encrypted at rest
+        for n, blob in (byo.get("entries") or {}).items():
+            e = SEC.decrypt_config(blob)
+            if e.get("type"):
+                providers.setdefault("providers", {})["desk:" + n] = {k: v for k, v in e.items() if k not in ("preset", "last_test")}
+        if byo.get("default") and ("desk:" + byo["default"]) in (providers.get("providers") or {}):
+            prov = "desk:" + byo["default"]
         providers["default_provider"] = prov
         for a in agents:
             a["provider"] = prov
@@ -420,11 +442,16 @@ def login():
         store.touch_login(u["id"])
         if request.is_json:
             return jsonify({"ok": True})
-        nxt = request.args.get("next", "/desk/workspace")          # the workspace chat is the front door
-        return redirect(nxt if nxt.startswith("/desk") else "/desk/workspace")
+        nxt = request.args.get("next") or _front_door(u)
+        return redirect(nxt if nxt.startswith("/desk") else _front_door(u))
     if current_user():
-        return redirect("/desk/workspace")
+        return redirect(_front_door(current_user()))
     return _page("login.html", error="", email="")
+
+
+def _front_door(u: dict[str, Any] | None) -> str:
+    """Owners with a desk land on its Home; new owners start in the workspace chat, where Atlas builds the first one."""
+    return "/desk" if u and store.desks_for(u["id"]) else "/desk/workspace"
 
 
 @app.route("/signup", methods=["GET", "POST"])
@@ -454,7 +481,7 @@ def signup():
             return jsonify({"ok": True})
         return redirect("/desk/workspace")                     # new owners start in the workspace chat
     if current_user():
-        return redirect("/desk/workspace")
+        return redirect(_front_door(current_user()))
     return _page("signup.html", error="", name="", company="", email="")
 
 
@@ -766,7 +793,7 @@ def _design_team_for(desk: dict[str, Any], task: str, reuse: bool = False) -> di
         team = TM.demo_team(configs["business"], task, cams)
         res: dict[str, Any] = {"team": team, "errors": [], "warnings": [], "turns": 0}
     else:
-        _require_live()
+        _require_live(desk)
         from ..providers import ProviderPool
         atlas_agent = next((a for a in configs["agents"] if a["id"] == "atlas"), {})
         prov = ProviderPool(configs["providers"]).get(atlas_agent.get("provider") or "")
@@ -805,6 +832,137 @@ def _owned_desk(did: int) -> dict[str, Any]:
     if not d or (u and d["owner_id"] != u["id"] and not OPEN):
         abort(404)
     return d
+
+
+# ---- the owner's own model accounts: paste an OpenAI / Anthropic / OpenRouter key (or point at any
+# OpenAI-compatible server) and the desk's agents run on it. Keys are encrypted at rest and never echoed back.
+BYO_PRESETS: dict[str, dict[str, Any]] = {
+    "anthropic":  {"type": "anthropic", "label": "Claude (Anthropic API)", "key_hint": "sk-ant-…",
+                   "default_model": "claude-sonnet-4-5", "models": ["claude-opus-5", "claude-sonnet-4-5", "claude-haiku-4-5"],
+                   "effort": "high", "thinking": "adaptive", "fallbacks": True, "max_tokens": 16000, "timeout": 600},
+    "openai":     {"type": "openai", "label": "OpenAI (your ChatGPT / Codex API account)", "key_hint": "sk-…",
+                   "base_url": "https://api.openai.com/v1", "default_model": "gpt-5.4-mini",
+                   "models": ["gpt-5.4", "gpt-5.4-mini"], "temperature": 0.2, "max_tokens": 8000, "timeout": 600},
+    "openrouter": {"type": "openai", "label": "OpenRouter (your account, any model)", "key_hint": "sk-or-…",
+                   "base_url": "https://openrouter.ai/api/v1", "default_model": "anthropic/claude-sonnet-4.5",
+                   "models": [],                       # filled from MODEL_CATALOG below, once it exists
+                   "temperature": 0.2, "max_tokens": 8000, "timeout": 600},
+    "custom":     {"type": "openai", "label": "Your own server (OpenAI-compatible: vLLM, Ollama, TGI, a rented GPU)",
+                   "key_hint": "key, if the server wants one", "default_model": "", "models": [],
+                   "temperature": 0.2, "max_tokens": 8000, "timeout": 600},
+}
+
+
+def _own_desk(did: int) -> dict[str, Any]:
+    u = current_user()
+    d = store.desk(did)
+    if not d or (u and d["owner_id"] != u["id"] and not OPEN):
+        abort(404)
+    return d
+
+
+def _byo_public(name: str, e: dict[str, Any]) -> dict[str, Any]:
+    key = e.get("api_key") or ""
+    return {"name": name, "preset": e.get("preset") or "custom",
+            "label": BYO_PRESETS.get(e.get("preset") or "", {}).get("label", name),
+            "base_url": e.get("base_url", ""), "model": e.get("default_model", ""),
+            "key_hint": ("…" + key[-4:]) if len(key) >= 8 else ("set" if key else ""),
+            "last_test": e.get("last_test") or None}
+
+
+@app.get("/api/desks/<int:did>/providers")
+def api_desk_providers(did):
+    d = _own_desk(did)
+    byo = _desk_byo(d)
+    entries = [_byo_public(n, SEC.decrypt_config(b)) for n, b in (byo.get("entries") or {}).items()]
+    return jsonify({"default": byo.get("default") or "", "entries": entries,
+                    "presets": [{"id": k, "label": v["label"], "key_hint": v["key_hint"], "models": v["models"],
+                                 "default_model": v["default_model"], "needs_url": k == "custom"} for k, v in BYO_PRESETS.items()],
+                    "house_reason": _live_reason()})
+
+
+@app.post("/api/desks/<int:did>/providers")
+def api_desk_provider_set(did):
+    d = _own_desk(did)
+    b = request.get_json(force=True) or {}
+    preset = str(b.get("preset") or "")
+    if preset not in BYO_PRESETS:
+        return jsonify({"error": "unknown preset"}), 400
+    p = BYO_PRESETS[preset]
+    conf = d.get("config") or {}
+    byo = conf.setdefault("byo", {})
+    old = SEC.decrypt_config((byo.get("entries") or {}).get(preset)) if (byo.get("entries") or {}).get(preset) else {}
+    key = str(b.get("api_key") or "").strip() or old.get("api_key", "")   # keep the stored key when the field is left blank
+    if preset != "custom" and not key:
+        return jsonify({"error": "paste the API key"}), 400
+    base = str(b.get("base_url") or "").strip() or p.get("base_url", "")
+    if preset == "custom":
+        if not base.startswith(("http://", "https://")):
+            return jsonify({"error": "give the server's base URL (https://…/v1)"}), 400
+        why = SEC.private_url_reason(base)
+        if why:
+            return jsonify({"error": f"that URL is not reachable from here: {why}"}), 400
+    entry = {k: v for k, v in p.items() if k not in ("label", "key_hint", "models")}
+    entry.update({"preset": preset, "api_key": key, "base_url": base,
+                  "default_model": str(b.get("model") or "").strip() or p["default_model"]})
+    if old.get("last_test"):
+        entry["last_test"] = old["last_test"]
+    byo.setdefault("entries", {})[preset] = SEC.encrypt_config(entry)
+    if b.get("make_default") or not byo.get("default"):
+        byo["default"] = preset
+    store.update_desk(d["id"], config=conf)
+    return jsonify({"ok": True, "entry": _byo_public(preset, entry), "default": byo.get("default") or ""})
+
+
+@app.post("/api/desks/<int:did>/providers/<name>/test")
+def api_desk_provider_test(did, name):
+    d = _own_desk(did)
+    byo = _desk_byo(d)
+    blob = (byo.get("entries") or {}).get(name)
+    if not blob:
+        abort(404)
+    e = SEC.decrypt_config(blob)
+    from ..providers import make_provider
+    pcfg = {k: v for k, v in e.items() if k not in ("preset", "last_test")}
+    pcfg["max_tokens"] = 64
+    pcfg["timeout"] = 45
+    try:
+        note = make_provider(pcfg).test(e.get("default_model") or "")
+        ok = True
+    except Exception as exc:
+        note, ok = f"{type(exc).__name__}: {str(exc)[:240]}", False
+    e["last_test"] = {"ok": ok, "note": note, "ts": time.time()}
+    conf = d.get("config") or {}
+    conf.setdefault("byo", {}).setdefault("entries", {})[name] = SEC.encrypt_config(e)
+    store.update_desk(d["id"], config=conf)
+    return jsonify({"ok": ok, "note": note})
+
+
+@app.post("/api/desks/<int:did>/providers/default")
+def api_desk_provider_default(did):
+    d = _own_desk(did)
+    name = str((request.get_json(force=True) or {}).get("name") or "")
+    conf = d.get("config") or {}
+    byo = conf.setdefault("byo", {})
+    if name and name not in (byo.get("entries") or {}):
+        abort(404)
+    byo["default"] = name                              # "" = back to the house models
+    store.update_desk(d["id"], config=conf)
+    return jsonify({"ok": True, "default": name})
+
+
+@app.delete("/api/desks/<int:did>/providers/<name>")
+def api_desk_provider_del(did, name):
+    d = _own_desk(did)
+    conf = d.get("config") or {}
+    byo = conf.get("byo") or {}
+    if name not in (byo.get("entries") or {}):
+        abort(404)
+    byo["entries"].pop(name)
+    if byo.get("default") == name:
+        byo["default"] = next(iter(byo["entries"]), "")
+    store.update_desk(d["id"], config=conf)
+    return jsonify({"ok": True, "default": byo.get("default") or ""})
 
 
 @app.post("/api/desks/<int:did>/team/design")
@@ -852,6 +1010,9 @@ MODEL_CATALOG = [
 ]
 
 
+BYO_PRESETS["openrouter"]["models"] = [m["id"] for m in MODEL_CATALOG if m.get("provider") == "openrouter"]
+
+
 @app.get("/api/models")
 def api_models():
     return jsonify({"models": MODEL_CATALOG, "paid_unlocked": not _free_tier_hint()})
@@ -868,7 +1029,7 @@ def api_config():
     if not desk:
         return jsonify({"mode": _mode(), "needs_desk": True, "protected": not OPEN})
     c = desk_configs(desk)
-    reason = _live_reason()
+    reason = _live_reason(desk)
     return jsonify({
         "mode": c["mode"], "live_ready": not reason, "live_reason": reason,
         "template": desk["template"], "tier": desk.get("tier", "free"), "business": c["business"],
@@ -925,7 +1086,7 @@ def _prune_runs() -> None:
 
 def _preflight(desk: dict[str, Any]) -> dict[str, Any]:
     """Refuse a run the desk cannot pay for or has no model for (503 no key / 402 spend cap). Returns the configs."""
-    _require_live()
+    _require_live(desk)
     configs = desk_configs(desk)
     paid = any(":free" not in (a.get("model") or "") and a.get("model") for a in configs["agents"])
     if configs["mode"] != "demo" and paid:                # free-tier desks cost nothing and are never blocked by the spend cap
@@ -1193,6 +1354,23 @@ def api_actions():
     return jsonify(ds().actions(request.args.get("status", "")))
 
 
+def _contact_touch(dstore, addr: str) -> dict[str, Any]:
+    """The contact a message went to: matched by email or phone digits, created only when truly new, and an owner-set
+    stage is never knocked back (only New -> Contacted)."""
+    c = dstore.contact_for(addr)
+    if c:
+        fields: dict[str, Any] = {"next_action": "Follow up in 3 days if no reply"}
+        if (c.get("stage") or "New") == "New":
+            fields["stage"] = "Contacted"
+        return dstore.upsert_contact(c.get("email") or c.get("name") or addr, fields)
+    f: dict[str, Any] = {"stage": "Contacted", "next_action": "Follow up in 3 days if no reply"}
+    if "@" in (addr or ""):
+        f["email"] = addr
+    else:
+        f["phone"] = "+" + "".join(ch for ch in (addr or "") if ch.isdigit())
+    return dstore.upsert_contact(addr, f)
+
+
 @app.post("/api/actions/<int:aid>/decide")
 def api_decide(aid):
     desk = need_desk()
@@ -1213,15 +1391,22 @@ def api_decide(aid):
             result = _dispatch(desk, row)
             row = dstore.decide_action(aid, "sent", by=by, note=(note + " " + result).strip())
             dstore.add_event(row["run_id"], "sent", "owner", f"{row['kind']} → {row['to']} — {row['subject']} ({result})")
-            if row["kind"] in ("email", "whatsapp", "sms") and row["to"]:
-                contact = dstore.upsert_contact(row["to"], {"stage": "Contacted", "next_action": "Follow up in 3 days if no reply"})
-                for m in I.crm_sync(dstore.connectors(), contact):
+            if row["kind"] in ("email", "whatsapp", "sms", "instagram") and row["to"]:
+                to_key = ("ig:" + row["to"]) if row["kind"] == "instagram" and not str(row["to"]).startswith("ig:") else row["to"]
+                dstore.add_message(row["kind"], "out", to_key, row.get("body") or "", subject=row.get("subject") or "",
+                                   actor=row.get("agent") or "", status="sent", run_id=row.get("run_id") or "", action_id=row["id"])
+                contact = _contact_touch(dstore, row["to"]) if row["kind"] != "instagram" else None
+                for m in (I.crm_sync(dstore.connectors(), contact) if contact else []):
                     dstore.add_event(row["run_id"], "tool", "owner", f"crm sync → {m}")
             I.notify(dstore.connectors(), f":outbox_tray: *Sent* — {row['kind']} → {row['to']}: {row['subject'] or (row['body'] or '')[:80]} {result}")
         except Exception as exc:
             err = f"{type(exc).__name__}: {str(exc)[:300]}"
             row = dstore.decide_action(aid, "failed", by=by, note=(note + " send failed: " + err).strip())
             dstore.add_event(row["run_id"], "error", "owner", f"{row['kind']} → {row['to']} failed: {err}")
+            if row["kind"] in ("email", "whatsapp", "sms", "instagram") and row["to"]:
+                to_key = ("ig:" + row["to"]) if row["kind"] == "instagram" and not str(row["to"]).startswith("ig:") else row["to"]
+                dstore.add_message(row["kind"], "out", to_key, row.get("body") or "", subject=row.get("subject") or "",
+                                   actor=row.get("agent") or "", status="failed", run_id=row.get("run_id") or "", action_id=row["id"])
     else:
         dstore.add_event(row["run_id"], "rejected", "owner", f"{row['kind']} to {row['to']} rejected — {d.get('note','')}")
     _action_to_case(desk, row, by, d.get("note", ""))
@@ -1251,6 +1436,91 @@ def _action_to_case(desk: dict[str, Any], row: dict[str, Any], by: str, note: st
 
 
 # ---------------------------------------------------------------------------- api: crm / audit / report
+# ---------------------------------------------------------------------------- api: messages (one thread per customer)
+def _backfill_messages(desk: dict[str, Any]) -> None:
+    """First visit on an older desk: the thread view starts from what already happened (sent approvals, inbound leads)."""
+    ds = store.for_desk(desk["id"])
+    if ds.message_count():
+        return
+    for a in ds.actions("", 500):
+        if a["kind"] in ("email", "whatsapp", "sms") and a.get("to") and a["status"] in ("sent", "failed"):
+            ds.add_message(a["kind"], "out", a["to"], a.get("body") or "", subject=a.get("subject") or "",
+                           actor=a.get("agent") or "", status=a["status"], run_id=a.get("run_id") or "",
+                           action_id=a["id"], ts=a.get("decided_at") or a.get("created"))
+    for l in ds.leads(500):
+        addr = l.get("email") or l.get("phone")
+        if not addr:
+            continue
+        src = (l.get("source") or "").lower()
+        ch = "email" if "email" in src else "whatsapp" if "whatsapp" in src else "sms" if src == "sms" else "form"
+        ds.add_message(ch, "in", addr, l.get("notes") or "(no message)", actor=l.get("name") or addr, ts=l.get("created"))
+
+
+def _thread_public(ds, t: dict[str, Any]) -> dict[str, Any]:
+    c = ds.contact_for(t["contact_key"]) or {}
+    return {"key": t["contact_key"], "name": c.get("name") or t.get("actor") or t["contact_key"], "stage": c.get("stage") or "",
+            "email": c.get("email") or ("" if "@" not in t["contact_key"] else t["contact_key"]),
+            "phone": c.get("phone") or ("" if "@" in t["contact_key"] else t["contact_key"]),
+            "channels": t["channels"], "count": t["count"], "last": {k: t[k] for k in ("channel", "dir", "subject", "body", "status", "ts", "actor")}}
+
+
+@app.get("/api/messages/threads")
+def api_message_threads():
+    desk = need_desk()
+    _backfill_messages(desk)
+    ds = store.for_desk(desk["id"])
+    conns = ds.connectors()
+    return jsonify({"threads": [_thread_public(ds, t) for t in ds.message_threads()],
+                    "channels": {k: bool(I.outbound_connector(conns, k)) for k in ("email", "whatsapp", "sms", "instagram")}})
+
+
+@app.get("/api/messages")
+def api_messages():
+    desk = need_desk()
+    key = store.message_key(request.args.get("contact") or "")
+    if not key:
+        return jsonify({"error": "contact required"}), 400
+    ds = store.for_desk(desk["id"])
+    c = ds.contact_for(key)
+    pend = [a for a in ds.actions("pending", 100) if store.message_key(a.get("to") or "") == key]
+    return jsonify({"key": key, "contact": c, "messages": ds.messages(key),
+                    "pending": [{"id": a["id"], "kind": a["kind"], "subject": a["subject"], "body": a["body"]} for a in pend]})
+
+
+@app.post("/api/messages/send")
+def api_message_send():
+    """The owner replies in their own words: sent through the connector at once (the owner IS the approval)."""
+    desk = need_desk()
+    d = request.get_json(force=True) or {}
+    kind, to = str(d.get("channel") or ""), str(d.get("to") or "").strip()
+    subject, body = str(d.get("subject") or "").strip(), str(d.get("body") or "").strip()
+    if kind not in ("email", "whatsapp", "sms", "instagram"):
+        return jsonify({"error": "channel must be email, whatsapp, sms or instagram"}), 400
+    if not to or not body:
+        return jsonify({"error": "to and body required"}), 400
+    ds = store.for_desk(desk["id"])
+    conn = I.outbound_connector(ds.connectors(), kind)
+    if not conn:
+        return jsonify({"error": f"no {kind} connector yet — add one under Integrations"}), 400
+    try:
+        result, ok = I.deliver(conn, kind, to.replace("ig:", "") if kind == "instagram" else to, subject, body), True
+    except Exception as exc:
+        result, ok = f"{type(exc).__name__}: {str(exc)[:200]}", False
+    mid = ds.add_message(kind, "out", ("ig:" + to) if kind == "instagram" and not to.startswith("ig:") else to,
+                         body, subject=subject, actor=_who(), status="sent" if ok else "failed")
+    ds.add_event("", "sent" if ok else "error", "owner", f"{kind} → {to} — {subject or body[:80]} ({result})")
+    contact = _contact_touch(ds, to)
+    try:
+        person = R.person_for(store, desk["id"], email=to if "@" in to else "", phone="" if "@" in to else to)
+        if person:
+            R.add_timeline(store, desk["id"], record_id=person["id"], kind="sent", actor=_who(),
+                           text=f"{kind} → {to}: {subject or body[:120]}", data={"message_id": mid, "body": body[:1500]})
+    except Exception:
+        pass
+    return (jsonify({"ok": True, "id": mid, "note": result, "contact": contact}) if ok
+            else (jsonify({"ok": False, "id": mid, "error": result}), 502))
+
+
 @app.get("/api/contacts")
 def api_contacts():
     return jsonify(ds().contacts(request.args.get("q", "")))
@@ -1632,6 +1902,7 @@ def api_connectors():
     hook = request.host_url.rstrip("/") + "/hook/" + store.ensure_hook_token(desk["id"])
     return jsonify({"connectors": [_conn_public(c) for c in store.connectors(desk["id"])],
                     "kinds": I.KINDS, "hook_url": hook, "whatsapp_hook_url": hook + "/whatsapp", "sms_hook_url": hook + "/sms",
+                    "instagram_hook_url": hook + "/instagram",
                     "channels": {k: bool(I.outbound_connector(store.connectors(desk["id"]), k)) for k in I.CHANNELS}})
 
 
@@ -1759,7 +2030,14 @@ def api_add_job():
     kind = d.get("kind") if d.get("kind") in JOB_KINDS else "task"
     every = int(d.get("every_min") or 0)
     delay = int(d.get("in_min") or 0)
-    nxt = time.time() + (delay * 60 if delay else (every * 60 if every and not d.get("run_now") else 0))
+    at = str(d.get("at") or "").strip()                 # "07:30" = daily at that local time, instead of a bare interval
+    if at:
+        if not re.fullmatch(r"[0-2]?\d:[0-5]\d", at) or int(at.split(":")[0]) > 23:
+            return jsonify({"error": "at must be HH:MM"}), 400
+        from .. import alerts as AL
+        every, nxt = 1440, AL.report_due(at)
+    else:
+        nxt = time.time() + (delay * 60 if delay else (every * 60 if every and not d.get("run_now") else 0))
     task = d.get("task") or ""
     if kind in scheduler.LOG_JOB_KINDS:                 # runs every tick until done; validated before it is stored
         spec, err = _log_job_spec(kind, task)
@@ -1784,6 +2062,12 @@ def api_update_job(jid):
         abort(404)
     d = request.get_json(force=True) or {}
     fields = {k: d[k] for k in ("name", "task", "every_min") if k in d}
+    at = str(d.get("at") or "").strip()
+    if at:
+        if not re.fullmatch(r"[0-2]?\d:[0-5]\d", at) or int(at.split(":")[0]) > 23:
+            return jsonify({"error": "at must be HH:MM"}), 400
+        from .. import alerts as AL
+        fields["every_min"], fields["next_run"] = 1440, AL.report_due(at)
     if j["kind"] in scheduler.LOG_JOB_KINDS:
         fields.pop("every_min", None)
         if "task" in d:                                # an edited replay/watch is re-validated and starts over
@@ -2300,7 +2584,7 @@ def api_object_call(oid):
     ds.update_vision_object(oid, watch=1 if on else 0)
     if not on:
         return jsonify({"ok": True, "object": _obj_public(ds.vision_object(oid))})
-    _require_live()
+    _require_live(desk)
     frame, box, model = _object_live(desk, o)
     try:
         res = OBJ.call(store, o, model=model, frame=frame, box=box)
@@ -2317,7 +2601,7 @@ def api_object_ask(oid):
     q = str((request.get_json(force=True) or {}).get("question") or "").strip()[:500]
     if not q:
         return jsonify({"error": "empty question"}), 400
-    _require_live()
+    _require_live(desk)
     frame, box, model = _object_live(desk, o)
     try:
         text = OBJ.ask(store, o, q, model=model, frame=frame, box=box)
@@ -2395,6 +2679,29 @@ def api_name_delete(nid):
         abort(404)
     ds.delete_named(nid)
     return jsonify({"ok": True})
+
+
+@app.post("/api/report/day/send")
+def api_report_day_send():
+    """Queue (or auto-send) the named day's camera report through the alert channel, right now."""
+    from .. import alerts as AL
+    from .. import report as REP
+    desk = need_desk()
+    d = request.get_json(silent=True) or {}
+    date = d.get("date") or time.strftime("%Y-%m-%d")
+    try:
+        data = REP.daily(store, desk["id"], date)
+    except ValueError:
+        return jsonify({"error": "date must be YYYY-MM-DD"}), 400
+    nc = AL.config(desk)
+    channel, to = d.get("channel") or nc["channel"], d.get("to") or nc["to"]
+    if not channel or not to:
+        return jsonify({"error": "set the alert channel and recipient first (Cameras → alert settings)"}), 400
+    biz = ((desk.get("config") or {}).get("business") or {}).get("name") or desk.get("name") or ""
+    subj, body = AL.report_message(desk, date, REP.markdown(data, biz), channel)
+    row = AL.queue(store, desk, channel, to, subj, body, f"daily camera report {date}", nc["auto"], _dispatch)
+    return jsonify({"ok": True, "status": row["status"], "action_id": row["id"],
+                    "note": "sent" if row["status"] == "sent" else ("queued for your approval" if row["status"] == "pending" else row.get("note") or row["status"])})
 
 
 @app.get("/api/report/day")
@@ -4304,7 +4611,9 @@ def hook(token):
     dstore = store.for_desk(desk["id"])
     lid = dstore.add_lead(name or email_.split("@")[0], (d.get("company") or "").strip(), email_, (d.get("phone") or "").strip(),
                           (d.get("source") or "webhook").strip(), notes)
-    if email_:
+    if email_ or notes:
+        dstore.add_message("form", "in", email_ or name, notes or "(no message)", actor=name or email_)
+    if email_ and not dstore.contact_for(email_):
         dstore.upsert_contact(email_, {"name": name, "company": d.get("company", ""), "email": email_, "phone": d.get("phone", ""), "stage": "New", "notes": "Inbound via webhook"})
     rid = _lead_case_run(desk, lid)
     return jsonify({"ok": True, "lead_id": lid, "run_id": rid})
@@ -4317,15 +4626,19 @@ def _inbound_message(desk: dict[str, Any], phone: str, name: str, text: str, sou
     phone = "+" + I._digits(phone) if phone else ""
     channel = "whatsapp" if "whatsapp" in source else "sms"
     how = f"This arrived by {source}. Reply on the same channel (queue_action kind={channel}, to={phone}) — keep it short."
+    dstore.add_message(channel, "in", phone or (name or "unknown"), text, actor=name or phone)
     open_ = C.match_open(store, desk["id"], phone=phone) if phone and C.enabled(desk, "lead_cases") else None
     if open_:
         return C.inbound_reply(store, desk, open_, source, text, actor=name or phone, extra=how) or open_.get("active_run") or ""
-    known = next((c for c in dstore.contacts(phone) if c.get("phone") == phone), None) if phone else None
+    known = dstore.contact_for(phone) if phone else None
     name = name or (known or {}).get("name") or (phone or "unknown")
     lid = dstore.add_lead(name, (known or {}).get("company", ""), (known or {}).get("email", "") or "", phone, source, text)
-    key = (known or {}).get("email") or name
-    dstore.upsert_contact(key, {"name": name, "phone": phone, "stage": (known or {}).get("stage") or "New",
-                                "notes": f"Inbound via {source}: {text[:200]}"})
+    if known:                                            # an existing customer keeps their stage and notes
+        if not known.get("name") and name and name != phone:
+            dstore.upsert_contact(known.get("email") or known.get("name"), {"name": name})
+    else:
+        dstore.upsert_contact(name if name != phone else phone, {"name": name if name != phone else "", "phone": phone,
+                                                                 "stage": "New", "notes": f"First contact via {source}"})
     return _lead_case_run(desk, lid, extra=how)
 
 
@@ -4342,6 +4655,30 @@ def hook_whatsapp(token):
         return jsonify({"error": "verify_token mismatch or no WhatsApp connector"}), 403
     msgs = I.parse_whatsapp_webhook(request.get_json(silent=True) or {})
     runs = [_inbound_message(desk, m["from"], m["name"], m["text"], "whatsapp") for m in msgs if m.get("from")]
+    return jsonify({"ok": True, "messages": len(msgs), "runs": runs})
+
+
+@app.route("/hook/<token>/instagram", methods=["GET", "POST"])
+def hook_instagram(token):
+    desk = store.desk_by_token(token)
+    if not desk:
+        abort(404)
+    conn = next((c for c in store.connectors(desk["id"]) if c["kind"] == "instagram"), None)
+    if request.method == "GET":                      # Meta verification handshake, same dance as WhatsApp
+        want = (conn or {}).get("config", {}).get("verify_token") or ""
+        if request.args.get("hub.mode") == "subscribe" and want and request.args.get("hub.verify_token") == want:
+            return request.args.get("hub.challenge", ""), 200
+        return jsonify({"error": "verify_token mismatch or no Instagram connector"}), 403
+    msgs = I.parse_instagram_webhook(request.get_json(silent=True) or {})
+    dstore = store.for_desk(desk["id"])
+    runs = []
+    for m in msgs:
+        dstore.add_message("instagram", "in", "ig:" + m["from"], m["text"], actor=m["name"] or ("ig " + m["from"]))
+        name = m["name"] or f"Instagram user {m['from'][-4:]}"
+        lid = dstore.add_lead(name, "", "", "", "instagram", m["text"])
+        how = (f"This arrived as an Instagram DM. Reply on the same channel "
+               f"(queue_action kind=instagram, to={m['from']}) — keep it short and warm.")
+        runs.append(_lead_case_run(desk, lid, extra=how))
     return jsonify({"ok": True, "messages": len(msgs), "runs": runs})
 
 
@@ -4368,7 +4705,7 @@ if _n_enc:
     print(f"encrypted {_n_enc} legacy connector config(s)")
 if OPEN and os.environ.get("RENDER"):
     print("WARNING: DESK_OPEN=1 on a public deployment - the portal and every desk are reachable without login")
-scheduler.LIVE = lambda: _mode() != "demo" and not _live_reason()
+scheduler.LIVE = lambda desk=None: _mode() != "demo" and not _live_reason(desk)
 scheduler.DISPATCH = _dispatch
 scheduler.LEAD_RUN = _lead_case_run
 C.START_RUN = _start_run

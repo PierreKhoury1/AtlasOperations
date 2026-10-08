@@ -4,7 +4,7 @@
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Atlas Desk</title>
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
-<script>try{document.documentElement.dataset.theme=localStorage.getItem("atlas-theme")||"dark"}catch(e){document.documentElement.dataset.theme="dark"}</script>
+<script>try{var t=localStorage.getItem("atlas-theme");document.documentElement.dataset.theme=t||(matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light")}catch(e){document.documentElement.dataset.theme="light"}</script>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
 :root{--bg:#f5f7fa;--side:#eef1f6;--panel:#ffffff;--panel2:#f0f3f7;--line:#d9dfe8;--line2:#c1cad6;--text:#10161d;--text2:#2f3a47;--muted:#5f6b7a;--faint:#8b97a6;--accent:#2d72d2;--accent2:#215db0;--accent-soft:#e4eefc;--deep:#215db0;--ink:#2d72d2;--blue:#2d72d2;--ok:#1c8f5f;--ok-soft:#e2f4ea;--danger:#c23030;--warn:#a66a00;--r:3px;--grad:#2d72d2;--mono:"IBM Plex Mono",Consolas,monospace}
@@ -13,7 +13,7 @@
 :root[data-theme="dark"] ::-webkit-scrollbar{width:10px;height:10px}:root[data-theme="dark"] ::-webkit-scrollbar-thumb{background:#3a414b;border-radius:0;border:2px solid var(--bg)}:root[data-theme="dark"] ::-webkit-scrollbar-track{background:transparent}
 *{box-sizing:border-box;margin:0;padding:0}
 html{-webkit-font-smoothing:antialiased}
-body{font-family:Inter,system-ui,-apple-system,"Segoe UI",sans-serif;background:var(--bg);color:var(--text);font-size:14px;line-height:1.5;font-weight:400}
+body{font-family:Inter,system-ui,-apple-system,"Segoe UI",sans-serif;background:var(--bg);color:var(--text);font-size:13px;line-height:1.5;font-weight:400}
 a{color:inherit;text-decoration:none}
 .layout{display:grid;grid-template-columns:236px 1fr;min-height:100vh}
 /* ---------- sidebar */
@@ -43,33 +43,33 @@ aside .mode .av{width:28px;height:28px;border-radius:3px;background:var(--grad);
 aside .mode .u b{color:var(--text);display:block;font-size:13px;line-height:1.2}
 aside .mode .u small{display:block;color:var(--muted);font-size:11px}
 /* ---------- main */
-main{padding:36px 40px 72px;max-width:1440px}
-.phead{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:26px}
-h1{font-weight:600;font-size:24px;letter-spacing:-.02em;line-height:1.2;margin-bottom:2px}
+main{padding:22px 28px 60px;max-width:1680px}
+.phead{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:16px}
+h1{font-weight:600;font-size:19px;letter-spacing:-.015em;line-height:1.2;margin-bottom:2px}
 h1 b{font-weight:600}
-.lead{color:var(--muted);margin:0 0 20px;font-size:13.5px}
+.lead{color:var(--muted);margin:0 0 14px;font-size:12.5px}
 .phead .lead{margin:0}
 .phead .ctl{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 .ctl .kv{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);background:var(--panel);border-radius:3px;padding:6px 10px;font-size:12px;color:var(--muted)}
 .ctl .kv b{color:var(--text);font-variant-numeric:tabular-nums}
-h2{font-size:15px;font-weight:600;margin-bottom:10px}
+h2{font-size:13px;font-weight:600;margin-bottom:8px}
 .tabs{display:flex;gap:2px;border-bottom:1px solid var(--line);margin-bottom:18px}
 .tabs button{background:none;border:0;border-bottom:2px solid transparent;color:var(--muted);padding:8px 12px;font:inherit;font-weight:600;font-size:13px;cursor:pointer;margin-bottom:-1px}
 .tabs button.on{color:var(--accent2);border-bottom-color:var(--accent)}
-.grid{display:grid;gap:20px}.g5{grid-template-columns:repeat(5,1fr)}.g4{grid-template-columns:repeat(4,1fr)}.g2{grid-template-columns:1fr 1fr}.g3{grid-template-columns:repeat(3,1fr)}
-.card,.panel{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:18px 20px}
+.grid{display:grid;gap:12px}.g5{grid-template-columns:repeat(5,1fr)}.g4{grid-template-columns:repeat(4,1fr)}.g2{grid-template-columns:1fr 1fr}.g3{grid-template-columns:repeat(3,1fr)}
+.card,.panel{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:14px 16px}
 .panel{padding:0}
-.panel .ph{display:flex;align-items:center;justify-content:space-between;padding:14px 20px;border-bottom:1px solid var(--line)}
+.panel .ph{display:flex;align-items:center;justify-content:space-between;padding:9px 14px;border-bottom:1px solid var(--line);min-height:38px}
 .panel .ph h2{margin:0}
 .panel .ph a,.panel .ph button.link{color:var(--muted);font-size:12px;font-weight:600;background:none;border:0;cursor:pointer;font-family:inherit}
 .panel .ph a:hover,.panel .ph button.link:hover{color:var(--text)}
-.panel .pb{padding:20px 24px}
-.kpi{display:flex;flex-direction:column;gap:8px;position:relative;min-height:108px;justify-content:center}
+.panel .pb{padding:14px 16px}
+.kpi{display:flex;flex-direction:column;gap:6px;position:relative;min-height:84px;justify-content:center}
 .kpi span{color:var(--muted);font-size:12.5px;font-weight:600}
-.kpi b{font-weight:600;font-size:28px;line-height:1.1;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+.kpi b{font-weight:600;font-size:23px;line-height:1.1;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
 .kpi small{color:var(--faint);font-size:11.5px}
 .kpi svg{position:absolute;right:18px;top:18px;width:84px;height:30px}
-.btn{display:inline-flex;align-items:center;gap:7px;padding:8px 14px;border-radius:3px;border:1px solid var(--line2);background:var(--panel);color:var(--text);font:inherit;font-weight:500;font-size:13px;cursor:pointer;transition:border-color .12s,background .12s}
+.btn{display:inline-flex;align-items:center;gap:7px;padding:5px 11px;border-radius:3px;border:1px solid var(--line2);background:var(--panel);color:var(--text);font:inherit;font-weight:500;font-size:12.5px;cursor:pointer;transition:border-color .12s,background .12s}
 .btn:hover{border-color:var(--text2);background:var(--panel2)}
 .btn.p{background:var(--ink);border-color:var(--ink);color:#fff}.btn.p:hover{background:var(--accent2);border-color:var(--accent2)}
 .btn.ok{background:var(--ok);border-color:var(--ok);color:#fff}
@@ -351,8 +351,139 @@ aside.simple [data-lvl="full"]{display:none}
 .citepop .ch b{color:var(--text)}
 .citepop .cx{margin-left:auto;cursor:pointer;color:var(--faint)}
 @media (max-width:900px){.wall .wbody{grid-template-columns:1fr}.wall .wticker{border-left:0;border-top:1px solid var(--line);height:320px}}
+/* ---------- Home: the command centre */
+.hm-head{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;margin-bottom:18px;flex-wrap:wrap}
+.hm-eyebrow{font-family:var(--mono);font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--faint);margin-bottom:6px}
+.hm-head h1{font-size:21px}
+.hm-head .lead{margin:4px 0 0;max-width:760px;font-size:13px;color:var(--text2)}
+.hm-head .lead b{font-weight:600}.hm-head .lead b.warn{color:var(--warn)}.hm-head .lead b.ok{color:var(--ok)}
+.hm-pills{display:flex;gap:8px;flex-wrap:wrap}
+.hm-pill{display:inline-flex;align-items:center;gap:7px;border:1px solid var(--line);background:var(--panel);border-radius:3px;padding:6px 10px;font-size:12px;color:var(--muted);cursor:pointer;white-space:nowrap}
+.hm-pill:hover{border-color:var(--line2);color:var(--text)}
+.hm-pill b{color:var(--text);font-variant-numeric:tabular-nums;font-weight:600}
+.hm-pill>i{width:7px;height:7px;border-radius:50%;background:var(--faint);flex:0 0 auto}
+.hm-pill.ok>i{background:var(--ok)}.hm-pill.warn{color:var(--warn)}.hm-pill.warn>i{background:var(--warn)}.hm-pill.bad{color:var(--danger)}.hm-pill.bad>i{background:var(--danger)}
+.hm-cmd{padding:10px 14px 12px;margin-bottom:12px;border-color:var(--line2)}
+.hm-modes{display:flex;gap:2px;margin-bottom:10px;border-bottom:1px solid var(--line)}
+.hm-modes button{background:none;border:0;border-bottom:2px solid transparent;color:var(--muted);padding:4px 12px 8px;margin-bottom:-1px;font:inherit;font-weight:600;font-size:12.5px;cursor:pointer}
+.hm-modes button:hover{color:var(--text)}
+.hm-modes button.on{color:var(--text);border-bottom-color:var(--accent)}
+.hm-cmdrow{display:flex;gap:8px}
+.hm-cmdrow input{flex:1;font-size:13px;padding:9px 12px;min-width:0}
+.hm-cmdrow .btn{white-space:nowrap}
+.hm-sugg{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}
+.hm-sugg button{background:var(--panel2);border:1px solid var(--line);color:var(--muted);border-radius:3px;padding:4px 10px;font:inherit;font-size:12px;cursor:pointer}
+.hm-sugg button:hover{color:var(--text);border-color:var(--line2)}
+.hm-out{margin-top:12px;border-top:1px solid var(--line);padding-top:12px;font-size:13.5px;color:var(--text2);line-height:1.55}
+.hm-out .hint{color:var(--muted);margin:0}.hm-out .bad{color:var(--danger)}
+.hm-out .link,.hm-more .link{background:none;border:0;color:var(--accent);font:inherit;font-weight:600;font-size:12.5px;cursor:pointer;padding:0}
+.hm-evid{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:8px;font-size:12px}
+.hm-quick{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:8px;margin-bottom:12px}
+.hm-q{display:flex;gap:9px;align-items:flex-start;text-align:left;background:var(--panel);border:1px solid var(--line);border-radius:3px;padding:9px 11px;cursor:pointer;color:var(--text);font:inherit;transition:border-color .12s,background .12s;min-width:0}
+.hm-q:hover{border-color:var(--accent);background:var(--panel2)}
+.hm-q svg{width:18px;height:18px;flex:0 0 auto;stroke:var(--accent);fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;margin-top:1px}
+.hm-q b{display:block;font-size:13px;font-weight:600}
+.hm-q small{display:block;color:var(--muted);font-size:11.5px;line-height:1.35;margin-top:2px}
+.hm-stats{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:1px;background:var(--line);border:1px solid var(--line);border-radius:3px;overflow:hidden;margin-bottom:12px}
+.hm-stat{background:var(--panel);padding:10px 12px;cursor:pointer;min-width:0}
+.hm-stat:hover{background:var(--panel2)}
+.hm-stat span{display:block;font-family:var(--mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--faint)}
+.hm-stat b{display:block;font-size:19px;font-weight:600;font-variant-numeric:tabular-nums;margin:3px 0 1px;letter-spacing:-.02em}
+.hm-stat small{display:block;color:var(--muted);font-size:11.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hm-stat.warn b{color:var(--warn)}.hm-stat.bad b{color:var(--danger)}.hm-stat.ok b{color:var(--ok)}
+.hm-grid{display:grid;grid-template-columns:minmax(0,1.75fr) minmax(300px,1fr);gap:12px;align-items:start}
+.hm-col{display:flex;flex-direction:column;gap:12px;min-width:0}
+.hm-col>.panel{margin:0!important}
+.hm-n{display:inline-block;min-width:20px;padding:0 6px;border-radius:2px;background:var(--panel2);color:var(--muted);font-size:11px;font-weight:600;text-align:center;margin-left:8px;vertical-align:2px;line-height:18px}
+.hm-n.hot{background:var(--warn);color:#14171b}
+.hm-need{display:grid;grid-template-columns:86px minmax(0,1fr) auto;gap:12px;align-items:center;padding:11px 18px;border-bottom:1px solid var(--line)}
+.hm-need:last-child{border-bottom:0}
+.hm-need .k{font-family:var(--mono);font-size:9.5px;letter-spacing:.08em;text-transform:uppercase;padding:2px 4px;border-radius:2px;border:1px solid currentColor;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hm-need .k.appr{color:var(--warn)}.hm-need .k.case{color:var(--accent)}.hm-need .k.gap{color:var(--muted)}.hm-need .k.bad{color:var(--danger)}.hm-need .k.cam{color:var(--ok)}
+.hm-need .t{min-width:0}
+.hm-need .t b{font-size:13.5px;font-weight:600;line-height:1.35;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.hm-need .t small{color:var(--muted);font-size:12px;line-height:1.4;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;margin-top:1px}
+.hm-need .a{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
+.hm-clear{padding:20px 18px;color:var(--muted);font-size:13px;display:flex;gap:12px;align-items:center}
+.hm-clear i{width:24px;height:24px;border-radius:50%;background:var(--ok-soft);color:var(--ok);display:grid;place-items:center;font-style:normal;font-weight:700;flex:0 0 auto}
+.hm-more{padding:8px 18px;border-top:1px solid var(--line)}
+.hm-tabs{display:flex;gap:2px;margin:0 auto 0 16px;flex-wrap:wrap}
+.hm-tabs button{background:none;border:1px solid transparent;color:var(--muted);border-radius:3px;padding:3px 9px;font:inherit;font-size:12px;font-weight:600;cursor:pointer}
+.hm-tabs button:hover{color:var(--text)}
+.hm-tabs button.on{border-color:var(--line2);color:var(--text);background:var(--panel2)}
+.hm-feed{max-height:440px;overflow:auto}
+.hm-ev{display:grid;grid-template-columns:44px 120px minmax(0,1fr);gap:10px;padding:8px 18px;border-bottom:1px solid var(--line);font-size:12.5px;cursor:pointer;align-items:baseline}
+.hm-ev:hover{background:var(--panel2)}
+.hm-ev .tm{font-family:var(--mono);font-size:11px;color:var(--faint)}
+.hm-ev .who{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:12px}
+.hm-ev .tx{color:var(--text2);overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;line-height:1.45}
+.hm-ev .tx em{font-style:normal;font-family:var(--mono);font-size:9.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--faint);margin-right:7px}
+.hm-ev.alert .tx em{color:var(--danger)}
+.hm-row{display:flex;gap:10px;align-items:center;padding:9px 18px;border-bottom:1px solid var(--line);cursor:pointer;min-width:0;color:inherit}
+.hm-row:hover{background:var(--panel2)}
+.hm-row:last-child{border-bottom:0}
+.hm-row .sw{width:9px;height:9px;border-radius:2px;flex:0 0 auto}
+.hm-row .m{min-width:0;flex:1}
+.hm-row .m b{display:block;font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hm-row .m small{display:block;color:var(--muted);font-size:11.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hm-row .st{font-family:var(--mono);font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--faint);white-space:nowrap;flex:0 0 auto}
+.hm-row .st.on{color:var(--ok)}.hm-row .st.warn{color:var(--warn)}.hm-row .st.bad{color:var(--danger)}
+.hm-pfoot{display:flex;gap:6px;padding:10px 18px;border-top:1px solid var(--line);flex-wrap:wrap}
+.hm-none{padding:16px 18px;color:var(--muted);font-size:12.5px}
+#p-dash .hcams{margin:0!important}
+.appwall{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px}
+.appt{display:flex;gap:9px;align-items:center;border:1px solid var(--line);border-radius:3px;padding:9px 10px;cursor:pointer;background:var(--panel);min-width:0}
+.appt:hover{border-color:var(--accent)}
+.appt.on{border-color:color-mix(in srgb,var(--ok) 50%,var(--line))}
+.appt i{width:26px;height:26px;border-radius:4px;display:grid;place-items:center;font:700 12px var(--mono);color:#fff;flex:0 0 auto;font-style:normal}
+.appt b{display:block;font-size:12px;line-height:1.25}
+.appt small{display:block;color:var(--muted);font-size:10.5px}
+.veil{position:fixed;inset:0;background:rgba(10,13,17,.55);z-index:950;display:flex;align-items:center;justify-content:center;padding:16px}
+.veil.hide{display:none}
+.fdlg{width:560px;max-width:100%;max-height:92vh;overflow:auto;background:var(--panel);border:1px solid var(--line2);border-radius:4px;box-shadow:0 24px 70px rgba(0,0,0,.35)}
+.fdlg .fh{display:flex;align-items:center;gap:8px;padding:10px 14px;border-bottom:1px solid var(--line)}
+.fdlg .fb{padding:12px 14px}
+.fdlg .ff{display:flex;gap:8px;padding:10px 14px;border-top:1px solid var(--line)}
+.fdrop{border:1.5px dashed var(--line2);border-radius:4px;padding:22px 14px;text-align:center;cursor:pointer;color:var(--muted)}
+.fdrop:hover{border-color:var(--accent);color:var(--text)}
+.fdrop b{display:block;font-size:13px;color:var(--text)}
+.fdrop.done{border-color:var(--ok);border-style:solid}
+.fprev{margin-top:10px;aspect-ratio:16/9;background:#05070a;border-radius:3px;display:grid;place-items:center;color:var(--faint);font-size:12px;overflow:hidden}
+.fprev img{width:100%;height:100%;object-fit:contain}
+.cam.plan{border-style:dashed}
+.cam.plan .shot{display:grid;place-items:center;background:var(--panel2);color:var(--muted);cursor:pointer;font-size:12.5px}
+.cam.addtile{border-style:dashed;display:grid;place-items:center;min-height:230px;cursor:pointer;color:var(--muted)}
+.cam.addtile:hover{border-color:var(--accent);color:var(--accent)}
+.cam.addtile b{font-size:14px}
+.repmd{max-height:480px;overflow:auto;font-size:12.5px;line-height:1.6}.repmd h2{font-size:15px;margin:2px 0 8px}.repmd h3{font-size:12.5px;margin:14px 0 6px;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);font-family:var(--mono);font-weight:600}.repmd h4{font-size:13px;margin:10px 0 3px}.repmd ul{margin:0 0 8px 18px}.repmd p{margin:0 0 8px}
+.msgwrap{padding:0;display:grid;grid-template-columns:300px minmax(0,1fr);min-height:460px}
+.mlist{border-right:1px solid var(--line);max-height:640px;overflow:auto}
+.mrow{padding:10px 14px;border-bottom:1px solid var(--line);cursor:pointer}
+.mrow:hover{background:var(--panel2)}.mrow.on{background:var(--accent-soft)}
+.mrow b{display:block;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mrow small{display:block;color:var(--muted);font-size:11.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px}
+.mrow .mt{float:right;color:var(--faint);font-family:var(--mono);font-size:10px}
+.mthread{display:flex;flex-direction:column;min-width:0}
+.mhead{padding:10px 14px;border-bottom:1px solid var(--line);display:flex;gap:8px;align-items:center;min-height:40px}
+.mbody{flex:1;overflow:auto;padding:14px;display:flex;flex-direction:column;gap:8px;max-height:460px}
+.mb{max-width:72%;border:1px solid var(--line);border-radius:6px;padding:8px 11px;font-size:12.5px;line-height:1.5;background:var(--panel2)}
+.mb.out{align-self:flex-end;background:var(--accent-soft);border-color:color-mix(in srgb,var(--accent) 30%,var(--panel))}
+.mb .mm{display:block;color:var(--faint);font-family:var(--mono);font-size:9.5px;letter-spacing:.06em;text-transform:uppercase;margin-bottom:3px}
+.mb.failed{border-color:var(--danger)}.mb .sub{font-weight:600;display:block;margin-bottom:2px}
+.mcomp{border-top:1px solid var(--line);padding:10px 14px}
+@media(max-width:900px){.msgwrap{grid-template-columns:1fr}.mlist{max-height:240px;border-right:0;border-bottom:1px solid var(--line)}}
+.byorow{padding:9px 0;border-bottom:1px solid var(--line)}.byorow:last-child{border-bottom:0}.byorow .bt{margin-bottom:6px}.byorow.on .bt b{color:var(--accent)}
+:root[data-theme="dark"] .btn.ok{color:#0d1a12}
+#hz-body>.grid{grid-template-columns:repeat(auto-fit,minmax(140px,1fr))!important}
+@media(max-width:640px){body{font-size:12.5px}main{padding:12px!important}h1{font-size:17px}.hm-head h1{font-size:18px}.hm-head .lead{font-size:12px}.hm-eyebrow{font-size:9.5px}.hm-pill{padding:4px 8px;font-size:11px}.hm-stat b{font-size:16px}.hm-stat{padding:8px 10px}.hm-stat small{font-size:10.5px}.hm-q{padding:8px 10px}.hm-q b{font-size:12px}.hm-q small{font-size:10.5px}.hm-q svg{width:15px;height:15px}.btn{padding:5px 10px;font-size:12px}.kpi b{font-size:19px}.kpi{min-height:66px}.card,.panel{padding:10px 12px}.panel .ph{padding:8px 10px}.panel .pb{padding:10px 12px}.hm-need{padding:9px 12px}.hm-ev{padding:7px 12px}.hm-row{padding:8px 12px}.hm-none,.hm-clear{padding:12px}.hm-modes{overflow-x:auto;scrollbar-width:none}.hm-modes button{padding:3px 9px 7px;font-size:11.5px;white-space:nowrap;flex:0 0 auto}.hm-sugg{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;-webkit-overflow-scrolling:touch;margin-top:8px}.hm-sugg button{font-size:11px;padding:3px 8px;white-space:nowrap;flex:0 0 auto}.phead{flex-wrap:wrap}.panel .ph{flex-wrap:wrap;gap:6px 10px}.panel .ph .hint{white-space:normal;margin:0!important}.row{flex-wrap:wrap}.row>input,.row>select{min-width:0;max-width:100%}.grid{grid-template-columns:minmax(0,1fr)!important}.grid>*{min-width:0}main table{display:block;overflow-x:auto;max-width:100%}}
+#p-dash .hcams .ph h2{white-space:nowrap}#p-dash .hcams .ph .hint{min-width:0;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}#p-dash .hcams .ph .link{white-space:nowrap}
+@media(max-width:1380px){.hm-quick{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media(max-width:1100px){.hm-grid{grid-template-columns:minmax(0,1fr)}.hm-stats{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media(max-width:640px){.hm-quick,.hm-stats{grid-template-columns:repeat(2,minmax(0,1fr))}.hm-need{grid-template-columns:minmax(0,1fr)}.hm-need .k{justify-self:start}.hm-need .a{justify-content:flex-start}.hm-ev{grid-template-columns:40px minmax(0,1fr)}.hm-ev .who{display:none}.hm-cmdrow{flex-direction:column}.hm-tabs{margin:8px 0 0;order:3;width:100%}.panel .ph{flex-wrap:wrap}}
 </style>
 <link rel="stylesheet" href="/desk/static/studio.css">
+<link rel="stylesheet" href="/desk/static/shell.css">
+<script src="/desk/static/shell.js" defer></script>
 </head>
 <body>
 <div class="layout">
@@ -470,29 +601,56 @@ aside.simple [data-lvl="full"]{display:none}
   </div>
 </section>
 
-<!-- DASHBOARD -->
+<!-- HOME: the command centre: what needs the owner, a command bar, every camera, agent, case and job at a glance -->
 <section id="p-dash">
-  <div class="phead"><div><h1>Dashboard</h1><p class="lead">What the desk did, what's waiting for you.</p></div>
-    <div class="ctl"><span class="kv"><span class="dot" id="d-dot"></span><b id="k-active">0</b> running</span><button class="btn p sm" onclick="seed()">▶ Seed 3 demo leads</button><button class="btn sm" onclick="go('leads')">+ Add lead</button><button class="btn sm d" onclick="resetDemo()">Reset</button></div></div>
-  <div class="grid g5" style="margin-bottom:14px">
-    <div class="card kpi"><span>Leads handled</span><b id="k-leads">0</b><small id="k-leads-s">this month</small></div>
-    <div class="card kpi"><span>Awaiting approval</span><b id="k-pending" style="color:var(--warn)">0</b><small>needs you</small></div>
-    <div class="card kpi"><span>Approved &amp; sent</span><b id="k-sent" style="color:var(--ok)">0</b><small>after your OK</small></div>
-    <div class="card kpi"><span>Qualified contacts</span><b id="k-qual">0</b><small>in CRM</small></div>
-    <div class="card kpi"><span>Tokens used</span><b id="k-tok">0</b><small id="k-cost">model cost £0.00</small></div>
+  <div class="hm-head">
+    <div><div class="hm-eyebrow" id="hm-date"></div><h1 id="hm-greet">Home</h1><p class="lead" id="hm-sum">Loading the desk…</p></div>
+    <div class="hm-pills">
+      <span class="hm-pill" onclick="go('live')" title="runs in progress"><span class="dot" id="d-dot"></span><b id="k-active">0</b> running</span>
+      <span class="hm-pill" id="hm-brain" onclick="go('setup')" title="the models the agents run on"></span>
+      <span class="hm-pill" id="hm-hpill" onclick="document.getElementById('hm-hz').scrollIntoView({behavior:'smooth'})" title="system health"><i></i><span>checking…</span></span>
+    </div>
   </div>
-  <div class="panel hcams" id="home-cams" style="margin-bottom:14px;display:none"><div class="ph"><h2 style="display:flex;align-items:center;gap:8px"><span class="dot live"></span>Cameras now</h2><span class="hint" id="hc-hint" style="margin:0 auto 0 12px"></span><button class="link" onclick="go('cameras')">All cameras ›</button></div>
-    <div class="wall"><div class="wgrid" id="hc-grid"></div></div></div>
-  <div class="panel" style="margin-bottom:14px"><div class="ph"><h2>Give the team a job</h2><span class="hint">any task — the agents plan, research, draft; anything outbound waits for your approval</span></div>
-    <div class="pb"><div class="row"><input id="d-task" placeholder="e.g. Research our 5 nearest competitors and draft a one-page comparison · Chase every quote that went quiet this month · Prepare Monday's client update" style="flex:1" onkeydown="if(event.key==='Enter')dashTask()"><button class="btn p" onclick="dashTask()">Deploy the team →</button></div></div></div>
-  <div class="grid g2" style="grid-template-columns:1.5fr 1fr">
-    <div class="panel"><div class="ph"><h2>Live activity</h2><button class="link" onclick="go('audit')">Explore ›</button></div><div class="pb"><div class="log" id="dash-log" style="max-height:340px;border:0;padding:0;background:transparent">(nothing yet)</div></div></div>
-    <div class="panel"><div class="ph"><h2>Agents on this desk</h2><button class="link" onclick="go('team')">Explore ›</button></div><div class="pb" id="agents"></div></div>
+
+  <div class="panel hm-cmd">
+    <div class="hm-modes" id="hm-modes"><button data-m="job" class="on">Give the team a job</button><button data-m="ask">Ask the cameras</button><button data-m="design">Change the team</button></div>
+    <div class="hm-cmdrow"><input id="d-task" autocomplete="off" onkeydown="if(event.key==='Enter')homeSend()"><button class="btn p" id="hm-send" onclick="homeSend()">Deploy the team →</button></div>
+    <div class="hm-sugg" id="hm-sugg"></div>
+    <div class="hm-out hide" id="hm-out"></div>
   </div>
-  <div class="panel" style="margin-top:14px"><div class="ph"><h2>System health</h2><span id="hz-badge" class="tag">…</span></div>
+
+  <div class="hm-quick">
+    <button class="hm-q" onclick="shell&&shell.go('/desk/ops','newCase')"><svg viewBox="0 0 24 24"><path d="M4 13h4l2 3h4l2-3h4"/><path d="M5 5h14l1 8v6H4v-6z"/></svg><span><b>New case</b><small>An enquiry, incident or task to see through</small></span></button>
+    <button class="hm-q" onclick="homeAddCamera()"><svg viewBox="0 0 24 24"><path d="M3 7h12v10H3z"/><path d="M15 10l6-3v10l-6-3"/></svg><span><b>Add a camera</b><small>A stream, a webcam or a recording</small></span></button>
+    <button class="hm-q" onclick="go('team');homeAfter(()=>teamAddReady(),()=>document.getElementById('tm-i-name'))"><svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.2"/><path d="M3 20c.6-3.3 3-5 6-5s5.4 1.7 6 5"/><path d="M18 8v6M15 11h6"/></svg><span><b>Add an agent</b><small>A new specialist on the team</small></span></button>
+    <button class="hm-q" onclick="go('integrations')"><svg viewBox="0 0 24 24"><path d="M9 15l6-6"/><path d="M11 6l1-1a4 4 0 0 1 6 6l-1 1"/><path d="M13 18l-1 1a4 4 0 0 1-6-6l1-1"/></svg><span><b>Connect an app</b><small>Email, WhatsApp, SMS, calendar, Slack</small></span></button>
+    <button class="hm-q" onclick="go('automations')"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 7v5l3 2"/></svg><span><b>Schedule a job</b><small>Daily reports, follow-ups, checks</small></span></button>
+    <button class="hm-q" onclick="location.href='/desk/review'"><svg viewBox="0 0 24 24"><path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12z"/><circle cx="12" cy="12" r="2.5"/></svg><span><b>Review footage</b><small>Check what the detector saw, frame by frame</small></span></button>
+  </div>
+
+  <div class="hm-stats" id="hm-stats"></div>
+
+  <div class="hm-grid">
+    <div class="hm-col">
+      <div class="panel" id="hm-needs-p"><div class="ph"><h2>Needs you<span class="hm-n" id="hm-needs-n">0</span></h2><button class="link" onclick="go('approvals')">Approval queue ›</button></div><div id="hm-needs"><div class="hm-none">Loading…</div></div></div>
+      <div class="panel hcams" id="home-cams" style="display:none"><div class="ph"><h2 style="display:flex;align-items:center;gap:8px"><span class="dot live"></span>Cameras now</h2><span class="hint" id="hc-hint" style="margin:0 auto 0 12px"></span><button class="link" onclick="go('cameras')">All cameras ›</button></div>
+        <div class="wall"><div class="wgrid" id="hc-grid"></div></div></div>
+      <div class="panel"><div class="ph"><h2>Activity</h2><div class="hm-tabs" id="hm-ftabs"><button data-f="all" class="on">All</button><button data-f="job">Jobs</button><button data-f="cam">Cameras</button><button data-f="case">Cases</button><button data-f="you">Your decisions</button></div><button class="link" onclick="go('audit')">Full log ›</button></div><div class="hm-feed" id="hm-feed"><div class="hm-none">Loading…</div></div></div>
+    </div>
+    <div class="hm-col">
+      <div class="panel"><div class="ph"><h2>Agents<span class="hm-n" id="hm-agents-n">0</span></h2><button class="link" onclick="go('team')">Team canvas ›</button></div><div id="hm-agents"></div>
+        <div class="hm-pfoot"><button class="btn sm" onclick="go('team');homeAfter(()=>teamAddReady(),()=>document.getElementById('tm-i-name'))">+ Add an agent</button><button class="btn sm" onclick="homeMode('design');$('#d-task').focus();scrollTo({top:0,behavior:'smooth'})">Change the team with Atlas</button></div></div>
+      <div class="panel"><div class="ph"><h2>Open cases<span class="hm-n" id="hm-cases-n">0</span></h2><a href="/desk/ops">Cases ›</a></div><div id="hm-cases"></div>
+        <div class="hm-pfoot"><button class="btn sm" onclick="shell&&shell.go('/desk/ops','newCase')">+ New case</button></div></div>
+      <div class="panel"><div class="ph"><h2>Recent jobs</h2><button class="link" onclick="go('runs')">All runs ›</button></div><div id="hm-runs"></div></div>
+    </div>
+  </div>
+
+  <div class="panel" id="hm-hz" style="margin-top:16px"><div class="ph"><h2>System health</h2><span id="hz-badge" class="tag">…</span></div>
     <div class="pb" id="hz-body"><div class="empty">Loading…</div></div></div>
-  <div class="panel" style="margin-top:14px"><div class="ph"><h2>How a lead flows</h2><span style="color:var(--faint);font-size:12px">Nothing leaves without approval — email, WhatsApp, SMS, publishing, refunds, contracts</span></div>
-    <div class="pb"><div class="stepper" id="flow"><span>Lead in</span><span>Atlas plans</span><span>Research</span><span>Draft</span><span>QA</span><span>CRM update</span><span>Approval queue</span><span>You approve</span><span>Sent + logged</span></div></div></div>
+
+  <!-- kept for the code that still writes them (refresh, loadCfg) -->
+  <div hidden><b id="k-leads"></b><small id="k-leads-s"></small><b id="k-pending"></b><b id="k-sent"></b><b id="k-qual"></b><b id="k-tok"></b><small id="k-cost"></small><div id="dash-log"></div><div id="agents"></div></div>
 </section>
 
 <!-- LIVE DESK -->
@@ -508,6 +666,47 @@ aside.simple [data-lvl="full"]{display:none}
   </div>
   <div class="stage" id="stage"><svg id="edges"></svg><div class="sgrid" id="sgrid"></div></div>
   <div class="ticker panel"><div class="ph"><h2>Hand-offs, tools, approvals</h2><button class="link" onclick="go('runs')">Explore ›</button></div><div class="pb"><div class="log" id="live-log" style="border:0;padding:0;background:transparent">(waiting for a run)</div></div></div>
+</section>
+
+<!-- AD STUDIO -->
+<section id="p-studio" class="hide">
+  <div class="phead"><div><h1>Ad studio</h1><p class="lead">Advertising from scratch: say what you're promoting and the team writes platform-ready copy — and a hero image when an image connector is attached. Nothing is published; you get drafts to use anywhere.</p></div></div>
+  <div class="grid g2" style="grid-template-columns:minmax(0,1fr) minmax(0,1.3fr);align-items:start">
+    <div class="panel"><div class="ph"><h2>New campaign</h2></div><div class="pb">
+      <label>What are you promoting?</label><textarea id="ad-what" rows="2" placeholder="Sunday jazz brunch from 12, two courses £24 — launching November"></textarea>
+      <label>Who is it for?</label><input id="ad-who" placeholder="locals 25-45, families, regulars…">
+      <label>Where will it run?</label>
+      <div class="row" id="ad-platforms" style="flex-wrap:wrap;gap:6px;margin:4px 0 8px">
+        <button class="btn sm on" data-p="Instagram">Instagram</button><button class="btn sm on" data-p="Facebook">Facebook</button><button class="btn sm" data-p="Google ads">Google ads</button><button class="btn sm" data-p="Poster / flyer">Poster</button><button class="btn sm" data-p="Email promo">Email</button>
+      </div>
+      <label>Tone (from your desk setup, change if you like)</label><input id="ad-tone">
+      <label>Anything the ads must say or avoid</label><input id="ad-notes" placeholder="mention free parking; never say 'cheap'">
+      <label style="display:flex;gap:8px;align-items:center;margin-top:6px"><input type="checkbox" id="ad-img" style="width:auto"> Generate a hero image <span class="hint" id="ad-img-hint" style="margin:0"></span></label>
+      <div class="row" style="margin-top:12px"><button class="btn p" id="ad-go" onclick="adCreate()">Create the campaign →</button></div>
+    </div></div>
+    <div class="hm-col">
+      <div class="panel"><div class="ph"><h2>Campaigns</h2><button class="link" onclick="go('runs')">All runs ›</button></div><div id="ad-list"><div class="hm-none">None yet — brief the team on the left.</div></div></div>
+      <div class="panel" id="ad-out-p" style="display:none"><div class="ph"><h2 id="ad-out-t">Campaign</h2><div class="ctl"><button class="btn sm" onclick="adCopy()">Copy all</button></div></div>
+        <div class="pb repmd" id="ad-out" style="max-height:560px"></div></div>
+    </div>
+  </div>
+</section>
+
+<!-- MESSAGES -->
+<section id="p-inbox" class="hide">
+  <div class="phead"><div><h1>Messages</h1><p class="lead">One thread per customer across email, WhatsApp and SMS. The agents draft and wait for approval; here you can also reply yourself.</p></div>
+    <div class="ctl" id="msg-conns"></div></div>
+  <div class="panel msgwrap">
+    <div class="mlist" id="mlist"><div class="hm-none">Loading…</div></div>
+    <div class="mthread">
+      <div class="mhead" id="mhead"><span class="hint" style="margin:0">Pick a conversation — or start one from a contact.</span></div>
+      <div class="mbody" id="mbody"></div>
+      <div class="mcomp" id="mcomp" style="display:none">
+        <div class="row" style="gap:6px"><select id="mc-ch" style="width:120px" onchange="msgChChange()"></select><input id="mc-subj" placeholder="Subject" style="flex:1"></div>
+        <div class="row" style="gap:6px;margin-top:6px"><textarea id="mc-body" rows="2" placeholder="Write a reply — sent at once, in your name" style="flex:1" onkeydown="if(event.key==='Enter'&&(event.ctrlKey||event.metaKey))msgSend()"></textarea><button class="btn p" id="mc-send" onclick="msgSend()">Send</button></div>
+      </div>
+    </div>
+  </div>
 </section>
 
 <!-- LEADS -->
@@ -579,6 +778,8 @@ aside.simple [data-lvl="full"]{display:none}
   <div class="phead"><div><h1>Integrations</h1><p class="lead">Connect the desk to the real world. Email (SMTP or Resend), WhatsApp (Meta or Twilio), SMS, HubSpot / Pipedrive CRM sync, Google Calendar, Slack pings, any HTTP API or MCP server, inbound webhooks. Writes need your approval unless you switch a connector to auto.</p></div></div>
   <div class="grid g2" style="grid-template-columns:1.2fr 1fr">
     <div>
+      <div class="panel" style="margin-bottom:14px"><div class="ph"><h2>Apps</h2><span class="hint" style="margin:0">click one to connect it — or change it</span></div>
+        <div class="pb"><div class="appwall" id="app-wall"><div class="empty">Loading…</div></div></div></div>
       <div class="panel hide" id="needs-panel" style="margin-bottom:14px"><div class="ph"><h2>What your agents need</h2><span class="hint" style="margin:0">from each agent's job and tools</span></div><div class="pb" id="needs-list"></div></div>
       <div class="panel" style="margin-bottom:14px"><div class="ph"><h2>Connected systems</h2></div><div class="pb" id="conn-list"></div></div>
       <div class="panel" style="margin-bottom:14px"><div class="ph"><h2>Channels</h2><span class="hint">what an approved action actually does</span></div><div class="pb" id="conn-channels"></div></div>
@@ -588,6 +789,8 @@ aside.simple [data-lvl="full"]{display:none}
         <p class="hint" style="margin-top:6px">POST JSON <code>{name, email, phone, company, notes, source}</code>. Every hit becomes a lead and a run — same approvals, same audit log.</p>
         <label style="margin-top:12px">WhatsApp Cloud API callback URL (Meta → Webhooks, field <code>messages</code>)</label>
         <div class="row"><input id="wa-hook-url" readonly style="flex:1;font-family:Consolas,monospace;font-size:12px"><button class="btn sm" onclick="navigator.clipboard.writeText($('#wa-hook-url').value);toast('Copied')">Copy</button></div>
+        <label style="margin-top:12px">Instagram DM callback URL (Meta → Webhooks, field <code>messages</code>)</label>
+        <div class="row"><input id="ig-hook-url" readonly style="flex:1;font-family:Consolas,monospace;font-size:12px"><button class="btn sm" onclick="navigator.clipboard.writeText($('#ig-hook-url').value);toast('Copied')">Copy</button></div>
         <label style="margin-top:12px">Twilio inbound URL (SMS or WhatsApp sandbox, HTTP POST)</label>
         <div class="row"><input id="sms-hook-url" readonly style="flex:1;font-family:Consolas,monospace;font-size:12px"><button class="btn sm" onclick="navigator.clipboard.writeText($('#sms-hook-url').value);toast('Copied')">Copy</button></div>
         <p class="hint" style="margin-top:6px">Replies from prospects come in as leads with the channel noted; Atlas answers on the same channel through your approval queue.</p>
@@ -616,8 +819,8 @@ aside.simple [data-lvl="full"]{display:none}
       <div id="j-task-wrap"><label>Task for Atlas</label><textarea id="j-task" placeholder="Review every contact at Qualified, draft a next-step email for each and queue for approval."></textarea></div>
       <div id="j-poll-wrap" class="hide"><label>Connector name</label><input id="j-conn" placeholder="crm-api"><label>Path</label><input id="j-path" placeholder="/v1/orders?status=new"><label>What to do with the result</label><textarea id="j-prompt" placeholder="For every new order, draft a confirmation email and queue it."></textarea></div>
       <div id="j-days-wrap" class="hide"><label>Chase after (days)</label><input id="j-days" type="number" value="3"></div>
-      <div class="grid g2"><div><label>Every (minutes, 0 = once)</label><input id="j-every" type="number" value="60"></div><div><label>First run in (minutes)</label><input id="j-in" type="number" value="0"></div></div>
-      <div class="row" style="margin-top:12px"><button class="btn p" onclick="addJob()">Add automation</button></div>
+      <div class="grid g3"><div><label>Daily at (HH:MM)</label><input id="j-at" placeholder="07:30 — beats the interval"></div><div><label>Every (minutes, 0 = once)</label><input id="j-every" type="number" value="60"></div><div><label>First run in (minutes)</label><input id="j-in" type="number" value="0"></div></div>
+      <div class="row" style="margin-top:12px"><button class="btn p" id="j-add-btn" onclick="addJob()">Add automation</button><button class="btn hide" id="j-cancel-btn" onclick="jobEditEnd()">Cancel edit</button></div>
     </div></div>
   </div>
 </section>
@@ -697,7 +900,11 @@ aside.simple [data-lvl="full"]{display:none}
 
 <!-- REPORT -->
 <section id="p-report" class="hide">
-  <h1>Monthly report</h1><p class="lead">What you get every month: volume, approval rate, time saved, cost, what we changed.</p>
+  <h1>Reports</h1><p class="lead">The daily camera report by name, and the monthly business report.</p>
+  <div class="panel" style="margin-bottom:14px"><div class="ph"><h2>Daily camera report</h2>
+    <div class="ctl"><input type="date" id="dr-date" style="width:150px" onchange="loadDayReport()"><a class="btn sm" id="dr-dl" target="_blank">Download</a><button class="btn sm p" onclick="sendDayReport(this)">Send it to me now</button></div></div>
+    <div class="pb"><div class="hint" id="dr-sched" style="margin:0 0 10px"></div><div id="dr-body" class="repmd"><div class="empty">Loading…</div></div></div></div>
+  <h2 style="margin:4px 0 10px">Monthly report</h2>
   <div id="report"></div>
   <div class="panel" id="perf-panel" style="margin-top:14px"><div class="ph"><h2>Performance &amp; capacity</h2><span class="hint">computed from every run on this desk</span></div><div class="pb" id="perf"></div></div>
 </section>
@@ -706,6 +913,8 @@ aside.simple [data-lvl="full"]{display:none}
 <section id="p-setup" class="hide">
   <h1>Desk setup</h1><p class="lead">Business profile, agents and workflows this desk runs on. Edited by your ops lead; shown here for transparency.</p>
   <div class="grid g2"><div class="card" id="setup-biz"></div><div class="card" id="setup-agents"></div></div>
+  <div class="panel" style="margin-top:14px"><div class="ph"><h2>Your AI accounts</h2><span class="hint">bring your own key — OpenAI (ChatGPT/Codex), Claude, OpenRouter, or any OpenAI-compatible server — and the agents run and bill on your account</span></div>
+    <div class="pb" id="setup-byo"><div class="empty">Loading…</div></div></div>
   <div class="panel" style="margin-top:14px"><div class="ph"><h2>Model landscape</h2><span class="hint">who thinks with what — per-agent engine and model; changes apply to the next run</span></div>
     <div class="pb" id="setup-models"><div class="empty">Loading…</div></div></div>
   <div class="panel" style="margin-top:14px"><div class="ph"><h2>Desk memory</h2><span class="hint">facts the agents keep between runs (they add with <code>remember</code>; you can add or delete)</span></div><div class="pb">
@@ -715,15 +924,35 @@ aside.simple [data-lvl="full"]{display:none}
 
 </main></div>
 <div class="toast" id="toast"></div>
+<div class="veil hide" id="feed-veil" onclick="if(event.target===this)feedClose()">
+  <div class="fdlg">
+    <div class="fh"><b id="fd-title">Connect a camera</b><span class="hint" id="fd-sub" style="margin:0 auto 0 12px"></span><button class="btn sm" onclick="feedClose()">✕</button></div>
+    <div class="fb">
+      <div id="fd-name-row"><label>Camera name (the agents refer to it by this)</label><input id="fd-name" placeholder="front-door, bar-cam, terrace…"></div>
+      <div class="hm-tabs" id="fd-tabs" style="margin:10px 0 8px">
+        <button data-k="stream" class="on">Stream address</button><button data-k="webcam">Webcam</button><button data-k="upload">Upload a video</button><button data-k="sample">Sample footage</button></div>
+      <div class="fpane" data-k="stream"><label>RTSP or snapshot URL</label><input id="fd-stream" placeholder="rtsp://user:pass@192.168.1.20:554/… or http://…/snapshot.jpg"></div>
+      <div class="fpane hide" data-k="webcam"><label>Device number</label><input id="fd-webcam" placeholder="0" style="width:100px"><p class="hint">0 is the first camera on the machine Atlas runs on.</p></div>
+      <div class="fpane hide" data-k="upload">
+        <div class="fdrop" id="fd-drop" onclick="$('#fd-file').click()"><b>Drop a video or image here</b><span>or click to choose a file — mp4, mov, mkv, jpg… It plays on a loop as this camera's feed.</span></div>
+        <input type="file" id="fd-file" accept="video/*,image/*" class="hide" onchange="feedUpload(this)"></div>
+      <div class="fpane hide" data-k="sample"><label>Footage</label><select id="fd-sample"></select><p class="hint">Bundled demo footage: kitchens, a hotel lobby, a shop floor.</p></div>
+      <div class="fprev" id="fd-prev"><span>Test the source to see a frame from it.</span></div>
+      <div class="hint" id="fd-msg" style="margin:6px 0 0"></div>
+    </div>
+    <div class="ff"><button class="btn" id="fd-test" onclick="feedTest(this)">Test the source</button><span class="spacer" style="flex:1"></span><button class="btn p" id="fd-go" onclick="feedAttach(this)">Attach feed →</button></div>
+  </div>
+</div>
 
 <script>
 window.addEventListener('hashchange', ()=>{const h=location.hash.slice(1); if(document.getElementById('p-'+h)) go(h);});
 const $ = s => document.querySelector(s);
 const api = async (p, opt) => { const r = await fetch('/api' + p, opt ? {headers:{'Content-Type':'application/json'}, ...opt, body: opt.body ? JSON.stringify(opt.body) : undefined} : undefined); if (r.status === 401) { location.href = '/login?next=/desk'; return; } if (r.status === 409) { const j = await r.json(); if (j.error === 'no_desk') { showOnboarding(); return null; } return j; } return r.json(); };
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const jstr = v => JSON.stringify(String(v ?? '')).replace(/'/g, '\\u0027').replace(/</g, '\\u003c');   // a JS string literal safe inside a single-quoted attribute
 const when = ts => new Date(ts * 1000).toLocaleString('en-GB', {day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit'});
 const hms = ts => new Date(ts * 1000).toLocaleTimeString('en-GB');
-let CFG = {}, colors = {}, af = 'pending', curRun = null, page = 'dash';
+let CFG = {}, colors = {}, af = 'pending', curRun = null, page = 'dash', ME = null;
 function toast(m){ const t=$('#toast'); t.textContent=m; t.classList.add('on'); setTimeout(()=>t.classList.remove('on'), 2600); }
 function go(p){ if(p==='design'){ page=p; openStudio(false); return; } page=p; if(location.hash!=='#'+p) history.replaceState(null,'','#'+p); document.querySelectorAll('main > section').forEach(s=>s.classList.toggle('hide', s.id!=='p-'+p)); document.querySelectorAll('#nav button').forEach(b=>b.classList.toggle('on', b.dataset.p===p)); refresh(); }
 document.querySelectorAll('#nav button').forEach(b=>b.onclick=()=>go(b.dataset.p));
@@ -733,7 +962,7 @@ async function loadCfg(){
   CFG = await api('/config');
   if (CFG && CFG.needs_desk) { await showOnboarding(); return false; }
   loadDesks();
-  const me = await api('/me'); if (me && me.id) { $('#who').textContent = me.name; $('#whoco').textContent = me.company || me.email; $('#whoav').textContent = (me.name||'?').trim()[0].toUpperCase(); } else { $('#who').textContent = 'Guest'; $('#whoco').textContent = 'open test mode'; document.querySelectorAll('a[href="/logout"]').forEach(a => a.remove()); }
+  const me = await api('/me'); ME = me; if (me && me.id) { $('#who').textContent = me.name; $('#whoco').textContent = me.company || me.email; $('#whoav').textContent = (me.name||'?').trim()[0].toUpperCase(); } else { $('#who').textContent = 'Guest'; $('#whoco').textContent = 'open test mode'; document.querySelectorAll('a[href="/logout"]').forEach(a => a.remove()); }
   colors = Object.fromEntries(CFG.agents.map(a=>[a.id, a.color || '#7c3aed']));
   applyLevel(); fillNotify();
   $('#bizname').textContent = CFG.business.name; $('#wshint').textContent = (CFG.template || '').replace('_', ' ') + ' · ' + CFG.mode;
@@ -745,7 +974,7 @@ async function loadCfg(){
   const modes = ['<option value="auto">auto (Atlas decides)</option>'].concat(CFG.workflows.map(w=>`<option value="${w.id}">${esc(w.name)}</option>`)).join('');
   $('#l-mode').innerHTML = modes; $('#r-mode').innerHTML = modes;
   $('#setup-biz').innerHTML = `<h2>Business</h2><div class="md">${esc(Object.entries(CFG.business).map(([k,v])=>`${k}: ${Array.isArray(v)?v.join(', '):v}`).join('\n'))}</div>`;
-  $('#setup-agents').innerHTML = `<h2>Agents &amp; tools</h2>` + CFG.agents.map(a=>`<div style="margin-bottom:10px"><div class="agentline"><i style="background:${a.color||'#7c3aed'}"></i><b>${esc(a.name)}</b> <span class="tag">${a.id}</span> ${a.engine==='hermes_agent' ? '<span class="tag" style="background:#0b5fcb;color:#fff">Hermes Agent runtime</span>' : (a.id==='atlas' ? '<span class="tag">orchestrator loop</span>' : '<span class="tag">built-in loop</span>')}${a.engine_note ? ' <span style="color:#b45309;font-size:12px">⚠ ' + esc(a.engine_note) + '</span>' : ''}</div><div style="color:var(--muted);font-size:12px;margin-left:18px">${esc(a.role)} <span class="model">· ${esc(a.model||'')}</span><br>tools: ${a.tools.map(t=>`<span class="tag">${t}</span>`).join(' ')}</div></div>`).join('') + `<h2 style="margin-top:14px">Workflows</h2>` + CFG.workflows.map(w=>`<div><b>${esc(w.name)}</b> <span style="color:var(--muted)">— ${esc(w.description)}</span></div>`).join('');
+  $('#setup-agents').innerHTML = `<h2>Agents &amp; tools</h2>` + CFG.agents.map(a=>`<div style="margin-bottom:10px"><div class="agentline"><i style="background:${a.color||'#7c3aed'}"></i><b title="internal id: ${a.id}">${esc(a.name)}</b> ${a.engine==='hermes_agent' ? '<span class="tag" style="background:#0b5fcb;color:#fff">Hermes Agent runtime</span>' : (a.id==='atlas' ? '<span class="tag">orchestrator loop</span>' : '<span class="tag">built-in loop</span>')}${a.engine_note ? ' <span style="color:#b45309;font-size:12px">⚠ ' + esc(a.engine_note) + '</span>' : ''}</div><div style="color:var(--muted);font-size:12px;margin-left:18px">${esc(a.role)} <span class="model">· ${esc(a.model||'')}</span><br>tools: ${a.tools.map(t=>`<span class="tag">${t}</span>`).join(' ')}</div></div>`).join('') + `<h2 style="margin-top:14px">Workflows</h2>` + CFG.workflows.map(w=>`<div><b>${esc(w.name)}</b> <span style="color:var(--muted)">— ${esc(w.description)}</span></div>`).join('');
   if (document.getElementById('setup-models')) renderModels();
   return true;
 }
@@ -757,31 +986,33 @@ async function refresh(){
   $('#n-leads').textContent = s.leads; $('#n-pending').textContent = s.pending;
   $('#k-leads').textContent = s.leads; $('#k-pending').textContent = s.pending; $('#k-sent').textContent = s.approved; $('#k-qual').textContent = s.qualified; $('#k-active').textContent = s.active_runs; $('#d-dot').classList.toggle('live', s.active_runs > 0); $('#k-tok').textContent = ((s.tokens_in||0)+(s.tokens_out||0)).toLocaleString(); $('#k-cost').textContent = 'model cost £' + (((s.tokens_in||0)*5+(s.tokens_out||0)*25)/1e6*0.78).toFixed(2);
   $('#n-live').classList.toggle('live', s.active_runs > 0);
-  if (page==='dash') { loadDashLog(); loadHealth(); homeCams(); }
+  if (page==='dash') { loadHome(s); loadHealth(); homeCams(); }
   if (page==='live') liveRefreshList();
   if (page==='leads') loadLeads();
   if (page==='approvals') loadApprovals();
   if (page==='team') loadTeam();
   if (page==='crm') loadCrm();
+  if (page==='inbox') loadInbox();
+  if (page==='studio') adLoadPage();
   if (page==='runs') { loadRuns(); if (curRun) loadRun(curRun, true); }
   if (page==='audit') loadAudit();
   if (page==='integrations') loadConnectors();
-  if (page==='setup') loadMem();
+  if (page==='setup') { loadMem(); loadByo(); }
   if (page==='automations') loadJobs();
   if (page==='cameras') { loadCameras(); loadVisionEvents(); }
-  if (page==='report') loadReport();
+  if (page==='report') { loadReport(); loadDayReport(); }
 }
 
 function evLine(e){
   const col = e.agent==='owner' ? 'var(--ok)' : (colors[e.agent] || (e.agent==='system' ? '#9aa0a6' : '#7c3aed'));
   const icon = {tool:'⚙ ', approval:'⏸ ', error:'✖ ', deliverable:'📄 ', done:'✔ ', sent:'📤 ', rejected:'✖ ', agent_start:'→ ', agent_end:'← '}[e.kind] || '';
-  return `<div><span class="t">${hms(e.ts)}</span><span class="ag" style="color:${col}">[${esc(e.agent)}]</span> ${icon}${esc(e.text)}</div>`;
+  return `<div><span class="t">${hms(e.ts)}</span><span class="ag" style="color:${col}">[${esc(e.agent === 'owner' ? 'you' : e.agent === 'system' ? 'system' : agentName(e.agent))}]</span> ${icon}${esc(e.text)}</div>`;
 }
 // ---- Home: every camera live and small, with what it counts and its last note; click one to open it with its journal
 const HOME = {ids: '', t: 0};
 async function homeCams(){
   if (Date.now() - HOME.t < 5000) return; HOME.t = Date.now();
-  const R = await api('/cameras'); if (!R || page !== 'dash') return; const cams = R.cameras || [], box = $('#home-cams');
+  const R = await api('/cameras'); if (!R || page !== 'dash') return; HM.camR = R; const cams = R.cameras || [], box = $('#home-cams');
   if (!cams.length) { box.style.display = 'none'; return; }
   CAMS = cams; box.style.display = ''; $('#n-cams').textContent = cams.length + (R.nodes || []).length;
   const show = cams.slice(0, 8), ids = show.map(c => c.id).join(',');
@@ -795,6 +1026,193 @@ async function homeCams(){
   $('#hc-hint').textContent = `${cams.length} camera${cams.length === 1 ? '' : 's'}${cams.length > 8 ? ', first 8 shown' : ''} · live, every frame through the local detector · hover for the latest note`;
 }
 function homeCamsStop(){ if (!HOME.ids) return; document.querySelectorAll('#hc-grid img').forEach(i => i.src = ''); $('#hc-grid').innerHTML = ''; HOME.ids = ''; HOME.t = 0; }
+// ---- Home: the command centre. Pending approvals, cases on you, failed jobs, planned cameras and agent gaps in one list
+// with the fix next to each; a command bar for jobs, camera questions and team changes; one activity feed for everything.
+const HM = {t: 0, slow: 0, mode: 'job', filter: 'all', all: false, actions: [], runs: [], audit: [], vis: [], ops: [], cases: [], camR: null, health: null, nkey: '', fkey: ''};
+const ago = ts => { const s = Math.max(0, Date.now() / 1000 - ts); return s < 60 ? 'now' : s < 3600 ? Math.floor(s / 60) + 'm' : s < 86400 ? Math.floor(s / 3600) + 'h' : Math.floor(s / 86400) + 'd'; };
+const plural = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
+const HM_SUGG = {
+  job: ['Summarise what the cameras saw today', 'Draft replies to every enquiry still waiting', 'Prepare tomorrow\'s staff briefing', 'Research our five nearest competitors'],
+  ask: ['How busy was it in the last hour?', 'Was anyone at the stations after closing?', 'When was it busiest today?'],
+  design: ['Answer every WhatsApp enquiry within 10 minutes', 'Email me a report of the day every evening', 'Watch the bar for long queues and tell the floor manager'],
+};
+function homeMode(m){
+  HM.mode = m; document.querySelectorAll('#hm-modes button').forEach(b => b.classList.toggle('on', b.dataset.m === m));
+  const inp = $('#d-task');
+  inp.placeholder = {job: 'Describe a job. The agents plan, research and draft; anything outbound waits for your approval.',
+    ask: 'Ask what the cameras saw. Answers come only from their journal, with the moments they come from.',
+    design: 'Describe the work. Atlas proposes the team for it on the canvas; nothing changes until you apply it.'}[m];
+  $('#hm-send').textContent = {job: 'Deploy the team →', ask: 'Ask →', design: 'Propose a team →'}[m];
+  let sugg = HM_SUGG[m];
+  if (m === 'ask' && (CAMS || []).length) sugg = [`What happened on ${CAMS[0].name} in the last hour?`, ...sugg.slice(0, 2)];
+  $('#hm-sugg').innerHTML = sugg.map(t => `<button>${esc(t)}</button>`).join('');
+  $('#hm-sugg').querySelectorAll('button').forEach(b => b.onclick = () => { inp.value = b.textContent; inp.focus(); });
+}
+document.querySelectorAll('#hm-modes button').forEach(b => b.onclick = () => { homeMode(b.dataset.m); $('#d-task').focus(); });
+document.querySelectorAll('#hm-ftabs button').forEach(b => b.onclick = () => { HM.filter = b.dataset.f; HM.fkey = ''; document.querySelectorAll('#hm-ftabs button').forEach(x => x.classList.toggle('on', x === b)); homeFeed(); });
+async function homeSend(){
+  const inp = $('#d-task'), t = inp.value.trim(); if (!t) return inp.focus();
+  if (HM.mode === 'design') { inp.value = ''; go('team'); homeAfter(() => teamDesignFor(t), () => { const p = $('#tm-proposal'); return p && !p.classList.contains('hide'); }); return; }
+  const out = $('#hm-out'), btn = $('#hm-send'); out.classList.remove('hide'); btn.disabled = true;
+  try {
+    if (HM.mode === 'job') {
+      const r = await api('/runs', {method: 'POST', body: {task: t, mode: 'auto'}});
+      if (!r || r.error) { out.innerHTML = `<span class="bad">${esc(r?.error || 'Could not start the job')}</span>`; return; }
+      inp.value = ''; HM.t = 0;
+      out.innerHTML = `<b>Started.</b> ${esc(t)} <span class="hint">Atlas is planning it and briefing the team.</span> <button class="link" onclick="curRun='${r.run_id}';liveWant='${r.run_id}';go('live')">Watch it live ›</button>`;
+      refresh();
+    } else {
+      out.innerHTML = '<span class="hint">Reading the camera journal…</span>';
+      const r = await api('/vision/ask', {method: 'POST', body: {question: t, hours: 24}});
+      if (!r || r.error) { out.innerHTML = `<span class="bad">${esc(r?.error || 'Could not read the journal')}</span>`; return; }
+      const ev = r.evidence || [];
+      out.innerHTML = `<div class="hm-ans">${fmtNote(r.answer || 'Nothing in the journal answers that yet.')}</div>`
+        + (ev.length ? `<div class="hm-evid"><span class="hint">from ${plural(ev.length, 'logged moment')}:</span>${ev.slice(0, 8).map(e => `<span class="tag" title="${esc(String(e.answer || e.seen || '').slice(0, 300))}">${esc(e.camera || '')} ${e.ts ? hms(e.ts) : ''}</span>`).join('')}<button class="link" onclick="go('cameras')">Open the cameras ›</button></div>` : '');
+    }
+  } finally { btn.disabled = false; }
+}
+// an action on another tab that needs that tab's data first: retried until it took effect
+function homeAfter(fn, done){ let n = 0; const t = setInterval(() => { n++; if (n > 2) { try { fn(); } catch (e) {} if (!done || done()) clearInterval(t); } if (n > 30) clearInterval(t); }, 300); }
+function homeAddCamera(){ go('cameras'); homeAfter(() => { const n = $('#cam-name'); if (n) { n.scrollIntoView({behavior: 'smooth', block: 'center'}); n.focus(); } }, () => document.activeElement === $('#cam-name')); }
+async function homeDecide(id, status){
+  const a = HM.actions.find(x => x.id === id); if (!a) return;
+  document.querySelectorAll(`[data-act="${id}"] button`).forEach(b => b.disabled = true);
+  const r = await api(`/actions/${id}/decide`, {method: 'POST', body: {status, subject: a.subject, body: a.body, note: ''}});
+  if (!r || r.error) return toast(r?.error || 'failed');
+  toast(status === 'rejected' ? 'Rejected' : r.status === 'failed' ? `Could not send: ${r.note || ''}` : `Sent to ${r.to}`);
+  HM.t = 0; HM.nkey = ''; refresh();
+}
+async function homeRetry(id){
+  const r0 = HM.runs.find(r => r.id === id); if (!r0) return;
+  const r = await api('/runs', {method: 'POST', body: {task: r0.task, mode: r0.mode || 'auto'}});
+  if (!r || r.error) return toast(r?.error || 'failed');
+  toast('Running it again'); HM.t = 0; refresh();
+}
+function homeOpenRun(id){ go('runs'); curRun = id; setTimeout(() => loadRun(id), 300); }
+function homeOpenCam(name){ const c = (CAMS || []).find(x => x.name === name); go('cameras'); if (c) homeAfter(() => openLive(c.id), () => document.getElementById('live-img')); }
+function homeOpenAgent(id){ go('team'); homeAfter(() => window.teamOpenId && teamOpenId(id), () => document.getElementById('tm-i-name')); }
+
+async function loadHome(s){
+  if (!s) return;
+  const now = Date.now();
+  if (now - HM.t < 4000) { homeRender(s); return; }
+  HM.t = now;
+  const slow = now - HM.slow > 15000; if (slow) HM.slow = now;
+  const q = [api('/actions?status=pending'), api('/runs'), api('/audit')];
+  if (slow) q.push(api('/vision/events?limit=400&hours=24'), api('/cases?open=1&limit=60'), api('/ops/activity?limit=60'), loadLinks());
+  const [acts, runs, audit, vis, cases, ops] = await Promise.all(q);
+  if (page !== 'dash') return;
+  HM.actions = Array.isArray(acts) ? acts : []; HM.runs = Array.isArray(runs) ? runs : []; HM.audit = Array.isArray(audit) ? audit : [];
+  if (slow) { HM.vis = Array.isArray(vis) ? vis : []; HM.cases = (cases && cases.cases) || []; HM.ops = Array.isArray(ops) ? ops : []; }
+  homeRender(s);
+}
+function homeRender(s){
+  const H = new Date().getHours(), first = String((ME && ME.name) || '').trim().split(/\s+/)[0];
+  $('#hm-date').textContent = new Date().toLocaleDateString('en-GB', {weekday: 'long', day: 'numeric', month: 'long'}) + ' · ' + ((CFG.business || {}).name || '');
+  $('#hm-greet').textContent = (H < 12 ? 'Good morning' : H < 18 ? 'Good afternoon' : 'Good evening') + (first ? ', ' + first : '');
+  if (!$('#d-task').placeholder) homeMode(HM.mode);
+  const day = Date.now() / 1000 - 86400, specs = (CFG.agents || []).filter(a => a.id !== 'atlas' && a.enabled !== false);
+  const jobs = HM.runs.filter(r => r.created > day), failed = jobs.filter(r => /error|fail/.test(r.status)), running = HM.runs.filter(r => r.active);
+  const needs = homeNeeds();
+  const cams = (HM.camR && HM.camR.cameras) || CAMS || [], cst = (HM.camR && HM.camR.stats) || {};
+  const notes = HM.vis.filter(v => v.answer).length, alerts = cst.triggered ?? HM.vis.filter(v => v.triggered).length;
+  // the sentence under the greeting: what needs the owner first, then what the desk is doing
+  const bits = [];
+  bits.push(needs.length ? `<b class="warn">${plural(needs.length, 'thing')} need${needs.length === 1 ? 's' : ''} you.</b>` : '<b class="ok">Nothing is waiting on you.</b>');
+  if (running.length) bits.push(`The team is working on ${plural(running.length, 'job')} right now.`);
+  bits.push(`${plural(specs.length, 'agent')}${cams.length ? `, ${plural(cams.length, 'camera')} watching` : ''}, ${plural(jobs.length, 'job')} in the last 24 hours.`);
+  $('#hm-sum').innerHTML = bits.join(' ');
+  const br = $('#hm-brain');
+  br.className = 'hm-pill ' + (CFG.live_reason ? 'bad' : CFG.mode === 'demo' ? 'warn' : 'ok');
+  br.innerHTML = `<i></i>${CFG.live_reason ? 'Models unreachable' : CFG.mode === 'demo' ? 'Demo agents (scripted)' : 'Live models · ' + esc(CFG.tier || '')}`;
+  // today strip
+  const cost = (((s.tokens_in || 0) * 5 + (s.tokens_out || 0) * 25) / 1e6 * 0.78);
+  const cell = (k, v, sub, cls, on) => `<div class="hm-stat ${cls || ''}" onclick="${on}"><span>${k}</span><b>${v}</b><small>${sub}</small></div>`;
+  const C = s.cases || {};
+  $('#hm-stats').innerHTML = cell('Needs you', needs.length, HM.actions.length ? plural(HM.actions.length, 'draft') + ' to approve' : 'approvals, cases, setup', needs.length ? 'warn' : 'ok', "document.getElementById('hm-needs-p').scrollIntoView({behavior:'smooth'})")
+    + cell('Jobs · 24h', jobs.length, `${jobs.length - failed.length - running.length} done · ${failed.length} failed · ${running.length} running`, failed.length ? 'bad' : '', "go('runs')")
+    + cell('Open cases', C.open || 0, `${C.you || 0} on you · ${C.atlas || 0} with Atlas${C.breached ? ' · ' + C.breached + ' overdue' : ''}`, C.breached ? 'bad' : '', "location.href='/desk/ops'")
+    + cell('Camera notes · 24h', cst.notes ?? notes, `${plural(alerts || 0, 'alert')} · ${plural(cams.length, 'camera')}`, alerts ? 'warn' : '', "go('cameras')")
+    + cell('Sent', s.approved || 0, `after your OK · ${s.rejected || 0} rejected`, '', "go('approvals')")
+    + cell('Model cost', '£' + cost.toFixed(2), `${((s.tokens_in || 0) + (s.tokens_out || 0)).toLocaleString()} tokens, all time`, '', "go('setup')");
+  homeNeedsRender(needs); homeFeed(); homeAgents(running); homeCases(); homeRuns();
+}
+function homeNeeds(){
+  const out = [];
+  if (CFG.live_reason) out.push({k: 'bad', kl: 'models', t: 'The agents cannot reach their models', d: CFG.live_reason, a: `<button class="btn sm" onclick="go('setup')">Fix in desk setup</button>`});
+  for (const a of HM.actions) out.push({id: a.id, k: 'appr', kl: a.kind || 'draft', t: `${a.subject || '(no subject)'} → ${a.to || ''}`,
+    d: (a.flags ? '⚠ flagged: ' + a.flags + ' · ' : '') + `${agentName(a.agent)} wrote: ${String(a.body || '').replace(/\s+/g, ' ').slice(0, 220)}`,
+    a: `<button class="btn sm ok" onclick="homeDecide(${a.id},'approved')">Approve &amp; send</button><button class="btn sm" onclick="go('approvals')">Edit</button><button class="btn sm d" onclick="homeDecide(${a.id},'rejected')">Reject</button>`});
+  for (const c of HM.cases.filter(c => c.lane === 'you')) out.push({k: 'case', kl: 'case', t: c.title || `Case ${c.id}`,
+    d: [c.type_label, c.state_label, c.breached ? 'overdue' : '', c.brief].filter(Boolean).join(' · '), a: `<a class="btn sm" href="/desk/ops#case/${c.id}">Open case</a>`});
+  const day = Date.now() / 1000 - 86400;
+  for (const r of HM.runs.filter(r => /error|fail/.test(r.status) && r.created > day).slice(0, 3)) out.push({k: 'bad', kl: 'job failed', t: r.task,
+    d: r.summary || r.status, a: `<button class="btn sm" onclick="homeOpenRun('${r.id}')">See why</button><button class="btn sm" onclick="homeRetry('${r.id}')">Run again</button>`});
+  for (const p of (HM.camR && HM.camR.planned) || []) out.push({k: 'cam', kl: 'camera', t: `Connect ${p.name}`,
+    d: `Atlas planned this camera${p.focus ? ' to watch ' + p.focus : ''}. Give it a stream address or sample footage.`, a: `<button class="btn sm" onclick="go('cameras')">Connect it</button>`});
+  for (const al of ((HM.health && HM.health.alerts) || []).filter(a => a.level === 'critical')) out.push({k: 'bad', kl: 'health', t: al.text, d: '', a: `<button class="btn sm" onclick="document.getElementById('hm-hz').scrollIntoView({behavior:'smooth'})">Details</button>`});
+  if (LINKS) for (const [aid, e] of Object.entries(LINKS.agents || {})) for (const g of e.gaps || []) out.push({k: 'gap', kl: 'agent', t: `${agentName(aid)}: ${g}`,
+    d: 'Part of this agent\'s job cannot happen until this is fixed.', a: gapFix(g, aid) || `<button class="btn sm" onclick="homeOpenAgent('${aid}')">Open agent</button>`});
+  return out;
+}
+function homeNeedsRender(items){
+  $('#hm-needs-n').textContent = items.length; $('#hm-needs-n').classList.toggle('hot', items.length > 0);
+  const key = JSON.stringify([items.map(i => [i.t, i.d]), HM.all]); if (key === HM.nkey) return; HM.nkey = key;
+  if (!items.length) { $('#hm-needs').innerHTML = '<div class="hm-clear"><i>✓</i><span>All clear. Drafts the agents write, cases that need a decision and anything that stops the team working will show up here.</span></div>'; return; }
+  const show = HM.all ? items : items.slice(0, 6);
+  $('#hm-needs').innerHTML = show.map(i => `<div class="hm-need" ${i.id ? `data-act="${i.id}"` : ''}><span class="k ${i.k}">${esc(i.kl)}</span><div class="t"><b title="${esc(i.t)}">${esc(i.t)}</b>${i.d ? `<small>${esc(i.d)}</small>` : ''}</div><div class="a">${i.a}</div></div>`).join('')
+    + (items.length > 6 ? `<div class="hm-more"><button class="link" onclick="HM.all=!HM.all;homeNeedsRender(homeNeeds())">${HM.all ? 'Show fewer' : `Show all ${items.length}`}</button></div>` : '');
+}
+function homeFeed(){
+  const rows = [];
+  for (const e of HM.audit) {
+    if (['tool', 'agent_start', 'text', 'token', 'thinking'].includes(e.kind)) continue;
+    const you = e.agent === 'owner' || ['sent', 'rejected'].includes(e.kind);
+    rows.push({ts: e.ts, f: you ? 'you' : 'job', who: you ? 'You' : agentName(e.agent), col: you ? 'var(--ok)' : (colors[e.agent] || 'var(--muted)'),
+      tag: {approval: 'needs OK', error: 'error', deliverable: 'saved', done: 'done', sent: 'sent', rejected: 'rejected', agent_end: 'finished'}[e.kind] || e.kind,
+      txt: e.text, bad: e.kind === 'error', on: e.run_id ? `homeOpenRun('${e.run_id}')` : `go('audit')`});
+  }
+  for (const v of HM.vis) {
+    if (!(v.answer || v.triggered || v.question)) continue;
+    rows.push({ts: v.ts, f: 'cam', who: v.camera, col: 'var(--accent)', tag: v.triggered ? 'alert' : v.question ? 'asked' : 'note',
+      txt: v.question ? `${v.question}: ${v.answer}` : (v.answer || v.reason || v.seen), bad: !!v.triggered, on: `homeOpenCam(${esc(JSON.stringify(v.camera))})`});
+  }
+  for (const o of HM.ops) {
+    const you = o.actor && !/^(atlas|system)$/.test(o.actor) && !(CFG.agents || []).some(a => a.id === o.actor);
+    rows.push({ts: o.ts, f: you ? 'you' : 'case', who: o.case_title || o.record_title || 'case', col: 'var(--warn)', tag: o.kind || 'case',
+      txt: o.text, on: o.case_id ? `location.href='/desk/ops#case/${o.case_id}'` : `location.href='/desk/ops'`});
+  }
+  const list = rows.filter(r => HM.filter === 'all' || r.f === HM.filter).sort((a, b) => b.ts - a.ts).slice(0, 60);
+  const key = JSON.stringify([HM.filter, list.map(r => [r.ts, r.tag])]); if (key === HM.fkey) return; HM.fkey = key;
+  $('#hm-feed').innerHTML = list.length ? list.map(r => `<div class="hm-ev ${r.bad ? 'alert' : ''}" onclick="${r.on}"><span class="tm" title="${esc(when(r.ts))}">${hms(r.ts).slice(0, 5)}</span><span class="who" style="color:${r.col}" title="${esc(r.who)}">${esc(r.who)}</span><span class="tx"><em>${esc(r.tag)}</em>${esc(String(r.txt || '').slice(0, 400))}</span></div>`).join('')
+    : `<div class="hm-none">${{all: 'Nothing yet. Give the team a job above, or add a camera.', job: 'No jobs yet.', cam: 'No camera notes in the last 24 hours.', case: 'No case activity yet.', you: 'You have not approved or rejected anything yet.'}[HM.filter]}</div>`;
+}
+function homeAgents(running){
+  const live = new Set(running.map(r => r.id)), busy = new Set(), done = new Set();
+  for (const e of HM.audit) { if (!live.has(e.run_id)) continue; if (e.kind === 'agent_end') done.add(e.agent); else if (!done.has(e.agent)) busy.add(e.agent); }
+  const ags = (CFG.agents || []);
+  $('#hm-agents-n').textContent = ags.filter(a => a.enabled !== false).length;
+  $('#hm-agents').innerHTML = ags.map(a => {
+    const L = (LINKS && LINKS.agents[a.id]) || {}, gaps = (L.gaps || []).length;
+    const what = a.id === 'atlas' ? 'team lead: plans each job, briefs the agents, checks their work'
+      : [L.cameras && L.cameras.length ? 'watches ' + L.cameras.join(', ') : L.any_camera ? 'any camera' : '', (L.connectors || []).length ? 'sends via ' + L.connectors.join(', ') : '', a.role].filter(Boolean).join(' · ');
+    const st = a.enabled === false ? ['off', ''] : busy.has(a.id) ? ['working', 'on'] : gaps ? [plural(gaps, 'gap'), 'warn'] : ['ready', ''];
+    return `<div class="hm-row" onclick="homeOpenAgent('${a.id}')" title="open ${esc(a.name)} on the team canvas" ${a.enabled === false ? 'style="opacity:.55"' : ''}><span class="sw" style="background:${a.color || '#7c3aed'}"></span><span class="m"><b>${esc(a.name)}</b><small>${esc(what)}</small></span><span class="st ${st[1]}">${esc(st[0])}</span></div>`;
+  }).join('') || '<div class="hm-none">No agents yet.</div>';
+}
+function homeCases(){
+  const C = HM.cases; $('#hm-cases-n').textContent = C.length;
+  const lane = {you: ['on you', 'warn'], atlas: ['Atlas', 'on'], customer: ['waiting reply', ''], scheduled: ['scheduled', '']};
+  $('#hm-cases').innerHTML = C.length ? C.slice(0, 7).map(c => { const l = c.breached ? ['overdue', 'bad'] : (lane[c.lane] || [c.lane, '']);
+    return `<a class="hm-row" href="/desk/ops#case/${c.id}"><span class="m"><b>${esc(c.title || 'Case ' + c.id)}</b><small>${esc([c.type_label, c.state_label, c.subject && c.subject.title].filter(Boolean).join(' · '))}</small></span><span class="st ${l[1]}">${esc(l[0])}</span></a>`; }).join('')
+    : '<div class="hm-none">No open cases. Enquiries, camera incidents and tasks the desk is seeing through appear here.</div>';
+}
+function homeRuns(){
+  const R = HM.runs.slice(0, 6);
+  $('#hm-runs').innerHTML = R.length ? R.map(r => { const st = r.active ? ['running', 'on'] : /error|fail/.test(r.status) ? ['failed', 'bad'] : r.status === 'done' ? ['done', ''] : [r.status, ''];
+    return `<div class="hm-row" onclick="homeOpenRun('${r.id}')"><span class="m"><b title="${esc(r.task)}">${esc(String(r.task || '').replace(/^Run workflow /, ''))}</b><small>${esc(ago(r.created))} ago${r.summary ? ' · ' + esc(r.summary) : ''}</small></span><span class="st ${st[1]}">${esc(st[0])}</span></div>`; }).join('')
+    : '<div class="hm-none">No jobs yet. Give the team one with the bar at the top.</div>';
+}
 async function loadDashLog(){ const ev = await api('/audit'); $('#dash-log').innerHTML = ev.length ? ev.slice(0,40).reverse().map(evLine).join('') : '(nothing yet — seed demo leads)'; $('#dash-log').scrollTop = 1e9; }
 
 async function seed(){ toast('Seeding 3 leads…'); const r = await api('/demo/seed', {method:'POST', body:{}}); if (r && r[0]) liveWant = r[0].run_id; go('live'); }
@@ -814,7 +1232,7 @@ function setAf(f){ af=f; document.querySelectorAll('#p-approvals .tabs button').
 async function loadApprovals(){
   const A = await api('/actions' + (af?`?status=${af}`:''));
   $('#approvals').innerHTML = A.length ? A.map(a=>`<div class="card appr" id="a${a.id}">
-    <div class="row"><span class="tag ${a.status}">${a.status}</span><span class="tag">${esc(a.kind)}</span><b>to ${esc(a.to)}</b><span class="spacer"></span><span class="meta">queued ${when(a.created)} by <span style="color:${colors[a.agent]||'var(--text)'}">${esc(a.agent)}</span> · run ${esc(a.run_id)}</span></div>
+    <div class="row"><span class="tag ${a.status}">${a.status}</span><span class="tag">${esc(a.kind)}</span><b>to ${esc(a.to)}</b><span class="spacer"></span><span class="meta">queued ${when(a.created)} by <span style="color:${colors[a.agent]||'var(--text)'}">${esc(agentName(a.agent))}</span> · run ${esc(a.run_id)}</span></div>
     ${a.flags?`<div class="flag">⚠ Policy flagged this after repeated attempts — check before sending: ${esc(a.flags)}</div>`:''}
     ${a.reason?`<div class="meta" style="margin-top:6px">${esc(a.reason)}</div>`:''}
     <label>Subject</label><input id="s${a.id}" value="${esc(a.subject)}" ${a.status!=='pending'?'disabled':''}>
@@ -827,10 +1245,115 @@ async function decide(id, status){
   toast(status==='approved' ? `Sent (simulated) to ${r.to}` : 'Rejected'); refresh();
 }
 
+// ---- Ad studio: a precise brief in, platform-ready copy out, through the normal run + approval machinery
+const AD = {t: 0, cur: null, md: ''};
+document.querySelectorAll('#ad-platforms button').forEach(b => b.onclick = () => b.classList.toggle('on'));
+const AD_LIMITS = {
+  'Instagram': 'a caption up to 2,200 characters with 5-8 relevant hashtags and a one-line art direction note',
+  'Facebook': 'primary text up to 125 characters, a headline up to 40, a description up to 30, and a one-line art direction note',
+  'Google ads': 'a responsive search ad: 5 headlines of at most 30 characters and 4 descriptions of at most 90',
+  'Poster / flyer': 'a headline, a subhead, three short bullets and a call to action, laid out top to bottom',
+  'Email promo': 'a subject of at most 50 characters, a preview line, and body copy of about 120 words',
+};
+async function adLoadPage(){
+  if (!$('#ad-tone').value) $('#ad-tone').value = (CFG.business || {}).tone || '';
+  const media = ((CFG.agents || []).some(a => (a.tools || []).includes('generate_media')));
+  const conn = await api('/connectors'); const hig = !!(conn && (conn.connectors || []).some(c => c.kind === 'higgsfield'));
+  const can = media && hig;
+  $('#ad-img').disabled = !can;
+  $('#ad-img-hint').textContent = can ? '(through your image connector)' : '— needs an image connector (Integrations → Higgsfield)';
+  adList();
+}
+async function adList(){
+  if (Date.now() - AD.t < 4000) return; AD.t = Date.now();
+  const R = await api('/runs'); if (!R || page !== 'studio') return;
+  const mine = R.filter(r => (r.task || '').startsWith('[Ad studio]'));
+  $('#ad-list').innerHTML = mine.length ? mine.slice(0, 10).map(r => { const st = r.active ? ['writing…', 'on'] : /error|fail/.test(r.status) ? ['failed', 'bad'] : ['ready', ''];
+    return `<div class="hm-row" onclick="adOpen('${r.id}')"><span class="m"><b>${esc((r.task.match(/Promoting: ([^\n]+)/) || [,'Campaign'])[1].slice(0, 70))}</b><small>${esc(ago(r.created))} ago${r.summary ? ' · ' + esc(r.summary.slice(0, 80)) : ''}</small></span><span class="st ${st[1]}">${st[0]}</span></div>`; }).join('')
+    : '<div class="hm-none">None yet — brief the team on the left.</div>';
+  if (mine.some(r => r.active)) AD.t = Date.now() - 2500;
+}
+async function adCreate(){
+  const what = $('#ad-what').value.trim(); if (!what) return $('#ad-what').focus();
+  const plats = [...document.querySelectorAll('#ad-platforms button.on')].map(b => b.dataset.p);
+  if (!plats.length) return toast('Pick at least one platform');
+  const img = $('#ad-img').checked && !$('#ad-img').disabled;
+  const date = new Date().toISOString().slice(0, 10);
+  const task = `[Ad studio] Create ready-to-post advertising for ${(CFG.business || {}).name || 'the business'}.
+Promoting: ${what}
+Audience: ${$('#ad-who').value.trim() || 'the business\'s usual customers'}
+Tone: ${$('#ad-tone').value.trim() || 'the business\'s usual tone'}
+Platforms: ${plats.join(', ')}
+${$('#ad-notes').value.trim() ? 'Must respect: ' + $('#ad-notes').value.trim() : ''}
+Save ONE deliverable named ads-${date}.md (save_deliverable). Structure: a '## <platform>' section per platform, each with TWO distinct variants. Per platform produce ${plats.map(p => `for ${p}: ${AD_LIMITS[p]}`).join('; ')}.
+Ground every claim in the business profile and this brief; never invent prices, dates or offers that are not given. Plain language, no clichés, one clear next step per ad.${img ? "\nAlso generate ONE hero image with generate_media: prompt it from your strongest art direction note, then add an '## Image' section with the output URL." : "\nDo not attempt image generation."}`;
+  const btn = $('#ad-go'); btn.disabled = true;
+  const r = await api('/runs', {method: 'POST', body: {task, mode: 'auto'}});
+  btn.disabled = false;
+  if (!r || r.error) return toast(r?.error || 'failed');
+  toast('The team is writing — the campaign appears on the right'); AD.t = 0; adList();
+}
+async function adOpen(id){
+  const r = await api('/runs/' + id); if (!r || r.error) return;
+  const del = (r.deliverables || []).find(d => d.name.startsWith('ads-')) || (r.deliverables || [])[0];
+  AD.cur = id; AD.md = del ? del.content : '';
+  $('#ad-out-p').style.display = '';
+  $('#ad-out-t').textContent = del ? del.name : (r.active ? 'Still writing…' : 'No deliverable yet');
+  $('#ad-out').innerHTML = del ? mdHtml(del.content) : `<div class="hm-none">${r.active ? 'The team is still writing. Open it again in a moment.' : 'This run saved no ads file — open it under Run history to see why.'}</div>`;
+}
+function adCopy(){ if (!AD.md) return; navigator.clipboard.writeText(AD.md).then(() => toast('Copied as markdown')); }
+const MSG = {key: null, threads: [], ch: {}, t: 0};
+const msgKey = a => a.includes('@') ? a.toLowerCase() : '+' + a.replace(/\D/g, '');   // same key the server builds
+async function loadInbox(){
+  if (Date.now() - MSG.t < 4000) return; MSG.t = Date.now();
+  const r = await api('/messages/threads'); if (!r || !r.threads || page !== 'inbox') return;
+  MSG.threads = r.threads; MSG.ch = r.channels || {};
+  $('#msg-conns').innerHTML = ['email', 'whatsapp', 'sms', 'instagram'].map(k => `<span class="kv"><span class="dot ${MSG.ch[k] ? 'live' : ''}"></span>${k}</span>`).join('')
+    + `<button class="btn sm" onclick="go('integrations')">Connect a channel</button>`;
+  $('#mlist').innerHTML = MSG.threads.length ? MSG.threads.map(t => `<div class="mrow ${MSG.key === t.key ? 'on' : ''}" onclick="msgOpen('${esc(t.key)}')">
+      <b>${esc(t.name)}<span class="mt">${ago(t.last.ts)}</span></b>
+      <small>${t.last.dir === 'out' ? '↑ ' : '↓ '}${esc(t.last.subject || t.last.body || '').slice(0, 64)}</small>
+      <small>${t.channels.map(c => `<span class="tag">${esc(c)}</span>`).join(' ')} · ${t.count}</small></div>`).join('')
+    : '<div class="hm-none">No conversations yet. They start when an enquiry arrives or an approved message is sent.</div>';
+  if (MSG.key) msgRender();
+}
+async function msgOpen(key){
+  MSG.key = key; MSG.t = 0;
+  document.querySelectorAll('.mrow').forEach(r => r.classList.remove('on'));
+  await msgRender(); loadInbox();
+}
+async function msgRender(){
+  const r = await api('/messages?contact=' + encodeURIComponent(MSG.key)); if (!r || r.error) return;
+  const c = r.contact || {}, t = MSG.threads.find(x => x.key === MSG.key) || {};
+  $('#mhead').innerHTML = `<b>${esc(c.name || t.name || MSG.key)}</b><span class="hint" style="margin:0">${esc([c.email, c.phone, c.stage].filter(Boolean).join(' · '))}</span>
+    <span class="spacer" style="flex:1"></span>${c.email || c.phone ? `<button class="btn sm" onclick="go('crm')">Open in Contacts</button>` : ''}`;
+  $('#mbody').innerHTML = r.messages.map(m => `<div class="mb ${m.dir} ${m.status === 'failed' ? 'failed' : ''}">
+      <span class="mm">${esc(m.dir === 'out' ? (m.actor || 'desk') : (m.actor || 'them'))} · ${esc(m.channel)} · ${when(m.ts)}${m.status === 'failed' ? ' · FAILED' : ''}</span>
+      ${m.subject ? `<span class="sub">${esc(m.subject)}</span>` : ''}${esc(m.body)}</div>`).join('')
+    + (r.pending || []).map(a => `<div class="mb out" style="border-style:dashed"><span class="mm">draft waiting for approval</span>${a.subject ? `<span class="sub">${esc(a.subject)}</span>` : ''}${esc((a.body || '').slice(0, 400))}<div class="row" style="margin-top:6px"><button class="btn sm p" onclick="go('approvals')">Review in Approvals</button></div></div>`).join('')
+    || '<div class="hm-none">Nothing here yet.</div>';
+  $('#mbody').scrollTop = 1e9;
+  const chans = MSG.key.startsWith('ig:') ? ['instagram']
+    : ['email', 'whatsapp', 'sms'].filter(k => k === 'email' ? (c.email || MSG.key.includes('@')) : (c.phone || !MSG.key.includes('@')));
+  $('#mc-ch').innerHTML = chans.map(k => `<option value="${k}" ${MSG.ch[k] ? '' : 'disabled'}>${k}${MSG.ch[k] ? '' : ' (no connector)'}</option>`).join('');
+  $('#mcomp').style.display = ''; msgChChange();
+}
+function msgChChange(){ const email = $('#mc-ch').value === 'email'; $('#mc-subj').style.display = email ? '' : 'none'; }
+async function msgSend(){
+  const c = (MSG.threads.find(x => x.key === MSG.key) || {});
+  const ch = $('#mc-ch').value;
+  const to = ch === 'instagram' ? MSG.key.replace('ig:', '') : ch === 'email' ? (c.email || MSG.key) : (c.phone || MSG.key);
+  const body = $('#mc-body').value.trim(); if (!body) return;
+  $('#mc-send').disabled = true;
+  const r = await api('/messages/send', {method: 'POST', body: {channel: ch, to, subject: $('#mc-subj').value.trim(), body}});
+  $('#mc-send').disabled = false;
+  if (!r || r.error) return toast(r?.error || 'failed');
+  $('#mc-body').value = ''; $('#mc-subj').value = ''; toast('Sent'); MSG.t = 0; msgRender();
+}
 async function loadCrm(){
   const C = await api('/contacts?q=' + encodeURIComponent($('#crm-q').value||''));
   const stages = ['New','Contacted','Qualified','Proposal','Won','Lost'];
-  $('#crm-table').innerHTML = C.length ? `<table><tr><th>Contact</th><th>Company</th><th>Stage</th><th>Notes</th><th>Next action</th><th>Updated</th></tr>` + C.map(c=>`<tr><td><b>${esc(c.name)}</b><br><span style="color:var(--muted)">${esc(c.email||'')} ${esc(c.phone||'')}</span></td><td>${esc(c.company||'')}</td><td><select onchange="stage('${esc(c.email||c.name)}', this.value)" style="width:130px">${stages.map(s=>`<option ${s===c.stage?'selected':''}>${s}</option>`).join('')}</select></td><td style="max-width:320px">${esc(c.notes||'')}</td><td>${esc(c.next_action||'')}</td><td>${when(c.updated)}</td></tr>`).join('') + '</table>' : '<div class="empty">No contacts yet</div>';
+  $('#crm-table').innerHTML = C.length ? `<table><tr><th>Contact</th><th>Company</th><th>Stage</th><th>Notes</th><th>Next action</th><th>Updated</th></tr>` + C.map(c=>`<tr><td><b>${esc(c.name)}</b><br><span style="color:var(--muted)">${esc(c.email||'')} ${esc(c.phone||'')}</span><br><button class="link" style="padding:0" onclick="go('inbox');setTimeout(()=>msgOpen(msgKey('${esc(c.email||c.phone||'')}')),400)">Messages ›</button></td><td>${esc(c.company||'')}</td><td><select onchange="stage('${esc(c.email||c.name)}', this.value)" style="width:130px">${stages.map(s=>`<option ${s===c.stage?'selected':''}>${s}</option>`).join('')}</select></td><td style="max-width:320px">${esc(c.notes||'')}</td><td>${esc(c.next_action||'')}</td><td>${when(c.updated)}</td></tr>`).join('') + '</table>' : '<div class="empty">No contacts yet</div>';
 }
 async function stage(contact, s){ await api('/contacts', {method:'POST', body:{contact, fields:{stage:s}}}); toast('Stage → '+s); }
 
@@ -850,7 +1373,7 @@ async function loadRun(id, quiet){
     ${r.deliverables.map(d=>`<details style="margin-top:10px"><summary style="cursor:pointer;font-weight:600">📄 ${esc(d.name)}</summary><div class="md" style="margin-top:8px;background:var(--panel2);padding:12px;border-radius:8px">${esc(d.content)}</div></details>`).join('')}`;
   const lg = $('#runlog'); if (lg) lg.scrollTop = 1e9;
 }
-async function loadAudit(){ const ev = await api('/audit'); $('#audit-table').innerHTML = ev.length ? `<table><tr><th>When</th><th>Run</th><th>Agent</th><th>Kind</th><th>Detail</th></tr>` + ev.map(e=>`<tr><td>${when(e.ts)}</td><td style="color:var(--muted);font-size:12px">${esc(e.run_id)}</td><td style="color:${colors[e.agent]||'var(--text)'}">${esc(e.agent)}</td><td><span class="tag">${e.kind}</span></td><td class="md" style="max-width:600px">${esc(e.text).slice(0,300)}</td></tr>`).join('') + '</table>' : '<div class="empty">Empty</div>'; }
+async function loadAudit(){ const ev = await api('/audit'); $('#audit-table').innerHTML = ev.length ? `<table><tr><th>When</th><th>Run</th><th>Agent</th><th>Kind</th><th>Detail</th></tr>` + ev.map(e=>`<tr><td>${when(e.ts)}</td><td style="color:var(--muted);font-size:12px">${esc(e.run_id)}</td><td style="color:${colors[e.agent]||'var(--text)'}">${esc(e.agent === 'owner' ? 'you' : agentName(e.agent))}</td><td><span class="tag">${e.kind}</span></td><td class="md" style="max-width:600px">${esc(e.text).slice(0,300)}</td></tr>`).join('') + '</table>' : '<div class="empty">Empty</div>'; }
 async function loadPerf(){
   const m = await api('/metrics'); const cap = await api('/capacity'); if (!m || !cap) return;
   if (!m.runs) { $('#perf').innerHTML = '<div class="empty">No runs yet.</div>'; return; }
@@ -868,6 +1391,38 @@ async function loadPerf(){
       <tr><td>Mean run (24h)</td><td>${cap.mean_run_s}s</td></tr><tr><td>Runs per hour per slot</td><td>${cap.est_runs_per_hour_per_slot??'–'}</td></tr>
       <tr><td>Empty model replies</td><td>${m.empty_replies}</td></tr><tr><td>Provider errors</td><td>${m.provider_errors}</td></tr>
       <tr><td>Throughput (observed)</td><td>${m.throughput_runs_per_min??'–'} runs/min</td></tr></table><p class="hint" style="margin-top:8px">${esc(cap.note)}</p></div></div>`;
+}
+function mdHtml(md){
+  const inline = t => esc(t).replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>');
+  const out = []; let ul = false;
+  for (const l of String(md || '').split('\n')) {
+    if (l.startsWith('- ')) { if (!ul) { out.push('<ul>'); ul = true; } out.push('<li>' + inline(l.slice(2)) + '</li>'); continue; }
+    if (ul) { out.push('</ul>'); ul = false; }
+    if (l.startsWith('# ')) out.push('<h2>' + inline(l.slice(2)) + '</h2>');
+    else if (l.startsWith('## ')) out.push('<h3>' + inline(l.slice(3)) + '</h3>');
+    else if (l.startsWith('### ')) out.push('<h4>' + inline(l.slice(4)) + '</h4>');
+    else if (l.trim()) out.push('<p>' + inline(l) + '</p>');
+  }
+  if (ul) out.push('</ul>');
+  return out.join('');
+}
+async function loadDayReport(){
+  const d = $('#dr-date'); if (!d) return;
+  if (!d.value) d.value = new Date().toISOString().slice(0, 10);
+  $('#dr-dl').href = `/api/report/day?date=${d.value}&format=md`;
+  const n = (CFG.desk || {}).notify || {};
+  $('#dr-sched').innerHTML = n.report !== false && n.channel
+    ? `Arrives every day at <b>${esc(n.report_time || '07:00')}</b> by ${esc(n.channel)}${n.to ? ' to ' + esc(n.to) : ''} · <button class="link" style="padding:0" onclick="go('cameras')">change</button>`
+    : `Not scheduled yet — set the alert channel under <button class="link" style="padding:0" onclick="go('cameras')">Cameras</button> and it arrives every morning.`;
+  const r = await fetch(`/api/report/day?date=${d.value}&format=md`);
+  $('#dr-body').innerHTML = r.ok ? mdHtml(await r.text()) : '<div class="empty">Could not load that day.</div>';
+}
+async function sendDayReport(btn){
+  btn.disabled = true;
+  const r = await api('/report/day/send', {method: 'POST', body: {date: $('#dr-date').value}});
+  btn.disabled = false;
+  if (!r || r.error) return toast(r?.error || 'failed');
+  toast('Report ' + r.note); refresh();
 }
 async function loadReport(){
   loadPerf();
@@ -1285,7 +1840,7 @@ function teamInspect(i){
   document.querySelectorAll('#tm-nodes .tmn').forEach(el => el.classList.toggle('sel', +el.dataset.i === i));
   const chips = teamCatalogue(a).map(t => { const on = a.tools.includes(t.id), gated = TOOL_GATED.includes(t.id);
     return `<label class="tchip ${on ? 'on' : ''}" title="${esc(t.description || t.id)}${gated ? ' — approval-gated' : ''}"><input type="checkbox" ${on ? 'checked' : ''} onchange="teamTool(${i},'${esc(t.id)}',this)">${esc(t.id)}${gated ? ' <span class="g" title="approval-gated">⏸</span>' : ''}</label>`; }).join('');
-  insp.innerHTML = `<div class="hd"><input type="color" value="${esc(a.color)}" title="Colour" oninput="teamField(${i},'color',this.value)"><input class="nm" id="tm-i-name" value="${esc(a.name)}" placeholder="Name" oninput="teamField(${i},'name',this.value)">${isAtlas ? '<span class="tag" title="Atlas leads the desk and cannot be removed">lead</span>' : ''}<button class="x" onclick="teamClose()" title="Close (Esc)">×</button></div>
+  insp.innerHTML = `<div class="hd"><input type="color" value="${esc(a.color)}" title="Colour" oninput="teamField(${i},'color',this.value)"><input class="nm" id="tm-i-name" value="${esc(a.name)}" placeholder="A clear job title — Bookings Manager, Enquiry Responder…" oninput="teamField(${i},'name',this.value)">${isAtlas ? '<span class="tag" title="Atlas leads the desk and cannot be removed">lead</span>' : ''}<button class="x" onclick="teamClose()" title="Close (Esc)">×</button></div>
     <label>Role</label><input value="${esc(a.role)}" placeholder="${isAtlas ? 'Role — e.g. Orchestrator' : 'Role — e.g. Researcher'}" oninput="teamField(${i},'role',this.value)">
     <label class="act" title="${isAtlas ? 'Atlas is always active' : 'Inactive agents are skipped on the next run'}"><input type="checkbox" ${a.enabled ? 'checked' : ''} ${isAtlas ? 'disabled' : ''} onchange="teamField(${i},'enabled',this.checked)"> active</label>
     ${isAtlas ? '' : `<label>Reports to</label><select onchange="teamField(${i},'reports_to',this.value)"><option value="atlas" ${(!a.reports_to || a.reports_to === 'atlas') ? 'selected' : ''}>Atlas (top level)</option>${TEAM.agents.filter(x => x.id && x.id !== 'atlas' && x.id !== a.id && (!x.reports_to || x.reports_to === 'atlas')).map(x => `<option value="${esc(x.id)}" ${a.reports_to === x.id ? 'selected' : ''}>${esc(x.name)} (sub-team lead)</option>`).join('')}</select><div class="hint" style="margin-top:4px">A sub-team lead delegates only to its members and hands Atlas one merged result.</div>`}
@@ -1314,6 +1869,7 @@ function teamTool(i, t, el){
   const c = document.getElementById('tools-' + tkid(a._k)); if (c) c.textContent = a.tools.length + ' tool' + (a.tools.length === 1 ? '' : 's');
   teamSetDirty(true);
 }
+function teamAddReady(){ if (TEAM.key) teamAdd(); }   // from Home or the palette: only once the roster has loaded, so a save never drops agents
 function teamAdd(){
   const n = TEAM.agents.length; const atlas = TEAM.agents.find(a => a.id === 'atlas'); const A = atlas && document.getElementById(tkid(atlas._k));
   const k = 'new' + (++TEAM.seq);
@@ -1322,7 +1878,7 @@ function teamAdd(){
   teamSetDirty(true); renderTeam();
   const a = TEAM.agents[TEAM.agents.length - 1], el = document.getElementById(tkid(k)); if (el) a.pos = { x: el.offsetLeft, y: el.offsetTop };   // keep the clamped position
   teamInspect(TEAM.agents.length - 1);
-  const nm = $('#tm-i-name'); if (nm) { nm.focus(); nm.select(); }
+  const nm = $('#tm-i-name'); if (nm) { nm.placeholder = 'A clear job title — Bookings Manager, Enquiry Responder…'; nm.focus(); nm.select(); }
 }
 function teamRemove(i){
   const a = TEAM.agents[i]; if (!a || a.id === 'atlas') return;
@@ -1357,6 +1913,7 @@ async function teamDesignJob(){
   $('#tm-prop-warn').textContent = (r.errors || []).length ? 'Still off-contract: ' + r.errors.join('; ') : ((r.warnings || []).length ? 'Repaired after the first draft: ' + r.warnings.join('; ') : '');
   $('#tm-prop-meta').textContent = r.mode === 'demo' ? 'demo design (no model) — structure only' : `designed by ${(r.team.source || {}).model || 'the desk model'} in ${r.turns} turn(s)`;
 }
+function teamDesignFor(t){ const i = $('#tm-task'); if (!i) return; i.value = t; teamDesignJob(); }   // from Home or the Ask Atlas panel
 async function teamApplyProposal(deploy){
   const did = (CFG.desk || {}).id; if (!did || !TMPROP) return;
   const r = await api(`/desks/${did}/team/apply`, {method:'POST', body:{team:TMPROP}});
@@ -1540,8 +2097,30 @@ function teamApply(e){
 let KINDS = {};
 async function loadConnectors(){
   const R = await api('/connectors'); if (!R) return;
-  KINDS = R.kinds; $('#hook-url').value = R.hook_url; $('#wa-hook-url').value = R.whatsapp_hook_url || ''; $('#sms-hook-url').value = R.sms_hook_url || '';
-  const CH = {email:'Email', whatsapp:'WhatsApp', sms:'SMS', booking:'Calendar booking'};
+  KINDS = R.kinds; $('#hook-url').value = R.hook_url; $('#wa-hook-url').value = R.whatsapp_hook_url || ''; $('#sms-hook-url').value = R.sms_hook_url || ''; $('#ig-hook-url').value = R.instagram_hook_url || '';
+  const CH = {email:'Email', whatsapp:'WhatsApp', sms:'SMS', instagram:'Instagram DMs', booking:'Calendar booking'};
+  // the app wall: one tile per thing you can connect, lit when a connector of that kind exists
+  const APPS = [
+    ['whatsapp', 'WhatsApp', '#25D366', 'WA', 'customer chat via Meta'],
+    ['instagram', 'Instagram', '#C13584', 'IG', 'answer DMs'],
+    ['smtp', 'Email (SMTP)', '#2d72d2', '@', 'send from your mailbox'],
+    ['resend', 'Email (Resend)', '#111827', 'R', 'API email sending'],
+    ['imap', 'Inbox watcher', '#0e7490', 'IN', 'read incoming mail'],
+    ['twilio', 'SMS · Twilio', '#F22F46', 'TW', 'texts + WhatsApp'],
+    ['gcal', 'Google Calendar', '#1a73e8', 'GC', 'free slots + bookings'],
+    ['slack', 'Slack', '#611f69', 'SL', 'pings to your team'],
+    ['hubspot', 'HubSpot', '#ff7a59', 'HS', 'CRM sync'],
+    ['pipedrive', 'Pipedrive', '#1aaa55', 'PD', 'CRM sync'],
+    ['higgsfield', 'Higgsfield', '#7c3aed', 'HF', 'image & video generation'],
+    ['http', 'Any HTTP API', '#5f6b7a', '{}', 'your own systems'],
+    ['mcp', 'MCP server', '#b45309', 'MC', 'any tool provider'],
+    ['hermes_agent', 'Hermes Agent', '#0b5fcb', 'HA', 'Nous agent runtime'],
+  ];
+  const have = {}; R.connectors.forEach(c => { (have[c.kind] = have[c.kind] || []).push(c); });
+  $('#app-wall').innerHTML = APPS.map(([k, label, col, mono, sub]) => { const got = have[k] || [];
+    const ok = got.some(c => String(c.status || '').startsWith('ok'));
+    return `<div class="appt ${got.length ? 'on' : ''}" onclick="connectKind('${k}')" title="${esc((KINDS[k] || {}).hint || '').slice(0, 220)}">
+      <i style="background:${col}">${mono}</i><span style="min-width:0"><b>${esc(label)}</b><small>${got.length ? (got.length + ' connected' + (ok ? ' · test ok' : '')) : esc(sub)}</small></span></div>`; }).join('');
   $('#conn-channels').innerHTML = Object.entries(CH).map(([k,l])=>`<span class="tag" style="margin:0 8px 6px 0;${R.channels && R.channels[k] ? 'color:var(--ok);border-color:var(--ok)' : ''}">${l}: ${R.channels && R.channels[k] ? 'live' : 'simulated'}</span>`).join('');
   if (!$('#c-kind').options.length) { $('#c-kind').innerHTML = Object.entries(KINDS).filter(([k])=>k!=='webhook').map(([k,v])=>`<option value="${k}">${esc(v.label)}</option>`).join(''); connFields(); }
   $('#conn-list').innerHTML = R.connectors.length ? `<table><tr><th>Name</th><th>Type</th><th>Details</th><th>Writes</th><th>Used by</th><th>Status</th><th></th></tr>` + R.connectors.map(c=>`<tr><td><b>${esc(c.name)}</b></td><td><span class="tag">${esc(c.kind)}</span></td><td class="model">${esc(Object.entries(c.config).filter(([k])=>k!=='notes').map(([k,v])=>k+'='+v).join('  ').slice(0,90))}</td><td><label style="margin:0;display:flex;gap:6px;align-items:center"><input type="checkbox" style="width:auto" ${c.auto?'checked':''} onchange="api('/connectors/${c.id}',{method:'PATCH',body:{auto:this.checked}})"> auto</label></td><td class="usedby" data-c="${esc(c.name)}"></td><td class="hint">${esc(c.status||'untested')}</td><td class="row"><button class="btn sm" onclick="testConn(${c.id})">Test</button><button class="btn sm d" onclick="delConn(${c.id})">✕</button></td></tr>`).join('') + '</table>' : '<div class="empty">No connectors yet. Add email sending, an inbox or an API on the right.</div>';
@@ -1645,7 +2224,8 @@ function wallEvent(ev){
 }
 async function loadCameras(){
   const R = await api('/cameras'); if (!R) return; CAMS = R.cameras; const NODES = R.nodes || [];
-  renderPlanned(R.planned || [], R.samples || []);
+  FEED.samples = R.samples || [];
+  const planned = R.planned || [];
   $('#n-cams').textContent = CAMS.length + NODES.length;
   try { const st = R.stats || {}; const live = CAMS.filter(c => c.watch_job && c.watch_job.enabled).length;
     $('#cs-live').textContent = live; $('#cs-dot').className = 'dot' + (live ? ' live' : '');
@@ -1666,7 +2246,16 @@ async function loadCameras(){
         <div class="hint" style="margin:0">${n.events} event${n.events===1?'':'s'} · ${n.alerts} alert${n.alerts===1?'':'s'} in 24h · watched continuously by the node, every frame</div>
         <div class="act"><button class="btn sm" onclick="$('#ev-cam').value='${esc(n.name)}';loadVisionEvents();document.getElementById('ev-list').scrollIntoView({behavior:'smooth'})">Events ›</button><span class="spacer"></span>${le.run_id ? `<button class="btn sm" onclick="liveWant='${le.run_id}';go('live')">See run ›</button>` : ''}</div>
       </div></div>`; }).join('');
-  if (!CAMS.length && !NODES.length) { $('#cam-grid').innerHTML = '<div class="empty" style="grid-column:1/-1">No cameras yet. Add your laptop webcam (source <b>0</b>) to try it in ten seconds, or an RTSP / snapshot URL for a real camera.</div>'; return; }
+  const who = n => (CFG.agents || []).filter(a => a.id !== 'atlas' && JSON.stringify([a.goal, a.role, a.instructions]).toLowerCase().includes(String(n).toLowerCase()));
+  const planTiles = planned.map(p => `<div class="cam plan">
+      <div class="shot" onclick="feedOpen(null, '${esc(p.name)}', '')"><span>no feed yet — click to connect<br>a stream, a webcam or a video file</span></div>
+      <div class="body"><h3>${esc(p.name)}<small>planned by Atlas</small></h3>
+        <div class="hint" style="margin:0">${esc(p.notes || p.focus || 'Part of the designed team; waiting for its feed.')}</div>
+        <div class="camagents">${who(p.name).map(a => agentChip(a.id)).join('') || '<span class="none">no agent named it yet</span>'}</div>
+        <div class="act"><button class="btn sm p" onclick="feedOpen(null, '${esc(p.name)}', '')">Connect the feed →</button></div>
+      </div></div>`).join('');
+  const addTile = `<div class="cam addtile" onclick="feedOpen(null, '', '')" title="Connect a camera: RTSP, a webcam, an uploaded recording or sample footage"><div style="text-align:center"><b>+ Connect a camera</b><br><small>stream · webcam · upload a video · sample</small></div></div>`;
+  if (!CAMS.length && !NODES.length) { $('#cam-grid').innerHTML = planTiles + addTile; return; }
   $('#cam-grid').innerHTML = CAMS.map(c => {
     const s = c.seen || {}, le = c.last_event, ts = s.ts || (le && le.ts), busy = _camBusy.has(c.id);
     const seenTxt = s.counts ? countsText(s.counts) : (le ? le.seen : '—');
@@ -1674,7 +2263,7 @@ async function loadCameras(){
     const src = c.config.source || '';
     const hasFrame = !!(s.ts || (le && le.snapshot_url));
     return `<div class="cam" id="cam-${c.id}">
-      <div class="shot" onclick="${hasFrame?`zoom('/api/cameras/${c.id}/frame.jpg?t='+Date.now())`:''}">${hasFrame ? `<img src="/api/cameras/${c.id}/frame.jpg?t=${Math.floor((ts||0)*1000)}" alt="">` : `<span>${busy?'grabbing…':'no frame yet — Look now'}</span>`}
+      <div class="shot" onclick="${hasFrame?`zoom('/api/cameras/${c.id}/frame.jpg?t='+Date.now())`:`feedOpen(${c.id}, '${esc(c.name)}', ${jstr(src)})`}" ${hasFrame?'':'style="cursor:pointer" title="no frame yet — click to check or change the feed"'}>${hasFrame ? `<img src="/api/cameras/${c.id}/frame.jpg?t=${Math.floor((ts||0)*1000)}" alt="">` : `<span>${busy?'grabbing…':'no frame yet — Look now'}</span>`}
         <div class="ov">${s.counts ? Object.entries(s.counts).map(([k,n])=>`<span class="tag">${n} ${esc(k)}</span>`).join('') : ''}${s.triggered ? '<span class="tag" style="color:var(--warn);border-color:var(--warn)">alert</span>' : ''}</div>
         <span class="live ${watching?'on':''}">${watching ? 'watching · '+(JSON.parse(c.watch_job.task||'{}').every_s||30)+'s' : 'idle'}</span></div>
       <div class="body">
@@ -1684,8 +2273,8 @@ async function loadCameras(){
         <div class="hint" style="margin:0">watch for <b>${esc(c.rule.labels.join(', '))}</b> ≥${c.rule.min_count}${c.rule.dwell_min > 0 ? ' for '+c.rule.dwell_min+' min' : ''}${c.rule.hours ? ' during '+esc(c.rule.hours) : ''} · cooldown ${c.rule.cooldown_min}m · ${c.rule.repeat==='always' ? 'repeats' : c.rule.repeat==='once' ? 'once per stay' : 'repeats on change'}${s.present_s ? ' · present '+Math.round(s.present_s/60)+'m' : ''}${['1','true','on','yes'].includes(String((c.config||{}).journal||'').toLowerCase()) ? ' · <b>journal on</b>' : ''}${c.rule.alerts===false ? ' · alerts off' : ''}${c.rule.question ? ` · asks “${esc(c.rule.question)}”` : ''}</div>
         ${(s.answer || (le && le.answer)) ? `<div class="ans">${esc(s.answer || le.answer)}</div>` : ''}
         <div class="act"><input id="camq-${c.id}" placeholder="ask the analyst about this frame…" onkeydown="if(event.key==='Enter')lookCam(${c.id})"><button class="btn sm p" onclick="lookCam(${c.id})" ${busy?'disabled':''}>${busy?'…':'Look now'}</button><button class="btn sm ${LIVE.id===c.id?'p':''}" onclick="${LIVE.id===c.id?'closeLive()':`openLive(${c.id})`}" title="Watch this camera as live video with detections, and the journal being written in real time">${LIVE.id===c.id?'Close live':'Live'}</button></div>
-        <div class="act"><button class="btn sm ${watching?'':'p'}" onclick="watchCam(${c.id}, ${watching?'false':'true'}, ${['1','true','on','yes'].includes(String((c.config||{}).journal||'').toLowerCase()) ? 8 : 30})">${watching ? 'Stop watching' : 'Watch'}</button><button class="btn sm" onclick="lookCam(${c.id}, true)" title="Force an alert run now (demo / test)">Trigger alert</button><span class="spacer"></span>${s.run_id ? `<button class="btn sm" onclick="liveWant='${s.run_id}';go('live')">See run ›</button>` : ''}<button class="btn sm d" onclick="delCam(${c.id})">✕</button></div>
-      </div></div>`; }).join('') + nodeCards;
+        <div class="act"><button class="btn sm ${watching?'':'p'}" onclick="watchCam(${c.id}, ${watching?'false':'true'}, ${['1','true','on','yes'].includes(String((c.config||{}).journal||'').toLowerCase()) ? 8 : 30})">${watching ? 'Stop watching' : 'Watch'}</button><button class="btn sm" onclick="lookCam(${c.id}, true)" title="Force an alert run now (demo / test)">Trigger alert</button><button class="btn sm" onclick="feedOpen(${c.id}, '${esc(c.name)}', ${jstr(src)})" title="swap this camera onto a different stream, webcam, upload or sample">Feed</button><span class="spacer"></span>${s.run_id ? `<button class="btn sm" onclick="liveWant='${s.run_id}';go('live')">See run ›</button>` : ''}<button class="btn sm d" onclick="delCam(${c.id})">✕</button></div>
+      </div></div>`; }).join('') + planTiles + nodeCards + addTile;
   loadLinks().then(renderCamAgents);
 }
 // ---- agents on every tab: who watches which camera, who sends through which connector, and what is missing
@@ -1708,7 +2297,7 @@ function renderCamAgents(){
   }
 }
 // channel / tool -> the connector type to preselect in "Add a connector"
-const NEED_KIND = {email: 'smtp', whatsapp: 'whatsapp', sms: 'twilio', slack: 'slack', gcal: 'gcal', http: 'http', mcp: 'mcp', higgsfield: 'higgsfield'};
+const NEED_KIND = {email: 'smtp', whatsapp: 'whatsapp', sms: 'twilio', instagram: 'instagram', slack: 'slack', gcal: 'gcal', http: 'http', mcp: 'mcp', higgsfield: 'higgsfield'};
 function gapFix(g, aid){
   const m = g.match(/no (\w+) connector|needs a (\w+)/); const kind = m && NEED_KIND[m[1] || m[2]];
   if (kind) return `<button class="btn sm" onclick="connectKind('${kind}')">Connect ${esc(KINDS && KINDS[kind] ? KINDS[kind].label : kind)} →</button>`;
@@ -1740,7 +2329,8 @@ function renderConnLinks(){
   $('#needs-list').innerHTML = rows.map(([id, g]) => `<div class="needrow">${agentChip(id)}<span>${esc(g)}</span>${gapFix(g, id)}</div>`).join('');
 }
 // cameras Atlas planned while designing the team but that have no stream address yet
-function renderPlanned(planned, samples){
+function renderPlanned(planned, samples){   // superseded by the planned tiles in the camera grid
+  return;
   const box = $('#cam-planned'); if (!box) return; box.classList.toggle('hide', !planned.length); if (!planned.length) { box.innerHTML = ''; box.dataset.key = ''; return; }
   const key = JSON.stringify([planned, samples.length, (CFG.agents || []).map(a => a.id)]);   // the page refreshes every few seconds: never wipe what is being typed
   if (box.dataset.key === key) return; box.dataset.key = key;
@@ -1890,6 +2480,57 @@ async function askCams(){
   const how = m.embedder ? `<div class="hint" style="margin:0 0 4px">retrieval: ${esc(m.embedder)} · window ${esc(m.window || '')} · ${m.considered ?? 0} events, ${m.indexed ?? 0} indexed · ${esc(m.grounding || '')}${(m.looked_at || []).length ? ' · re-looked at ' + m.looked_at.map(id => `<span class="cite">#${id}</span>`).join(' ') : ''}</div>` : '';
   $('#ask-ev').innerHTML = how + ((r.evidence||[]).length ? `${r.events_considered||r.evidence.length} event(s) considered · ` + r.evidence.slice(-6).map(e=>`<span class="cite">#${e.id}</span> ${esc(e.camera)} ${hms(e.ts).slice(0,5)}${e.snapshot_url?` <a href="#" onclick="zoom('${e.snapshot_url}');return false">↗</a>`:''}`).join(' · ') : '');
 }
+const FEED = {cid: null, name: '', tab: 'stream', uploaded: '', source: '', samples: []};
+function feedOpen(cid, name, src){
+  FEED.cid = cid || null; FEED.name = name || ''; FEED.uploaded = ''; FEED.source = '';
+  $('#fd-title').textContent = name ? name : 'Connect a camera';
+  $('#fd-sub').textContent = cid ? 'change this camera\u2019s feed' : (name ? 'planned by Atlas — give it a feed' : 'a new camera object on this desk');
+  $('#fd-name-row').style.display = name ? 'none' : ''; $('#fd-name').value = name || '';
+  $('#fd-stream').value = src && /^(rtsp|https?):/.test(src) ? src : ''; $('#fd-webcam').value = src && /^\d+$/.test(src) ? src : '';
+  $('#fd-prev').innerHTML = '<span>Test the source to see a frame from it.</span>'; $('#fd-msg').textContent = '';
+  $('#fd-go').textContent = cid ? 'Switch feed →' : 'Attach feed →';
+  const sel = $('#fd-sample'); sel.innerHTML = (FEED.samples || []).map(x => `<option value="sample:${esc(x.name)}">${esc(x.label || x.name)}</option>`).join('') || '<option value="">no samples bundled</option>';
+  feedTab(src && String(src).startsWith('sample:') ? 'sample' : /^\d+$/.test(String(src||'')) ? 'webcam' : 'stream');
+  $('#feed-veil').classList.remove('hide');
+  setTimeout(() => (name ? $('#fd-' + (FEED.tab === 'upload' ? 'file' : FEED.tab)) || $('#fd-stream') : $('#fd-name')).focus(), 60);
+}
+function feedClose(){ $('#feed-veil').classList.add('hide'); }
+function feedTab(k){ FEED.tab = k; document.querySelectorAll('#fd-tabs button').forEach(b => b.classList.toggle('on', b.dataset.k === k)); document.querySelectorAll('.fpane').forEach(p => p.classList.toggle('hide', p.dataset.k !== k)); }
+document.querySelectorAll('#fd-tabs button').forEach(b => b.onclick = () => feedTab(b.dataset.k));
+function feedSource(){
+  if (FEED.tab === 'stream') return $('#fd-stream').value.trim();
+  if (FEED.tab === 'webcam') return $('#fd-webcam').value.trim();
+  if (FEED.tab === 'upload') return FEED.uploaded;
+  return $('#fd-sample').value;
+}
+async function feedUpload(inp){
+  const f = inp.files && inp.files[0]; if (!f) return;
+  const d = $('#fd-drop'); d.querySelector('b').textContent = 'Uploading ' + f.name + '…';
+  const fd = new FormData(); fd.append('file', f);
+  const r = await fetch('/api/cameras/upload', {method: 'POST', body: fd}).then(x => x.json()).catch(() => null);
+  if (!r || r.error) { d.querySelector('b').textContent = 'Drop a video or image here'; return toast(r?.error || 'upload failed'); }
+  FEED.uploaded = r.source; d.classList.add('done');
+  d.querySelector('b').textContent = f.name + ' · uploaded'; d.querySelector('span').textContent = 'click to choose a different file';
+  feedTest($('#fd-test'));
+}
+async function feedTest(btn){
+  const src = feedSource(); if (!src) return toast(FEED.tab === 'upload' ? 'Choose a file first' : 'Give a source first');
+  btn.disabled = true; btn.textContent = 'Testing…'; $('#fd-msg').textContent = '';
+  const r = await api('/cameras/probe', {method: 'POST', body: {source: src}});
+  btn.disabled = false; btn.textContent = 'Test the source';
+  if (!r || !r.ok) { $('#fd-prev').innerHTML = '<span>no frame</span>'; $('#fd-msg').textContent = (r && r.error) || 'Could not read that source.'; return; }
+  $('#fd-prev').innerHTML = `<img src="${r.preview}" alt="">`; $('#fd-msg').textContent = 'Working ' + r.kind + ' feed.';
+}
+async function feedAttach(btn){
+  const name = FEED.name || $('#fd-name').value.trim(); const src = feedSource();
+  if (!name) return $('#fd-name').focus();
+  if (!src) return toast(FEED.tab === 'upload' ? 'Choose a file first' : 'Give a source first');
+  btn.disabled = true;
+  const r = await api('/cameras/attach', {method: 'POST', body: {name, source: src, cid: FEED.cid || undefined}});
+  btn.disabled = false;
+  if (!r || r.error) return toast(r?.error || 'failed');
+  toast(`${r.camera.name} is live: watching and writing its journal`); feedClose(); HOME.t = 0; loadCameras();
+}
 function zoom(url){ const d = document.createElement('div'); d.className = 'lightbox'; d.innerHTML = `<img src="${url}">`; d.onclick = ()=>d.remove(); document.body.appendChild(d); }
 async function testVisionHook(){
   const r = await fetch($('#vision-hook-url').value, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({camera:'test-sensor', labels:{person:1}, note:'PIR test event from the portal', motion:0.4})});
@@ -1903,15 +2544,26 @@ async function loadJobs(){
   if (!$('#j-kind').options.length) { $('#j-kind').innerHTML = Object.entries(JOBK).map(([k,v])=>`<option value="${k}">${esc(v)}</option>`).join(''); jobFields(); }
   $('#n-jobs').textContent = R.jobs.filter(j=>j.enabled).length;
   const rel = t => !t ? '—' : (t - R.now > 0 ? 'in ' + Math.round((t-R.now)/60) + ' min' : Math.round((R.now-t)/60) + ' min ago');
-  $('#job-list').innerHTML = R.jobs.length ? `<table><tr><th>Name</th><th>Kind</th><th>Every</th><th>Next</th><th>Last result</th><th>On</th><th></th></tr>` + R.jobs.map(j=>`<tr><td><b>${esc(j.name)}</b><div class="hint" style="max-width:260px">${esc((j.task||'').slice(0,90))}</div></td><td><span class="tag">${esc(j.kind)}</span></td><td>${j.every_min?j.every_min+' min':'once'}</td><td>${j.enabled?rel(j.next_run):'paused'}</td><td class="hint" style="max-width:220px">${esc(j.last_result||'')}${j.last_run?'<br>'+rel(j.last_run):''}</td><td><input type="checkbox" style="width:auto" ${j.enabled?'checked':''} onchange="api('/jobs/${j.id}',{method:'PATCH',body:{enabled:this.checked}}).then(loadJobs)"></td><td class="row"><button class="btn sm" onclick="api('/jobs/${j.id}/run',{method:'POST',body:{}}).then(()=>{toast('Queued — runs within 20s');setTimeout(loadJobs,1500)})">Run now</button><button class="btn sm d" onclick="api('/jobs/${j.id}',{method:'DELETE',body:{}}).then(loadJobs)">✕</button></td></tr>`).join('') + '</table>' : '<div class="empty">No automations yet. Add an inbox watcher, a follow-up chaser or a scheduled task.</div>';
+  window.jobWords = j => j.every_min === 1440 && j.next_run ? 'daily at ' + new Date(j.next_run*1000).toTimeString().slice(0,5) : j.every_min ? 'every ' + (j.every_min % 60 ? j.every_min + ' min' : (j.every_min/60) + 'h') : 'once';
+  $('#job-list').innerHTML = R.jobs.length ? `<table><tr><th>Name</th><th>Kind</th><th>Every</th><th>Next</th><th>Last result</th><th>On</th><th></th></tr>` + R.jobs.map(j=>`<tr><td><b>${esc(j.name)}</b><div class="hint" style="max-width:260px">${esc((j.task||'').slice(0,90))}</div></td><td><span class="tag">${esc(j.kind)}</span></td><td>${jobWords(j)}</td><td>${j.enabled?rel(j.next_run):'paused'}</td><td class="hint" style="max-width:220px">${esc(j.last_result||'')}${j.last_run?'<br>'+rel(j.last_run):''}</td><td><input type="checkbox" style="width:auto" ${j.enabled?'checked':''} onchange="api('/jobs/${j.id}',{method:'PATCH',body:{enabled:this.checked}}).then(loadJobs)"></td><td class="row"><button class="btn sm" onclick="api('/jobs/${j.id}/run',{method:'POST',body:{}}).then(()=>{toast('Queued — runs within 20s');setTimeout(loadJobs,1500)})">Run now</button>${j.kind==='task'?`<button class="btn sm" onclick='jobEdit(${j.id}, ${jstr(j.name)}, ${jstr(j.task||"")}, ${j.every_min})'>Edit</button>`:''}<button class="btn sm d" onclick="api('/jobs/${j.id}',{method:'DELETE',body:{}}).then(loadJobs)">✕</button></td></tr>`).join('') + '</table>' : '<div class="empty">No automations yet. Add an inbox watcher, a follow-up chaser or a scheduled task.</div>';
 }
 function jobFields(){ const k=$('#j-kind').value; $('#j-task-wrap').classList.toggle('hide', k!=='task'); $('#j-poll-wrap').classList.toggle('hide', k!=='http_poll'); $('#j-days-wrap').classList.toggle('hide', k!=='followups'); }
 async function addJob(){
   const k=$('#j-kind').value; let task=$('#j-task').value;
   if (k==='http_poll') task = JSON.stringify({connector:$('#j-conn').value, path:$('#j-path').value, prompt:$('#j-prompt').value});
-  const r = await api('/jobs', {method:'POST', body:{kind:k, name:$('#j-name').value, task, every_min:+$('#j-every').value||0, in_min:+$('#j-in').value||0, days:+$('#j-days').value||3}});
-  if (!r || r.error) return toast(r?.error||'failed'); toast('Automation added'); $('#j-name').value=''; $('#j-task').value=''; loadJobs();
+  const body = {kind:k, name:$('#j-name').value, task, every_min:+$('#j-every').value||0, in_min:+$('#j-in').value||0, days:+$('#j-days').value||3, at:$('#j-at').value.trim()};
+  const r = JOB_EDIT ? await api('/jobs/'+JOB_EDIT, {method:'PATCH', body:{name:body.name, task:body.task, every_min:body.every_min, at:body.at}})
+                     : await api('/jobs', {method:'POST', body});
+  if (!r || r.error) return toast(r?.error||'failed');
+  toast(JOB_EDIT ? 'Automation updated' : 'Automation added'); jobEditEnd(); loadJobs();
 }
+let JOB_EDIT = null;
+function jobEdit(id, name, task, every){
+  JOB_EDIT = id; $('#j-name').value = name; $('#j-task').value = task; $('#j-every').value = every; $('#j-at').value = '';
+  $('#j-add-btn').textContent = 'Save changes'; $('#j-cancel-btn').classList.remove('hide');
+  $('#j-task').scrollIntoView({behavior:'smooth', block:'center'});
+}
+function jobEditEnd(){ JOB_EDIT = null; $('#j-name').value=''; $('#j-task').value=''; $('#j-at').value=''; $('#j-add-btn').textContent='Add automation'; $('#j-cancel-btn').classList.add('hide'); }
 async function addPreset(k){
   const body = k==='inbox_watch' ? {kind:k, name:'Inbox watcher', every_min:2, in_min:0} : {kind:k, name:'Follow-up chaser', every_min:1440, in_min:0, days:3};
   const r = await api('/jobs', {method:'POST', body}); if (r && !r.error) { toast(k==='inbox_watch' ? 'Inbox watcher on — needs an IMAP connector' : 'Follow-up chaser on'); loadJobs(); }
@@ -1922,6 +2574,7 @@ async function loadHealth(){
   if (Date.now() - _hzT < 10000) return; _hzT = Date.now();
   const h = await api('/health/full'); if (!h || h.error) return;
   const badge = $('#hz-badge'); badge.textContent = h.ok ? 'healthy' : 'attention'; badge.className = 'tag ' + (h.ok ? 'done' : 'error');
+  HM.health = h; { const hp = $('#hm-hpill'); if (hp) { hp.className = 'hm-pill ' + (h.ok ? 'ok' : 'warn'); hp.querySelector('span').textContent = h.ok ? 'Healthy' : plural(h.alerts.length, 'alert'); } }
   const navBtn = document.querySelector('#nav button[data-p="dash"]'); if (navBtn) navBtn.classList.toggle('alert', !h.ok);
   const r = h.runs, fmt = v => v == null ? '–' : v + 's';
   const stat = (k, v, sub) => `<div class="kpi"><span>${k}</span><b style="font-size:20px">${v}</b><small>${sub||''}</small></div>`;
@@ -1949,6 +2602,52 @@ async function renderModels(){
       <td><select style="width:280px" ${isHermes?'disabled':''} onchange="setModelOv('${a.id}', {engine:'atlas', model:this.value, provider:'openrouter'})">${opts(a.model)}</select></td>
       <td class="model">${esc(a.model || '(default)')}</td></tr>`;
   }).join('') + `</table><p class="hint" style="margin-top:8px">Paid models need OpenRouter credits. The Hermes Agent runtime uses the desk's Hermes connector (or the global instance) and brings its own browser, terminal, memory and skills.</p>`;
+}
+let BYO = null;
+async function loadByo(){
+  const did = (CFG.desk || {}).id, el = document.getElementById('setup-byo'); if (!did || !el) return;
+  BYO = await api(`/desks/${did}/providers`); if (!BYO || BYO.error) { el.innerHTML = '<div class="empty">Could not load.</div>'; return; }
+  const on = BYO.default, have = Object.fromEntries(BYO.entries.map(e => [e.name, e]));
+  el.innerHTML = `<div class="hint" style="margin:0 0 10px">${on ? `Agents run on <b>your ${esc((have[on]||{}).label || on)}</b> account.` : 'Agents run on the house models' + (BYO.house_reason ? ` — <span style="color:var(--danger)">${esc(BYO.house_reason)}</span>` : '') + '. Add your own account below and they run (and bill) on yours instead.'}</div>`
+    + BYO.presets.map(p => { const e = have[p.id], isOn = on === p.id;
+      return `<div class="byorow ${isOn ? 'on' : ''}">
+        <div class="bt"><b>${esc(p.label)}</b>${e ? ` <span class="tag ${isOn?'done':''}">${isOn ? 'in use' : 'saved'}</span><span class="model"> key ${esc(e.key_hint)}${e.model ? ' · ' + esc(e.model) : ''}</span>` : ''}
+          ${e && e.last_test ? `<small class="model" style="color:${e.last_test.ok ? 'var(--ok)' : 'var(--danger)'}"> · test ${e.last_test.ok ? 'passed' : 'failed'}: ${esc(String(e.last_test.note).slice(0, 90))}</small>` : ''}</div>
+        <div class="row" style="gap:6px;flex-wrap:wrap">
+          <input id="byo-k-${p.id}" type="password" placeholder="${e ? 'key saved — paste to replace' : p.key_hint}" style="width:230px" autocomplete="off">
+          ${p.needs_url ? `<input id="byo-u-${p.id}" placeholder="https://your-box:8000/v1" style="width:220px">` : ''}
+          <input id="byo-m-${p.id}" list="byo-ml-${p.id}" placeholder="model · default ${esc(p.default_model || 'from the server')}" value="${e ? esc(e.model) : ''}" style="width:220px">
+          <datalist id="byo-ml-${p.id}">${p.models.map(m => `<option value="${esc(m)}">`).join('')}</datalist>
+          <button class="btn sm p" onclick="byoSave('${p.id}')">${e ? 'Update' : 'Connect'}</button>
+          ${e ? `<button class="btn sm" onclick="byoTest('${p.id}', this)">Test</button>` : ''}
+          ${e && !isOn ? `<button class="btn sm" onclick="byoDefault('${p.id}')">Use for this desk</button>` : ''}
+          ${e && isOn ? `<button class="btn sm" onclick="byoDefault('')">Back to house models</button>` : ''}
+          ${e ? `<button class="btn sm d" onclick="byoDel('${p.id}')">Remove</button>` : ''}
+        </div></div>`; }).join('');
+}
+async function byoSave(preset){
+  const did = (CFG.desk || {}).id;
+  const r = await api(`/desks/${did}/providers`, {method: 'POST', body: {preset, api_key: $(`#byo-k-${preset}`).value,
+    model: $(`#byo-m-${preset}`).value, base_url: ($(`#byo-u-${preset}`) || {}).value || '', make_default: true}});
+  if (!r || r.error) return toast(r?.error || 'failed');
+  toast('Saved. Run a test to confirm the key works.'); await loadCfg(); loadByo();
+}
+async function byoTest(preset, btn){
+  const did = (CFG.desk || {}).id; if (btn) { btn.disabled = true; btn.textContent = 'Testing…'; }
+  const r = await api(`/desks/${did}/providers/${preset}/test`, {method: 'POST', body: {}});
+  toast(r && r.ok ? 'Key works: ' + (r.note || '') : 'Test failed: ' + ((r && r.note) || 'no reply')); loadByo();
+}
+async function byoDefault(name){
+  const did = (CFG.desk || {}).id;
+  const r = await api(`/desks/${did}/providers/default`, {method: 'POST', body: {name}});
+  if (!r || r.error) return toast(r?.error || 'failed');
+  toast(name ? 'This desk now runs on your account' : 'Back on the house models'); await loadCfg(); loadByo(); renderModels();
+}
+async function byoDel(preset){
+  const did = (CFG.desk || {}).id;
+  const r = await api(`/desks/${did}/providers/${preset}`, {method: 'DELETE'});
+  if (!r || r.error) return toast(r?.error || 'failed');
+  toast('Removed'); await loadCfg(); loadByo();
 }
 async function setTier(t){
   const did = (CFG.desk || {}).id; if (!did) return;

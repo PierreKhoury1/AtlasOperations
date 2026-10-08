@@ -34,6 +34,12 @@ CREATE TABLE IF NOT EXISTS actions (
   subject TEXT, body TEXT, reason TEXT, status TEXT DEFAULT 'pending', decided_at REAL, decided_by TEXT, note TEXT,
   flags TEXT DEFAULT '', desk_id INTEGER DEFAULT 1
 );
+CREATE TABLE IF NOT EXISTS messages (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, desk_id INTEGER DEFAULT 1, contact_key TEXT, channel TEXT, dir TEXT,
+  addr TEXT, actor TEXT DEFAULT '', subject TEXT DEFAULT '', body TEXT DEFAULT '', status TEXT DEFAULT 'sent',
+  ts REAL, run_id TEXT DEFAULT '', action_id INTEGER DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS ix_messages_desk ON messages(desk_id, contact_key, ts);
 CREATE TABLE IF NOT EXISTS users (
   id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT UNIQUE, name TEXT, company TEXT, pw_hash TEXT, created REAL, last_login REAL
 );
@@ -996,6 +1002,70 @@ class Store:
             (desk_id, q, q, q))
         return _rows(cur)
 
+    @staticmethod
+    def message_key(addr: str) -> str:
+        """One key per customer across channels: a lowercased email, or '+' and the digits of a phone number."""
+        a = (addr or "").strip()
+        if a.lower().startswith("ig:"):                  # an Instagram-scoped sender id keeps its own namespace
+            return a.lower()
+        if "@" in a:
+            return a.lower()
+        digits = "".join(ch for ch in a if ch.isdigit())
+        return ("+" + digits) if digits else a.lower()
+
+    def contact_for(self, addr: str, desk_id: int = 1) -> dict[str, Any] | None:
+        """The contact an address belongs to: email matched exactly, phones matched on their digits."""
+        a = (addr or "").strip()
+        if not a:
+            return None
+        if "@" in a:
+            rows = _rows(self._conn.execute("SELECT * FROM contacts WHERE desk_id=? AND lower(email)=lower(?) LIMIT 1", (desk_id, a)))
+            return rows[0] if rows else None
+        digits = "".join(ch for ch in a if ch.isdigit())
+        if not digits:
+            return None
+        for c in _rows(self._conn.execute("SELECT * FROM contacts WHERE desk_id=? AND phone IS NOT NULL AND phone != ''", (desk_id,))):
+            if "".join(ch for ch in str(c["phone"]) if ch.isdigit()) == digits:
+                return c
+        return None
+
+    def add_message(self, channel: str, direction: str, addr: str, body: str, subject: str = "", actor: str = "",
+                    status: str = "sent", run_id: str = "", action_id: int = 0, desk_id: int = 1, ts: float | None = None) -> int:
+        with self._lock:
+            self._conn.execute(
+                "INSERT INTO messages(desk_id,contact_key,channel,dir,addr,actor,subject,body,status,ts,run_id,action_id) "
+                "VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+                (desk_id, self.message_key(addr), channel, direction, (addr or "").strip(), actor or "", subject or "",
+                 (body or "")[:8000], status, ts if ts is not None else time.time(), run_id or "", int(action_id or 0)))
+            mid = self._conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+            self._conn.commit()
+        return int(mid)
+
+    def messages(self, contact_key: str, limit: int = 300, desk_id: int = 1) -> list[dict[str, Any]]:
+        return _rows(self._conn.execute("SELECT * FROM messages WHERE desk_id=? AND contact_key=? ORDER BY ts DESC, id DESC LIMIT ?",
+                                        (desk_id, contact_key, limit)))[::-1]
+
+    def message_threads(self, desk_id: int = 1, limit: int = 120) -> list[dict[str, Any]]:
+        """Newest message per customer, with the conversation's size and channels."""
+        rows = _rows(self._conn.execute(
+            "SELECT * FROM messages WHERE desk_id=? ORDER BY ts DESC, id DESC LIMIT 4000", (desk_id,)))
+        out: dict[str, dict[str, Any]] = {}
+        for m in rows:
+            t = out.get(m["contact_key"])
+            if not t:
+                if len(out) >= limit:
+                    continue
+                out[m["contact_key"]] = t = {**m, "count": 0, "channels": [], "last_in_ts": 0.0}
+            t["count"] += 1
+            if m["channel"] not in t["channels"]:
+                t["channels"].append(m["channel"])
+            if m["dir"] == "in" and m["ts"] > t["last_in_ts"]:
+                t["last_in_ts"] = m["ts"]
+        return list(out.values())
+
+    def message_count(self, desk_id: int = 1) -> int:
+        return int(self._conn.execute("SELECT COUNT(*) FROM messages WHERE desk_id=?", (desk_id,)).fetchone()[0])
+
     def upsert_contact(self, contact: str, fields: dict[str, Any], desk_id: int = 1) -> dict[str, Any]:
         contact = (contact or "").strip()
         fields = {k: v for k, v in (fields or {}).items() if k in ("name", "company", "email", "phone", "stage", "notes", "next_action")}
@@ -1166,6 +1236,11 @@ class DeskStore:
     def events(self, run_id): return self.s.events(run_id)
     def contacts(self, query=""): return self.s.contacts(query, self.desk_id)
     def upsert_contact(self, contact, fields): return self.s.upsert_contact(contact, fields, self.desk_id)
+    def contact_for(self, addr): return self.s.contact_for(addr, self.desk_id)
+    def add_message(self, channel, direction, addr, body, **k): return self.s.add_message(channel, direction, addr, body, desk_id=self.desk_id, **k)
+    def messages(self, contact_key, limit=300): return self.s.messages(contact_key, limit, self.desk_id)
+    def message_threads(self, limit=120): return self.s.message_threads(self.desk_id, limit)
+    def message_count(self): return self.s.message_count(self.desk_id)
     def add_action(self, run_id, agent, kind, to, subject, body, reason, flags=""):
         return self.s.add_action(run_id, agent, kind, to, subject, body, reason, self.desk_id, flags)
     def actions(self, status="", limit=200): return self.s.actions(status, limit, self.desk_id)

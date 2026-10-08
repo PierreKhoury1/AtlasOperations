@@ -52,7 +52,7 @@ def _camera_pool() -> "ThreadPoolExecutor":
             _pool = ThreadPoolExecutor(max_workers=max(1, CAMERA_WORKERS), thread_name_prefix="camera")
         return _pool
 MIN_CAMERA_S = 5                                         # fastest camera_watch cadence (the portal allows every_s >= 5)
-LIVE = lambda: True                                       # replaced by the app: is this desk on live models?
+LIVE = lambda desk=None: True                             # replaced by the app: is this desk on live models?
 BASE_URL = lambda: ""                                     # replaced by the app: public URL for snapshot links
 DISPATCH = None                                           # replaced by the app: send an approved action for real
 LEAD_RUN = None                                           # replaced by the app: work a new lead as an enquiry case
@@ -847,6 +847,7 @@ def _run_job(store, job: dict[str, Any], start_run: Callable, desk_for: Callable
         started = []
         cases_on = C.enabled(desk, "lead_cases") and LEAD_RUN is not None and start_run is C.START_RUN
         for m in mails:
+            ds.add_message("email", "in", m["from_email"], m["body"], subject=m["subject"], actor=m["from_name"] or m["from_email"])
             open_ = C.match_open(store, desk["id"], email=m["from_email"]) if cases_on else None
             if open_:                                    # a reply to a conversation the desk is already having
                 rid = C.inbound_reply(store, desk, open_, "email", f"Subject: {m['subject']}\n\n{m['body']}",
@@ -856,7 +857,8 @@ def _run_job(store, job: dict[str, Any], start_run: Callable, desk_for: Callable
                 continue
             lid = ds.add_lead(m["from_name"], "", m["from_email"], "", "email",
                               f"Subject: {m['subject']}\n\n{m['body']}")
-            ds.upsert_contact(m["from_email"], {"name": m["from_name"], "email": m["from_email"], "stage": "New", "notes": "Inbound email"})
+            if not ds.contact_for(m["from_email"]):      # an existing customer keeps their stage and notes
+                ds.upsert_contact(m["from_email"], {"name": m["from_name"], "email": m["from_email"], "stage": "New", "notes": "Inbound email"})
             if cases_on:
                 rid = LEAD_RUN(desk, lid)
             else:
@@ -895,7 +897,7 @@ def _run_job(store, job: dict[str, Any], start_run: Callable, desk_for: Callable
             cams = [c for c in cams if c["name"] == spec["connector"]]
         if not cams:
             return "no camera connector"
-        live = bool(LIVE())
+        live = bool(LIVE(desk))
         out = []
         for c in cams:
             try:

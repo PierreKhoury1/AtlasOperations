@@ -61,7 +61,9 @@ Design rules
   member) only when the work naturally splits into parallel strands with their own coordinator (a research pod over
   several markets, one writer per channel). Flat is the default.
 - 2-6 specialist agents, each defined by its FUNCTIONS, not by text. Every agent needs at least one tool that acts;
-  a role that would only write text belongs to Atlas. Each agent: short id (a-z, _), name, role (3-6 words), goal
+  a role that would only write text belongs to Atlas. Each agent: short id (a-z, _), name = a plain job title a
+  colleague would carry on a badge ("Bookings Manager", "Enquiry Responder", "Floor Watcher" - never a slug, an
+  acronym or anything technical), role (3-6 words), goal
   (ONE line, max 100 characters), tools (subset of: record_find / record_get / record_save = the desk's business
   records, crm_lookup, web_fetch, browse = a real browser, calendar_free_slots, camera_ask / camera_events /
   camera_look, run_python, recall, read_file, list_files, save_deliverable),
