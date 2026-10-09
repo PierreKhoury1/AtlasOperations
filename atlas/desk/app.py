@@ -3606,9 +3606,12 @@ def api_vision_ask():
     scores = res.get("scores") or {}
     best = sorted(res["evidence"], key=lambda r: -scores.get(int(r["id"]), 0))       # best match first for the follow-ups
     cams = [c["name"] for c in store.connectors(desk["id"]) if c["kind"] == "camera"]
+    win = RAG.parse_time_window(q)          # a time named in the question wins over `hours` in the search: widen it in words
+    span = (win[1] - win[0]) / 3600 if win else hours
+    steps = NS.camera_answer(q, best, span, cams, pinned=bool(win), camera=str(d.get("camera") or ""))
     return jsonify({"answer": res["answer"], "evidence": [_vev_public(r) for r in res["evidence"]], "mode": _mode(),
                     "events_considered": res["events_considered"], "retrieval": res["retrieval"],
-                    "next": NS.normalise([], NS.camera_answer(q, best, hours, cams), allow=NS.RUN)})
+                    "next": NS.normalise([], steps, allow=NS.RUN)})
 
 
 @app.route("/hook/<token>/vision", methods=["GET", "POST"])

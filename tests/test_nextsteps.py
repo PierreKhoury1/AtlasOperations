@@ -187,7 +187,7 @@ def test_camera_answer_follows_the_evidence():
     c = _ok(NS.camera_answer("Was anything left behind?", ev, 24, ["till", "yard"]), NS.RUN)
     at = time.strftime("%H:%M", time.localtime(ts))
     assert c[0] == {"label": f"Ask what happened around {at}", "detail": "The minutes either side, on the till camera", "action": "ask",
-                    "question": f"What happened on the till camera in the minutes around {at}?", "hours": 24}
+                    "question": f"What happened on the till camera in the minutes around {at}?", "hours": 24, "camera": "till"}
     assert c[1]["action"] == "live" and c[1]["camera"] == "till"
     assert c[2]["action"] == "job" and "Was anything left behind?" in c[2]["job"]
     none = _ok(NS.camera_answer("Was anything left behind?", [], 24, ["till"]), NS.RUN)
@@ -403,7 +403,7 @@ def test_legacy_studio_chip_still_builds_and_chips_stay_short():
         DS.reply(s, text)
     r3 = DS.reply(s, "Warm tone, never quote prices")
     assert r3["ready"] is True and r3["next"][0]["label"] == "Build the desk now" and r3["next"][0]["action"] == "build"
-    assert r3["suggestions"] == ["Approve & build", "Add a second workflow that chases quotes nobody answered.", "Explain the approval flow"]
+    assert r3["suggestions"] == ["Approve & build", "Add a weekly summary for me", "Explain the approval flow"]   # the sketch has its chaser
     assert re.match(r"approve", r3["suggestions"][0], re.I)
     for steps in (NS.greeting(True), NS.design_fallback(BP, True), NS.design_fallback(BP, False), NS.design_fallback(BP, False, "answer")):
         assert all(len(c) <= 60 for c in NS.labels(NS.normalise([], steps, allow=NS.DESIGN)))
@@ -519,6 +519,15 @@ def test_vision_ask_carries_camera_next(client):
     assert "when did the lorry come?" in r["next"][2]["job"]
     empty = J(c.post("/api/vision/ask", json={"question": "was the gate open?", "hours": 1, "camera": "nope"}))
     assert empty["evidence"] == [] and empty["next"][0]["hours"] == 168 and empty["next"][1]["camera"] == "yard"
+    assert "camera" not in empty["next"][0]                                   # a camera this desk does not have is no filter
+    # a question that names its own time: the search keeps to it whatever the hours, so the wider window is asked in words
+    pinned = J(c.post("/api/vision/ask", json={"question": "Was the gate open yesterday?", "hours": 24, "camera": "yard"}))
+    assert pinned["retrieval"]["window"] == "yesterday" and pinned["evidence"] == []
+    wide = pinned["next"][0]
+    assert wide == {"label": "Ask about the last 7 days", "detail": "A recap over the longer window, with times", "action": "ask",
+                    "question": "What happened on the yard camera in the last 7 days? Give times.", "hours": 168, "camera": "yard"}
+    again = J(c.post("/api/vision/ask", json={"question": wide["question"], "hours": wide["hours"], "camera": wide["camera"]}))
+    assert again["retrieval"]["window"] == "last 7 days" and again["evidence"]                # the step really widens the search
 
 
 def test_design_state_keeps_next_through_layout_canvas_tier_study_and_build(client, monkeypatch):
@@ -569,3 +578,181 @@ def test_design_state_keeps_next_through_layout_canvas_tier_study_and_build(clie
     assert o["next"][0]["label"] == "Run a sample job across the team"        # no workflow designed: none borrowed from a template
     assert o["next"][1] == {"label": "Connect the back-door camera", "detail": "Atlas planned it; add the stream address or a recording",
                             "action": "camera", "camera": "back-door"}
+# ------------------------------------------------------------------ review 10 Oct (UI port): backend minors
+@pytest.mark.parametrize("opps", [3, True, "Fill the gaps", {"title": "Fill the gaps"}, None, 0.5])
+def test_a_profile_whose_opportunities_are_not_a_list_still_seeds_the_draft(opps):
+    """Minor: apply_profile iterated "opportunities" unchecked, so a model profile with "opportunities": 3 or true raised
+    TypeError and the study ended in an error event. Any non-list is no opportunities; non-text openings and names go."""
+    s = DS.new_session("demo")
+    s.apply_profile({"name": "Kite Yoga", "opening_message": "I read your site.", "source": "model", "opportunities": opps})
+    assert len(s.next) == 3 and s.transcript[0]["text"] == "I read your site." and s.suggestions == NS.labels(s.next)
+    for bad in (["not", "text"], 7, "   ", None):
+        s.apply_profile({"name": 5, "opening_message": bad, "opportunities": opps,
+                         "blueprint": {"agents": [{"id": "w", "name": "Writer", "role": "Writes replies"}]}})
+        assert s.transcript[0]["text"] == DS.GREETING and s.messages[0]["content"] == DS.GREETING
+        assert s.blueprint and s.blueprint["business"].get("name", "") == "" and len(s.next) == 3
+
+
+def test_blank_looking_labels_go_and_joined_scripts_stay():
+    """Minors: a label made only of Hangul fillers, ZWNJ, the braille blank and other default-ignorable characters
+    passed as a blank-looking step; one starting with such a character escaped the paid-wording rule; and _EMOJI
+    rejected any label holding a ZWJ, which Devanagari and Malayalam are shaped with."""
+    for blank in ("\u3164\u3164", "\u200c\u200c", "\u115f\u1160", "\u034f\u034f", "\u180e\u180e", "\u2800\u2800", "\uffa0\uffa0",
+                  "\u17b4\u17b5", "\u200d\u200c\u200d", "\u200c.\u200c", "\U0001d173\U0001d174", "\ufff0\ufff1"):
+        assert NS.clean({"label": blank}) is None, repr(blank)
+        assert NS.clean({"label": "Go on", "detail": blank}) == {"label": "Go on", "action": "say", "say": "Go on"}
+    devanagari = "\u0915\u094d\u200d\u0937 \u0915\u0947 \u0932\u093f\u090f \u091c\u0935\u093e\u092c"
+    malayalam = "\u0d28\u0d4d\u200d \u0d15\u0d47\u0d33 \u0d2e\u0d31\u0d41\u0d2a\u0d1f\u0d3f"
+    for text in (devanagari, malayalam):
+        assert NS.clean({"label": text}) == {"label": text, "action": "say", "say": text}
+    assert NS.clean({"label": "Hi \U0001F469\u200d\U0001F4BB"}) is None                     # an emoji ZWJ sequence is still emoji
+    assert NS.clean({"label": "Mark it \u2714\ufe0f"}) is None and NS.clean({"label": "Route it \u2192 the writer"})["label"].endswith("writer")
+    # the paid switch's words, behind a joiner or a blank: read as the switch (dropped for other actions, made the real step for say)
+    assert NS.clean({"label": "\u200cSwitch to the paid model", "action": "camera", "camera": ""}) is None
+    assert NS.clean({"label": "\u3164Switch to the paid model", "action": "job", "job": "x"}) is None
+    for say in ("\u180eSwitch to the paid model", "\u200dSwitch\u200c to the paid model, then carry on", "\u2800switch to the PAID model"):
+        assert NS.clean({"label": "Go on", "say": say}) == PAID
+    assert NS.clean({"label": "\u200c\u200dSwitch to the paid model"}) == PAID
+    # a blank-looking message, job, question or camera is no text: the label is sent, the bar is only focused
+    assert NS.clean({"label": "Go on", "say": "\u200c\u200d"}) == {"label": "Go on", "action": "say", "say": "Go on"}
+    assert NS.clean({"label": "Draft it", "action": "job", "job": "\u3164\u200c"})["job"] == ""
+    assert NS.clean({"label": "Who came in", "action": "ask", "question": "\u2800\u200d"})["question"] == "Who came in"
+    assert NS.clean({"label": "Watch the gate", "action": "live", "camera": "\u200c\u200d"}) is None
+    assert NS.clean({"label": "Watch camera 1", "action": "live", "camera": "1"})["camera"] == "1"        # a one-character name is a name
+
+
+def test_legacy_chips_never_repeat():
+    """Minor: normalise de-duplicated label against label and message against message, but one step's chip (its
+    message) could equal another step's chip (its label): two identical chips."""
+    steps = NS.normalise([{"label": "Yy", "say": "Hello there"}, {"label": "Hello there", "say": "Z" * 70}], [])
+    chips = NS.labels(steps)
+    assert chips[0] == "Hello there" and len({c.casefold().rstrip(".") for c in chips}) == 3 and len(steps) == 3
+    for items in ([{"label": "Build it", "action": "build"}, {"label": "Approve & build", "say": "x"}],
+                  [{"label": "Go deeper", "say": "Tell me more."}, {"label": "Tell me more", "say": "Something else entirely"}]):
+        chips = NS.labels(NS.normalise(items, [], allow=NS.DESIGN))
+        assert len({c.casefold().rstrip(".") for c in chips}) == 3, chips
+    for steps in (NS.greeting(True), NS.design_fallback(BP, True), NS.design_fallback(BP, False, "answer"),
+                  NS.desk_open("Acme", AGENTS, ["till"], 2, WF), NS.run_done("done", "Chase the invoice", 1, ["till"])):
+        chips = NS.labels(NS.normalise([], steps, allow=NS.ACTIONS))
+        assert len({c.casefold() for c in chips}) == 3
+
+
+@pytest.mark.parametrize("brief", ["We are Acme Estates and our enquiries get answered too slowly", "Proposals take us days to write",
+                                   "Our inbox needs triage every morning", "Our shop ships orders late"])
+def test_demo_turn_three_claims_only_what_its_sketch_has(brief):
+    """Minor (nothing fake): turn 3 of the scripted designer offered "a second workflow" chaser where the sketch already
+    ran one, and its prose claimed a reviewer and a scheduled chaser on sketches that have neither."""
+    s = DS.new_session("demo")
+    for text in (brief, "Mostly by email", "Warm tone, never pushy"):
+        r = DS.reply(s, text)
+    bp, text = r["blueprint"], r["text"]
+    sched = [w for w in bp["workflows"] if (w.get("trigger") or {}).get("kind") == "schedule"]
+    qa = [a for a in bp["agents"] if a["id"] == "qa"]
+    assert ("runs on a schedule" in text) == bool(sched) and ("checks every draft" in text) == bool(qa)
+    assert all(f'"{w["name"]}"' in text for w in sched) and "follow-up chaser runs" not in text
+    assert "second workflow" not in json.dumps(r["next"]).lower() and r["next"][0]["action"] == "build"
+    step = r["next"][1]
+    if sched:
+        assert step == {"label": "Add a weekly summary for me", "detail": "What the team did, what is waiting and what is stuck",
+                        "action": "say", "say": "Add a weekly summary for me: what the team did, what's waiting and what's stuck."}
+    else:
+        assert step["label"].startswith("Add a chaser for quiet") and step["detail"].startswith("A scheduled workflow")
+    assert not any(w["name"].lower().startswith("weekly") for w in bp["workflows"])           # what it offers is not there yet
+
+
+def test_camera_log_keepers_get_the_read_tools():
+    """Pre-existing (4e8cf02): a literal backspace stood where \b was meant in _CAM_READER, so "log" never matched and a
+    camera log keeper in a camera team could not read a single event. "log" counts as a word, never inside another."""
+    assert "\x08" not in DS._CAM_READER.pattern
+    for yes in ("Visitor log keeper", "Logs every arrival at the gate", "Keeps the gate logbook", "Event logger", "Logged deliveries"):
+        assert DS._CAM_READER.search(yes), yes
+    for no in ("Catalog manager", "Blog writer", "Dialog designer", "Login helper", "Technologist", "Backlog groomer"):
+        assert not DS._CAM_READER.search(no), no
+    plain = lambda i, n, r: {"id": i, "name": n, "role": r, "goal": "", "tools": ["read_file"]}
+    bp = DS.normalise({"agents": [{"id": "gate", "name": "Gate watcher", "role": "Camera watcher", "tools": ["camera_ask", "camera_events"]},
+                                  plain("keeper", "Visitor log keeper", "Keeps the visitor log"),
+                                  plain("cat", "Catalog manager", "Keeps the product catalog current"),
+                                  plain("blog", "Blog writer", "Writes the weekly blog post")],
+                       "cameras": [{"name": "gate", "source": "sample:none"}]})
+    tools = {a["id"]: set(a["tools"]) for a in bp["agents"]}
+    assert {"camera_events", "camera_ask"} <= tools["keeper"]
+    assert not (tools["cat"] | tools["blog"]) & set(DS._CAM_TOOLS)
+    assert {"camera_ask", "camera_events"} <= tools["gate"]
+
+
+def test_a_camera_called_camera_reads_as_one():
+    """Seen on desk 1 while porting the UI: its camera is named "camera", and the step read "Ask what camera saw today"."""
+    opened = NS.desk_open("Acme", AGENTS, ["camera"], 0, WF)
+    assert any(x["label"] == "Ask what the camera saw today" for x in opened)
+    assert NS.camera_answer("q?", [], 24, ["front camera"])[1]["label"] == "Check the feed of the front camera"
+    assert NS.camera_answer("q?", [], 24, ["Camera 1"])[1]["label"] == "Check the feed of Camera 1"
+    assert NS.camera_answer("q?", [], 24, ["lobby"])[1]["label"] == "Check the feed of the lobby camera"
+
+
+def test_the_workspace_draws_steps_as_text_and_switches_on_the_action():
+    """The UI port: workspace.js renders every step through textContent (no innerHTML, no inline handler) and switches
+    to paid models on action === "paid" only, never on the text a step or the owner sends."""
+    from pathlib import Path
+    static = Path(__file__).resolve().parent.parent / "atlas" / "desk" / "static"
+    js = (static / "workspace.js").read_text(encoding="utf-8")
+    block = js[js.index("next steps (start)"):js.index("next steps (end)")]
+    for bad in ("innerHTML", "outerHTML", "insertAdjacentHTML", "onclick=", "document.write", "eval("):
+        assert bad not in block, bad
+    assert "textContent" in block and "case 'paid':" in block and "setTier('balanced')" in block
+    assert not re.search(r"switch to the paid model", js, re.I)                     # no text test anywhere on the page
+    assert 'id="sugg"' not in (static / "workspace.html").read_text(encoding="utf-8")
+    # every action the server can send has an icon and a handler (no row that does nothing), and nothing else does
+    icons = re.search(r"const NX_ACT = \{(.*?)\};", block, re.S).group(1)
+    assert set(re.findall(r"(\w+): \['i-", icons)) == set(NS.ACTIONS)
+    run = block[block.index("async function runStep"):block.index("function prefillJob")]
+    assert set(re.findall(r"case '(\w+)':", run)) == set(NS.ACTIONS)
+    # the page re-checks an open step's href with the server's own rule
+    href = re.search(r"const DESK_HREF = /(.+?)/;", block).group(1).replace("\\/", "/")
+    assert href == NS.HREF.pattern
+    # a job step only fills the job bar: the run is the owner's Deploy (prefillJob never calls deploy)
+    fill = block[block.index("function prefillJob"):]
+    assert "deploy(" not in fill and "#job" in fill
+    # an ask step about one camera asks that camera only
+    assert "s.camera" in run[run.index("case 'ask':"):run.index("case 'paid':")] and "{question: text, hours, camera}" in js
+
+
+def test_camera_follow_ups_do_what_they_say():
+    """Found while exercising the UI on desk 13: (1) "Search the last 7 days instead" re-sent "What happened ... today?",
+    and a time named in the question wins over the hours in the journal search, so the step searched today again;
+    (2) "Ask the drive camera the same" said "only" but asked every camera, and asking it twice gave "On the drive
+    camera: On the drive camera: ..."; (3) "Ask what happened around 23:32" for a note weeks old searched the latest
+    23:32, a day with nothing in it."""
+    q = "What happened on the cameras today? Give times."
+    wide = NS.normalise([], NS.camera_answer(q, [], 20, ["carpark", "drive"], pinned=True), allow=NS.RUN)[0]
+    assert wide == {"label": "Ask about the last 7 days", "detail": "A recap over the longer window, with times", "action": "ask",
+                    "question": "What happened on the carpark and drive cameras in the last 7 days? Give times.", "hours": 168}
+    plain = NS.normalise([], NS.camera_answer("Was the gate open?", [], 24, ["carpark"]), allow=NS.RUN)[0]
+    assert plain["label"] == "Search the last 7 days instead" and plain["question"] == "Was the gate open?" and plain["hours"] == 168
+    assert NS.camera_answer(q, [], 720, ["carpark"], pinned=True)[0]["action"] == "camera"      # nothing wider than 30 days
+    other = NS.normalise([], NS.camera_answer("On the drive camera: " + q, [], 24, ["carpark", "drive"], camera="drive"), allow=NS.RUN)
+    ask = next(x for x in other if x["label"] == "Ask the carpark camera the same")
+    assert ask["question"] == "On the carpark camera: " + q and ask["camera"] == "carpark"           # one prefix, that camera only
+    assert other[0]["camera"] == "drive" and other[1]["camera"] == "drive"                          # widen and the feed: the camera asked
+    now = time.time()
+    fresh = NS.camera_answer("Was anything left?", [{"id": 1, "camera": "till", "ts": now - 600}], 24, ["till"])
+    stale = NS.camera_answer("Was anything left?", [{"id": 1, "camera": "till", "ts": now - 16 * 86400}], 720, ["till"])
+    assert fresh[0]["label"].startswith("Ask what happened around") and fresh[0]["camera"] == "till"
+    assert not any(x["label"].startswith("Ask what happened around") for x in stale)
+    assert [x["action"] for x in NS.normalise([], stale, allow=NS.RUN)] == ["live", "job", "open"]
+    # the ask step's camera: a name the desk has, plain text, at most 60 characters; blank or too long is no filter
+    assert NS.clean({"label": "Ask the gate", "action": "ask", "question": "q?", "camera": "gate"})["camera"] == "gate"
+    assert "camera" not in NS.clean({"label": "Ask the gate", "action": "ask", "question": "q?", "camera": "‌‍"})
+    assert "camera" not in NS.clean({"label": "Ask the gate", "action": "ask", "question": "q?", "camera": "g" * 61})
+    assert "camera" not in NS.camera_answer("q?", [], 24, ["yard"], camera="nope")[0]
+
+
+def test_study_with_malformed_opportunities_still_ends_done(client, monkeypatch):
+    """The study SSE ended in {t: error} when the model's profile had "opportunities": 3; now it ends done, seeded."""
+    import atlas.study as ST
+    _signup(client, "next-study@example.com", "Kite Co")
+    monkeypatch.setattr(ST, "study", lambda links, **k: {"name": "Kite Yoga", "opening_message": "I read your site.", "source": "model",
+                                                         "opportunities": 3, "suggestions": ["Something else"]})
+    sid = J(client.post("/api/design/start", json={}))["sid"]
+    ev = _done_event(client.post(f"/api/design/{sid}/study", json={"links": ["https://example.com"]}).data.decode())
+    assert ev["t"] == "done" and len(ev["next"]) == 3 and ev["next"][0]["label"] == "Something else"
+    assert J(client.get(f"/api/design/{sid}"))["next"] == ev["next"]

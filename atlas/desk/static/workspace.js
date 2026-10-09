@@ -128,8 +128,7 @@ async function boot(){
   W.sid = s.sid; W.mode = s.mode || W.mode; W.tier = s.tier || W.tier; loadView();
   try { localStorage.setItem('ws_sid', s.sid); } catch (_) {}
   if (q.has('new')) history.replaceState(null, '', '/desk/workspace?new=1&resume=1');
-  addMsg('a', (s.transcript && s.transcript[0] && s.transcript[0].text) || 'Describe the business and the work to take on.');
-  addBriefs(s.suggestions || []);
+  setNext(s.next, addMsg('a', (s.transcript && s.transcript[0] && s.transcript[0].text) || 'Describe the business and the work to take on.'));
   setDeskStatus(); loadMyDesks(); renderAll();
   if (W.liveReason) addMsg('s', 'no model key: ' + W.liveReason + ' (running the scripted designer)');
   tutStart(false, 'meet');
@@ -137,9 +136,11 @@ async function boot(){
 async function resumeDesign(s, from){
   W.sid = s.sid; W.mode = s.mode || W.mode; W.tier = s.tier || W.tier; loadView();
   (s.transcript || []).forEach(m => addMsg(m.role === 'user' ? 'u' : 'a', m.text || '', '', !m.ts, m.ts));
-  if ((s.transcript || []).some(m => m.role === 'user')) setSugg(s.suggestions || []); else addBriefs(s.suggestions || []);
+  W.lastSaid = ((s.transcript || []).filter(m => m.role === 'user').pop() || {}).text || '';   // what a paid switch resends
+  const lastA = [...document.querySelectorAll('#msgs > .m.a')].pop() || null;
   if (s.blueprint && (s.blueprint.agents || []).length) await applyBlueprint(s.blueprint, true);
   if ((s.transcript || []).length > 1) addMsg('s', (from === 'mine' ? 'draft continued from your last session' : 'draft restored') + (W.agents.size ? ` · Atlas + ${plural(W.agents.size, 'specialist')}: ${[...W.agents.values()].map(a => a.name).join(', ')}` : ''), 'assign');
+  setNext(s.next, lastA);                                                  // the saved steps of the last reply, as they were
   $('#build-btn').disabled = !(W.bp && (W.bp.agents || []).length);
   setDeskStatus(); loadMyDesks(); renderAll();
   tutStart(false, W.bp ? 'team' : 'meet');
@@ -161,6 +162,7 @@ async function openBuiltDesk(cfg){
   if (W.cams.size) startCamPoll();
   setMode(liveCams() ? 'ask' : 'job');                           // asking the cameras is the default only while one is live
   W.greetEl = addMsg('a', greeting()); W.greetEl.classList.add('greet'); msgsEnd();   // kept current until the owner's first message
+  loadNext({context: 'desk_open'}, W.greetEl);                   // the desk's own three ways to proceed (its approvals, workflows, cameras)
   loadLatestRun();
   tutStart(false, W.cams.size ? 'watching' : 'built');
 }
@@ -198,37 +200,148 @@ function engineLabel(a){
 
 /* ------------------------------------------------------------------ chat */
 function addMsg(role, text, cls, noTime, ts){
+  if (role === 'a') retireNext();                                         // a new reply: the last one's offers are history
   const d = document.createElement('div'); d.className = 'm ' + role + (cls ? ' ' + cls : '');
   d.dataset.who = role === 'u' ? 'You' : (role === 'a' ? 'Atlas' : ''); d.dataset.t = noTime ? '' : (ts ? fmtTs(ts, true) : hhmmss()) + ' UTC';
   if (role === 'a') { d.classList.add('md'); d.innerHTML = md(text); } else d.textContent = text;
   $('#msgs').appendChild(d); msgsEnd(); return d;
 }
 // the conversation shows its newest line; Atlas's opening status, alone and taller than the panel, shows from its heading
-function msgsEnd(){ const m = $('#msgs'); const lone = W.greetEl && W.greetEl.isConnected && !W.greetDone && m.children.length === 1; m.scrollTop = lone ? 0 : 1e9; }
-function setSugg(list){
-  W.suggFns = [];
-  $('#sugg').innerHTML = (list || []).filter(Boolean).map((s, i) => { if (typeof s === 'object') { W.suggFns[i] = s.run; return `<button onclick="suggRun(${i})">${esc(s.label)}</button>`; }
-    return `<button onclick="send(${jsa(s)})">${esc(s)}</button>`; }).join('');
-}
-// a brand-new desk: the ways to start, as cards in the thread (each one sends that brief to Atlas)
-function addBriefs(list){
-  const old = $('#briefs'); if (old) old.remove();
-  const items = (list || []).filter(t => typeof t === 'string' && t.trim()); setSugg([]);
-  if (!items.length) return;
-  const d = document.createElement('div'); d.id = 'briefs'; d.className = 'briefs';
-  d.innerHTML = `<div class="gk">Start from a brief</div>` + items.map(t => `<button class="brief" onclick="send(${jsa(t)})"><svg class="i"><use href="#${/camera|footage|cctv/i.test(t) ? 'i-cam' : 'i-send'}"/></svg><span>${esc(t)}</span><svg class="i i14 go"><use href="#i-chev"/></svg></button>`).join('');
-  $('#msgs').appendChild(d); $('#atlas-panel').classList.add('briefing');
-}
-function dropBriefs(){ const b = $('#briefs'); if (b) b.remove(); $('#atlas-panel').classList.remove('briefing'); }
-function suggRun(i){ const f = (W.suggFns || [])[i]; if (f) f(); }
+function msgsEnd(){ const m = $('#msgs'); const lone = W.greetEl && W.greetEl.isConnected && !W.greetDone && !NX.box && m.children.length === 1; m.scrollTop = lone ? 0 : 1e9; }
 function sayKey(ev){ if (ev.key === 'Enter' && !ev.shiftKey) { ev.preventDefault(); send(); } }
-const CAM_QUESTIONS = ['What happened in the last 10 minutes?', 'Was anything left behind?', 'Who waited the longest?', 'Describe everyone who came in'];
-const MODE_PH = {ask: 'Ask about what the cameras recorded', job: 'Describe a job for the team: it starts a run', change: 'Describe a change to the team: Atlas proposes it on the Team canvas'};
-function modeSugg(m){
-  if (m === 'ask') return CAM_QUESTIONS;
-  if (m === 'job') return W.cams.size ? ['Summarise what the cameras saw today', 'Write a safety report for the last 24 hours'] : ['Draft a reply to the newest enquiry', "Prepare tomorrow's staff briefing"];
-  return ['Add a reviewer who checks every report before it goes out', 'Email me a report of the day every evening'];
+
+/* ------------------------------------------------------------------ next steps (start)
+   Every Atlas reply ends with the server's three ways to proceed (atlas/nextsteps.py: {label, detail?, action, ...}),
+   drawn under it as rows exactly as sent: never topped up, never reworded. Only the newest block is live; it goes as soon
+   as the owner sends anything or Atlas answers again. Step text reaches the page only through textContent and DOM
+   properties (no HTML parsing, no inline handler). A "job" step only fills the job bar: Deploy stays the owner's press,
+   and "paid" switches the tier only on its own click, through the tier endpoint. */
+const NX = {box: null, steps: [], seq: 0};
+const NX_ACT = {say: ['i-send', 'chat'], build: ['i-build', 'spark'], job: ['i-run', 'play'], camera: ['i-cam', 'camera'], live: ['i-eye', 'camera'],
+  approvals: ['i-inbox', 'check'], ask: ['i-search', 'search'], paid: ['i-tier', 'gear'], open: ['i-go', 'chev']};   // [sprite icon, palette icon]
+const DESK_HREF = /^\/desk(?:[/?#][A-Za-z0-9_\-/=&?#.]*)?$/;                   // the server's rule (nextsteps.HREF), checked again here
+const nxEl = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = String(text); return e; };
+function nxIcon(id){
+  const ns = 'http://www.w3.org/2000/svg', s = document.createElementNS(ns, 'svg'), u = document.createElementNS(ns, 'use');
+  s.setAttribute('class', 'i i14'); s.setAttribute('aria-hidden', 'true'); u.setAttribute('href', '#' + id); s.appendChild(u); return s;
 }
+const lastAtlas = () => [...document.querySelectorAll('#msgs > .m.a')].pop() || null;
+function retireNext(){
+  NX.seq++;                                                                // a reply still on its way for the old block is dropped
+  if (NX.box) {                                                            // keyboard focus on a row goes back to the composer (not on touch: no keyboard popping up)
+    const had = NX.box.contains(document.activeElement); NX.box.remove();
+    if (had && !matchMedia('(pointer: coarse)').matches) $('#say').focus({preventScroll: true});
+  }
+  NX.box = null; NX.steps = []; NX.going = false;                         // the rows of a step still in flight are gone with it
+}
+// list: the server's steps for the reply `anchor`; or the page's own choices ({label, detail, icon, run}) under a notice
+function setNext(list, anchor, head){
+  retireNext();
+  const steps = (Array.isArray(list) ? list : []).filter(s => s && typeof s === 'object' && typeof s.label === 'string' && s.label.trim()
+    && (typeof s.run === 'function' || NX_ACT[s.action])).slice(0, 3);
+  if (!steps.length || !anchor || !anchor.isConnected) return null;
+  const box = nxEl('div', 'nx'), rows = nxEl('div', 'nx-l');
+  head = head || (W.phase === 'meet' && !document.querySelector('#msgs > .m.u') ? 'Ways to start' : 'Next steps');
+  box.setAttribute('role', 'group'); box.setAttribute('aria-label', head);
+  box.append(nxEl('div', 'nx-h', head), rows);
+  steps.forEach((s, i) => {
+    const own = typeof s.run === 'function', b = nxEl('button', 'nx-r'), t = nxEl('span', 'nx-t');
+    b.type = 'button'; b.dataset.a = own ? 'local' : s.action;
+    t.append(nxEl('span', 'nx-lb', s.label));
+    if (typeof s.detail === 'string' && s.detail) t.append(nxEl('span', 'nx-d', s.detail));
+    b.append(nxIcon(own ? s.icon || 'i-go' : NX_ACT[s.action][0]), t);          // the icon says what a click does (the server's action)
+    b.addEventListener('click', () => pickNext(i));
+    rows.append(b);
+  });
+  $('#msgs').appendChild(box);
+  NX.box = box; NX.steps = steps;
+  fitNext(); msgsBottom();
+  return box;
+}
+// a short conversation (the right stack beside a built desk): one line per row, the label whole and the detail after it
+// when most of it fits (else only in the row's tooltip), so the three rows and the end of the reply above them stay in
+// view. Where there is room the detail wraps in full under its label.
+function fitNext(){
+  const box = NX.box, m = $('#msgs'); if (!box || !m.clientHeight) return;
+  box.classList.remove('tight'); box.querySelectorAll('.nx-d.gone').forEach(d => d.classList.remove('gone'));
+  box.classList.toggle('tight', box.offsetHeight > m.clientHeight * .6);
+  box.querySelectorAll('.nx-r').forEach(b => {
+    const d = b.querySelector('.nx-d'); if (!d) { b.title = ''; return; }
+    if (box.classList.contains('tight') && (d.clientWidth < 100 || d.clientWidth < d.scrollWidth * .6)) d.classList.add('gone');   // no stub of a detail
+    b.title = d.classList.contains('gone') || d.scrollWidth > d.clientWidth + 1 ? d.textContent : '';
+  });
+}
+if (window.ResizeObserver) new ResizeObserver(() => { if (NX.box) { fitNext(); if (W.msgsPinned) msgsEnd(); } }).observe(document.getElementById('msgs'));
+// run mode asks the desk for its steps: {context: 'desk_open'} when the desk opens, {context: 'run_done', run_id} after a job
+async function loadNext(body, anchor){
+  const seq = NX.seq; let r = null;
+  try { r = await api('/next', {method: 'POST', body}); } catch (_) {}
+  if (seq !== NX.seq || !anchor || anchor !== lastAtlas() || !r || !Array.isArray(r.next)) return;   // the owner moved on, or Atlas answered again
+  setNext(r.next, anchor);
+}
+async function pickNext(i){
+  const s = NX.steps[i], box = NX.box; if (!s || !box || NX.going) return;          // one step at a time: a double click never switches or sends twice
+  box.querySelectorAll('.nx-r').forEach((r, j) => r.classList.toggle('on', j === i));
+  NX.going = true;
+  try { return await (typeof s.run === 'function' ? s.run() : runStep(s)); } finally { NX.going = false; }
+}
+// the Atlas sheet (narrow workspaces, phones) steps aside when a step's result is on the page behind it
+function sheetAway(){ if (!$('#ws').classList.contains('dock')) closeAtlas(); }
+async function runStep(s){
+  const str = v => String(v ?? '');
+  switch (s.action) {
+    case 'say': return send(str(s.say) || s.label);
+    case 'build':
+      if (W.deskId) return toast('This desk is already built');
+      return W.bp && (W.bp.agents || []).length ? buildDesk() : toast('Build is available once Atlas has drafted a team');
+    case 'job': return prefillJob(str(s.job));
+    case 'camera': {
+      const name = str(s.camera), known = !!name && W.cams.has(name);
+      await openAttach(known ? name : null);
+      if (name && !known) $('#at-cam-name').value = name.slice(0, 60);     // a camera Atlas planned that nobody connected yet
+      return;
+    }
+    case 'live': { const k = W.cams.get(str(s.camera)); return k ? openLive(k.name) : toast(`No camera called ${str(s.camera)} on this desk`); }
+    case 'approvals': if (!W.deskId) return toast('Approvals start once the desk is built'); sheetAway(); return toggleApprovals();
+    case 'ask':
+      if (!W.deskId || W.phase !== 'run') return toast('The camera journal starts once the desk is built');
+      if (W.busy) return toast('Atlas is still answering');
+      return askCams(str(s.question) || s.label, false, s.hours, str(s.camera ?? ''));   // with a camera: that camera only
+    case 'paid': {                                                         // the click is the owner's consent to spend
+      if (W.tier !== 'free') return toast('This draft is already on paid models');
+      if (!await setTier('balanced')) return;
+      return W.lastSaid ? send(W.lastSaid) : toast('Paid models are on: send your message again');
+    }
+    case 'open': {
+      const href = str(s.href);
+      if (!DESK_HREF.test(href) || href.includes('..')) return toast('That link is outside Atlas');
+      if (W.deskId) await api(`/desks/${W.deskId}/select`, {method: 'POST', body: {}});   // Home opens on this desk
+      return location.assign(href);
+    }
+  }
+}
+// a job step fills the job bar and points at Deploy; it never starts the run (runs cost money)
+function prefillJob(text){
+  if (W.phase !== 'run' || !W.deskId) return toast('Jobs run once the desk is built');
+  sheetAway(); showTab('runs');
+  const j = $('#job'), b = $('#deploy-btn');
+  if (text) j.value = text;                                                // "" = just focus the bar
+  setTimeout(() => { j.focus({preventScroll: true}); j.setSelectionRange(0, 0); j.scrollLeft = 0; j.closest('.jobbar').scrollIntoView({block: 'nearest'}); }, 60);
+  b.classList.remove('cue'); void b.offsetWidth; b.classList.add('cue'); clearTimeout(prefillJob.t); prefillJob.t = setTimeout(() => b.classList.remove('cue'), 1600);
+  toast(text ? 'Job filled in: edit it, then press Deploy' : 'Type the job, then press Deploy');
+}
+// keyboard: Tab reaches the rows; the arrow keys move between them; Ctrl K lists them under "Next steps"
+document.getElementById('msgs').addEventListener('keydown', e => {
+  const r = e.target.closest && e.target.closest('.nx-r'); if (!r || !['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(e.key)) return;
+  const all = [...r.parentElement.children], i = all.indexOf(r);
+  const j = e.key === 'Home' ? 0 : e.key === 'End' ? all.length - 1 : Math.max(0, Math.min(all.length - 1, i + (e.key === 'ArrowDown' ? 1 : -1)));
+  e.preventDefault(); all[j].focus();
+});
+/* ------------------------------------------------------------------ next steps (end) */
+
+const MODE_PH = {ask: 'Ask about what the cameras recorded', job: 'Describe a job for the team: it starts a run', change: 'Describe a change to the team: Atlas proposes it on the Team canvas'};
+// first jobs worth trying on a desk with no run yet (the Current run panel's list)
+function firstJobs(){ return W.cams.size ? ['Summarise what the cameras saw today', 'Write a safety report for the last 24 hours'] : ['Draft a reply to the newest enquiry', "Prepare tomorrow's staff briefing"]; }
 // a built desk: the owner says what the message is for (ask the cameras, give a job, change the team); never guessed
 function setMode(m){
   if (m === 'design') m = 'change';
@@ -236,16 +349,15 @@ function setMode(m){
   W.modeSel = m;
   document.querySelectorAll('#as-modes button').forEach(b => { b.classList.toggle('on', b.dataset.m === m); if (b.dataset.m === 'ask') b.classList.toggle('hide', !W.cams.size); });
   $('#say').placeholder = MODE_PH[m] || MODE_PH.job;
-  setSugg(modeSugg(m));
 }
 function looksLikeQuestion(t){ return /\?\s*$/.test(t) || /^(who|what|when|where|why|how|was|were|did|does|do|is|are|has|have|had|can|could|any|anyone|anything)\b/i.test(t.trim()); }
 
 async function send(text){
-  text = (text || $('#say').value).trim(); if (!text) return;
-  W.greetDone = true;
+  const typed = typeof text !== 'string';
+  text = (typed ? $('#say').value : text).trim(); if (!text) return;
   if (W.busy) return toast('Atlas is still answering: your message stays in the box');
-  $('#say').value = '';
-  if (/^switch to the paid model/i.test(text) && W.sid && !W.deskId) { await setTier('balanced'); return send(W.lastSaid || ''); }
+  W.greetDone = true;
+  if (typed) $('#say').value = '';                                         // a clicked step leaves the owner's draft alone
   if (W.phase === 'run' || W.phase === 'load') {
     if (W.phase === 'load') return toast('The desk is still loading');
     const m = W.modeSel || 'job';
@@ -253,14 +365,15 @@ async function send(text){
     if (m === 'change') return changeTeam(text);
     if (looksLikeQuestion(text)) {                     // a question never starts a run by accident
       addMsg('u', text);
-      addMsg('s', 'That reads like a question. In "Give a job" every message starts a run of the team.');
-      setSugg([{label: 'Run it as a job', run: () => deploy(text, null, true)}, W.cams.size ? {label: 'Ask the cameras instead', run: () => { setMode('ask'); askCams(text, true); }} : null]);
+      const note = addMsg('s', 'That reads like a question. In "Give a job" every message starts a run of the team.');
+      setNext([{label: 'Run it as a job', detail: 'Starts a run of the team now; anything outbound waits for your approval', icon: 'i-run', run: () => deploy(text, null, true)},
+        W.cams.size ? {label: 'Ask the cameras instead', detail: 'Answered from the camera journal, with times', icon: 'i-search', run: () => { setMode('ask'); askCams(text, true); }} : null].filter(Boolean), note, 'Choose one');
       return;
     }
     $('#job').value = text; return deploy();
   }
   W.lastSaid = text;
-  dropBriefs(); addMsg('u', text); setSugg([]);
+  retireNext(); addMsg('u', text);
   W.busy = true; $('#send').disabled = true; setState('working');
   const d = addMsg('a', ''); let acc = '', raf = 0;
   const paint = () => { raf = 0; d.innerHTML = md(acc) + '<i class="cur"></i>'; $('#msgs').scrollTop = 1e9; };
@@ -268,6 +381,7 @@ async function send(text){
   let result = null;
   try {
     const r = await fetch(`/api/design/${W.sid}/say`, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({text})});
+    if (r.status === 401) { location.href = '/login?next=' + encodeURIComponent(location.pathname + location.search); return; }
     const reader = r.body.getReader(); const dec = new TextDecoder(); let buf = '';
     while (true) {
       const {value, done} = await reader.read(); if (done) break;
@@ -284,23 +398,28 @@ async function send(text){
         }
       }
     }
+    if (!result && !r.ok) { let j = null; try { j = JSON.parse(buf); } catch (_) {} result = {error: (j && (j.error || j.message)) || `Atlas did not answer (${r.status}). Try again.`}; }
   } catch (e) { result = {error: String(e)}; }
   cancelAnimationFrame(raf);
   W.busy = false; $('#send').disabled = false; setState('ready');
-  if (!result || result.error) { d.innerHTML = md((result && result.error) || 'Atlas did not answer. Try again.'); return; }
+  if (!result || result.error) {
+    d.innerHTML = md((result && result.error) || 'Atlas did not answer. Try again.');
+    setNext([{label: 'Send it again', detail: 'Resends your last message to Atlas', icon: 'i-reset', run: () => send(text)}], d);
+    return;
+  }
   const last = (result.transcript || []).filter(m => m.role === 'assistant').pop();
   d.innerHTML = md(result.text || (last && last.text) || acc || 'Atlas did not answer. Try again.');   // the final text, without the machine block
-  setSugg(result.suggestions || []);
   if (result.blueprint && (result.blueprint.agents || []).length) { await applyBlueprint(result.blueprint); setDeskStatus(); }
   $('#build-btn').disabled = !(W.bp && W.bp.agents && W.bp.agents.length);
   $('#build-btn').title = W.bp ? 'Build the desk from this draft' : 'Available once Atlas has drafted a team';
   $('#build-hint').textContent = result.ready ? 'Draft complete. Build it, or keep refining.' : (W.bp ? 'Describe changes to reshape the team, or build now.' : 'Build is available once there is a first draft.');
   if (W.bp) $('#chat-foot').classList.remove('hide');
+  if (d === lastAtlas()) setNext(result.next, d);                          // after the team settles, so a build step is real
   if (result.ready) tutHook('ready');
 }
 // a built desk's team is changed on Home's team canvas, where Atlas proposes it and nothing changes until applied
 async function changeTeam(text){
-  addMsg('u', text);
+  retireNext(); addMsg('u', text);
   addMsg('a', 'Opening the **team canvas** on Home: Atlas proposes this change there, and nothing changes until you apply it.');
   await api(`/desks/${W.deskId}/select`, {method: 'POST', body: {}});      // an explicit hand-off: Home opens on this desk
   setTimeout(() => { if (window.shell && shell.go) shell.go('/desk#team', 'teamDesignFor:' + encodeURIComponent(text)); else location.href = '/desk#team'; }, 700);
@@ -549,8 +668,16 @@ function animateEdges(ms){ const end = performance.now() + ms; cancelAnimationFr
 (function pinMsgs(){ const m = document.getElementById('msgs'); W.msgsPinned = true;
   const user = () => { W.msgUserT = Date.now(); };                       // only the owner's own scrolling unpins it
   ['wheel', 'touchmove', 'keydown', 'pointerdown'].forEach(t => m.addEventListener(t, user, {passive: true}));
-  m.addEventListener('scroll', () => { const bottom = m.scrollTop + m.clientHeight >= m.scrollHeight - 12; if (bottom) W.msgsPinned = true; else if (Date.now() - (W.msgUserT || 0) < 600) W.msgsPinned = false; });
-  if (window.ResizeObserver) new ResizeObserver(() => { if (W.msgsPinned) msgsEnd(); }).observe(m); })();
+  // a line cut by the panel's edge fades out there instead of ending in a hard cut (only while there is more to scroll to)
+  const edges = () => { m.classList.toggle('fade-t', m.scrollTop > 1); m.classList.toggle('fade-b', m.scrollTop + m.clientHeight < m.scrollHeight - 1); };
+  m.addEventListener('scroll', () => { const bottom = m.scrollTop + m.clientHeight >= m.scrollHeight - 12; if (bottom) W.msgsPinned = true; else if (Date.now() - (W.msgUserT || 0) < 600) W.msgsPinned = false; edges(); }, {passive: true});
+  if (!window.ResizeObserver) return;
+  // the panel resizing, and any message growing after it was added (web fonts, a refreshed status, thumbnails, rows
+  // turning compact): the newest line stays in view
+  const ro = new ResizeObserver(() => { if (W.msgsPinned) msgsEnd(); edges(); });
+  ro.observe(m);
+  new MutationObserver(recs => recs.forEach(r => { r.addedNodes.forEach(n => { if (n.nodeType === 1) ro.observe(n); }); r.removedNodes.forEach(n => { if (n.nodeType === 1) ro.unobserve(n); }); }))
+    .observe(m, {childList: true}); })();
 function msgsBottom(){ W.msgsPinned = true; requestAnimationFrame(msgsEnd); }
 // re-lay out whenever the canvas changes size (window, rail collapse, the column opening, the tab changing)
 if (window.ResizeObserver) new ResizeObserver(() => { if (W.phase === 'meet') return; cancelAnimationFrame(W.relayout); W.relayout = requestAnimationFrame(() => layoutAll(false)); }).observe(document.getElementById('canvas'));
@@ -624,6 +751,7 @@ async function buildDesk(){
   const r = await api(`/design/${W.sid}/build`, {method: 'POST', body: {blueprint: W.bp, tier: W.tier, name: W.deskName || ''}});
   setState('ready');
   if (!r || r.error) { $('#build-hint').textContent = (r && r.error) || 'build failed'; $('#build-btn').disabled = false; return; }
+  retireNext();                                                            // the draft's offers end with the draft
   W.deskId = W.pin = r.desk.id; W.deskName = r.desk.business_name || r.desk.name; saveView();
   history.replaceState(null, '', '/desk/workspace?desk=' + W.deskId);      // a reload now opens this desk, not a new conversation
   try { localStorage.removeItem('ws_sid'); } catch (_) {}
@@ -632,12 +760,13 @@ async function buildDesk(){
   (r.cameras || []).forEach(c => { const k = W.cams.get(c.name); if (k) { k.id = c.id; k.journal = c.journal; k.st = 'waiting'; k.watching = true; renderCamTile(k); } });
   const camLine = (r.cameras || []).length ? ` ${plural(r.cameras.length, 'camera')} starting: each writes its journal once its frames arrive.` : '';
   const missing = (r.cameras_missing || []).length ? ` Still needed: the stream address for ${r.cameras_missing.join(', ')} (click the camera tile to add it).` : '';
-  addMsg('a', `Desk built: Atlas + ${plural(W.agents.size, 'specialist')}. Outbound messages wait for your approval.${camLine}${missing} Press **New job** (N) to give the team its first job.`);
+  const built = addMsg('a', `Desk built: Atlas + ${plural(W.agents.size, 'specialist')}. Outbound messages wait for your approval.${camLine}${missing} Press **New job** (N) to give the team its first job.`);
   toast('Desk built');
   if (window.shell && shell.remount) shell.remount();                    // the setup rail becomes the full one
   enterRunMode();
   setMode('job');
   if ((r.cameras || []).length) { startCamPoll(); tutHook('watching'); } else tutHook('built');
+  loadNext({context: 'desk_open'}, built);
 }
 function enterRunMode(){
   W.phase = 'run'; setPhaseAttr(); setPhase('ready');
@@ -657,8 +786,8 @@ async function deploy(task, mode, echoed){
   if (W.run && W.run.active) return toast('A run is already going: wait for it to finish');
   const r = await api('/runs', {method: 'POST', body: {task, mode: mode || 'auto'}});
   if (!r || r.error) return toast((r && (r.message || r.error)) || 'could not start');
-  $('#job').value = '';
-  if (W.phase === 'run') setSugg(modeSugg(W.modeSel || 'job'));          // offers made for an earlier message no longer apply
+  $('#job').value = ''; $('#deploy-btn').classList.remove('cue');
+  retireNext();                                                            // offers made for an earlier reply no longer apply
   if (!echoed) addMsg('u', task);
   addMsg('s', `run ${r.run_id} started`, 'assign');
   $('#summary').classList.add('hide'); $('#summary-empty').classList.remove('hide'); $('#feed').innerHTML = '';
@@ -757,7 +886,8 @@ function onRunEvent(e){
     showSummary(W.run.id, W.run.status, text);
     if (live) {
       const failed = runFailed(W.run.status, text);
-      addMsg('a', failed ? `**Run failed.** ${text.split('\n\n---\n')[0].replace(/^ERROR from [^:]+:\s*/, '').slice(0, 300)}` : `Run finished. ${text.split('---').pop().trim()}`.trim(), failed ? 'err' : '');
+      const fin = addMsg('a', failed ? `**Run failed.** ${text.split('\n\n---\n')[0].replace(/^ERROR from [^:]+:\s*/, '').slice(0, 300)}` : `Run finished. ${text.split('---').pop().trim()}`.trim(), failed ? 'err' : '');
+      loadNext({context: 'run_done', run_id: W.run.id, status: W.run.status, task: W.run.task || ''}, fin);   // the stored run wins on the server
       loadApprovals(); loadRuns(); pollStats(); shellRefresh(); tutHook('done');
     }
     renderRunPanel(); renderAll(); renderRunPill();
@@ -840,7 +970,7 @@ const TUT = {steps: [], i: -1, auto: true, on: false};
 const TUT_STEPS = {
   meet: [
     {t: '#chat-head', h: 'Atlas', p: 'Atlas designs the team, briefs every agent, checks their work and never sends anything without your approval.'},
-    {t: '#composer', h: 'Tell it about your business', p: 'One or two sentences: what you do, and the job that eats your time. Try a suggestion if you want a quick start. The team is drafted on the left as you talk.', end: true},
+    {t: '#composer', h: 'Tell it about your business', p: 'One or two sentences: what you do, and the job that eats your time. For a quick start, pick one of the ways to start under Atlas\'s message. The team is drafted on the left as you talk.', end: true},
   ],
   team: [
     {t: '#team-panel', h: 'Atlas drafted your team', p: 'Each row is an agent with its own role, standing orders and tools. Click a row to read its brief; Org chart shows the structure.'},
@@ -866,7 +996,7 @@ const TUT_STEPS = {
     {t: '#ap-panel', h: 'Nothing goes out without you', p: 'An agent wants to send something. It waits under Approvals: edit the text if you like, then approve or reject with a note. The note tunes the agents next time.', end: true},
   ],
   done: [
-    {t: '#run-panel', h: 'The run is done', p: 'The result under Runs is verified by the desk (what was queued, sent, saved), not claimed by the model. Give the team another job, or change the team.', end: true},
+    {t: '#run-panel', h: 'The run is done', p: 'The result under Runs is verified by the desk (what was queued, sent, saved), not claimed by the model. Pick one of the next steps under Atlas\'s message, give the team another job, or change the team.', end: true},
   ],
 };
 function tutDone(){ try { return !!localStorage.getItem('ws_tut_done'); } catch (_) { return false; } }
@@ -999,13 +1129,19 @@ function renderCamSide(){
   if (html !== W.camSideHtml) { W.camSideHtml = html; $('#cam-side-in').innerHTML = html; }   // the poll repaints only what changed
 }
 function stamp(){ W.updatedAt = Date.now(); $('#tab-upd').textContent = 'Updated ' + hhmmss() + ' UTC'; }
-async function askCams(text, already, hours){
+async function askCams(text, already, hours, camera){
+  hours = Math.min(720, Math.max(1, Number(hours) || 24));
+  retireNext();                                                            // the owner asked: earlier offers no longer apply
   if (!already) addMsg('u', text);
-  setSugg([]);
   W.busy = true; $('#send').disabled = true; setState('reading journal');
-  const r = await api('/vision/ask', {method: 'POST', body: {question: text, hours: hours || 24}});
+  let r = null;
+  try { r = await api('/vision/ask', {method: 'POST', body: camera ? {question: text, hours, camera} : {question: text, hours}}); } catch (e) { r = {error: String(e)}; }
   W.busy = false; $('#send').disabled = false; setState('ready');
-  if (!r || r.error) { addMsg('s', (r && r.error) || 'could not read the journal; try again'); setSugg(CAM_QUESTIONS); return; }
+  if (!r || r.error) {
+    const note = addMsg('s', (r && r.error) || 'could not read the journal; try again');
+    setNext([{label: 'Ask again', detail: 'Reads the camera journal again', icon: 'i-reset', run: () => askCams(text, false, hours, camera)}], note);
+    return;
+  }
   const d = addMsg('a', r.answer || 'Nothing in the journal answers that yet.');
   d.classList.add('camans');
   const ev = (r.evidence || []).filter(e => e.snapshot_url).slice(-6);
@@ -1016,11 +1152,8 @@ async function askCams(text, already, hours){
     [...new Set(ev.map(e => e.camera))].forEach(n => { const k = W.cams.get(n); if (k && k.el) { k.el.classList.add('flash'); setTimeout(() => k.el.classList.remove('flash'), 1400); } });
   }
   const m = r.retrieval || {}; if (m.considered) addMsg('s', `searched ${m.considered} journal entries (${m.window || 'last 24h'})${m.grounding ? ', ' + m.grounding : ''}`);
-  if (!m.considered && (!hours || hours <= 24) && W.lastNoteTs && W.lastNoteTs < Date.now() / 1000 - 86400) {
-    addMsg('s', `nothing logged in the last 24 hours · the newest note is from ${fmtTs(W.lastNoteTs)} UTC`);
-    return setSugg([{label: 'Search the last 30 days', run: () => askCams(text, true, 720)}, ...CAM_QUESTIONS]);
-  }
-  setSugg(CAM_QUESTIONS);
+  if (!m.considered && hours <= 24 && W.lastNoteTs && W.lastNoteTs < Date.now() / 1000 - 86400) addMsg('s', `nothing logged in the last 24 hours · the newest note is from ${fmtTs(W.lastNoteTs)} UTC`);
+  if (d === lastAtlas()) setNext(r.next, d);                               // the server's follow-ups for this answer (a wider window, live view, a report)
 }
 async function loadJournal(){
   if (!W.deskId) return;
@@ -1107,6 +1240,8 @@ async function setTier(tier){
   if (!r || r.error) return toast((r && r.error) || 'could not switch');
   W.tier = r.tier; setDeskStatus(); renderAll();
   addMsg('s', W.tier === 'free' ? 'switched to free models' : 'switched to paid models: Claude for design, a paid vision model for the cameras', 'assign');
+  if (NX.box && Array.isArray(r.next) && !NX.steps.some(x => typeof x.run === 'function')) setNext(r.next, lastAtlas());   // re-checked: no paid step on paid models
+  return true;
 }
 function toggleTier(){ return setTier(W.tier === 'free' ? 'balanced' : 'free'); }
 
@@ -1521,7 +1656,7 @@ function nextSteps(){
   const row = ([ic, t, d, a]) => `<div class="nstep"><svg class="i"><use href="#${ic}"/></svg><div><b>${esc(t)}</b>${d ? `<small>${esc(d)}</small>` : ''}</div>${a}</div>`;
   // the desk's own workflows and the first jobs Atlas suggests, each with its button (a click starts a run)
   const wfRows = wf.slice(0, 4).map(w => ['i-flow', w.name, wfDesc(w.description), `<button class="btn sm" onclick="runWorkflowNow(${jsa(w.id)})"><svg class="i"><use href="#i-run"/></svg>Run</button>`]);
-  const jobs = modeSugg('job').map(t => ['i-run', t, '', `<button class="btn sm" onclick="deploy(${jsa(t)})" title="Starts a run of the team now; anything outbound waits for your approval"><svg class="i"><use href="#i-run"/></svg>Run</button>`]);
+  const jobs = firstJobs().map(t => ['i-run', t, '', `<button class="btn sm" onclick="deploy(${jsa(t)})" title="Starts a run of the team now; anything outbound waits for your approval"><svg class="i"><use href="#i-run"/></svg>Run</button>`]);
   return `<div class="nsteps"><div class="gk">No run yet · next steps</div>${rows.map(row).join('')}`
     + (wfRows.length ? `<div class="gk">Workflows · fixed hand-offs</div>${wfRows.map(row).join('')}` : '')
     + `<div class="gk">First jobs to try</div>${jobs.map(row).join('')}</div>`;
@@ -1705,6 +1840,8 @@ window.shellPage = {
   replaces: ['agents', 'cameras', 'add-camera'],
   commands(){
     const c = [], add = (label, ic, run, hint) => c.push({g: 'This workspace', label, ic, run, hint});
+    NX.steps.forEach(s => c.push({g: 'Next steps', label: s.label, hint: s.detail || '', ic: typeof s.run === 'function' ? 'play' : NX_ACT[s.action][1],
+      run: () => { const j = NX.steps.indexOf(s); if (j >= 0) pickNext(j); else toast('Those steps were replaced: the newest are under Atlas\'s last message'); }}));
     if (W.phase === 'run') add('New job', 'plus', newJob, 'N');
     if (W.bp && !W.deskId && (W.bp.agents || []).length) add('Build desk', 'spark', buildDesk);
     add('Add camera', 'camera', () => openAttach(null));

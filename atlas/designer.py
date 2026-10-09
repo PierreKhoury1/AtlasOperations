@@ -286,15 +286,17 @@ class DesignSession:
     def apply_profile(self, profile: dict[str, Any]) -> None:
         """Seed the conversation from a study of the owner's links: opening message, next steps, first-draft blueprint."""
         self.profile = profile
-        opening = profile.get("opening_message") or GREETING
+        opening = profile.get("opening_message")
+        opening = opening.strip() if isinstance(opening, str) and opening.strip() else GREETING   # model output: text or nothing
         self.transcript = [{"role": "assistant", "text": opening, "ts": round(time.time(), 3)}]
         self.messages = [{"role": "assistant", "content": opening}]
         bp = normalise(profile.get("blueprint"), None) if isinstance(profile.get("blueprint"), dict) else None
-        if bp and not bp["business"].get("name") and profile.get("name"):
+        if bp and not bp["business"].get("name") and isinstance(profile.get("name"), str) and profile["name"].strip():
             bp["business"]["name"] = profile["name"]
         if bp and bp.get("agents"):
             self.blueprint = bp
-        opps = [o for o in profile.get("opportunities") or [] if isinstance(o, dict) and isinstance(o.get("title"), str)]
+        opps_in = profile.get("opportunities")                          # model output: a number or true is not a list
+        opps = [o for o in (opps_in if isinstance(opps_in, list) else []) if isinstance(o, dict) and isinstance(o.get("title"), str)]
         # a "why" is shown only when a model wrote it from their pages; the heuristic list's reasons are generic copy
         read = profile.get("source") == "model" and profile.get("opportunities_source") != "heuristic"
         items = ((profile["next"] if isinstance(profile.get("next"), list) else [])     # the opportunities, as the owner's reply
@@ -577,7 +579,9 @@ def normalise(bp: dict[str, Any] | None, prev: dict[str, Any] | None = None, kee
 
 
 _CAM_TOOLS = ("camera_ask", "camera_events", "camera_look")
-_CAM_READER = re.compile(r"summar|digest|report|document|log|record|overview|incident|safety|security|cross.?camera", re.I)
+# "log" as a word (log, logs, logged, logger, logging, logbook), never inside catalog, blog, dialog or login
+_CAM_READER = re.compile(r"summar|digest|report|document|\blog(?:s|ged|ger|ging|book)?\b|record|overview|incident|safety|security"
+                         r"|cross.?camera", re.I)
 
 
 def _wire_cameras(agents: list[dict[str, Any]], cams: list[dict[str, Any]]) -> None:
@@ -647,7 +651,7 @@ def reply(session: DesignSession, user_text: str, on_token: Callable[[str], None
         prose, data = split_reply(raw)
         prose = prose.strip()                                # light markdown: the workspace renders it
         if not prose:
-            prose = "Noted. I have updated the sketch — tell me more, or press Approve & build when it looks right."
+            prose = "Noted. I have updated the sketch — tell me more, or build the desk when it looks right."
         steps: Any = []
         intent = "design"
         if data:
@@ -869,6 +873,7 @@ def _demo_turn(session: DesignSession, text: str, on_token: Callable[[str], None
         name = m.group(1).strip()
         session._demo_name = name  # type: ignore[attr-defined]
     turn = session.turn
+    bp = _demo_blueprint(kind, name, turn)
     label = {"sales": "inbound enquiry desk", "proposal": "proposal desk", "inbox": "inbox triage desk", "orders": "order-care desk"}[kind]
     whose = (name + ("'" if name.endswith("s") else "'s")) if name else "the"
     scripts = {
@@ -886,13 +891,10 @@ def _demo_turn(session: DesignSession, text: str, on_token: Callable[[str], None
              {"label": "Never quote prices in writing", "detail": "The policy layer blocks money figures in every draft",
               "say": "Never quote prices in writing."},
              {"label": "Make replies formal and precise", "detail": "Short, exact wording for professional clients", "say": "Formal and precise."}]),
-        3: ("Noted, added to policy. The team is complete: a quality reviewer now checks every draft before it reaches your "
-            "approval queue, and a follow-up chaser runs on a schedule. Review the sketch — click any agent to adjust its role or "
-            "tools — then press Approve & build. Next we connect your data live.",
+        3: (_demo_complete(bp),
             [{"label": "Build the desk now", "detail": f"Creates {whose} desk; nothing is sent without your approval",
               "action": "build"},
-             {"label": "Add a chaser for quiet quotes", "detail": "A second workflow that follows up quotes nobody answered",
-              "say": "Add a second workflow that chases quotes nobody answered."},
+             _demo_addition(kind, bp),
              {"label": "Explain the approval flow", "detail": "What waits for you and what runs on its own",
               "say": "Explain the approval flow: what waits for me and what doesn't?"}]),
     }
@@ -901,7 +903,6 @@ def _demo_turn(session: DesignSession, text: str, on_token: Callable[[str], None
                                     "(locally: AtlasDesk launcher; hosted: set OPENROUTER_API_KEY).",
                                     [{"label": "Build the sample desk", "detail": "Builds the desk sketched on the canvas", "action": "build"},
                                      {"label": "Show me how to go live", "detail": "What a live model key changes", "say": "How do I go live?"}]))
-    bp = _demo_blueprint(kind, name, turn)
     cams = getattr(session, "_demo_cams", None)
     if cams is None and re.search(r"camera|cctv|footage|lobby|hotel|till|restaurant|kitchen", low):
         cams = _demo_cameras(low)
@@ -927,6 +928,32 @@ def _demo_turn(session: DesignSession, text: str, on_token: Callable[[str], None
             on_token(w + " ")
             time.sleep(0.018)
     return prose + "\n<atlas-design>" + json.dumps({"next": nxt, "ready": turn >= 3, "blueprint": bp}) + "</atlas-design>"
+
+
+def _scheduled(bp: dict[str, Any]) -> dict[str, Any] | None:
+    return next((w for w in bp.get("workflows") or [] if (w.get("trigger") or {}).get("kind") == "schedule"), None)
+
+
+def _demo_complete(bp: dict[str, Any]) -> str:
+    """Turn 3's prose: the reviewer and the scheduled workflow only when the sketch has them."""
+    qa = next((a for a in bp.get("agents") or [] if a.get("id") == "qa"), None)
+    wf = _scheduled(bp)
+    gate = (f"the {qa['name'].lower()} checks every draft before it reaches your approval queue" if qa
+            else "every draft waits in your approval queue")
+    sched = f", and \"{wf['name']}\" runs on a schedule ({wf['trigger'].get('detail') or 'timed'})" if wf else ""
+    return (f"Noted, added to policy. The team is complete: {gate}{sched}. Review the sketch — click any agent to adjust its "
+            "role or tools — then build the desk. Next we connect your data live.")
+
+
+def _demo_addition(kind: str, bp: dict[str, Any]) -> dict[str, Any]:
+    """Turn 3's second step: something the sketch lacks. A follow-up chaser only where no workflow already runs on a
+    schedule (the sales sketch has its 3-day chaser, the orders sketch its stuck-order sweep); else a weekly summary."""
+    if _scheduled(bp):
+        return {"label": "Add a weekly summary for me", "detail": "What the team did, what is waiting and what is stuck",
+                "say": "Add a weekly summary for me: what the team did, what's waiting and what's stuck."}
+    what = {"proposal": "proposals", "inbox": "emails"}.get(kind, "quotes")
+    return {"label": f"Add a chaser for quiet {what}", "detail": f"A scheduled workflow that follows up {what} nobody answered",
+            "say": f"Add a workflow that chases {what} nobody answered after 3 days."}
 
 
 def _demo_cameras(low: str) -> list[dict[str, Any]]:

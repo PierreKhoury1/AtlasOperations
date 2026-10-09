@@ -9,7 +9,7 @@ A step is plain data, validated here and rendered by the workspace as text (neve
   camera     open the attach dialog for `camera` ("" = a new camera)
   live       open the live view of `camera`
   approvals  open the approvals drawer
-  ask        ask the camera journal `question` over the last `hours` (1..720)
+  ask        ask the camera journal `question` over the last `hours` (1..720); with `camera`, that camera only
   paid       switch the design session to paid models, then resend the last message. The click is the owner's consent
              to spend, so the step always reads SWITCH_TO_PAID / PAID_DETAIL, whoever wrote it
   open       go to `href`, a same-origin portal path (/desk...)
@@ -23,6 +23,7 @@ import itertools
 import math
 import re
 import time
+import unicodedata
 from typing import Any, Iterable
 
 SWITCH_TO_PAID = "Switch to the paid model"
@@ -34,15 +35,22 @@ RUN = ("job", "camera", "live", "approvals", "ask", "open")    # run mode: typed
 HREF = re.compile(r"^/desk(?:[/?#][A-Za-z0-9_\-/=&?#.]*)?$")
 LIMITS = {"label": 60, "detail": 110, "say": 300, "job": 500, "question": 300, "camera": 60}
 _ELL = "\u2026"
-_EMOJI = re.compile("[\u231a\u231b\u23e9-\u23fa\u2600-\u27bf\u2b00-\u2bff\u200d\u20e3\ufe0f"
+# emoji code points and the marks that make one (keycap, emoji presentation, tag flags). Not U+200D: a ZWJ sequence of
+# emoji is caught by its pictographs, and Devanagari, Malayalam and other scripts are shaped with the joiner.
+_EMOJI = re.compile("[\u231a\u231b\u23e9-\u23fa\u2600-\u27bf\u2b00-\u2bff\u20e3\ufe0f"
                     "\U0001f000-\U0001faff\U000e0020-\U000e007f]")
 _DEPLOY = "runs only when you press Deploy"
 _PAID_KEY = SWITCH_TO_PAID.casefold()
 # never part of a step: control codes (the whitespace ones become a space instead), bidi marks, embeddings, overrides
-# and isolates (U+202E shows a label backwards), zero-width and other invisible format characters, tag characters.
-# ZWNJ / ZWJ (U+200C / U+200D) stay: real scripts are shaped with them.
-_HIDDEN = re.compile("[\x00-\x08\x0e-\x1b\x7f-\x84\x86-\x9f\xad\u061c\u200b\u200e\u200f\u202a-\u202e\u2060-\u2064"
-                     "\u2066-\u206f\ufeff\ufff9-\ufffb\U000e0000-\U000e007f]")
+# and isolates (U+202E shows a label backwards), zero-width and other invisible format characters, the other
+# default-ignorable code points that draw nothing (combining grapheme joiner, Hangul fillers, Khmer inherent vowels,
+# Mongolian variation selectors and vowel separator, shorthand and musical format controls), the braille blank, tag
+# characters and ideographic variation selectors. ZWNJ / ZWJ (U+200C / U+200D) stay: real scripts are shaped with them.
+# U+FE00-FE0F stay too: VS16 is how _EMOJI tells an emoji from text.
+_HIDDEN = re.compile("[\x00-\x08\x0e-\x1b\x7f-\x84\x86-\x9f\xad\u034f\u061c\u115f\u1160\u17b4\u17b5\u180b-\u180f"
+                     "\u200b\u200e\u200f\u202a-\u202e\u2060-\u2064\u2066-\u206f\u2800\u3164\ufeff\uffa0\ufff0-\ufffb"
+                     "\U0001bca0-\U0001bca3\U0001d173-\U0001d17a\U000e0000-\U000e0fff]")
+_JOINERS = re.compile("[\u200c\u200d]")
 
 
 # ---------------------------------------------------------------------------- the contract
@@ -52,9 +60,22 @@ def _text(v: Any) -> str:
 
 
 def _reads_paid(t: str) -> bool:
-    """Text a workspace page acts on as the paid switch: both test /^switch to the paid model/i on the text a click
-    sends. casefold() matches at least every string that regex does."""
-    return t.casefold().startswith(_PAID_KEY)
+    """Text that reads as the paid switch: what the legacy pages test (/^switch to the paid model/i on the text a click
+    sends), and what an owner would take for it. The joiners kept in text draw nothing ("\u200cSwitch to the paid model"
+    looks the same), so they are ignored here. casefold() matches at least every string that regex does."""
+    return _JOINERS.sub("", t).casefold().startswith(_PAID_KEY)
+
+
+def _visible(t: str) -> int:
+    """Characters that draw something on their own: letters, digits, punctuation, symbols (not marks, joiners, spaces)."""
+    return sum(1 for ch in t if unicodedata.category(ch)[0] in "LNPS")
+
+
+def _shown(v: Any, least: int = 2) -> str:
+    """_text(v), or "" when what is left would look blank (only joiners and marks, or a lone dot): a detail, message,
+    job or question made of such characters is no text at all. A camera may be called "A" or "1" (least=1)."""
+    t = _text(v)
+    return t if _visible(t) >= least else ""
 
 
 def _fit(s: str, n: int, mark: str = "") -> str:
@@ -111,26 +132,29 @@ def clean(item: Any) -> dict[str, Any] | None:
     if action == "paid":
         return {"label": SWITCH_TO_PAID, "detail": PAID_DETAIL, "action": "paid"}
     label = _fit(raw.rstrip(" ." + _ELL), LIMITS["label"]).rstrip(" ." + _ELL)
-    if len(label) < 2 or _EMOJI.search(label):
+    if _visible(label) < 2 or _EMOJI.search(label):              # a blank-looking or emoji label is not a step
         return None
     head = label[0].upper()                      # sentence case (a head that uppercases to two letters stays as is)
     out: dict[str, Any] = {"label": (head if len(head) == 1 else label[0]) + label[1:]}
-    detail = _fit(_text(item.get("detail")), LIMITS["detail"], _ELL)
+    detail = _fit(_shown(item.get("detail")), LIMITS["detail"], _ELL)
     if detail:
         out["detail"] = detail
     out["action"] = action
     if action == "say":
-        out["say"] = _fit(say or raw, LIMITS["say"])
+        out["say"] = _fit(_shown(say) or raw, LIMITS["say"])
     elif action == "job":
-        out["job"] = _fit(_text(item.get("job")), LIMITS["job"], _ELL)
+        out["job"] = _fit(_shown(item.get("job")), LIMITS["job"], _ELL)
     elif action in ("camera", "live"):
-        cam = _text(item.get("camera"))
+        cam = _shown(item.get("camera"), 1)
         if len(cam) > LIMITS["camera"] or (action == "live" and not cam):
             return None
         out["camera"] = cam
     elif action == "ask":
-        out["question"] = _fit(_text(item.get("question")) or raw, LIMITS["question"])
+        out["question"] = _fit(_shown(item.get("question")) or raw, LIMITS["question"])
         out["hours"] = _hours(item.get("hours", 24))
+        cam = _shown(item.get("camera"), 1)
+        if cam and len(cam) <= LIMITS["camera"]:          # asked of that camera only
+            out["camera"] = cam
     elif action == "open":
         href = _text(item.get("href"))
         if not HREF.fullmatch(href) or ".." in href:
@@ -151,20 +175,23 @@ def _payload(st: dict[str, Any]) -> str:
 
 
 def normalise(items: Any, fallback: Iterable[Any] = (), allow: Iterable[str] = ACTIONS, n: int = 3) -> list[dict[str, Any]]:
-    """Exactly n distinct steps: `items` (the model's) first, invalid or disallowed ones dropped, duplicates (same label
-    or same say/job/question text, case-insensitive) skipped, then `fallback`, then generic spares."""
+    """Exactly n distinct steps: `items` (the model's) first, invalid or disallowed ones dropped, duplicates (same label,
+    same say/job/question text, or the same legacy chip text, case-insensitive) skipped, then `fallback`, then generic
+    spares."""
     allow = set(allow)
     out: list[dict[str, Any]] = []
     seen_l: set[str] = set()
     seen_p: set[str] = set()
+    seen_c: set[str] = set()
     for raw in itertools.chain(items if isinstance(items, (list, tuple)) else (), fallback or (), _SPARE):
         st = clean(raw)
         if not st or st["action"] not in allow:
             continue
-        lk, pk = _key(st["label"]), _payload(st)
-        if lk in seen_l or (pk and pk in seen_p):
+        lk, pk, ck = _key(st["label"]), _payload(st), _key(_chip(st))
+        if lk in seen_l or ck in seen_c or (pk and pk in seen_p):
             continue
         seen_l.add(lk)
+        seen_c.add(ck)
         if pk:
             seen_p.add(pk)
         out.append(st)
@@ -173,16 +200,18 @@ def normalise(items: Any, fallback: Iterable[Any] = (), allow: Iterable[str] = A
     return out
 
 
+def _chip(s: dict[str, Any]) -> str:
+    """The legacy chip text of one step (see labels)."""
+    say = s.get("say") or ""
+    return (SWITCH_TO_PAID if s["action"] == "paid" else APPROVE_BUILD if s["action"] == "build"
+            else say if say and len(say) <= LIMITS["label"] else s["label"])
+
+
 def labels(steps: list[dict[str, Any]]) -> list[str]:
-    """Legacy chip strings (studio.js, the current workspace page, old sessions): the text a chip shows and sends, at
-    most 60 characters as the chips always were. The pages act on two texts: APPROVE_BUILD builds in studio.js once the
-    sketch is ready, SWITCH_TO_PAID switches the tier. A say step's message when it fits, else its label."""
-    out = []
-    for s in steps:
-        say = s.get("say") or ""
-        out.append(SWITCH_TO_PAID if s["action"] == "paid" else APPROVE_BUILD if s["action"] == "build"
-                   else say if say and len(say) <= LIMITS["label"] else s["label"])
-    return out
+    """Legacy chip strings (studio.js, old sessions): the text a chip shows and sends, at most 60 characters as the chips
+    always were. The pages act on two texts: APPROVE_BUILD builds in studio.js once the sketch is ready, SWITCH_TO_PAID
+    switches the tier. A say step's message when it fits, else its label. normalise() keeps these distinct as well."""
+    return [_chip(s) for s in steps]
 
 
 # ---------------------------------------------------------------------------- generators (each returns >= 3 candidates)
@@ -206,7 +235,11 @@ def _names(xs: Any) -> list[str]:
 
 
 def _cam(name: str) -> str:
-    return name if re.search(r"cam", name, re.I) else f"the {name} camera"
+    """"the lobby camera"; a name that already says camera is not doubled: an identifier stays bare ("cam-2", "Camera 1"),
+    plain words get their article ("the camera", "the front camera"), never "Ask what camera saw today"."""
+    if not re.search(r"cam", name, re.I):
+        return f"the {name} camera"
+    return name if re.search(r"[\d_-]", name) else f"the {name}"
 
 
 def _cams_txt(cams: list[str]) -> str:
@@ -374,21 +407,41 @@ def desk_open(business: str = "", agents: list[dict[str, Any]] | None = None, ca
 
 
 def camera_answer(question: str = "", evidence: list[dict[str, Any]] | None = None, hours: Any = 24,
-                  camera_names: list[str] | None = None) -> list[dict[str, Any]]:
-    """After a camera question (run mode, never "say"). `evidence`: the journal rows used, best match first."""
+                  camera_names: list[str] | None = None, pinned: bool = False, camera: str = "") -> list[dict[str, Any]]:
+    """After a camera question (run mode, never "say"). `evidence`: the journal rows used, best match first. `hours`:
+    the window searched. `pinned`: the question names its own time ("today", "around 3pm"), which wins over the hours
+    in the journal search, so a wider window is asked for in so many words. `camera`: the one camera it was asked of.
+    Every ask step does what it says: a step about one camera asks that camera only, and "around 14:05" is offered only
+    for a note from the last day (the journal reads a bare time as its latest occurrence)."""
     q, h = _text(question), _hours(hours)
     ev = [e for e in evidence or [] if isinstance(e, dict)]
     names = _names(camera_names)
+    only = _shown(camera, 1)[:60]
+    only = only if only in names else ""                 # a camera this desk has, or none
     best = ev[0] if ev else {}
-    cam = _text(best.get("camera"))[:60] or (names[0] if names else "")
+    cam = _text(best.get("camera"))[:60] or only or (names[0] if names else "")
     wider = 168 if h < 168 else 720 if h < 720 else 0
     span = "7 days" if wider == 168 else "30 days"
+    base = re.sub(r"^On [^:]{1,80}: ", "", q)          # asked again of another camera: one "On the ... camera:" prefix
+    one = {"camera": only} if only else {}
+
+    def widen(label: str, detail: str) -> dict[str, Any]:
+        if not pinned:
+            return _st(label, detail, "ask", question=q, hours=wider, **one)
+        where = _cam(only) if only else _cams_txt(names) if names else "the cameras"
+        return _st(f"Ask about the last {span}", "A recap over the longer window, with times", "ask",
+                   question=f"What happened on {where} in the last {span}? Give times.", hours=wider, **one)
+
     out = []
     if best:
         at = _hm(best.get("ts"))
-        if at and cam:
+        try:
+            recent = 0 <= time.time() - float(best.get("ts")) < 23 * 3600
+        except (TypeError, ValueError):
+            recent = False
+        if at and cam and recent:
             out.append(_st(f"Ask what happened around {at}", f"The minutes either side, on {_cam(cam)}", "ask",
-                           question=f"What happened on {_cam(cam)} in the minutes around {at}?", hours=h))
+                           question=f"What happened on {_cam(cam)} in the minutes around {at}?", hours=h, camera=cam))
         if cam in names:
             out.append(_st(f"Watch {_cam(cam)} live", "Live picture with detections and the latest journal note", "live", camera=cam))
         if q:
@@ -396,15 +449,16 @@ def camera_answer(question: str = "", evidence: list[dict[str, Any]] | None = No
                            job=f"Write a short report from the camera journal on this question: {q} Cite times, camera names "
                                "and the journal entries used."))
         if wider and q:
-            out.append(_st(f"Check the last {span} too", "The same question over a longer window", "ask", question=q, hours=wider))
+            out.append(widen(f"Check the last {span} too", "The same question over a longer window"))
     else:
         if wider and q:
-            out.append(_st(f"Search the last {span} instead", "Nothing matched in this window; widen it", "ask", question=q, hours=wider))
+            out.append(widen(f"Search the last {span} instead", "Nothing matched in this window; widen it"))
         if cam:
             out.append(_st(f"Check the feed of {_cam(cam)}", "See its latest frame and switch the source if it is wrong", "camera", camera=cam))
     other = next((c for c in names if c != cam), "")
-    if other and q:
-        out.append(_st(f"Ask {_cam(other)} the same", f"The same question, about {_cam(other)} only", "ask", question=f"On {_cam(other)}: {q}", hours=h))
+    if other and base:
+        out.append(_st(f"Ask {_cam(other)} the same", f"The same question, about {_cam(other)} only", "ask",
+                       question=f"On {_cam(other)}: {base}", hours=h, camera=other))
     tail = [_st("Open the camera page", "Every camera's journal, events and settings", "open", href="/desk#cameras"),
             _st("Ask what happened in the last hour", "A quick recap from every camera's journal", "ask",
                 question="What happened in the last hour?", hours=1)]

@@ -44,6 +44,8 @@
   <symbol id="i-clip" viewBox="0 0 24 24"><path d="m16.5 7.5-7.6 7.6a2 2 0 0 0 2.8 2.8l8-8a4 4 0 0 0-5.6-5.6l-8.4 8.4a6 6 0 0 0 8.5 8.5l6.3-6.3"/></symbol>
   <symbol id="i-pause" viewBox="0 0 24 24"><path d="M8 5v14M16 5v14"/></symbol>
   <symbol id="i-sidebar" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="1.5"/><path d="M9 4v16"/></symbol>
+  <symbol id="i-tier" viewBox="0 0 24 24"><path d="m7 12.5 5-5 5 5M7 18l5-5 5 5"/></symbol>
+  <symbol id="i-go" viewBox="0 0 24 24"><path d="M5 12h13M13 7l5 5-5 5"/></symbol>
 </svg>
 
 <div class="wk" id="wk" data-phase="meet">
@@ -218,7 +220,6 @@
     <div class="panel" id="atlas-panel">
       <div class="ph as-h" id="chat-head"><span class="amark"></span><h2>Atlas</h2><span class="meta" id="as-sub">orchestrator · free models</span><span class="tag" id="chat-state">ready</span><span class="kbd" title="Press / anywhere to type here">/</span><button class="ibtn as-close" onclick="closeAtlas()" title="Close (Esc)"><svg class="i i14"><use href="#i-x"/></svg></button></div>
       <div id="msgs" class="scroll"></div>
-      <div id="sugg"></div>
       <div id="chat-foot" class="hide"><svg class="i i14"><use href="#i-build"/></svg><span class="hint" id="build-hint">Build is available once there is a first draft.</span></div>
       <div class="as-modes hide" id="as-modes"><button data-m="job" onclick="setMode('job')" title="Every message starts a run of the team">Give a job</button><button data-m="ask" onclick="setMode('ask')" title="Answers come only from what the cameras logged">Ask the cameras</button><button data-m="change" onclick="setMode('change')" title="Atlas proposes the change on the Team canvas; nothing changes until you apply it">Change the team</button></div>
       <div id="composer">

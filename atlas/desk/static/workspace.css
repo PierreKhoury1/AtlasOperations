@@ -371,14 +371,6 @@ table.team{width:100%;border-collapse:collapse;table-layout:fixed;font-size:12.5
 .starts .st2.on .sno{color:#fff;background:var(--accent);border-color:var(--accent)}
 .starts .st2.done .sno{color:var(--ok);background:var(--ok-soft);border-color:var(--ok-line)}
 .starts .st2.done b{color:var(--text2)}
-.briefs{display:flex;flex-direction:column;border:1px solid var(--line);border-radius:var(--r);overflow:hidden;flex:none;background:var(--panel)}
-.briefs .gk{padding:7px 12px;background:var(--panel2);border-bottom:1px solid var(--line)}
-.brief{display:flex;align-items:center;gap:10px;min-height:40px;padding:8px 10px 8px 12px;border-bottom:1px solid var(--line);text-align:left;font-size:13px;font-weight:500;color:var(--text)}
-.brief:last-child{border-bottom:0}
-.brief:hover{background:var(--accent-soft);color:var(--accent2)}
-.brief .i{color:var(--muted)}.brief:hover .i{color:var(--accent2)}
-.brief .go{margin-left:auto;color:var(--faint)}
-.brief span{min-width:0}
 .others{display:flex;flex-direction:column}
 .others button{display:flex;align-items:center;gap:12px;min-height:50px;padding:7px 12px 7px 16px;border-bottom:1px solid var(--line);text-align:left;color:var(--text)}
 .others button:last-child{border-bottom:0}
@@ -442,7 +434,7 @@ table.team{width:100%;border-collapse:collapse;table-layout:fixed;font-size:12.5
 .right:not(:has(>#ap-panel)) #act-panel{flex:1 1 0}
 #atlas-panel{flex:1 1 430px;min-height:380px}
 @media (max-height:940px){#act-panel{max-height:124px}.right #ap-body .ap .apb{-webkit-line-clamp:1}.right #ap-body .ap .hold{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}   /* up to 940 px tall: compact cards, so Atlas keeps room to talk */
-@media (max-height:820px){#atlas-panel{min-height:360px}#ap-panel{flex:0 1 auto}.right #msgs{min-height:72px}.right #sugg{max-height:26px}}   /* short screens: compact cards; Approvals scrolls before Atlas loses its composer */
+@media (max-height:820px){#atlas-panel{min-height:360px}#ap-panel{flex:0 1 auto}.right #msgs{min-height:72px}}   /* short screens: compact cards; Approvals scrolls before Atlas loses its composer */
 #ap-body{flex:1 1 auto;min-height:0}
 .fill>#ap-panel{max-height:none}
 .fill>#ap-panel .ph .link{display:none}
@@ -508,11 +500,35 @@ table.team{width:100%;border-collapse:collapse;table-layout:fixed;font-size:12.5
 #msgs .m.camans{border-left:2px solid var(--ok);padding-left:10px}
 #msgs .m .cur{display:inline-block;width:6px;height:13px;background:var(--accent);vertical-align:-2px;margin-left:2px;animation:blink 1s steps(2) infinite}
 #msgs .m.err{border-left:2px solid var(--danger);padding-left:10px;color:var(--text)}
-#sugg{display:flex;flex-wrap:wrap;gap:6px;padding:0 14px;margin-bottom:10px;flex:none;max-height:58px;overflow:hidden}   /* two rows of whole chips */
-#sugg::-webkit-scrollbar{display:none}
-#sugg:empty{display:none}
-#sugg button{background:var(--panel2);border:1px solid var(--line);color:var(--text2);border-radius:var(--r);height:26px;padding:0 10px;font-size:12px;white-space:nowrap;flex:0 1 auto;max-width:100%;overflow:hidden;text-overflow:ellipsis}
-#sugg button:hover{color:var(--text);border-color:var(--accent)}
+/* next steps: the server's three ways to proceed, as rows under Atlas's newest reply (older blocks are removed) */
+#msgs>.nx{flex:none;margin-top:-4px}
+.nx-h{font:400 10.5px/1.4 var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--faint);margin:0 0 5px}
+.nx-l{display:flex;flex-direction:column;border:1px solid var(--line);border-radius:var(--r);background:var(--panel);overflow:hidden}
+.nx-r{display:grid;grid-template-columns:14px minmax(0,1fr);column-gap:10px;align-items:start;width:100%;min-height:38px;padding:7px 12px 7px 11px;border-top:1px solid var(--line);text-align:left;color:var(--text);transition:background .12s var(--ease)}
+.nx-r:first-child{border-top:0}
+.nx-r>.i{margin-top:2px;color:var(--muted)}
+.nx-t{display:flex;flex-direction:column;min-width:0}
+.nx-lb{font-size:13px;line-height:18px;font-weight:400;color:var(--text);overflow-wrap:anywhere}
+.nx-d{font-size:12px;line-height:16px;color:var(--muted);margin-top:1px;overflow-wrap:anywhere}
+.nx-r:hover{background:var(--panel2)}
+.nx-r:hover>.i{color:var(--accent2)}
+.nx-r:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+.nx-r.on{background:var(--accent-soft);box-shadow:inset 2px 0 0 var(--accent)}
+.nx-r.on>.i{color:var(--accent2)}
+/* a short panel: one line per row, the label whole and its detail after it when most of it fits (whole in the tooltip) */
+.nx.tight .nx-r{min-height:32px;padding-top:6px;padding-bottom:6px;align-items:center}
+.nx.tight .nx-r>.i{margin-top:0}
+.nx.tight .nx-t{flex-direction:row;align-items:baseline;column-gap:8px}
+.nx.tight .nx-lb{flex:0 1 auto;min-width:0}
+.nx.tight .nx-d{flex:1 1 0;min-width:0;margin-top:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.nx.tight .nx-d.gone{display:none}
+@media (pointer:coarse){.nx-r,.nx.tight .nx-r{min-height:44px;padding-top:9px;padding-bottom:9px}}
+/* the conversation's edges: a line the panel cuts fades out there, only while there is more to scroll to */
+#msgs.fade-t,#msgs.fade-b{--ft:0px;--fb:0px;-webkit-mask-image:linear-gradient(to bottom,transparent 0,#000 var(--ft),#000 calc(100% - var(--fb)),transparent 100%);mask-image:linear-gradient(to bottom,transparent 0,#000 var(--ft),#000 calc(100% - var(--fb)),transparent 100%)}
+#msgs.fade-t{--ft:20px}#msgs.fade-b{--fb:20px}
+/* a job step fills the job bar and points at Deploy once; it never starts the run */
+#deploy-btn.cue{outline:2px solid var(--accent);outline-offset:2px;animation:cue 1.6s var(--ease) forwards}
+@keyframes cue{0%,60%{outline-color:var(--accent)}100%{outline-color:transparent}}
 .as-modes{display:flex;gap:2px;padding:0 14px;border-top:1px solid var(--line);flex:none;overflow-x:auto;scrollbar-width:none}
 .as-modes::-webkit-scrollbar{display:none}
 .as-modes button{border-bottom:2px solid transparent;color:var(--muted);padding:8px 7px 7px;font-weight:600;font-size:12.5px;white-space:nowrap;margin-bottom:-1px;flex:none}
@@ -535,7 +551,7 @@ table.team{width:100%;border-collapse:collapse;table-layout:fixed;font-size:12.5
 .as-foot .i{color:var(--ok)}
 #atlas-panel.flash{animation:aflash .7s ease}
 @keyframes aflash{0%{box-shadow:0 0 0 2px var(--accent)}100%{box-shadow:0 0 0 2px transparent}}
-#wk[data-phase="meet"] #msgs>.m,#wk[data-phase="meet"] #sugg,#wk[data-phase="meet"] #composer{max-width:780px}
+#wk[data-phase="meet"] #msgs>.m,#wk[data-phase="meet"] #msgs>.nx,#wk[data-phase="meet"] #composer{max-width:780px}
 #wk[data-phase="meet"]:not([data-w="s"]) #say{height:84px}            /* the first brief is usually a few sentences */
 
 /* formatted replies */
