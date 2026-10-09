@@ -17,6 +17,8 @@ SINGLE_QUOTED_HANDLER = re.compile(r" on[a-z]+='")
 TEMPLATE = re.compile(r"`([^`]*)`")
 CALL_START = re.compile(r"^[A-Za-z_$][A-Za-z0-9_$.]*[(=]")      # handler code: fn(...) or x=...
 SAFE_ESC = ("esc(JSON.stringify(", "esc(jstr(")
+HELPER_CALL = re.compile(r"\$\{\s*([A-Za-z_$][A-Za-z0-9_$.]*)\s*\(")   # ${fn(...)} inside handler code
+HANDLER_HELPERS = {"jsa", "esc", "Number"}                       # esc only as esc(JSON.stringify(..)) / esc(jstr(..))
 
 
 def _handlers(page: Path) -> list[str]:
@@ -75,6 +77,17 @@ def test_no_html_escaped_strings_inside_handlers():
         assert not bad, (page.name, bad[:3])
 
 
+def test_handler_values_use_only_the_known_helpers():
+    """A value in handler code goes through jsa() (or esc(JSON.stringify()), or Number() for an id), never a home-made
+    escaper. The workspace had jsq() = JSON.stringify(v) with only " turned into &quot;: it leaves &, so a value
+    holding "&quot;" decodes back into a quote and closes the string (see test_jsa_round_trips_hostile_values)."""
+    assert HELPER_CALL.findall('send(${jsq(s)})') == ["jsq"]
+    assert HELPER_CALL.findall("inspect(${jsa(id)})") == ["jsa"]
+    for page in PAGES:
+        used = {m for code in _handlers(page) + _prebuilt(page) for m in HELPER_CALL.findall(code)}
+        assert not used - HANDLER_HELPERS, (page.name, sorted(used - HANDLER_HELPERS))
+
+
 def test_no_raw_json_literals_inside_double_quoted_handlers():
     for page in PAGES:
         bad = [h for h in _handlers(page) if "${jstr(" in h or "${JSON.stringify(" in h]
@@ -96,8 +109,14 @@ def test_jsa_is_defined_where_it_is_used():
         via_index = name == "studio.js" and "const jsa = " in pages["index.html"]     # studio.js runs inside index.html
         assert own or via_index, name
     helper = [line for line in pages["index.html"].splitlines() if line.startswith("const jstr = ")]
-    for name in ("objects.html", "review.html"):
+    for name in ("objects.html", "review.html", "workspace.js"):
         assert [line for line in pages[name].splitlines() if line.startswith("const jstr = ")] == helper, name
+    for name, text in pages.items():                  # every jsa is esc(jstr(v)), over an esc() that escapes & and "
+        defs = [line for line in text.splitlines() if line.startswith("const jsa = ")]
+        assert all(line.startswith("const jsa = v => esc(jstr(v));") for line in defs), name
+        if defs:
+            esc = next(line for line in text.splitlines() if line.startswith("const esc = "))
+            assert "&amp;" in esc and "&quot;" in esc, name
 
 
 def test_jsa_round_trips_hostile_values():
@@ -116,3 +135,6 @@ def test_jsa_round_trips_hostile_values():
         attr = esc(jstr(v))
         assert '"' not in attr and "'" not in attr and "<" not in attr
         assert json.loads(html.unescape(attr)) == v
+    # the escaper jsa() replaced in the workspace: only " -> &quot;, so an entity in the value decodes into a quote
+    jsq = json.dumps("&quot;);alert(1);//").replace('"', "&quot;")
+    assert html.unescape(jsq) == '"");alert(1);//"'          # send("");alert(1);//") - the value ran as code

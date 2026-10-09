@@ -194,6 +194,8 @@ td.dim{color:var(--muted)}
 @media (max-width:1180px){.shell{grid-template-columns:200px minmax(0,1fr)}.insp{position:fixed;right:0;top:48px;bottom:0;width:min(420px,100%);transform:translateX(100%);transition:transform .2s;z-index:20;box-shadow:-10px 0 30px rgba(0,0,0,.25)}.insp.open{transform:none}.bpills{display:none}}
 @media (max-width:760px){.shell{grid-template-columns:1fr}.side{display:none}.crumb,.kbtn span{display:none}.ph input{width:140px}#palbtn,#themebtn{display:none}.bar .tabs button svg{display:none}}
 body.sh-on .bar>.brand{display:none}   /* inside the app frame the rail carries the brand */
+.bar>.bpills,.bar>.crumb{min-width:0;flex:0 1 auto}   /* the bar's extras give way before it can push the page sideways */
+@media (max-width:1000px){body.sh-on .bar>.crumb{display:none}}   /* a narrow frame: the rail already names the desk */
 </style>
 <link rel="stylesheet" href="/desk/static/shell.css">
 <script src="/desk/static/shell.js" defer></script>

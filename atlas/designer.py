@@ -251,6 +251,7 @@ class DesignSession:
         self.fixed_turn = False                          # never saved: the last turn's steps are the server's (no model answer)
         self.next = session_next(self, [], fallback=NS.greeting(bool(sample_clips())))
         self.suggestions: list[str] = NS.labels(self.next)   # legacy chips (studio.js, old sessions)
+        self.owner_id: int | None = None                 # the account that started it: its draft comes back on any device
         self.lock = threading.Lock()
 
     def public(self) -> dict[str, Any]:
@@ -261,12 +262,13 @@ class DesignSession:
     def to_dict(self) -> dict[str, Any]:
         return {"id": self.id, "mode": self.mode, "tier": self.tier, "created": self.created, "messages": self.messages,
                 "transcript": self.transcript, "blueprint": self.blueprint, "next": self.next, "suggestions": self.suggestions,
-                "ready": self.ready, "desk_id": self.desk_id, "turn": self.turn, "links": self.links, "profile": self.profile}
+                "ready": self.ready, "desk_id": self.desk_id, "turn": self.turn, "links": self.links, "profile": self.profile,
+                "owner_id": self.owner_id}
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> "DesignSession":
         s = cls(d.get("mode", "demo"), d.get("tier", "free"))
-        for k in ("id", "created", "messages", "transcript", "blueprint", "ready", "desk_id", "turn", "links", "profile"):
+        for k in ("id", "created", "messages", "transcript", "blueprint", "ready", "desk_id", "turn", "links", "profile", "owner_id"):
             if k in d:
                 setattr(s, k, d[k])
         # sessions saved before next steps carry only the legacy chips: derive the steps from them

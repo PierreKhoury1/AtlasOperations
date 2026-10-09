@@ -31,7 +31,7 @@ import time
 from collections import OrderedDict
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
 
 from flask import Flask, Response, abort, jsonify, redirect, request, send_file, send_from_directory, session, stream_with_context
 from werkzeug.security import check_password_hash, generate_password_hash
@@ -369,8 +369,26 @@ def current_user() -> dict[str, Any] | None:
     return store.user(int(uid)) if uid else None
 
 
+def _pinned_desk_id() -> int | None:
+    """A page that shows ONE desk (the workspace) names it on every API call - an X-Desk header, or ?desk= where a header
+    cannot be sent (images, event streams) - so another tab switching desk never changes what this page reads or writes."""
+    if not request.path.startswith("/api/"):
+        return None
+    raw = request.headers.get("X-Desk") or request.args.get("desk") or ""
+    try:
+        v = int(raw)
+    except (TypeError, ValueError):
+        return None
+    return v if v > 0 else None
+
+
 def current_desk() -> dict[str, Any] | None:
     u = current_user()
+    pin = _pinned_desk_id()
+    if pin:                                # same ownership rule as /api/desks/<id>/select; anything else falls through
+        d = store.desk(pin)
+        if d and (OPEN or (u and d["owner_id"] == u["id"])):
+            return d
     if OPEN and not u:                     # testing mode: any desk, no account
         did = session.get("desk")
         d = store.desk(int(did)) if did else None
@@ -483,8 +501,14 @@ def _guard():
             abort(401)
     elif p.startswith("/desk") and not p.startswith("/desk/static/") and p != "/desk/login":
         if not current_user():
-            return redirect("/login?next=" + p)
+            return redirect(_login_next())
     return None
+
+
+def _login_next() -> str:
+    """/login?next=<this page>, keeping its query (a link to /desk/workspace?desk=5 comes back to desk 5 after the login)."""
+    qs = request.query_string.decode("latin-1")
+    return "/login?next=" + request.path + (quote("?" + qs, safe="") if qs else "")
 
 
 def _esc(s: str) -> str:
@@ -1316,6 +1340,28 @@ def api_stats():
         return jsonify({"leads": 0, "pending": 0, "approved": 0, "qualified": 0, "active_runs": 0, "tokens_in": 0, "tokens_out": 0, "needs_desk": True})
     s = store.stats(desk["id"])
     s["active_runs"] = sum(1 for r in _runs.values() if r["desk_id"] == desk["id"] and r["thread"].is_alive())
+    tin, tout = int(s.get("tokens_in") or 0), int(s.get("tokens_out") or 0)
+    # the one model-cost figure Home and the workspace both show, with the same words: this desk's tokens, all time,
+    # priced at paid-model rates ($5 in / $25 out per million, in GBP). An estimate, not a bill - runs on free models cost
+    # nothing, and the runs do not record which tier they used - so "at paid rates" always leads the line; the provider's
+    # own total for the whole API key lives in Desk setup.
+    tier, tok = str(desk.get("tier") or "free"), tin + tout
+    compact = f"{tok / 1e6:.1f}M" if tok >= 1_000_000 else f"{tok / 1e3:.1f}K" if tok >= 1000 else str(tok)
+    gbp = round((tin * 5 + tout * 25) / 1e6 * 0.78, 2)
+    # the headline both pages show: a free-tier desk's models cost nothing, so it leads with that and keeps the paid-rate
+    # figure as context; a paid desk leads with the estimate
+    free = tier == "free"
+    s["cost"] = {"gbp": gbp, "basis": "estimate", "scope": "desk",
+                 "window": "all time", "tokens": tok, "tier": tier,
+                 "label": "Model cost" if free else "Model cost · est.", "short": "Cost" if free else "Cost · est.",
+                 "value": "Free" if free else f"£{gbp:.2f}", "small": "models" if free else "",
+                 "note": f"at paid rates £{gbp:.2f}" if free else f"at paid rates · {compact} tokens",
+                 "title": (f"An estimate, not a bill: this desk's {tok:,} tokens (all time) priced at paid-model rates, "
+                           "$5 in / $25 out per million, in GBP."
+                           + (" This desk runs on free models, which cost nothing; the runs do not record which tier they used."
+                              if tier == "free" else "")
+                           + (" Demo mode: the agents are scripted and their token counts are simulated." if _mode() == "demo" else "")
+                           + " The provider's own total for your API key is in Desk setup.")}
     try:
         s["cases"] = C.counts(store, desk["id"])
     except Exception:
@@ -2383,6 +2429,24 @@ def _vev_public(e: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
+def _camera_status(c: dict[str, Any], seen: dict[str, Any], last: dict[str, Any] | None, job: dict[str, Any] | None,
+                   now: float) -> dict[str, Any]:
+    """One honest answer to "is this camera live?", the same for every page: live only while its watch job is on AND
+    the newest frame is recent (within 3 passes, at least a minute). A frame from days ago is stale, never live."""
+    conf = c.get("config") or {}
+    try:
+        every = float(json.loads((job or {}).get("task") or "{}").get("every_s") or 30)
+    except (TypeError, ValueError):
+        every = 30.0
+    frame_ts = float(seen.get("ts") or (last or {}).get("ts") or 0)
+    watching = bool(job and job.get("enabled"))
+    fresh = bool(frame_ts) and now - frame_ts <= max(3 * every, 60)
+    problem = ("stored settings cannot be read - re-enter the stream address" if conf.get("_decrypt_error")
+               else "" if str(conf.get("source", "") or "") else "no stream address yet")
+    return {"state": "live" if watching and fresh else ("waiting" if watching else "off"), "watching": watching,
+            "every_s": every, "frame_ts": frame_ts, "problem": problem}
+
+
 @app.get("/api/agents/links")
 def api_agent_links():
     """Which agent watches which camera and sends through which connector, with the gaps: read by every tab."""
@@ -2418,18 +2482,26 @@ def api_camera_assign(cid):
 def api_cameras():
     desk = need_desk()
     cams = []
+    now = time.time()
+    notes = store.last_vision_notes(desk["id"], now - 30 * 86400)
+    jobs = store.jobs(desk["id"])
     for c in store.connectors(desk["id"]):
         if c["kind"] != "camera":
             continue
         seen = scheduler.last_seen(desk["id"], c["name"]) or {}
         last = store.last_vision_event(desk["id"], c["name"])
-        cams.append({**_conn_public(c), "source_kind": V.source_kind(str(c["config"].get("source", ""))),
-                     "sample": DS.sample_name(str(c["config"].get("source", ""))),   # sample footage: shown as sample:<name>
+        job = next((j for j in jobs if j["kind"] == "camera_watch" and
+                    (j["task"] or "").find(f'"connector": "{c["name"]}"') >= 0), None)
+        src = str(c["config"].get("source", "") or "")
+        cams.append({**_conn_public(c), "source_kind": V.source_kind(src) if src else "",
+                     "sample": DS.sample_name(src),   # sample footage: shown as sample:<name>
                      "rule": V.rule_config(c["config"]),
                      "seen": {k: v for k, v in seen.items() if k not in ("annotated", "detections")},
                      "last_event": _vev_public(last) if last else None,
-                     "watch_job": next((j for j in store.jobs(desk["id"]) if j["kind"] == "camera_watch" and
-                                        (j["task"] or "").find(f'"connector": "{c["name"]}"') >= 0), None)})
+                     "last_note": notes.get(c["name"]),
+                     "journal": str(c["config"].get("journal", "")).lower() in ("1", "true", "on", "yes"),
+                     "status": _camera_status(c, seen, last, job, now),
+                     "watch_job": job})
     hook = request.host_url.rstrip("/") + "/hook/" + store.ensure_hook_token(desk["id"]) + "/vision"
     nodes = [{**n, "last_event": _vev_public(n["last_event"]) if n.get("last_event") else None}
              for n in store.hook_cameras(desk["id"], time.time() - 86400, tuple(c["name"] for c in cams))]
@@ -2511,6 +2583,14 @@ def _camera_source_reason(src: str, uid: Any) -> str | None:
         except (OSError, ValueError, RuntimeError):
             continue
     return _CAMERA_FILE_REFUSED
+
+
+@app.get("/api/cameras/samples")
+def api_camera_samples():
+    """The sample clips on this server. No desk needed: an owner without a desk can try sample footage while Atlas
+    drafts the first one (the clip goes into the draft and goes live when the desk is built)."""
+    _signed_in()
+    return jsonify({"samples": [{"name": n, "label": DS.SAMPLE_LABELS.get(n, n.replace("-", " "))} for n in DS.sample_clips()]})
 
 
 @app.post("/api/cameras/upload")
@@ -2783,8 +2863,9 @@ def api_review_data():
         abort(401)
     out = _review_out()
     rv, rs, nt = out / "review.json", out / "results.json", out / "notes.json"
-    if not rv.is_file():
-        return jsonify({"error": "no evaluation yet: run  py -m atlas mcam-eval  (WILDTRACK under ~/AtlasDemo/wildtrack)"}), 404
+    if not rv.is_file():                                          # nothing to review yet: an honest empty answer, not a 404
+        return jsonify({"review": None, "results": None, "notes": None,
+                        "error": "no evaluation yet: run  py -m atlas mcam-eval  (WILDTRACK under ~/AtlasDemo/wildtrack)"})
     rd = lambda f: f.read_text(encoding="utf-8") if f.is_file() else "null"
     return Response('{"review":' + rv.read_text(encoding="utf-8") + ',"results":' + rd(rs) + ',"notes":' + rd(nt) + "}",
                     mimetype="application/json")
@@ -3143,12 +3224,16 @@ def desk_theatre_clip(name):
 def desk_workspace():
     """The cinematic front door: talk to Atlas, watch it assemble the team, build, deploy, see every agent work live."""
     if not current_user() and not OPEN:
-        return redirect("/login?next=/desk/workspace")
+        return redirect(_login_next())
     did = request.args.get("desk", type=int)
     if did:                                                # a link to a desk opens THAT desk (same rule as /select), not the cookie's
         u, d = current_user(), store.desk(did)
         if d and (OPEN or (u and d["owner_id"] == u["id"])):
             session["desk"] = did
+    elif "new" not in request.args and current_user():
+        d = current_desk()                                 # /desk/workspace means "my desk"; ?new=1 means "a new one"
+        if d:
+            return redirect(f"/desk/workspace?desk={d['id']}")
     return send_from_directory(STATIC_DIR, "workspace.html")
 
 
@@ -4646,6 +4731,11 @@ def _design_session(sid: str) -> DS.DesignSession:
         if saved:
             s = DS.DesignSession.from_dict(saved)
             DS.SESSIONS[s.id] = s
+    owner = getattr(s, "owner_id", None) if s else None
+    if s and owner is not None:                        # a draft is its owner's: another account in the same browser never sees it
+        u = current_user()
+        if not u or int(u["id"]) != int(owner):
+            s = None
     if not s:
         abort(Response(json.dumps({"error": "no_session"}), 404, mimetype="application/json"))
     return s
@@ -4676,6 +4766,7 @@ def api_design_start():
     d = request.get_json(silent=True) or {}
     tier = d.get("tier") if d.get("tier") in templates.TIERS else "free"
     s = DS.new_session(_mode(), tier)
+    s.owner_id = int(u["id"]) if u else None
     if u and u.get("company"):
         s.transcript[0]["text"] = s.transcript[0]["text"].replace("Describe the business", f"Describe {u['company']}", 1)
     links = d.get("links") or []
@@ -4742,6 +4833,19 @@ def api_design_study(sid):
 
     return Response(gen(), mimetype="text/event-stream",
                     headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no", "Connection": "keep-alive"})
+
+
+@app.get("/api/design/mine")
+def api_design_mine():
+    """This account's newest unfinished draft (not built, at least one turn, saved in the last 30 days): the workspace
+    resumes it on any device or tab instead of a blank brief. {} when there is none."""
+    u = current_user()
+    if not u:
+        return jsonify({})
+    for d in store.recent_design_sessions():
+        if d.get("owner_id") == u["id"] and not d.get("desk_id") and int(d.get("turn") or 0) > 0:
+            return jsonify(_design_session(str(d.get("id"))).public())
+    return jsonify({})
 
 
 @app.get("/api/design/<sid>")

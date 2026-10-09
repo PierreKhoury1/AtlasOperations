@@ -1,5 +1,7 @@
 /* Atlas app frame: the same navigation, search (Ctrl K) and Ask Atlas panel on every page of the desk.
-   Each page keeps its own content; this adds the frame around it. Pages opt in with shell.css + this script. */
+   Each page keeps its own content; this adds the frame around it. Pages opt in with shell.css + this script.
+   A page can register window.shellPage = {ask(mode, text), commands(), replaces: [...]} before this script boots:
+   the rail's Ask Atlas then opens that page's own Atlas, and its commands lead the Ctrl K palette. */
 (() => {
   if (window.__shell || new URLSearchParams(location.search).has('embed')) return;
   window.__shell = true;
@@ -18,7 +20,8 @@
     gear: '<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"/>',
     search: '<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>', chat: '<path d="M4 5h16v11H9l-5 4z"/>', chev: '<path d="m7 15 5 5 5-5M7 9l5-5 5 5"/>',
     side: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/>', plus: '<path d="M12 5v14M5 12h14"/>', out: '<path d="M15 4h4v16h-4M10 8l-4 4 4 4M6 12h11"/>',
-    moon: '<path d="M20 14.5A8 8 0 0 1 9.5 4 8 8 0 1 0 20 14.5z"/>',
+    moon: '<path d="M20 14.5A8 8 0 0 1 9.5 4 8 8 0 1 0 20 14.5z"/>', tick: '<path d="m5 12.5 4.5 4.5L19 7.5"/>',
+    play: '<path d="M7 4.5v15l12-7.5z"/>', x: '<path d="M6 6l12 12M18 6 6 18"/>',
   };
   const svg = k => `<svg viewBox="0 0 24 24">${IC[k] || ''}</svg>`;
   const NAV = [
@@ -31,14 +34,10 @@
     ['Connect', [['integrations', 'Integrations', '/desk#integrations', 'link'], ['audit', 'Audit log', '/desk#audit', 'doc'], ['report', 'Reports', '/desk#report', 'chart'],
                  ['setup', 'Desk setup', '/desk#setup', 'gear']]],
   ];
+  // an owner with no desk yet: the same frame, with only the way in (Atlas drafts the first desk in the workspace)
+  const NAV_SETUP = [['Start', [['design', 'Atlas workspace', '/desk/workspace', 'spark'], ['home', 'Other ways to start', '/desk', 'grid']]]];
+  let SETUP = false;
   const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
-  async function api(path, opt = {}) {
-    const r = await fetch('/api' + path, {method: opt.method || 'GET', headers: {'Content-Type': 'application/json'}, credentials: 'same-origin',
-                                           body: opt.body ? JSON.stringify(opt.body) : undefined});
-    if (r.status === 401) return null;
-    try { return await r.json(); } catch (e) { return null; }
-  }
-  const store = (k, v) => { try { if (v === undefined) return localStorage.getItem(k); localStorage.setItem(k, v); } catch (e) {} return null; };
   const isIndex = () => location.pathname === '/desk' || location.pathname === '/desk/';
   function current() {
     const p = location.pathname.replace(/\/$/, '');
@@ -50,25 +49,51 @@
     const h = location.hash.slice(1) || 'dash';
     return h === 'dash' ? 'home' : h;
   }
+  // the workspace shows ONE desk (?desk=N): the frame reads that desk too, whatever another tab selected meanwhile
+  function pinned() {
+    if (current() !== 'design') return 0;
+    const v = parseInt(new URLSearchParams(location.search).get('desk') || '', 10);
+    return v > 0 ? v : 0;
+  }
+  async function api(path, opt = {}) {
+    const headers = {'Content-Type': 'application/json'}; const pd = pinned(); if (pd) headers['X-Desk'] = String(pd);
+    const r = await fetch('/api' + path, {method: opt.method || 'GET', headers, credentials: 'same-origin',
+                                           body: opt.body ? JSON.stringify(opt.body) : undefined});
+    if (r.status === 401) return null;
+    try { return await r.json(); } catch (e) { return null; }
+  }
+  const store = (k, v) => { try { if (v === undefined) return localStorage.getItem(k); localStorage.setItem(k, v); } catch (e) {} return null; };
   const S = {desks: [], cur: null, me: null, stats: null, cams: 0, agents: [], cameras: [], cases: []};
+  const page = () => { const p = window.shellPage; return p && typeof p === 'object' ? p : null; };
+
+  // Ask Atlas: a page with its own Atlas conversation (the workspace) takes it; a new owner is sent to the workspace
+  function askAtlas(mode, text) {
+    const p = page();
+    if (p && typeof p.ask === 'function') { try { if (p.ask(mode, text) !== false) return; } catch (e) {} }
+    if (SETUP) { location.href = '/desk/workspace'; return; }
+    ask.open(mode, text);
+  }
 
   // ---------------------------------------------------------------- rail
+  let railWired = false;
   function rail() {
     const r = document.createElement('div'); r.id = 'sh-rail'; r.setAttribute('role', 'navigation');   // not <nav>: the pages style bare nav elements
-    r.innerHTML = `<div class="sh-top"><a class="sh-brand" href="/desk#dash" data-go="dash"><i></i><span>Atlas</span></a>
+    const nav = SETUP ? NAV_SETUP : NAV;
+    r.innerHTML = `<div class="sh-top"><a class="sh-brand" href="${SETUP ? '/desk/workspace' : '/desk#dash'}" data-go="dash"><i></i><span>Atlas</span></a>
         <button class="sh-iconbtn" id="sh-mini" title="Collapse the menu">${svg('side')}</button></div>
-      <button class="sh-desk" id="sh-desk" title="Switch desk">${svg('home')}<span class="nm"><b id="sh-dname">…</b><small id="sh-dsub">loading</small></span>${svg('chev')}</button>
-      <div class="sh-actions"><button class="sh-act ask" id="sh-askbtn" title="Give the team a job or ask the cameras">${svg('chat')}<span>Ask Atlas</span></button>
+      <button class="sh-desk" id="sh-desk" title="${SETUP ? 'Start a desk' : 'Switch desk'}">${svg('home')}<span class="nm"><b id="sh-dname">${SETUP ? 'No desk yet' : '…'}</b><small id="sh-dsub">${SETUP ? 'Atlas drafts it with you' : 'loading'}</small></span>${svg('chev')}</button>
+      <div class="sh-actions"><button class="sh-act ask" id="sh-askbtn" title="${SETUP ? 'Describe the business to Atlas' : 'Give the team a job or ask the cameras'}">${svg('chat')}<span>Ask Atlas</span></button>
         <button class="sh-act" id="sh-search" title="Search and jump anywhere">${svg('search')}<span>Search</span>${location.pathname.startsWith('/desk/ops') ? '' : '<kbd>Ctrl K</kbd>'}</button></div>
-      <div class="sh-nav">${NAV.map(([g, items]) => `<div class="sh-grp">${g}</div>` + items.map(([id, label, href, ic]) =>
+      <div class="sh-nav">${nav.map(([g, items]) => `<div class="sh-grp">${g}</div>` + items.map(([id, label, href, ic]) =>
         `<a class="sh-item" data-id="${id}" href="${href}" title="${esc(label)}">${svg(ic)}<span class="lbl">${esc(label)}</span><span class="sh-badge" id="sh-b-${id}" hidden></span></a>`).join('')).join('')}</div>
       <div class="sh-foot"><div class="sh-av" id="sh-av">?</div><div class="sh-who"><b id="sh-me">…</b><small id="sh-co"></small></div>
         <button class="sh-iconbtn" id="sh-acct" title="Account">${svg('gear')}</button></div>`;
     document.body.prepend(r);
     document.body.classList.add('sh-on');
+    document.body.classList.toggle('sh-setup', SETUP);
     if (store('sh-mini') === '1') document.body.classList.add('sh-mini');
     r.querySelector('#sh-mini').onclick = () => { const m = document.body.classList.toggle('sh-mini'); store('sh-mini', m ? '1' : '0'); window.dispatchEvent(new Event('resize')); };
-    r.querySelector('#sh-askbtn').onclick = () => ask.open();
+    r.querySelector('#sh-askbtn').onclick = () => askAtlas();
     r.querySelector('#sh-search').onclick = () => pal.open();
     r.querySelector('#sh-desk').onclick = e => deskMenu(e.currentTarget);
     r.querySelector('#sh-acct').onclick = e => acctMenu(e.currentTarget);
@@ -77,7 +102,7 @@
       e.preventDefault(); const sec = a.getAttribute('href').split('#')[1]; window.go(sec); mark();
     });
     mark();
-    window.addEventListener('hashchange', mark);
+    if (!railWired) { railWired = true; window.addEventListener('hashchange', () => mark()); }
     if (isIndex()) { const og = window.go; if (typeof og === 'function' && !og.__sh) { window.go = function (p) { const r = og.apply(this, arguments); mark(p); return r; }; window.go.__sh = true; } }
   }
   function mark(p) {
@@ -89,6 +114,7 @@
     b.hidden = !n; b.textContent = n > 99 ? '99+' : n; b.className = 'sh-badge' + (cls ? ' ' + cls : '');
   }
   async function refreshBadges() {
+    if (SETUP) return;
     const s = await api('/stats'); if (!s || s.needs_desk) return; S.stats = s;
     badge('approvals', s.pending || 0, 'hot');
     badge('cases', (s.cases && s.cases.you) || 0, 'hot');
@@ -105,67 +131,85 @@
     setTimeout(() => document.addEventListener('click', function h(e) { if (!m.contains(e.target)) { m.remove(); document.removeEventListener('click', h); } }), 0);
     return m;
   }
+  async function switchDesk(id) {
+    await api(`/desks/${id}/select`, {method: 'POST', body: {}});
+    if (current() === 'design') { location.href = '/desk/workspace?desk=' + id; return; }   // the workspace stays the workspace
+    location.href = '/desk#dash'; location.reload();
+  }
   function deskMenu(btn) {
-    const m = menu(btn, S.desks.map(d => `<button data-d="${d.id}" class="${d.id === S.cur ? 'cur' : ''}">${svg('home')}${esc(d.business_name || d.name)}${d.id === S.cur ? ' ✓' : ''}</button>`).join('')
+    if (SETUP) { menu(btn, `<a href="/desk/workspace?new=1">${svg('spark')}New desk with Atlas</a><a href="/desk">${svg('grid')}Other ways to start</a>`); return; }
+    const m = menu(btn, S.desks.map(d => `<button data-d="${d.id}" class="${d.id === S.cur ? 'cur' : ''}">${svg('home')}<span class="t">${esc(d.business_name || d.name)}</span>${d.id === S.cur ? `<span class="tk">${svg('tick')}</span>` : ''}</button>`).join('')
       + `<hr><a href="/desk/workspace?new=1">${svg('plus')}New desk with Atlas</a><a href="/desk#setup">${svg('gear')}Desk setup</a>`);
     m.querySelectorAll('[data-d]').forEach(b => b.onclick = async () => {
       if (+b.dataset.d === S.cur) return m.remove();
-      await api(`/desks/${b.dataset.d}/select`, {method: 'POST', body: {}}); location.href = '/desk#dash'; location.reload();
+      await switchDesk(+b.dataset.d);
     });
   }
   function acctMenu(btn) {
     const dark = document.documentElement.dataset.theme !== 'light';
-    const m = menu(btn, `<button id="sh-th">${svg('moon')}${dark ? 'Light theme' : 'Dark theme'}</button><a href="/desk#setup">${svg('gear')}Desk setup</a><a href="/">${svg('home')}Website</a><hr><a href="/logout">${svg('out')}Log out</a>`);
+    const m = menu(btn, `<button id="sh-th">${svg('moon')}${dark ? 'Light theme' : 'Dark theme'}</button>${SETUP ? '' : `<a href="/desk#setup">${svg('gear')}Desk setup</a>`}<a href="/">${svg('home')}Website</a><hr><a href="/logout">${svg('out')}Log out</a>`);
     m.querySelector('#sh-th').onclick = () => {
       const t = dark ? 'light' : 'dark'; document.documentElement.dataset.theme = t; store('atlas-theme', t);
       if (typeof window.themeLabel === 'function') window.themeLabel(); m.remove();
     };
   }
+  function setMe(me) {
+    if (!document.getElementById('sh-me')) return;
+    if (me && me.id) {
+      document.getElementById('sh-me').textContent = me.name || me.email; document.getElementById('sh-co').textContent = me.email || '';
+      document.getElementById('sh-av').textContent = (me.name || me.email || '?').trim()[0].toUpperCase();
+    } else { document.getElementById('sh-me').textContent = 'Guest'; document.getElementById('sh-co').textContent = 'open mode'; }
+  }
+  async function loadMe() { S.me = await api('/me'); setMe(S.me); }
   async function loadMeta() {
     const [d, me, cfg, cams, cases] = await Promise.all([api('/desks'), api('/me'), api('/config'), api('/cameras'), api('/cases?open=1&limit=50')]);
     if (d && d.desks) {
-      S.desks = d.desks; S.cur = d.current;
-      const cur = d.desks.find(x => x.id === d.current) || d.desks[0];
+      S.desks = d.desks; S.cur = (pinned() && d.desks.some(x => x.id === pinned())) ? pinned() : d.current;
+      const cur = d.desks.find(x => x.id === S.cur) || d.desks[0];
       if (cur) document.getElementById('sh-dname').textContent = cur.business_name || cur.name;
       { const md = document.getElementById('sh-mdesk'); if (md && cur) md.textContent = cur.business_name || cur.name; }
       const ws = document.querySelector('#sh-rail .sh-item[data-id="design"]'); if (ws && cur) ws.href = '/desk/workspace?desk=' + cur.id;   // this desk's agents, cameras and chat
     }
     if (cfg && cfg.agents) S.agents = cfg.agents;
-    if (cams && cams.cameras) { S.cameras = cams.cameras; badge('cameras', cams.cameras.length, cams.cameras.some(c => c.watch_job && c.watch_job.enabled) ? 'live' : ''); }
+    // green only while a camera is really live (watched AND sending frames: the server's status), never for a switched-on dead feed
+    if (cams && cams.cameras) { S.cameras = cams.cameras; badge('cameras', cams.cameras.length, cams.cameras.some(c => c.status && c.status.state === 'live') ? 'live' : ''); }
     if (cases && cases.cases) S.cases = cases.cases;
-    const sub = []; if (S.agents.length) sub.push(`${S.agents.length} agent${S.agents.length === 1 ? '' : 's'}`); if (S.cameras.length) sub.push(`${S.cameras.length} camera${S.cameras.length === 1 ? '' : 's'}`);
+    const specs = S.agents.filter(a => a.id !== 'atlas' && a.enabled !== false).length;      // the same count every page shows
+    const sub = []; if (S.agents.length) sub.push(specs ? `Atlas + ${specs} specialist${specs === 1 ? '' : 's'}` : 'Atlas only'); if (S.cameras.length && !S.agents.length) sub.push(`${S.cameras.length} camera${S.cameras.length === 1 ? '' : 's'}`);   // cameras have their own badge below
     document.getElementById('sh-dsub').textContent = sub.join(' · ') || (cfg && cfg.mode === 'live' ? 'live' : 'desk');
-    if (me && me.id) {
-      document.getElementById('sh-me').textContent = me.name || me.email; document.getElementById('sh-co').textContent = me.email || '';
-      document.getElementById('sh-av').textContent = (me.name || me.email || '?').trim()[0].toUpperCase();
-    } else { document.getElementById('sh-me').textContent = 'Guest'; document.getElementById('sh-co').textContent = 'open mode'; }
+    S.me = me; setMe(me);
   }
 
   // ---------------------------------------------------------------- palette (Ctrl K)
   const pal = {
     el: null, items: [], sel: 0,
     build() {
-      const nav = NAV.flatMap(([g, items]) => items.map(([id, label, href, ic]) => ({g: 'Go to', label, ic, href, kw: g})));
+      const p = page(); let pageCmds = [];
+      if (p && typeof p.commands === 'function') { try { pageCmds = p.commands() || []; } catch (e) { pageCmds = []; } }
+      const skip = new Set((p && p.replaces) || []);
+      const nav = (SETUP ? NAV_SETUP : NAV).flatMap(([g, items]) => items.map(([id, label, href, ic]) => ({g: 'Go to', label, ic, href, kw: g})));
+      if (SETUP) return [...pageCmds, {g: 'Do', label: 'Start a new desk with Atlas', ic: 'spark', href: '/desk/workspace?new=1'},
+                         {g: 'Do', label: 'Other ways to start: a ready-made desk, or from scratch', ic: 'grid', href: '/desk'}, ...nav];
       const act = [
-        {g: 'Do', label: 'Give the team a job', ic: 'chat', run: () => ask.open('job')},
-        {g: 'Do', label: 'Ask the cameras a question', ic: 'camera', run: () => ask.open('ask')},
+        {g: 'Do', label: 'Give the team a job', ic: 'chat', run: () => askAtlas('job')},
+        {g: 'Do', label: 'Ask the cameras a question', ic: 'camera', run: () => askAtlas('ask')},
         {g: 'Do', label: 'New case', ic: 'inbox', href: '/desk/ops', after: 'newCase'},
-        {g: 'Do', label: 'Add a camera', ic: 'camera', href: '/desk#cameras'},
+        ...(skip.has('add-camera') ? [] : [{g: 'Do', label: 'Add a camera', ic: 'camera', href: '/desk#cameras'}]),
         {g: 'Do', label: 'Add an agent', ic: 'team', href: '/desk#team', after: 'teamAddReady'},
         {g: 'Do', label: 'Connect an app (email, WhatsApp, calendar…)', ic: 'link', href: '/desk#integrations'},
-        {g: 'Do', label: 'Change the team with Atlas', ic: 'spark', run: () => ask.open('design')},
+        {g: 'Do', label: 'Change the team with Atlas', ic: 'spark', run: () => askAtlas('design')},
         {g: 'Do', label: 'Start a new desk with Atlas', ic: 'spark', href: '/desk/workspace?new=1'},
       ];
-      const ag = S.agents.filter(a => a.id !== 'atlas').map(a => ({g: 'Agents', label: a.name, hint: a.role, ic: 'team', href: '/desk#team', after: 'teamOpenId:' + a.id}));
-      const cm = S.cameras.map(c => ({g: 'Cameras', label: c.name, hint: (c.seen && c.seen.counts) ? Object.entries(c.seen.counts).map(([k, n]) => `${n} ${k}`).join(', ') : c.source_kind, ic: 'camera', href: '/desk#cameras', after: 'openLive:' + c.id}));
+      const ag = skip.has('agents') ? [] : S.agents.filter(a => a.id !== 'atlas').map(a => ({g: 'Agents', label: a.name, hint: a.role, ic: 'team', href: '/desk#team', after: 'teamOpenId:' + a.id}));
+      const cm = skip.has('cameras') ? [] : S.cameras.map(c => ({g: 'Cameras', label: c.name, hint: (c.seen && c.seen.counts) ? Object.entries(c.seen.counts).map(([k, n]) => `${n} ${k}`).join(', ') : c.source_kind, ic: 'camera', href: '/desk#cameras', after: 'openLive:' + c.id}));
       const cs = S.cases.map(c => ({g: 'Open cases', label: c.title || ('Case ' + c.id), hint: c.state || c.type, ic: 'inbox', href: '/desk/ops#case/' + c.id}));
-      const dk = S.desks.filter(d => d.id !== S.cur).map(d => ({g: 'Switch desk', label: d.business_name || d.name, ic: 'home', run: async () => { await api(`/desks/${d.id}/select`, {method: 'POST', body: {}}); location.href = '/desk#dash'; location.reload(); }}));
-      return [...act, ...nav, ...ag, ...cm, ...cs, ...dk];
+      const dk = S.desks.filter(d => d.id !== S.cur).map(d => ({g: 'Switch desk', label: d.business_name || d.name, ic: 'home', run: () => switchDesk(d.id)}));
+      return [...pageCmds, ...act, ...nav, ...ag, ...cm, ...cs, ...dk];
     },
     open() {
       if (this.el) return;
       const el = this.el = document.createElement('div'); el.id = 'sh-pal';
-      el.innerHTML = `<div class="box"><input placeholder="Search pages, agents, cameras, cases, or type what you want to do…" autocomplete="off"><div class="list"></div>
+      el.innerHTML = `<div class="box"><input placeholder="${SETUP ? 'Search, or type what you want to do…' : 'Search pages, agents, cameras, cases, or type what you want to do…'}" autocomplete="off"><div class="list"></div>
         <div class="ft"><span>↑↓ choose</span><span>Enter open</span><span>Esc close</span></div></div>`;
       document.body.append(el);
       const inp = el.querySelector('input'); this.all = this.build(); this.render('');
@@ -173,7 +217,7 @@
       inp.onkeydown = e => {
         if (e.key === 'ArrowDown') { e.preventDefault(); this.sel = Math.min(this.sel + 1, this.items.length - 1); this.render(inp.value, true); }
         else if (e.key === 'ArrowUp') { e.preventDefault(); this.sel = Math.max(this.sel - 1, 0); this.render(inp.value, true); }
-        else if (e.key === 'Enter') { e.preventDefault(); if (this.items[this.sel]) this.go(this.items[this.sel]); else if (inp.value.trim()) { const t = inp.value.trim(); this.close(); ask.open('job', t); } }
+        else if (e.key === 'Enter') { e.preventDefault(); if (this.items[this.sel]) this.go(this.items[this.sel]); else if (inp.value.trim()) { const t = inp.value.trim(); this.close(); askAtlas('job', t); } }
         else if (e.key === 'Escape') this.close();
       };
       el.onclick = e => { if (e.target === el) this.close(); };
@@ -185,7 +229,7 @@
       this.items = this.all.map(it => [score(it), it]).filter(([s]) => s > 0).sort((a, b) => b[0] - a[0]).map(([, it]) => it).slice(0, 40);
       if (!t) this.items = this.all.slice(0, 40);
       const list = this.el.querySelector('.list');
-      if (!this.items.length) { list.innerHTML = `<div class="none">Nothing matches. Press Enter to give the team this as a job.</div>`; return; }
+      if (!this.items.length) { list.innerHTML = `<div class="none">${SETUP || page() ? 'Nothing matches. Press Enter to send this to Atlas.' : 'Nothing matches. Press Enter to give the team this as a job.'}</div>`; return; }
       let g = '';
       list.innerHTML = this.items.map((it, i) => { const head = it.g !== g ? `<div class="g">${esc(it.g)}</div>` : ''; g = it.g;
         return head + `<div class="it ${i === this.sel ? 'sel' : ''}" data-i="${i}">${svg(it.ic)}<span>${esc(it.label)}</span>${it.hint ? `<small>${esc(String(it.hint).slice(0, 60))}</small>` : ''}</div>`; }).join('');
@@ -227,7 +271,7 @@
     el: null, mode: 'job',
     build() {
       const el = this.el = document.createElement('aside'); el.id = 'sh-ask';
-      el.innerHTML = `<div class="hd"><div class="orb">A</div><div><b>Ask Atlas</b><small>your team lead: briefs the agents, checks their work</small></div><button title="Close (Esc)">×</button></div>
+      el.innerHTML = `<div class="hd"><i class="mark"></i><div><b>Ask Atlas</b><small>your team lead: briefs the agents, checks their work</small></div><button title="Close (Esc)">${svg('x')}</button></div>
         <div class="tabs"><button data-m="job">Give a job</button><button data-m="ask">Ask the cameras</button><button data-m="design">Change the team</button></div>
         <div class="bd" id="sh-askbd"></div>
         <div class="cmp"><textarea id="sh-asktx" rows="2"></textarea><button class="send" id="sh-asksend">Send</button></div>
@@ -297,28 +341,49 @@
     },
     close() { if (this.el) this.el.classList.remove('on'); },
   };
-  window.shell = {ask, pal, refresh: refreshBadges, go: (href, after) => pal.go({href, after})};
 
   // phones: a top bar with the menu, the desk name and Ask Atlas; the rail slides over the page
+  let mbarWired = false;
   function mbar() {
     const m = document.createElement('div'); m.id = 'sh-mbar';
-    m.innerHTML = `<button id="sh-burger" title="Menu" aria-label="Menu"><svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button><b id="sh-mdesk">Atlas</b><button class="ask" id="sh-mask">Ask Atlas</button>`;
+    m.innerHTML = `<button id="sh-burger" title="Menu" aria-label="Menu"><svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button><b id="sh-mdesk">${SETUP ? 'New desk' : 'Atlas'}</b><button class="ask" id="sh-mask">Ask Atlas</button>`;
     document.body.append(m);
     m.querySelector('#sh-burger').onclick = e => { e.stopPropagation(); document.body.classList.toggle('sh-open'); };
-    m.querySelector('#sh-mask').onclick = () => ask.open();
-    document.addEventListener('click', e => { if (document.body.classList.contains('sh-open') && (!e.target.closest('#sh-rail') || e.target.closest('.sh-item'))) document.body.classList.remove('sh-open'); });
+    m.querySelector('#sh-mask').onclick = () => askAtlas();
+    if (!mbarWired) { mbarWired = true; document.addEventListener('click', e => { if (document.body.classList.contains('sh-open') && (!e.target.closest('#sh-rail') || e.target.closest('.sh-item'))) document.body.classList.remove('sh-open'); }); }
   }
 
   // ---------------------------------------------------------------- boot
+  let keysWired = false, polling = false;
+  function mount(first) {
+    rail(); mbar();
+    if (SETUP) { loadMe(); if (first) runAfter(); }                  // an action asked for on another page (e.g. the template form) still runs
+    else {
+      loadMeta(); refreshBadges(); if (first) runAfter();
+      if (!polling) { polling = true; setInterval(() => { if (!document.hidden) refreshBadges(); }, 12000); }
+    }
+    if (!keysWired) {
+      keysWired = true;
+      document.addEventListener('keydown', e => {
+        if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k' && !location.pathname.startsWith('/desk/ops')) { e.preventDefault(); pal.el ? pal.close() : pal.open(); }
+        else if (e.key === 'Escape') { pal.close(); ask.close(); }
+      });
+    }
+  }
   async function boot() {
     const d = await api('/desks');
-    if (!d || !d.desks || !d.desks.length) return;          // signed out, or a brand-new owner still meeting Atlas: no frame yet
-    rail(); mbar(); loadMeta(); refreshBadges(); runAfter();
-    setInterval(() => { if (!document.hidden) refreshBadges(); }, 12000);
-    document.addEventListener('keydown', e => {
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k' && !location.pathname.startsWith('/desk/ops')) { e.preventDefault(); pal.el ? pal.close() : pal.open(); }
-      else if (e.key === 'Escape') { pal.close(); ask.close(); }
-    });
+    if (!d || !Array.isArray(d.desks)) return;             // signed out: no frame
+    SETUP = !d.desks.length;                               // a brand-new owner gets the frame with only the way in
+    mount(true);
   }
+  // after the first desk is built on this page: the reduced rail becomes the full one, without a reload
+  async function remount() {
+    const d = await api('/desks'); if (!d || !Array.isArray(d.desks)) return;
+    document.querySelectorAll('#sh-rail, #sh-mbar, .sh-menu').forEach(e => e.remove());
+    pal.close();
+    SETUP = !d.desks.length;
+    mount(false);
+  }
+  window.shell = {ask, pal, askAtlas, remount, refresh: refreshBadges, go: (href, after) => pal.go({href, after}), setup: () => SETUP};
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot); else boot();
 })();

@@ -1224,6 +1224,8 @@ class Orchestrator:
         try:
             if mode == "auto":
                 summary = self.run_agent("atlas", task)
+                if summary.startswith("ERROR from "):      # a model call of the lead failed (on its first turn or a later one): a failed run, not a result
+                    status = "error"
             elif mode in self.workflows:
                 summary = self._run_workflow(self.workflows[mode], task)
             else:
@@ -1234,8 +1236,9 @@ class Orchestrator:
         except Exception as exc:
             status, summary = "error", f"{type(exc).__name__}: {exc}"
             self.emit("error", "system", summary + "\n" + traceback.format_exc()[-1500:])
-        if status == "done":
-            c = self._counts
+        c = self._counts
+        # the desk's own record of what the run left behind; a failed run keeps it too when anything was queued, sent or saved
+        if status == "done" or (status == "error" and (c["queued"] or c["sent"] or c["crm"] or c["jobs"] or self.deliverables)):
             summary = (summary or "").rstrip() + (
                 f"\n\n---\nVerified by the desk (not model-claimed): {c['queued']} action(s) queued for approval, "
                 f"{c['sent']} sent, {c['crm']} CRM update(s), {c['jobs']} task(s) scheduled, "

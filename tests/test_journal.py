@@ -265,8 +265,10 @@ def test_login_lands_in_workspace_then_home(app_client):
     assert r.status_code == 302 and r.headers["Location"].endswith("/desk/workspace")
     r = c.get("/desk/workspace")
     page = r.get_data(as_text=True)
-    assert r.status_code == 200 and "<title>Atlas Workspace</title>" in page and "/desk/static/workspace.js" in page
-    assert 'id="camstrip"' in page and 'id="guide"' in page and "Operating Atlas" in page   # the guide's heading was renamed
+    assert r.status_code == 200 and "<title>Atlas Desk · Workspace</title>" in page and "/desk/static/workspace.js" in page
+    # inside the shared app frame (rail, Ctrl K palette, Ask Atlas) with Home's type: the frame's own files and fonts
+    assert "/desk/static/shell.js" in page and "/desk/static/shell.css" in page and "family=IBM+Plex+Mono" in page
+    assert 'id="camstrip"' in page and 'id="guide"' in page and "How to use Atlas" in page   # the guide's heading
     c.post("/api/desks", json={"name": "L", "template": "site_watch", "tier": "free"})   # with a desk, its Home is the front door
     c.get("/logout")
     r = c.post("/login", data={"email": "ws-land@example.com", "password": "password1"})

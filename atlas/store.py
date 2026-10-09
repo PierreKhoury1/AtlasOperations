@@ -562,6 +562,17 @@ class Store:
         rows = self.vision_events(desk_id, camera, 0, "", 1, triggered_only)
         return rows[0] if rows else None
 
+    def last_vision_notes(self, desk_id: int, since: float, limit: int = 400) -> dict[str, dict[str, Any]]:
+        """Per camera, its latest written note (a journal entry or a digest, not a bare detection) since `since`.
+        One bounded query for the whole desk: a camera with no note among the newest `limit` notes has none here."""
+        rows = _rows(self._conn.execute(
+            "SELECT camera, ts, answer, source FROM vision_events WHERE desk_id=? AND ts>=? AND source IN ('journal','digest') "
+            "AND answer<>'' ORDER BY ts DESC LIMIT ?", (desk_id, since, int(limit))))
+        out: dict[str, dict[str, Any]] = {}
+        for r in rows:
+            out.setdefault(r["camera"], {"text": r["answer"], "ts": r["ts"], "source": r["source"]})
+        return out
+
     def set_vision_run(self, vid: int, run_id: str) -> None:
         with self._lock:
             self._conn.execute("UPDATE vision_events SET run_id=?, triggered=1 WHERE id=?", (run_id, vid))
@@ -963,6 +974,20 @@ class Store:
             self._conn.execute("DELETE FROM design_sessions WHERE updated < ?", (time.time() - 30 * 86400,))
             self._conn.commit()
 
+    def recent_design_sessions(self, limit: int = 300) -> list[dict[str, Any]]:
+        """The newest saved design sessions (newest first), each with its `updated` time. Bounded: rows older than 30 days
+        are pruned on every save."""
+        out = []
+        for data, updated in self._conn.execute("SELECT data, updated FROM design_sessions ORDER BY updated DESC LIMIT ?", (int(limit),)).fetchall():
+            try:
+                d = json.loads(data)
+            except (TypeError, json.JSONDecodeError):
+                continue
+            if isinstance(d, dict):
+                d["updated"] = updated
+                out.append(d)
+        return out
+
     def load_design_session(self, sid: str) -> dict[str, Any] | None:
         row = self._conn.execute("SELECT data FROM design_sessions WHERE sid=?", (sid,)).fetchone()
         try:
@@ -988,8 +1013,15 @@ class Store:
         return rows[0] if rows else None
 
     def events(self, run_id: str) -> list[dict[str, Any]]:
-        cur = self._conn.execute("SELECT ts,kind,agent,text FROM events WHERE run_id=? ORDER BY ts", (run_id,))
-        return [{"ts": r[0], "kind": r[1], "agent": r[2], "text": r[3]} for r in cur.fetchall()]
+        cur = self._conn.execute("SELECT ts,kind,agent,text,data FROM events WHERE run_id=? ORDER BY ts", (run_id,))
+        out = []
+        for r in cur.fetchall():
+            try:                                             # the bits a viewer needs to redraw the run (inst, assignment, parent, path)
+                data = json.loads(r[4]) if r[4] else {}
+            except (TypeError, ValueError):
+                data = {}
+            out.append({"ts": r[0], "kind": r[1], "agent": r[2], "text": r[3], "data": data if isinstance(data, dict) else {}})
+        return out
 
     def delete_run(self, run_id: str) -> None:
         with self._lock:
