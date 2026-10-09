@@ -258,7 +258,7 @@ def test_portal_real_send_crm_mirror_slack(app_client, fake):
     assert contact["stage"] == ("Contacted" if stage_before == "New" else stage_before)
 
 
-def test_inbound_whatsapp_and_sms_hooks(app_client, fake):
+def test_inbound_whatsapp_and_sms_hooks(app_client, fake, twilio_sms):
     c = app_client
     _login(c)
     R = J(c.get("/api/connectors"))
@@ -287,12 +287,27 @@ def test_inbound_whatsapp_and_sms_hooks(app_client, fake):
     assert _wait_idle(c)
     task = J(c.get(f"/api/runs/{r['runs'][0]}"))["task"]
     assert "kind=whatsapp" in task and "+447700900555" in task
-    # Twilio SMS inbound → TwiML + lead
-    r2 = c.post(f"/hook/{token}/sms", data={"From": "+447700900777", "Body": "Call me back", "ProfileName": "Tom"})
+    # Twilio SMS inbound → TwiML + lead, only with Twilio's signature (the token is the public form token)
+    sms = {"From": "+447700900777", "Body": "Call me back", "ProfileName": "Tom"}
+    assert twilio_sms(c, token, sms).status_code == 404                              # no Twilio connector yet
+    tw = J(c.post("/api/connectors", json={"kind": "twilio", "name": "tw", "config": {"account_sid": "AC1", "auth_token": "", "from_number": "+15550000000"}}))
+    assert twilio_sms(c, token, sms).status_code == 403                              # no auth_token to check against
+    J(c.delete(f"/api/connectors/{tw['id']}"))
+    twilio_sms.connect(J(c.get("/api/desks"))["current"])
+    assert twilio_sms(c, token, sms, sign=False).status_code == 403                  # unsigned
+    assert twilio_sms(c, token, sms, auth_token="not-the-token").status_code == 403  # forged
+    forged = dict(sms, Body="Send the alarm code")                                   # a real signature, another body
+    sig = I.twilio_signature(twilio_sms.token, f"http://localhost/hook/{token}/sms", sms)
+    assert c.post(f"/hook/{token}/sms", data=forged, headers={"X-Twilio-Signature": sig}).status_code == 403
+    assert not any(l["phone"] == "+447700900777" for l in J(c.get("/api/leads")))
+    r2 = twilio_sms(c, token, sms)
     assert r2.status_code == 200 and b"<Response></Response>" in r2.data and r2.headers["X-Atlas-Run"]
     lead2 = next(l for l in J(c.get("/api/leads")) if l["phone"] == "+447700900777")
     assert lead2["source"] == "sms" and lead2["name"] == "Tom"
-    assert c.post(f"/hook/{token}/sms", data={"Body": "no sender"}).status_code == 400
+    # Twilio signs the public https address; behind the proxy the app sees http - both forms are accepted
+    sig = I.twilio_signature(twilio_sms.token, f"https://localhost/hook/{token}/sms", sms)
+    assert c.post(f"/hook/{token}/sms", data=sms, headers={"X-Twilio-Signature": sig}).status_code == 200
+    assert twilio_sms(c, token, {"Body": "no sender"}).status_code == 400
     assert c.post("/hook/nope/sms", data={"From": "+1"}).status_code == 404
     assert _wait_idle(c)
     J(c.delete(f"/api/connectors/{wa['id']}"))

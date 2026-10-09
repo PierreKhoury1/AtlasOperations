@@ -79,6 +79,8 @@ class AnthropicProvider(Provider):
             raise RuntimeError("anthropic SDK missing: pip install anthropic") from exc
         import anthropic
         key = cfg.resolve_api_key(pcfg)
+        if not key and not cfg.house_key_allowed(pcfg):   # a desk owner's account without a key: the SDK would read
+            raise RuntimeError("this model account has no API key")   # ANTHROPIC_API_KEY (the house key) on its own
         kwargs: dict[str, Any] = {"timeout": float(pcfg.get("timeout", 600)), "max_retries": 3}
         if key:
             kwargs["api_key"] = key
@@ -549,7 +551,10 @@ class HermesAgentProvider(OpenAICompatProvider):
     name = "hermes_agent"
 
     def __init__(self, pcfg: dict[str, Any]):
-        pcfg = {**pcfg, "type": "openai_compatible", "base_url": str(pcfg.get("base_url") or "").rstrip("/") + "/v1",
+        # env_key=False: a Hermes API server authenticates with its own API_SERVER_KEY (HERMES_AGENT_KEY for the
+        # operator's instance), so a missing key never falls back to the platform's model keys
+        pcfg = {**pcfg, "type": "openai_compatible", "env_key": False,
+                "base_url": str(pcfg.get("base_url") or "").rstrip("/") + "/v1",
                 "default_model": pcfg.get("default_model") or "hermes-agent", "max_tokens": int(pcfg.get("max_tokens", 4096)),
                 "first_token_s": float(pcfg.get("first_token_s", 240)), "call_max_s": float(pcfg.get("call_max_s", 900)),
                 "timeout": float(pcfg.get("timeout", 900))}

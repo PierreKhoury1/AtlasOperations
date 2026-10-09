@@ -161,6 +161,8 @@ button{font:inherit;color:inherit}
 <script>
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const jstr = v => JSON.stringify(String(v ?? '')).replace(/'/g, '\\u0027').replace(/</g, '\\u003c');   // a JS string literal (no quote or < left raw)
+const jsa = v => esc(jstr(v));                    // the only way a value goes into an inline handler: one string literal
 let RV = null, RS = null, GEO = 'feet merged on the ground (75 cm)', SHARED = false, NT = null, N = 0, F = 0, playing = false, timer = null, SEL = null, SOLO = null, TAB = 'scene', SCRUB = false;
 const HIDE = new Set();                                  // cameras hidden in the outliner
 const IMG = {};                                           // `${cam}/${frame}` -> Image (preloaded ahead of the playhead)
@@ -252,7 +254,7 @@ function tree(){
   $('#o-n').textContent = ids.length + ' in scene';
   $('#tree').innerHTML = `<div class="row" style="--d:0"><span class="tw">▾</span><span class="ico">◧</span><span class="nm"><b>Scene</b> · instant ${F}</span><span class="ct">${I.scene} people</span></div>
     <div class="row" style="--d:1"><span class="tw">▾</span><span class="ico">⌖</span><span class="nm">Cameras</span><span class="ct">${RV.cameras.length}</span></div>`
-    + RV.cameras.map((c, ci) => `<div class="row ${SOLO === c ? 'sel' : ''}" style="--d:2" onclick="solo('${c}')"><span class="tw"></span><span class="ico">▣</span><span class="nm">${c}</span><span class="ct">${I.cams[ci].gt.length}</span><span class="eye ${HIDE.has(c) ? 'off' : ''}" onclick="event.stopPropagation();hide('${c}')" title="show / hide">◉</span></div>`).join('')
+    + RV.cameras.map((c, ci) => `<div class="row ${SOLO === c ? 'sel' : ''}" style="--d:2" onclick="solo(${jsa(c)})"><span class="tw"></span><span class="ico">▣</span><span class="nm">${c}</span><span class="ct">${I.cams[ci].gt.length}</span><span class="eye ${HIDE.has(c) ? 'off' : ''}" onclick="event.stopPropagation();hide(${jsa(c)})" title="show / hide">◉</span></div>`).join('')
     + `<div class="row" style="--d:1"><span class="tw">▾</span><span class="ico">☺</span><span class="nm">People (labelled)</span><span class="ct">${ids.length}</span></div>`
     + ids.map(p => `<div class="row ${SEL === p ? 'sel' : ''}" style="--d:2" onclick="select(${SEL === p ? 'null' : p})"><span class="tw"></span><span class="sw" style="background:${col(p)}"></span><span class="nm">person ${p}</span><span class="ct">${people.get(p).join(' ')}</span></div>`).join('');
 }

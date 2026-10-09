@@ -7,6 +7,7 @@ allowed — the orchestrator + approval queue do that. These functions just perf
 """
 from __future__ import annotations
 
+import base64
 import email
 import email.utils
 import hashlib
@@ -57,7 +58,7 @@ KINDS = {
     "instagram": {"label": "Instagram DMs (Meta Graph API)", "fields": ["page_id", "access_token", "verify_token", "app_secret", "notes"],
                   "hint": "Meta for Developers → your app → Instagram → API setup with Instagram login OR Messenger → Instagram settings: the Facebook Page linked to the professional Instagram account (page_id) and a long-lived access token with instagram_manage_messages. Set the webhook URL shown below (field 'messages') with your verify_token to receive DMs, and paste the app's App secret (App settings → Basic) as app_secret: Meta signs every webhook with it and unsigned DMs are refused. Like WhatsApp, you can reply to people who message you (within 24h), not cold-message."},
     "twilio": {"label": "SMS + WhatsApp (Twilio)", "fields": ["account_sid", "auth_token", "from_number", "whatsapp_from"],
-               "hint": "Twilio console → Account SID + Auth token. from_number = your Twilio number (+44…). whatsapp_from = your WhatsApp-enabled sender (or the sandbox +14155238886) if you want WhatsApp via Twilio. Point the number's inbound webhook at the SMS hook URL below."},
+               "hint": "Twilio console → Account SID + Auth token. from_number = your Twilio number (+44…). whatsapp_from = your WhatsApp-enabled sender (or the sandbox +14155238886) if you want WhatsApp via Twilio. Point the number's inbound webhook at the SMS hook URL below: Twilio signs every inbound request with this auth token, and unsigned ones are refused."},
     "hubspot": {"label": "CRM sync (HubSpot)", "fields": ["access_token"],
                 "hint": "HubSpot → Settings → Integrations → Private apps → create with scopes crm.objects.contacts.read/write. Every crm_update the desk makes is mirrored to a HubSpot contact + timeline note."},
     "pipedrive": {"label": "CRM sync (Pipedrive)", "fields": ["company_domain", "api_token"],
@@ -270,7 +271,8 @@ def http_call(cfg: dict[str, Any], method: str, path: str, params: dict[str, Any
     qp.update({k: str(v) for k, v in (params or {}).items()})
     method = (method or "GET").upper()
     from . import secure as SEC
-    with httpx.Client(timeout=timeout, follow_redirects=False) as c:
+    # the connection goes to the address that was checked (a LAN API is fine; loopback / metadata never, rebinding or not)
+    with httpx.Client(timeout=timeout, follow_redirects=False, transport=SEC.guarded_transport("internal")) as c:
         try:
             # A connector is any signed-up user's config, and it may send any verb. Loopback (Caddy's admin API among
             # other things) and the cloud metadata service are refused, on the first hop and on every redirect.
@@ -519,7 +521,10 @@ def _http(method: str, url: str, *, headers: dict[str, str] | None = None, param
     h.update(headers or {})
     if guard is not None:
         from . import secure as SEC
-        with httpx.Client(timeout=timeout, transport=_TRANSPORT, follow_redirects=False) as c:
+        # every hop is checked by `guard`, and each connection goes to an address the same rule approved (no DNS
+        # rebinding between the check and the connect)
+        scope = "public" if guard is SEC.private_url_reason else "internal"
+        with httpx.Client(timeout=timeout, transport=_TRANSPORT or SEC.guarded_transport(scope), follow_redirects=False) as c:
             try:
                 r = SEC.send_checked(c, method, url, guard=guard, headers=h, params=params, json=json_body, data=data, auth=auth)
             except SEC.UnsafeTarget as exc:
@@ -683,6 +688,37 @@ def test_twilio(cfg: dict[str, Any]) -> str:
     sid, tok = cfg["account_sid"].strip(), cfg["auth_token"].strip()
     r = _http("GET", f"{TWILIO}/Accounts/{sid}.json", auth=(sid, tok), timeout=15)
     return f"Twilio account {r.get('friendly_name', '?')} ({r.get('status', '?')})"
+
+
+def twilio_signature(auth_token: str, url: str, params: dict[str, Any] | None = None) -> str:
+    """X-Twilio-Signature as Twilio computes it (its RequestValidator): base64 HMAC-SHA1, keyed by the auth token, of
+    the URL Twilio called followed by every POST field's name and value, sorted by name."""
+    s = url
+    for k in sorted(set(params or {})):
+        vals = (params or {})[k]
+        for v in sorted(set(vals if isinstance(vals, (list, tuple)) else [vals])):
+            s += str(k) + str(v)
+    return base64.b64encode(hmac.new(auth_token.encode(), s.encode("utf-8"), hashlib.sha1).digest()).decode()
+
+
+def _twilio_url_forms(url: str) -> list[str]:
+    """Twilio signs inconsistently with or without the default port, so its validator tries the URL with any port
+    removed and with the default port added. The same two forms here."""
+    from urllib.parse import urlsplit
+    p = urlsplit(url)
+    if p.port:
+        return [p._replace(netloc=p.netloc.rsplit(":", 1)[0]).geturl(), url]
+    return [url, p._replace(netloc=f"{p.netloc}:{443 if p.scheme == 'https' else 80}").geturl()]
+
+
+def twilio_signature_ok(auth_token: str, urls: list[str], params: dict[str, Any] | None, header: str | None) -> bool:
+    """True when `header` is Twilio's signature of this request for one of `urls` (the public address Twilio called;
+    behind a proxy the app sees another scheme or host, so the caller passes each form it could have been)."""
+    if not auth_token or not header:
+        return False
+    got = header.strip()
+    return any(hmac.compare_digest(twilio_signature(auth_token, form, params), got)
+               for u in urls for form in _twilio_url_forms(u))
 
 
 # ---------------------------------------------------------------------------- HubSpot
@@ -868,8 +904,8 @@ def slack_notify(cfg: dict[str, Any], text: str) -> str:
     body: dict[str, Any] = {"text": text}
     if cfg.get("channel"):
         body["channel"] = cfg["channel"]
-    from . import secure as SEC                     # an owner-typed URL: never this server's loopback / metadata
-    _http("POST", cfg["webhook_url"].strip(), json_body=body, timeout=15, guard=SEC.internal_target_reason)
+    from . import secure as SEC                     # an owner-typed URL, and Slack is always on the public internet:
+    _http("POST", cfg["webhook_url"].strip(), json_body=body, timeout=15, guard=SEC.private_url_reason)   # never the LAN either
     return "posted to Slack"
 
 

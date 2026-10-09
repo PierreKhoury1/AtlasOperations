@@ -35,6 +35,28 @@ def _fresh_sign_in_limit():
     yield
 
 
+TWILIO_TOKEN = "twilio-test-auth-token"
+
+
+@pytest.fixture()
+def twilio_sms():
+    """POST to a desk's Twilio hook the way Twilio does: the form fields signed (X-Twilio-Signature) with the auth
+    token of the desk's Twilio connector, over the URL the app sees (http://localhost/... in the test client).
+    twilio_sms.connect(did) adds that connector."""
+    from atlas import integrations as I
+
+    def post(client, token, data, auth_token=TWILIO_TOKEN, sign=True):
+        sig = I.twilio_signature(auth_token, f"http://localhost/hook/{token}/sms", data) if sign else ""
+        return client.post(f"/hook/{token}/sms", data=data, headers={"X-Twilio-Signature": sig} if sig else {})
+
+    def connect(did):
+        import atlas.desk.app as A
+        A.store.add_connector(did, "twilio", "sms", {"account_sid": "AC0000", "auth_token": TWILIO_TOKEN,
+                                                     "from_number": "+15550000000"}, False)
+    post.connect, post.token = connect, TWILIO_TOKEN
+    return post
+
+
 # Set ATLAS_TEST_DATABASE_URL=postgres://... to run the whole suite against PostgreSQL instead of SQLite
 # (scripts/test_pg.py starts an embedded server and does exactly that).
 PG_URL = os.environ.get("ATLAS_TEST_DATABASE_URL", "").strip() or None

@@ -139,10 +139,19 @@ def load_all() -> dict[str, Any]:
     }
 
 
+def house_key_allowed(pcfg: dict[str, Any]) -> bool:
+    """May this provider fall back to the platform's own model keys from the environment? Only the operator's
+    providers may. An endpoint a desk owner configured (a BYO model account, a Hermes Agent connector) is marked
+    env_key=False, and is always url_guard'ed: with no key of its own it sends none, never the house key."""
+    return pcfg.get("env_key", True) is not False and not pcfg.get("url_guard")
+
+
 def resolve_api_key(pcfg: dict[str, Any]) -> str:
     key = (pcfg.get("api_key") or "").strip()
     if key:
         return key
+    if not house_key_allowed(pcfg):
+        return ""
     if pcfg.get("type") == "anthropic":
         return os.environ.get("ANTHROPIC_API_KEY", "")
     if "openrouter" in (pcfg.get("base_url") or "") or pcfg.get("name") == "openrouter":

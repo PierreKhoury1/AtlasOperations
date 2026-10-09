@@ -78,3 +78,79 @@ def test_other_owners_cannot_touch_my_keys(app_client):
     c.post("/login", json={"email": "intruder@example.com", "password": "password1"})
     assert c.get(f"/api/desks/{did}/providers").status_code == 404
     assert c.post(f"/api/desks/{did}/providers", json={"preset": "openai", "api_key": "sk-evil"}).status_code == 404
+
+
+def test_owner_endpoints_never_get_the_house_key(app_client, monkeypatch):
+    """A custom server saved without a key, and a Hermes Agent connector without one, send no key at all. An empty key
+    used to fall back to the platform's own OPENROUTER_API_KEY / OPENAI_API_KEY, which then went to the URL the owner
+    typed. The operator's own providers still fall back to the env keys."""
+    import socket
+
+    import httpx
+    import pytest
+
+    from atlas import config as cfg
+    from atlas import secure as SEC
+    from atlas.desk import app as A
+    from atlas.providers import make_provider
+    for k, v in (("OPENROUTER_API_KEY", "sk-or-HOUSE-0001"), ("OPENAI_API_KEY", "sk-HOUSE-0002"), ("ANTHROPIC_API_KEY", "sk-ant-HOUSE-0003")):
+        monkeypatch.setenv(k, v)
+    real = socket.getaddrinfo
+    monkeypatch.setattr(SEC.socket, "getaddrinfo", lambda h, *a, **k: [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 0))]
+                        if str(h).endswith(".test") else real(h, *a, **k))
+    seen = []
+
+    def handler(req):                                   # nothing leaves the machine: the guarded transport is stubbed
+        seen.append({"url": str(req.url), "auth": req.headers.get("authorization")})
+        return httpx.Response(200, json={"choices": [{"message": {"content": "OK"}, "finish_reason": "stop"}],
+                                         "usage": {"prompt_tokens": 1, "completion_tokens": 1}, "model": "m"})
+    monkeypatch.setattr(SEC, "guarded_transport", lambda scope="public", **kw: httpx.MockTransport(handler))
+    c = app_client
+    did = _desk(c, "byo-housekey@example.com")
+    J(c.post(f"/api/desks/{did}/providers", json={"preset": "custom", "api_key": "", "base_url": "https://gpu.owner.test/v1", "model": "m"}))
+    r = J(c.post(f"/api/desks/{did}/providers/custom/test", json={}))
+    assert r["ok"], r
+    assert seen and seen[-1]["url"].startswith("https://gpu.owner.test/") and seen[-1]["auth"] is None
+    # the same entry as the desk's engine
+    monkeypatch.setenv("DESK_MODE", "live")
+    monkeypatch.setenv("DESK_LEAD_ENGINE", "hermes_agent")
+    monkeypatch.delenv("DESK_PROVIDER", raising=False)
+    monkeypatch.delenv("HERMES_AGENT_URL", raising=False)
+    A.store.add_connector(did, "hermes_agent", "hermes", {"base_url": "https://hermes.owner.test:8642", "api_key": ""}, False)
+    provs = A.desk_configs(A.store.desk(did))["providers"]["providers"]
+    seen.clear()
+    p = make_provider(provs["desk:custom"])
+    assert p.api_key == ""
+    p.chat("", [{"role": "user", "content": "hi"}], [])
+    assert seen and seen[-1]["auth"] is None
+    # a Hermes Agent connector without a key
+    seen.clear()
+    h = make_provider(provs["hermes_agent_atlas"])
+    assert h.api_key == ""
+    h.chat("", [{"role": "user", "content": "hi"}], [])
+    assert seen and seen[-1]["url"].startswith("https://hermes.owner.test:8642/v1/") and seen[-1]["auth"] is None
+    # any config marked as an owner's, however it was built
+    assert make_provider({"type": "openai", "base_url": "https://x.owner.test/v1", "api_key": "", "url_guard": True}).api_key == ""
+    assert make_provider({"type": "hermes_agent", "base_url": "https://x.owner.test", "api_key": ""}).api_key == ""
+    with pytest.raises(RuntimeError, match="no API key"):           # the Anthropic SDK would read ANTHROPIC_API_KEY itself
+        make_provider({"type": "anthropic", "api_key": "", "env_key": False})
+    # an owner's own key still goes where they pointed it; the operator's providers keep the env fallback
+    assert make_provider({"type": "openai", "base_url": "https://x.owner.test/v1", "api_key": "own-1", "url_guard": True}).api_key == "own-1"
+    assert cfg.resolve_api_key({"type": "openai", "base_url": "https://openrouter.ai/api/v1", "api_key": ""}) == "sk-or-HOUSE-0001"
+    assert cfg.resolve_api_key({"type": "anthropic", "api_key": ""}) == "sk-ant-HOUSE-0003"
+
+
+def test_landscape_override_cannot_pick_other_house_providers(app_client, monkeypatch):
+    """The per-agent model picker may name the catalogue provider (openrouter), the desk default or the desk's own
+    accounts. The house's local presets (ollama / openai_compatible on localhost) are not the owner's to choose."""
+    from atlas.desk import app as A
+    c = app_client
+    did = _desk(c, "byo-landscape@example.com")
+    monkeypatch.setenv("DESK_MODE", "live")
+    monkeypatch.delenv("DESK_PROVIDER", raising=False)
+    J(c.patch(f"/api/desks/{did}", json={"models": {"atlas": {"model": "llama3.2:3b", "provider": "ollama"}}}))
+    agents = {a["id"]: a for a in A.desk_configs(A.store.desk(did))["agents"]}
+    assert agents["atlas"]["provider"] != "ollama"
+    J(c.patch(f"/api/desks/{did}", json={"models": {"atlas": {"model": "anthropic/claude-haiku-4.5", "provider": "openrouter"}}}))
+    agents = {a["id"]: a for a in A.desk_configs(A.store.desk(did))["agents"]}
+    assert agents["atlas"]["provider"] == "openrouter" and agents["atlas"]["model"] == "anthropic/claude-haiku-4.5"

@@ -266,6 +266,7 @@ def test_login_lands_in_workspace_then_home(app_client):
     r = c.get("/desk/workspace")
     page = r.get_data(as_text=True)
     assert r.status_code == 200 and "<title>Atlas Workspace</title>" in page and "/desk/static/workspace.js" in page
+    assert 'id="camstrip"' in page and 'id="guide"' in page and "Operating Atlas" in page   # the guide's heading was renamed
     c.post("/api/desks", json={"name": "L", "template": "site_watch", "tier": "free"})   # with a desk, its Home is the front door
     c.get("/logout")
     r = c.post("/login", data={"email": "ws-land@example.com", "password": "password1"})

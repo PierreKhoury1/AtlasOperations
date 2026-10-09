@@ -124,3 +124,23 @@ def test_stream_rule_also_guards_grabs_and_live_feeds():
         raise AssertionError("grab must refuse loopback")
     except RuntimeError as exc:
         assert "refused" in str(exc)
+
+
+def test_sample_cameras_reopen_on_their_clip(app_client):
+    """A camera made from sample footage stores the resolved file; the cameras API names the clip again, so the Feed
+    dialog opens on the Sample tab with that clip selected instead of an empty stream field."""
+    import pytest
+
+    import atlas.desk.app as A
+    from atlas import designer as DS
+    clips = DS.sample_clips()
+    if not clips:
+        pytest.skip("no sample footage installed")
+    name = sorted(clips)[0]
+    c = _owner(A, "cam-sample@example.com")
+    made = J(c.post("/api/connectors", json={"kind": "camera", "name": "demo-cam", "config": {"source": "sample:" + name}}))
+    assert made["config"]["source"] == clips[name]                         # stored resolved, as before
+    cam = next(x for x in J(c.get("/api/cameras"))["cameras"] if x["name"] == "demo-cam")
+    assert cam["sample"] == name
+    assert DS.sample_name("sample:" + name) == name and DS.sample_name(clips[name]) == name
+    assert DS.sample_name("rtsp://192.168.1.20/x") == "" and DS.sample_name(str(A.cfg.DATA_DIR / (name + ".mp4"))) == ""

@@ -17,12 +17,13 @@ def _desk(c, email):
     return did, A.store.ensure_hook_token(did)
 
 
-def test_inbound_sms_threads_and_keeps_the_stage(app_client):
+def test_inbound_sms_threads_and_keeps_the_stage(app_client, twilio_sms):
     c = app_client
     did, tok = _desk(c, "msg1@example.com")
-    c.post(f"/hook/{tok}/sms", data={"From": "+44 7700 900123", "Body": "Do you have a table tonight?", "ProfileName": "Dana"})
+    twilio_sms.connect(did)
+    assert twilio_sms(c, tok, {"From": "+44 7700 900123", "Body": "Do you have a table tonight?", "ProfileName": "Dana"}).status_code == 200
     J(c.post("/api/contacts", json={"contact": "Dana", "fields": {"stage": "Qualified"}}))
-    c.post(f"/hook/{tok}/sms", data={"From": "+447700900123", "Body": "For four people", "ProfileName": "Dana"})
+    assert twilio_sms(c, tok, {"From": "+447700900123", "Body": "For four people", "ProfileName": "Dana"}).status_code == 200
     th = J(c.get("/api/messages/threads"))["threads"]
     assert len(th) == 1 and th[0]["key"] == "+447700900123" and th[0]["count"] == 2 and th[0]["name"] == "Dana"
     msgs = J(c.get("/api/messages?contact=%2B44%207700%20900123"))["messages"]

@@ -134,3 +134,43 @@ def test_slack_webhook_is_checked_on_every_hop(monkeypatch):
     with pytest.raises(RuntimeError, match="refused"):
         I.slack_notify({"webhook_url": "https://hooks.slack.com/services/T/B/X"}, "hi")
     assert hits == ["https://hooks.slack.com/services/T/B/X"]           # the redirect target was never requested
+
+
+def test_slack_webhooks_are_public_internet_only(monkeypatch):
+    """Slack is always on the public internet, so a webhook URL on the LAN is refused too (the stricter rule), and the
+    connection goes to the checked address."""
+    _resolve_as(monkeypatch, ["192.168.1.20"])
+    for url in ("http://192.168.1.20/hook", "https://lan-hook.test/services/T/B/X", "http://10.0.0.5/x"):
+        with pytest.raises(RuntimeError, match="refused"):
+            I.slack_notify({"webhook_url": url}, "hi")
+
+
+def test_rtsp_streams_go_to_the_checked_address(monkeypatch):
+    """ffmpeg and OpenCV resolve a name again on their own, so an RTSP source is handed over with the address that was
+    just checked in place of the name (credentials, port and path kept); a rebinding name is refused."""
+    from atlas import vision as V
+    _resolve_as(monkeypatch, ["192.168.1.20"])
+    assert V.pinned_stream("rtsp://admin:p%40ss@cam1.test:554/Streaming/Channels/101?x=1") == \
+        "rtsp://admin:p%40ss@192.168.1.20:554/Streaming/Channels/101?x=1"
+    assert V.pinned_stream("rtsp://cam1.test/live") == "rtsp://192.168.1.20/live"
+    assert V.pinned_stream("rtsp://192.168.1.21/live") == "rtsp://192.168.1.21/live"
+    assert V.pinned_stream("https://cams.test/live.m3u8") == "https://cams.test/live.m3u8"   # TLS / virtual hosts need the name
+    assert V.pinned_stream("samples/x.mp4") == "samples/x.mp4"
+    for bad in ("rtsp://127.0.0.1/x", "rtsp://169.254.169.254/x", "rtsp://localhost/x", "http://127.0.0.1:2019/config/"):
+        with pytest.raises(RuntimeError, match="refused"):
+            V.pinned_stream(bad)
+    _resolve_as(monkeypatch, ["192.168.1.20", "127.0.0.1"])                 # passes the first look, loopback after it
+    with pytest.raises(RuntimeError, match="refused"):
+        V.pinned_stream("rtsp://rebind.test/live")
+    # the ffmpeg grab gets the pinned address and may open network protocols only (no file:/concat:/subfile:)
+    _resolve_as(monkeypatch, ["192.168.1.20"])
+    seen = {}
+
+    class Done:
+        returncode, stdout, stderr = 0, b"\xff\xd8jpeg", b""
+    monkeypatch.setattr(V.shutil, "which", lambda name: "ffmpeg")
+    monkeypatch.setattr(V.subprocess, "run", lambda cmd, **kw: seen.update(cmd=cmd) or Done())
+    assert V._grab_rtsp("rtsp://u:p@cam2.test:8554/s") == b"\xff\xd8jpeg"
+    cmd = seen["cmd"]
+    assert cmd[cmd.index("-i") + 1] == "rtsp://u:p@192.168.1.20:8554/s"
+    assert "file" not in cmd[cmd.index("-protocol_whitelist") + 1].split(",")

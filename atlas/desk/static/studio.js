@@ -321,21 +321,21 @@ function selectNode(key) {
   if (key.startsWith('ag:')) {
     const a = bp.agents.find(x => 'ag:' + x.id === key); if (!a) return;
     I.innerHTML = `<h3><i style="background:${esc(a.color)}"></i>${esc(a.name)}${xbtn()}</h3>
-      <label>Name</label><input value="${esc(a.name)}" oninput="agEdit('${a.id}','name',this.value)">
-      <label>Role</label><input value="${esc(a.role)}" oninput="agEdit('${a.id}','role',this.value)">
-      <label>Goal &amp; quality bar</label><textarea style="min-height:110px" oninput="agEdit('${a.id}','goal',this.value)">${esc(a.goal || '')}</textarea>
-      <label>Tools</label><div class="tools">${SPECIALIST_TOOLS.map(t => `<label><input type="checkbox" ${a.tools.includes(t) ? 'checked' : ''} onchange="agTool('${a.id}','${t}',this.checked)">${t.replace('_', ' ')}</label>`).join('')}</div>
-      <label>Model</label><label style="display:flex;gap:8px;align-items:center;margin:2px 0 0;color:var(--text);font-weight:600"><input type="checkbox" style="width:auto" ${a.strong ? 'checked' : ''} onchange="agEdit('${a.id}','strong',this.checked)"> Strong model for this agent (on the Best tier)</label>
-      <label>Engine</label><select onchange="agEdit('${a.id}','engine',this.value)"><option value="atlas" ${a.engine !== 'hermes_agent' ? 'selected' : ''}>Built-in specialist loop (fast, cheap)</option><option value="hermes_agent" ${a.engine === 'hermes_agent' ? 'selected' : ''}>Hermes Agent instance (terminal, browser, memory, skills)</option></select>
+      <label>Name</label><input value="${esc(a.name)}" oninput="agEdit(${jsa(a.id)},'name',this.value)">
+      <label>Role</label><input value="${esc(a.role)}" oninput="agEdit(${jsa(a.id)},'role',this.value)">
+      <label>Goal &amp; quality bar</label><textarea style="min-height:110px" oninput="agEdit(${jsa(a.id)},'goal',this.value)">${esc(a.goal || '')}</textarea>
+      <label>Tools</label><div class="tools">${SPECIALIST_TOOLS.map(t => `<label><input type="checkbox" ${a.tools.includes(t) ? 'checked' : ''} onchange="agTool(${jsa(a.id)},${jsa(t)},this.checked)">${t.replace('_', ' ')}</label>`).join('')}</div>
+      <label>Model</label><label style="display:flex;gap:8px;align-items:center;margin:2px 0 0;color:var(--text);font-weight:600"><input type="checkbox" style="width:auto" ${a.strong ? 'checked' : ''} onchange="agEdit(${jsa(a.id)},'strong',this.checked)"> Strong model for this agent (on the Best tier)</label>
+      <label>Engine</label><select onchange="agEdit(${jsa(a.id)},'engine',this.value)"><option value="atlas" ${a.engine !== 'hermes_agent' ? 'selected' : ''}>Built-in specialist loop (fast, cheap)</option><option value="hermes_agent" ${a.engine === 'hermes_agent' ? 'selected' : ''}>Hermes Agent instance (terminal, browser, memory, skills)</option></select>
       <p class="hint" style="margin-top:4px">Hermes Agent needs a connector to a running instance (added in the Connect step). Atlas still orchestrates, checks policy and holds approvals.</p>
-      <div class="foot"><button class="btn sm d" onclick="agRemove('${a.id}')">Remove agent</button></div>`;
+      <div class="foot"><button class="btn sm d" onclick="agRemove(${jsa(a.id)})">Remove agent</button></div>`;
     return;
   }
   if (key.startsWith('trig:')) {
     const w = bp.workflows.find(x => 'trig:' + x.id === key); if (!w) return;
     I.innerHTML = `<h3><i style="background:var(--blue)"></i>Trigger · ${esc(w.name)}${xbtn()}</h3>
-      <label>Starts when</label><select onchange="wfEdit('${w.id}','kind',this.value)">${['webhook', 'inbox', 'schedule', 'manual'].map(k => `<option value="${k}" ${w.trigger.kind === k ? 'selected' : ''}>${k}</option>`).join('')}</select>
-      <label>Detail</label><input value="${esc(w.trigger.detail || '')}" oninput="wfEdit('${w.id}','detail',this.value)">
+      <label>Starts when</label><select onchange="wfEdit(${jsa(w.id)},'kind',this.value)">${['webhook', 'inbox', 'schedule', 'manual'].map(k => `<option value="${k}" ${w.trigger.kind === k ? 'selected' : ''}>${k}</option>`).join('')}</select>
+      <label>Detail</label><input value="${esc(w.trigger.detail || '')}" oninput="wfEdit(${jsa(w.id)},'detail',this.value)">
       <label>Steps (in order)</label><div class="md" style="font-size:12px;color:var(--muted)">${esc(w.steps.join(' → '))}</div>
       <p class="hint" style="margin-top:10px">webhook = web form / Zapier POST to the desk URL · inbox = IMAP watcher · schedule = recurring automation · manual = you start it from Leads.</p>`;
     return;

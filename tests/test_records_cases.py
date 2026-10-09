@@ -288,7 +288,7 @@ def _wait(pred, timeout=30):
     return None
 
 
-def test_portal_lead_becomes_case_and_conversation_continues(app_client):
+def test_portal_lead_becomes_case_and_conversation_continues(app_client, twilio_sms):
     import atlas.desk.app as A
     c = app_client
     A._RL_AUTH._hits.clear()
@@ -321,7 +321,8 @@ def test_portal_lead_becomes_case_and_conversation_continues(app_client):
     # she texts back -> same case, Atlas answers it (no second lead/case)
     token = J(c.get("/api/connectors"))["hook_url"].rsplit("/", 1)[1]
     n_cases = len(J(c.get("/api/cases"))["cases"])
-    r2 = c.post(f"/hook/{token}/sms", data={"From": "+447700900321", "Body": "Great - is Thursday ok?", "ProfileName": "Dana"})
+    twilio_sms.connect(d["id"])
+    r2 = twilio_sms(c, token, {"From": "+447700900321", "Body": "Great - is Thursday ok?", "ProfileName": "Dana"})
     assert r2.status_code == 200 and r2.headers["X-Atlas-Run"]
     assert _wait_idle(c)
     assert len(J(c.get("/api/cases"))["cases"]) == n_cases

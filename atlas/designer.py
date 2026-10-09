@@ -194,6 +194,21 @@ def resolve_camera_source(src: str) -> str:
     return src
 
 
+def sample_name(source: str) -> str:
+    """The clip name when a camera's source is sample footage ("sample:<name>", or the file it was resolved to when
+    the camera was made), else "". The portal shows such a camera as sample:<name> again."""
+    s = (source or "").strip()
+    if s.lower().startswith("sample:"):
+        return s.split(":", 1)[1].strip()
+    if not s.lower().endswith(".mp4"):
+        return ""
+    try:
+        p = Path(s)
+        return p.stem if p.parent.resolve() == sample_dir().resolve() and p.is_file() else ""
+    except (OSError, ValueError):
+        return ""
+
+
 def camera_guide() -> str:
     clips = sample_clips()
     if not clips:

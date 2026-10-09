@@ -174,14 +174,43 @@ def stream_reason(source: str) -> str | None:
     return f"camera source refused: {why}" if why else None
 
 
-def _grab_rtsp(url: str) -> bytes:
-    why = stream_reason(url)
+# what ffmpeg may open for an RTSP grab: network protocols only (no file:, pipe:, concat:, subfile:, data:)
+RTSP_PROTOCOLS = "rtsp,rtsps,rtp,srtp,udp,tcp,tls"
+
+
+def pinned_stream(source: str) -> str:
+    """The URL to hand ffmpeg / OpenCV for a network camera: refused like stream_reason, and for RTSP the host name is
+    replaced by the address that was just checked, so a name that answers with another address a moment later (DNS
+    rebinding) cannot point the decoder at loopback or the metadata service. HTTP(S) streams keep their name (virtual
+    hosts and TLS need it), so for them only the check applies. Raises RuntimeError when refused."""
+    why = stream_reason(source)
     if why:
         raise RuntimeError(why)
+    s = (source or "").strip()
+    if source_kind(s) != "rtsp":
+        return s
+    from urllib.parse import urlsplit, urlunsplit
+    from . import secure as SEC
+    try:
+        p = urlsplit(s)
+        host, port = p.hostname or "", p.port
+        ips = SEC.vetted_ips(host, "internal")
+    except (ValueError, SEC.UnsafeTarget) as exc:
+        raise RuntimeError(f"camera source refused: {exc}") from None
+    if not ips or str(ips[0]) == host:
+        return s                                       # ALLOW_PRIVATE_FETCH, or already an address
+    ip = str(ips[0])
+    userinfo = p.netloc.rpartition("@")[0]
+    netloc = (userinfo + "@" if "@" in p.netloc else "") + (f"[{ip}]" if ":" in ip else ip) + (f":{port}" if port else "")
+    return urlunsplit((p.scheme, netloc, p.path, p.query, p.fragment))
+
+
+def _grab_rtsp(url: str) -> bytes:
+    url = pinned_stream(url)
     ff = shutil.which("ffmpeg")
     if ff:
-        cmd = [ff, "-nostdin", "-loglevel", "error", "-rtsp_transport", "tcp", "-i", url,
-               "-frames:v", "1", "-f", "image2", "-q:v", "3", "pipe:1"]
+        cmd = [ff, "-nostdin", "-loglevel", "error", "-protocol_whitelist", RTSP_PROTOCOLS, "-rtsp_transport", "tcp",
+               "-i", url, "-frames:v", "1", "-f", "image2", "-q:v", "3", "pipe:1"]
         try:
             p = subprocess.run(cmd, capture_output=True, timeout=FRAME_TIMEOUT)
         except subprocess.TimeoutExpired as exc:
@@ -220,7 +249,8 @@ def _grab_http(url: str) -> bytes:
         auth = httpx.DigestAuth(u.username, u.password or "")
         url = str(u.copy_with(username=None, password=None))
     from . import secure as SEC
-    with httpx.Client(timeout=FRAME_TIMEOUT, follow_redirects=False) as c:
+    # each connection goes to the address that was checked, so a name cannot pass the check and then rebind to loopback
+    with httpx.Client(timeout=FRAME_TIMEOUT, follow_redirects=False, transport=SEC.guarded_transport("internal")) as c:
         try:
             # a camera may sit on the LAN, but never on loopback or at the cloud metadata address, and not behind a redirect to either
             r = SEC.send_checked(c, "GET", url, guard=SEC.internal_target_reason, auth=auth)

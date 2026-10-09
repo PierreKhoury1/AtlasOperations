@@ -148,13 +148,13 @@ Inbound URLs (shown on the Integrations page, per desk):
 - `POST /hook/<token>` — web forms / Zapier / Make: JSON `{name, email, phone, company, notes, source}`. `email`, when given, must be a plain address (400 otherwise).
 - `GET|POST /hook/<token>/whatsapp` — Meta WhatsApp webhook. GET answers the verification handshake using the connector's `verify_token`; POST turns each text message into a lead + run, and Atlas is told to reply on WhatsApp. POSTs must carry Meta's `X-Hub-Signature-256` made with the connector's `app_secret` (403 otherwise): the hook URL shares its token with the public form hook, so the token alone proves nothing.
 - `GET|POST /hook/<token>/instagram` — Instagram DMs (Meta Graph API), same handshake and the same signature rule.
-- `POST /hook/<token>/sms` — Twilio inbound (SMS or WhatsApp sandbox). Returns empty TwiML; the reply is drafted and queued for approval.
+- `POST /hook/<token>/sms` — Twilio inbound (SMS or WhatsApp sandbox). Returns empty TwiML; the reply is drafted and queued for approval. POSTs must carry Twilio's `X-Twilio-Signature` made with the Twilio connector's `auth_token` (403 otherwise; 404 with no Twilio connector), for the same reason as the Meta hooks. Behind a proxy the signature is checked against the URL the app sees, the same URL over https, and `PUBLIC_URL` + the path, so point Twilio at one of those.
 
 Set-up crib sheet:
 
 - **Resend**: verify your domain at resend.com → API key → `from_email` on that domain.
 - **WhatsApp Cloud API**: Meta for Developers → app → WhatsApp → API setup → Phone number ID + permanent System User token. Webhooks → callback URL = the WhatsApp hook URL, verify token = whatever you typed in the connector, subscribe to `messages`. Copy the app's App secret (App settings → Basic) into the connector's `app_secret`, or inbound messages are refused.
-- **Twilio**: Console → Account SID / Auth token; buy a number (`from_number`); for WhatsApp use the sandbox sender or your approved sender as `whatsapp_from`; set the number's messaging webhook to the SMS hook URL.
+- **Twilio**: Console → Account SID / Auth token; buy a number (`from_number`); for WhatsApp use the sandbox sender or your approved sender as `whatsapp_from`; set the number's messaging webhook to the SMS hook URL (https). Inbound texts are verified with the same auth token.
 - **HubSpot**: Settings → Integrations → Private apps → scopes `crm.objects.contacts.read`, `crm.objects.contacts.write` → access token.
 - **Pipedrive**: Personal preferences → API → token; `company_domain` is the subdomain.
 - **Google Calendar**: Google Cloud → enable Calendar API → OAuth client (Desktop) → get a refresh token once (OAuth Playground, scope `https://www.googleapis.com/auth/calendar`) → `client_id`, `client_secret`, `refresh_token`; optional `calendar_id`, `timezone`, `day_start`, `day_end`.

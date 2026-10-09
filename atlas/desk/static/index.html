@@ -1063,7 +1063,7 @@ async function homeSend(){
       const r = await api('/runs', {method: 'POST', body: {task: t, mode: 'auto'}});
       if (!r || r.error) { out.innerHTML = `<span class="bad">${esc(r?.error || 'Could not start the job')}</span>`; return; }
       inp.value = ''; HM.t = 0;
-      out.innerHTML = `<b>Started.</b> ${esc(t)} <span class="hint">Atlas is planning it and briefing the team.</span> <button class="link" onclick="curRun='${r.run_id}';liveWant='${r.run_id}';go('live')">Watch it live ›</button>`;
+      out.innerHTML = `<b>Started.</b> ${esc(t)} <span class="hint">Atlas is planning it and briefing the team.</span> <button class="link" onclick="curRun=${jsa(r.run_id)};liveWant=${jsa(r.run_id)};go('live')">Watch it live ›</button>`;
       refresh();
     } else {
       out.innerHTML = '<span class="hint">Reading the camera journal…</span>';
@@ -1151,12 +1151,12 @@ function homeNeeds(){
     d: [c.type_label, c.state_label, c.breached ? 'overdue' : '', c.brief].filter(Boolean).join(' · '), a: `<a class="btn sm" href="/desk/ops#case/${c.id}">Open case</a>`});
   const day = Date.now() / 1000 - 86400;
   for (const r of HM.runs.filter(r => /error|fail/.test(r.status) && r.created > day).slice(0, 3)) out.push({k: 'bad', kl: 'job failed', t: r.task,
-    d: r.summary || r.status, a: `<button class="btn sm" onclick="homeOpenRun('${r.id}')">See why</button><button class="btn sm" onclick="homeRetry('${r.id}')">Run again</button>`});
+    d: r.summary || r.status, a: `<button class="btn sm" onclick="homeOpenRun(${jsa(r.id)})">See why</button><button class="btn sm" onclick="homeRetry(${jsa(r.id)})">Run again</button>`});
   for (const p of (HM.camR && HM.camR.planned) || []) out.push({k: 'cam', kl: 'camera', t: `Connect ${p.name}`,
     d: `Atlas planned this camera${p.focus ? ' to watch ' + p.focus : ''}. Give it a stream address or sample footage.`, a: `<button class="btn sm" onclick="go('cameras')">Connect it</button>`});
   for (const al of ((HM.health && HM.health.alerts) || []).filter(a => a.level === 'critical')) out.push({k: 'bad', kl: 'health', t: al.text, d: '', a: `<button class="btn sm" onclick="document.getElementById('hm-hz').scrollIntoView({behavior:'smooth'})">Details</button>`});
   if (LINKS) for (const [aid, e] of Object.entries(LINKS.agents || {})) for (const g of e.gaps || []) out.push({k: 'gap', kl: 'agent', t: `${agentName(aid)}: ${g}`,
-    d: 'Part of this agent\'s job cannot happen until this is fixed.', a: gapFix(g, aid) || `<button class="btn sm" onclick="homeOpenAgent('${aid}')">Open agent</button>`});
+    d: 'Part of this agent\'s job cannot happen until this is fixed.', a: gapFix(g, aid) || `<button class="btn sm" onclick="homeOpenAgent(${jsa(aid)})">Open agent</button>`});
   return out;
 }
 function homeNeedsRender(items){
@@ -1174,7 +1174,7 @@ function homeFeed(){
     const you = e.agent === 'owner' || ['sent', 'rejected'].includes(e.kind);
     rows.push({ts: e.ts, f: you ? 'you' : 'job', who: you ? 'You' : agentName(e.agent), col: you ? 'var(--ok)' : (colors[e.agent] || 'var(--muted)'),
       tag: {approval: 'needs OK', error: 'error', deliverable: 'saved', done: 'done', sent: 'sent', rejected: 'rejected', agent_end: 'finished'}[e.kind] || e.kind,
-      txt: e.text, bad: e.kind === 'error', on: e.run_id ? `homeOpenRun('${e.run_id}')` : `go('audit')`});
+      txt: e.text, bad: e.kind === 'error', on: e.run_id ? `homeOpenRun(${jsa(e.run_id)})` : `go('audit')`});
   }
   for (const v of HM.vis) {
     if (!(v.answer || v.triggered || v.question)) continue;
@@ -1184,7 +1184,7 @@ function homeFeed(){
   for (const o of HM.ops) {
     const you = o.actor && !/^(atlas|system)$/.test(o.actor) && !(CFG.agents || []).some(a => a.id === o.actor);
     rows.push({ts: o.ts, f: you ? 'you' : 'case', who: o.case_title || o.record_title || 'case', col: 'var(--warn)', tag: o.kind || 'case',
-      txt: o.text, on: o.case_id ? `location.href='/desk/ops#case/${o.case_id}'` : `location.href='/desk/ops'`});
+      txt: o.text, on: o.case_id ? `location.href=${jsa('/desk/ops#case/' + o.case_id)}` : `location.href='/desk/ops'`});
   }
   const list = rows.filter(r => HM.filter === 'all' || r.f === HM.filter).sort((a, b) => b.ts - a.ts).slice(0, 60);
   const key = JSON.stringify([HM.filter, list.map(r => [r.ts, r.tag])]); if (key === HM.fkey) return; HM.fkey = key;
@@ -1201,7 +1201,7 @@ function homeAgents(running){
     const what = a.id === 'atlas' ? 'team lead: plans each job, briefs the agents, checks their work'
       : [L.cameras && L.cameras.length ? 'watches ' + L.cameras.join(', ') : L.any_camera ? 'any camera' : '', (L.connectors || []).length ? 'sends via ' + L.connectors.join(', ') : '', a.role].filter(Boolean).join(' · ');
     const st = a.enabled === false ? ['off', ''] : busy.has(a.id) ? ['working', 'on'] : gaps ? [plural(gaps, 'gap'), 'warn'] : ['ready', ''];
-    return `<div class="hm-row" onclick="homeOpenAgent('${a.id}')" title="open ${esc(a.name)} on the team canvas" ${a.enabled === false ? 'style="opacity:.55"' : ''}><span class="sw" style="background:${a.color || '#7c3aed'}"></span><span class="m"><b>${esc(a.name)}</b><small>${esc(what)}</small></span><span class="st ${st[1]}">${esc(st[0])}</span></div>`;
+    return `<div class="hm-row" onclick="homeOpenAgent(${jsa(a.id)})" title="open ${esc(a.name)} on the team canvas" ${a.enabled === false ? 'style="opacity:.55"' : ''}><span class="sw" style="background:${a.color || '#7c3aed'}"></span><span class="m"><b>${esc(a.name)}</b><small>${esc(what)}</small></span><span class="st ${st[1]}">${esc(st[0])}</span></div>`;
   }).join('') || '<div class="hm-none">No agents yet.</div>';
 }
 function homeCases(){
@@ -1214,7 +1214,7 @@ function homeCases(){
 function homeRuns(){
   const R = HM.runs.slice(0, 6);
   $('#hm-runs').innerHTML = R.length ? R.map(r => { const st = r.active ? ['running', 'on'] : /error|fail/.test(r.status) ? ['failed', 'bad'] : r.status === 'done' ? ['done', ''] : [r.status, ''];
-    return `<div class="hm-row" onclick="homeOpenRun('${r.id}')"><span class="m"><b title="${esc(r.task)}">${esc(String(r.task || '').replace(/^Run workflow /, ''))}</b><small>${esc(ago(r.created))} ago${r.summary ? ' · ' + esc(r.summary) : ''}</small></span><span class="st ${st[1]}">${esc(st[0])}</span></div>`; }).join('')
+    return `<div class="hm-row" onclick="homeOpenRun(${jsa(r.id)})"><span class="m"><b title="${esc(r.task)}">${esc(String(r.task || '').replace(/^Run workflow /, ''))}</b><small>${esc(ago(r.created))} ago${r.summary ? ' · ' + esc(r.summary) : ''}</small></span><span class="st ${st[1]}">${esc(st[0])}</span></div>`; }).join('')
     : '<div class="hm-none">No jobs yet. Give the team one with the bar at the top.</div>';
 }
 async function loadDashLog(){ const ev = await api('/audit'); $('#dash-log').innerHTML = ev.length ? ev.slice(0,40).reverse().map(evLine).join('') : '(nothing yet — seed demo leads)'; $('#dash-log').scrollTop = 1e9; }
@@ -1228,7 +1228,7 @@ async function addLead(){
 }
 async function loadLeads(){
   const L = await api('/leads');
-  $('#leads-table').innerHTML = L.length ? `<table><tr><th>When</th><th>Lead</th><th>Source</th><th>Status</th><th></th></tr>` + L.map(l=>`<tr><td>${when(l.created)}</td><td><b>${esc(l.name)}</b><br><span style="color:var(--muted)">${esc(l.company||'')} ${esc(l.email)}</span><br><span style="color:var(--muted);font-size:12px">${esc(l.notes).slice(0,110)}</span></td><td>${esc(l.source)}</td><td><span class="tag ${l.status}">${l.status}</span></td><td>${l.run_id?`<button class="btn sm" onclick="curRun='${l.run_id}';go('runs')">run</button>`:''} <button class="btn sm" onclick="rerun(${l.id})">re-run</button></td></tr>`).join('') + '</table>' : '<div class="empty">No leads yet</div>';
+  $('#leads-table').innerHTML = L.length ? `<table><tr><th>When</th><th>Lead</th><th>Source</th><th>Status</th><th></th></tr>` + L.map(l=>`<tr><td>${when(l.created)}</td><td><b>${esc(l.name)}</b><br><span style="color:var(--muted)">${esc(l.company||'')} ${esc(l.email)}</span><br><span style="color:var(--muted);font-size:12px">${esc(l.notes).slice(0,110)}</span></td><td>${esc(l.source)}</td><td><span class="tag ${l.status}">${l.status}</span></td><td>${l.run_id?`<button class="btn sm" onclick="curRun=${jsa(l.run_id)};go('runs')">run</button>`:''} <button class="btn sm" onclick="rerun(${l.id})">re-run</button></td></tr>`).join('') + '</table>' : '<div class="empty">No leads yet</div>';
 }
 async function rerun(id){ const r = await api(`/leads/${id}/run`, {method:'POST', body:{mode:'auto'}}); curRun=r.run_id; liveWant=r.run_id; go('live'); }
 
@@ -1273,7 +1273,7 @@ async function adList(){
   const R = await api('/runs'); if (!R || page !== 'studio') return;
   const mine = R.filter(r => (r.task || '').startsWith('[Ad studio]'));
   $('#ad-list').innerHTML = mine.length ? mine.slice(0, 10).map(r => { const st = r.active ? ['writing…', 'on'] : /error|fail/.test(r.status) ? ['failed', 'bad'] : ['ready', ''];
-    return `<div class="hm-row" onclick="adOpen('${r.id}')"><span class="m"><b>${esc((r.task.match(/Promoting: ([^\n]+)/) || [,'Campaign'])[1].slice(0, 70))}</b><small>${esc(ago(r.created))} ago${r.summary ? ' · ' + esc(r.summary.slice(0, 80)) : ''}</small></span><span class="st ${st[1]}">${st[0]}</span></div>`; }).join('')
+    return `<div class="hm-row" onclick="adOpen(${jsa(r.id)})"><span class="m"><b>${esc((r.task.match(/Promoting: ([^\n]+)/) || [,'Campaign'])[1].slice(0, 70))}</b><small>${esc(ago(r.created))} ago${r.summary ? ' · ' + esc(r.summary.slice(0, 80)) : ''}</small></span><span class="st ${st[1]}">${st[0]}</span></div>`; }).join('')
     : '<div class="hm-none">None yet — brief the team on the left.</div>';
   if (mine.some(r => r.active)) AD.t = Date.now() - 2500;
 }
@@ -1365,12 +1365,12 @@ async function dashTask(){ const t=$('#d-task').value.trim(); if(!t) return; con
 async function runTask(){ const t=$('#r-task').value.trim(); if(!t) return; const r = await api('/runs', {method:'POST', body:{task:t, mode:$('#r-mode').value}}); $('#r-task').value=''; curRun=r.run_id; loadRuns(); loadRun(curRun); }
 async function loadRuns(){
   const R = await api('/runs');
-  $('#runs-table').innerHTML = R.length ? `<table><tr><th>When</th><th>Task</th><th>Mode</th><th>Status</th><th>Tokens</th></tr>` + R.map(r=>`<tr class="click" onclick="curRun='${r.id}';loadRun('${r.id}')"><td>${when(r.created)}</td><td>${esc(r.task).slice(0,80)}</td><td>${esc(r.mode)}</td><td><span class="tag ${r.active?'running':r.status}">${r.active?'running':r.status}</span></td><td style="color:var(--muted)">${(r.tokens_in+r.tokens_out).toLocaleString()}</td></tr>`).join('') + '</table>' : '<div class="empty">No runs yet</div>';
+  $('#runs-table').innerHTML = R.length ? `<table><tr><th>When</th><th>Task</th><th>Mode</th><th>Status</th><th>Tokens</th></tr>` + R.map(r=>`<tr class="click" onclick="curRun=${jsa(r.id)};loadRun(${jsa(r.id)})"><td>${when(r.created)}</td><td>${esc(r.task).slice(0,80)}</td><td>${esc(r.mode)}</td><td><span class="tag ${r.active?'running':r.status}">${r.active?'running':r.status}</span></td><td style="color:var(--muted)">${(r.tokens_in+r.tokens_out).toLocaleString()}</td></tr>`).join('') + '</table>' : '<div class="empty">No runs yet</div>';
 }
 async function loadRun(id, quiet){
   const r = await api('/runs/'+id); if(!r || r.error) return;
   const el = $('#run-detail'); const atBottom = true;
-  el.innerHTML = `<div class="row"><span class="tag ${r.active?'running':r.status}">${r.active?'running':r.status}</span><b>${esc(r.id)}</b><span class="spacer"></span>${r.active?`<button class="btn sm" onclick="liveWant='${r.id}';go('live')">▶ watch live</button> <button class="btn sm d" onclick="api('/runs/${r.id}/cancel',{method:'POST',body:{}})">stop</button>`:''}</div>
+  el.innerHTML = `<div class="row"><span class="tag ${r.active?'running':r.status}">${r.active?'running':r.status}</span><b>${esc(r.id)}</b><span class="spacer"></span>${r.active?`<button class="btn sm" onclick="liveWant=${jsa(r.id)};go('live')">▶ watch live</button> <button class="btn sm d" onclick="api(${jsa('/runs/' + r.id + '/cancel')},{method:'POST',body:{}})">stop</button>`:''}</div>
     <div class="md" style="color:var(--muted);margin:8px 0">${esc(r.task).slice(0,400)}</div>
     <div class="log" id="runlog">${r.events.map(evLine).join('')}${r.active?'<div style="color:var(--accent2)">… working</div>':''}</div>
     ${r.summary?`<h2 style="margin-top:14px">Summary</h2><div class="md">${esc(r.summary)}</div>`:''}
@@ -1649,8 +1649,8 @@ async function showOnboardingForm(){
   loadDesks();
 }
 function renderChoices(){
-  $('#ob-types').innerHTML = OB.types.map(t => `<div class="choice ${t.id===OB.template?'on':''}" onclick="OB.template='${t.id}';renderChoices()"><b>${esc(t.label)}</b><small>${esc(t.tagline)}</small><ul>${t.does.map(d=>`<li>${esc(d)}</li>`).join('')}</ul><small style="margin-top:6px">For: ${esc(t.for)}</small></div>`).join('');
-  $('#ob-tiers').innerHTML = OB.tiers.map(t => `<div class="choice ${t.id===OB.tier?'on':''}" onclick="OB.tier='${t.id}';renderChoices()"><b>${esc(t.label)}</b><small>${esc(t.note)}</small></div>`).join('');
+  $('#ob-types').innerHTML = OB.types.map(t => `<div class="choice ${t.id===OB.template?'on':''}" onclick="OB.template=${jsa(t.id)};renderChoices()"><b>${esc(t.label)}</b><small>${esc(t.tagline)}</small><ul>${t.does.map(d=>`<li>${esc(d)}</li>`).join('')}</ul><small style="margin-top:6px">For: ${esc(t.for)}</small></div>`).join('');
+  $('#ob-tiers').innerHTML = OB.tiers.map(t => `<div class="choice ${t.id===OB.tier?'on':''}" onclick="OB.tier=${jsa(t.id)};renderChoices()"><b>${esc(t.label)}</b><small>${esc(t.note)}</small></div>`).join('');
 }
 async function createDesk(){
   const v = id => $('#'+id).value.trim();
@@ -2123,11 +2123,11 @@ async function loadConnectors(){
   const have = {}; R.connectors.forEach(c => { (have[c.kind] = have[c.kind] || []).push(c); });
   $('#app-wall').innerHTML = APPS.map(([k, label, col, mono, sub]) => { const got = have[k] || [];
     const ok = got.some(c => String(c.status || '').startsWith('ok'));
-    return `<div class="appt ${got.length ? 'on' : ''}" onclick="connectKind('${k}')" title="${esc((KINDS[k] || {}).hint || '').slice(0, 220)}">
+    return `<div class="appt ${got.length ? 'on' : ''}" onclick="connectKind(${jsa(k)})" title="${esc((KINDS[k] || {}).hint || '').slice(0, 220)}">
       <i style="background:${col}">${mono}</i><span style="min-width:0"><b>${esc(label)}</b><small>${got.length ? (got.length + ' connected' + (ok ? ' · test ok' : '')) : esc(sub)}</small></span></div>`; }).join('');
   $('#conn-channels').innerHTML = Object.entries(CH).map(([k,l])=>`<span class="tag" style="margin:0 8px 6px 0;${R.channels && R.channels[k] ? 'color:var(--ok);border-color:var(--ok)' : ''}">${l}: ${R.channels && R.channels[k] ? 'live' : 'simulated'}</span>`).join('');
   if (!$('#c-kind').options.length) { $('#c-kind').innerHTML = Object.entries(KINDS).filter(([k])=>k!=='webhook').map(([k,v])=>`<option value="${k}">${esc(v.label)}</option>`).join(''); connFields(); }
-  $('#conn-list').innerHTML = R.connectors.length ? `<table><tr><th>Name</th><th>Type</th><th>Details</th><th>Writes</th><th>Used by</th><th>Status</th><th></th></tr>` + R.connectors.map(c=>`<tr><td><b>${esc(c.name)}</b></td><td><span class="tag">${esc(c.kind)}</span></td><td class="model">${esc(Object.entries(c.config).filter(([k])=>k!=='notes').map(([k,v])=>k+'='+v).join('  ').slice(0,90))}</td><td><label style="margin:0;display:flex;gap:6px;align-items:center"><input type="checkbox" style="width:auto" ${c.auto?'checked':''} onchange="api('/connectors/${c.id}',{method:'PATCH',body:{auto:this.checked}})"> auto</label></td><td class="usedby" data-c="${esc(c.name)}"></td><td class="hint">${esc(c.status||'untested')}</td><td class="row"><button class="btn sm" onclick="testConn(${c.id})">Test</button><button class="btn sm d" onclick="delConn(${c.id})">✕</button></td></tr>`).join('') + '</table>' : '<div class="empty">No connectors yet. Add email sending, an inbox or an API on the right.</div>';
+  $('#conn-list').innerHTML = R.connectors.length ? `<table><tr><th>Name</th><th>Type</th><th>Details</th><th>Writes</th><th>Used by</th><th>Status</th><th></th></tr>` + R.connectors.map(c=>`<tr><td><b>${esc(c.name)}</b></td><td><span class="tag">${esc(c.kind)}</span></td><td class="model">${esc(Object.entries(c.config).filter(([k])=>k!=='notes').map(([k,v])=>k+'='+v).join('  ').slice(0,90))}</td><td><label style="margin:0;display:flex;gap:6px;align-items:center"><input type="checkbox" style="width:auto" ${c.auto?'checked':''} onchange="api(${jsa('/connectors/' + c.id)},{method:'PATCH',body:{auto:this.checked}})"> auto</label></td><td class="usedby" data-c="${esc(c.name)}"></td><td class="hint">${esc(c.status||'untested')}</td><td class="row"><button class="btn sm" onclick="testConn(${c.id})">Test</button><button class="btn sm d" onclick="delConn(${c.id})">✕</button></td></tr>`).join('') + '</table>' : '<div class="empty">No connectors yet. Add email sending, an inbox or an API on the right.</div>';
   loadLinks().then(renderConnLinks);
 }
 function connFields(){
@@ -2182,7 +2182,7 @@ async function cite(ev, id){
   const e = await api('/vision/events/' + id); if (!e) return toast('event #' + id + ' not found');
   const d = document.createElement('div'); d.className = 'citepop';
   d.innerHTML = `<div class="ch"><b>#${e.id}</b> ${esc(e.camera)} · ${hms(e.ts)}${e.triggered ? ' · <span style="color:var(--warn)">alert</span>' : ''}<span class="cx" onclick="this.closest('.citepop').remove()">✕</span></div>
-    ${e.snapshot_url ? `<img src="${e.snapshot_url}" onclick="zoom('${e.snapshot_url}')">` : ''}
+    ${e.snapshot_url ? `<img src="${e.snapshot_url}" onclick="zoom(${jsa(e.snapshot_url)})">` : ''}
     <div>${fmtNote(e.answer || e.reason || '')}</div>${e.answer && e.reason ? `<div class="hint" style="margin-top:4px">${esc(e.reason)} · ${esc(e.seen || '')}</div>` : ''}`;
   const x = Math.min(ev.clientX, window.innerWidth - 440), y = Math.min(ev.clientY + 12, window.innerHeight - 320);
   d.style.left = x + 'px'; d.style.top = y + 'px'; document.body.appendChild(d); _pop = d;
@@ -2241,14 +2241,14 @@ async function loadCameras(){
   const sel = $('#ev-cam'); const cur = sel.value; sel.innerHTML = '<option value="">all cameras</option>' + CAMS.concat(NODES).map(c=>`<option value="${esc(c.name)}" ${c.name===cur?'selected':''}>${esc(c.name)}</option>`).join('');
   const nodeCards = NODES.map(n => { const le = n.last_event || {}; const c = le.counts || {}; const fresh = (Date.now()/1000 - n.last_ts) < 900;
     return `<div class="cam node">
-      <div class="shot" onclick="${le.snapshot_url?`zoom('${le.snapshot_url}')`:''}">${le.snapshot_url ? `<img src="${le.snapshot_url}" alt="">` : '<span>no keyframe yet</span>'}
+      <div class="shot" onclick="${le.snapshot_url?`zoom(${jsa(le.snapshot_url)})`:''}">${le.snapshot_url ? `<img src="${le.snapshot_url}" alt="">` : '<span>no keyframe yet</span>'}
         <div class="ov">${Object.entries(c).map(([k,v])=>`<span class="tag">${v} ${esc(k)}</span>`).join('')}${le.triggered ? '<span class="tag" style="color:var(--warn);border-color:var(--warn)">alert</span>' : ''}</div>
         <span class="live ${fresh?'on':''}">${fresh ? 'live · node' : 'node · quiet'}</span></div>
       <div class="body">
         <h3>${esc(n.name)}<small title="reports through the sensor hook">${esc(n.backend)}${n.last_ts ? ' · ' + hms(n.last_ts) : ''}</small></h3>
         <div class="hint" style="margin:0">${esc(le.seen || '—')}${le.reason ? ` · ${esc(le.reason)}` : ''}</div>
         <div class="hint" style="margin:0">${n.events} event${n.events===1?'':'s'} · ${n.alerts} alert${n.alerts===1?'':'s'} in 24h · watched continuously by the node, every frame</div>
-        <div class="act"><button class="btn sm" onclick="$('#ev-cam').value=${jsa(n.name)};loadVisionEvents();document.getElementById('ev-list').scrollIntoView({behavior:'smooth'})">Events ›</button><span class="spacer"></span>${le.run_id ? `<button class="btn sm" onclick="liveWant='${le.run_id}';go('live')">See run ›</button>` : ''}</div>
+        <div class="act"><button class="btn sm" onclick="$('#ev-cam').value=${jsa(n.name)};loadVisionEvents();document.getElementById('ev-list').scrollIntoView({behavior:'smooth'})">Events ›</button><span class="spacer"></span>${le.run_id ? `<button class="btn sm" onclick="liveWant=${jsa(le.run_id)};go('live')">See run ›</button>` : ''}</div>
       </div></div>`; }).join('');
   const who = n => (CFG.agents || []).filter(a => a.id !== 'atlas' && JSON.stringify([a.goal, a.role, a.instructions]).toLowerCase().includes(String(n).toLowerCase()));
   const planTiles = planned.map(p => `<div class="cam plan">
@@ -2264,10 +2264,10 @@ async function loadCameras(){
     const s = c.seen || {}, le = c.last_event, ts = s.ts || (le && le.ts), busy = _camBusy.has(c.id);
     const seenTxt = s.counts ? countsText(s.counts) : (le ? le.seen : '—');
     const watching = !!(c.watch_job && c.watch_job.enabled);
-    const src = c.config.source || '';
+    const src = c.sample ? 'sample:' + c.sample : (c.config.source || '');   // sample footage reopens on its clip
     const hasFrame = !!(s.ts || (le && le.snapshot_url));
     return `<div class="cam" id="cam-${c.id}">
-      <div class="shot" onclick="${hasFrame?`zoom('/api/cameras/${c.id}/frame.jpg?t='+Date.now())`:`feedOpen(${c.id}, ${jsa(c.name)}, ${jsa(src)})`}" ${hasFrame?'':'style="cursor:pointer" title="no frame yet — click to check or change the feed"'}>${hasFrame ? `<img src="/api/cameras/${c.id}/frame.jpg?t=${Math.floor((ts||0)*1000)}" alt="">` : `<span>${busy?'grabbing…':'no frame yet — Look now'}</span>`}
+      <div class="shot" onclick="${hasFrame?`zoom(${jsa('/api/cameras/' + c.id + '/frame.jpg?t=')}+Date.now())`:`feedOpen(${c.id}, ${jsa(c.name)}, ${jsa(src)})`}" ${hasFrame?'':'style="cursor:pointer" title="no frame yet — click to check or change the feed"'}>${hasFrame ? `<img src="/api/cameras/${c.id}/frame.jpg?t=${Math.floor((ts||0)*1000)}" alt="">` : `<span>${busy?'grabbing…':'no frame yet — Look now'}</span>`}
         <div class="ov">${s.counts ? Object.entries(s.counts).map(([k,n])=>`<span class="tag">${n} ${esc(k)}</span>`).join('') : ''}${s.triggered ? '<span class="tag" style="color:var(--warn);border-color:var(--warn)">alert</span>' : ''}</div>
         <span class="live ${watching?'on':''}">${watching ? 'watching · '+(JSON.parse(c.watch_job.task||'{}').every_s||30)+'s' : 'idle'}</span></div>
       <div class="body">
@@ -2277,7 +2277,7 @@ async function loadCameras(){
         <div class="hint" style="margin:0">watch for <b>${esc(c.rule.labels.join(', '))}</b> ≥${c.rule.min_count}${c.rule.dwell_min > 0 ? ' for '+c.rule.dwell_min+' min' : ''}${c.rule.hours ? ' during '+esc(c.rule.hours) : ''} · cooldown ${c.rule.cooldown_min}m · ${c.rule.repeat==='always' ? 'repeats' : c.rule.repeat==='once' ? 'once per stay' : 'repeats on change'}${s.present_s ? ' · present '+Math.round(s.present_s/60)+'m' : ''}${['1','true','on','yes'].includes(String((c.config||{}).journal||'').toLowerCase()) ? ' · <b>journal on</b>' : ''}${c.rule.alerts===false ? ' · alerts off' : ''}${c.rule.question ? ` · asks “${esc(c.rule.question)}”` : ''}</div>
         ${(s.answer || (le && le.answer)) ? `<div class="ans">${esc(s.answer || le.answer)}</div>` : ''}
         <div class="act"><input id="camq-${c.id}" placeholder="ask the analyst about this frame…" onkeydown="if(event.key==='Enter')lookCam(${c.id})"><button class="btn sm p" onclick="lookCam(${c.id})" ${busy?'disabled':''}>${busy?'…':'Look now'}</button><button class="btn sm ${LIVE.id===c.id?'p':''}" onclick="${LIVE.id===c.id?'closeLive()':`openLive(${c.id})`}" title="Watch this camera as live video with detections, and the journal being written in real time">${LIVE.id===c.id?'Close live':'Live'}</button></div>
-        <div class="act"><button class="btn sm ${watching?'':'p'}" onclick="watchCam(${c.id}, ${watching?'false':'true'}, ${['1','true','on','yes'].includes(String((c.config||{}).journal||'').toLowerCase()) ? 8 : 30})">${watching ? 'Stop watching' : 'Watch'}</button><button class="btn sm" onclick="lookCam(${c.id}, true)" title="Force an alert run now (demo / test)">Trigger alert</button><button class="btn sm" onclick="feedOpen(${c.id}, ${jsa(c.name)}, ${jsa(src)})" title="swap this camera onto a different stream, webcam, upload or sample">Feed</button><span class="spacer"></span>${s.run_id ? `<button class="btn sm" onclick="liveWant='${s.run_id}';go('live')">See run ›</button>` : ''}<button class="btn sm d" onclick="delCam(${c.id})">✕</button></div>
+        <div class="act"><button class="btn sm ${watching?'':'p'}" onclick="watchCam(${c.id}, ${watching?'false':'true'}, ${['1','true','on','yes'].includes(String((c.config||{}).journal||'').toLowerCase()) ? 8 : 30})">${watching ? 'Stop watching' : 'Watch'}</button><button class="btn sm" onclick="lookCam(${c.id}, true)" title="Force an alert run now (demo / test)">Trigger alert</button><button class="btn sm" onclick="feedOpen(${c.id}, ${jsa(c.name)}, ${jsa(src)})" title="swap this camera onto a different stream, webcam, upload or sample">Feed</button><span class="spacer"></span>${s.run_id ? `<button class="btn sm" onclick="liveWant=${jsa(s.run_id)};go('live')">See run ›</button>` : ''}<button class="btn sm d" onclick="delCam(${c.id})">✕</button></div>
       </div></div>`; }).join('') + planTiles + nodeCards + addTile;
   loadLinks().then(renderCamAgents);
 }
@@ -2286,14 +2286,14 @@ let LINKS = null;
 async function loadLinks(){ const r = await api('/agents/links'); if (r && r.agents) LINKS = r; return LINKS; }
 const agentName = id => ((CFG && CFG.agents || []).find(a => a.id === id) || {name: id}).name;
 const agentColor = id => ((CFG && CFG.agents || []).find(a => a.id === id) || {}).color || 'var(--muted)';
-function agentChip(id, extra){ return `<span class="achip" style="--ac:${agentColor(id)}" onclick="go('team');setTimeout(()=>teamOpenId&&teamOpenId('${id}'),400)" title="open ${esc(agentName(id))} on the Team tab"><i></i>${esc(agentName(id))}${extra || ''}</span>`; }
+function agentChip(id, extra){ return `<span class="achip" style="--ac:${agentColor(id)}" onclick="go('team');setTimeout(()=>teamOpenId&&teamOpenId(${jsa(id)}),400)" title="open ${esc(agentName(id))} on the Team tab"><i></i>${esc(agentName(id))}${extra || ''}</span>`; }
 function renderCamAgents(){
   if (!LINKS) return;
   const specs = (CFG.agents || []).filter(a => a.id !== 'atlas' && a.enabled !== false);
   for (const c of CAMS) {
     const box = $(`#ca-${c.id}`); if (!box) continue;
     const mine = LINKS.cameras[c.name] || [], any = LINKS.any_camera || [];
-    const chips = mine.map(id => agentChip(id, `<b class="x" title="stop ${esc(agentName(id))} watching this camera" onclick="event.stopPropagation();assignCam(${c.id}, '${id}', false)">×</b>`)).join('')
+    const chips = mine.map(id => agentChip(id, `<b class="x" title="stop ${esc(agentName(id))} watching this camera" onclick="event.stopPropagation();assignCam(${c.id}, ${jsa(id)}, false)">×</b>`)).join('')
       + any.map(id => agentChip(id, ' <small>any camera</small>')).join('');
     const free = specs.filter(a => !mine.includes(a.id));
     box.innerHTML = `<span class="lbl">Watched by</span>${chips || '<span class="none">no agent: only the rule runs</span>'}`
@@ -2304,9 +2304,9 @@ function renderCamAgents(){
 const NEED_KIND = {email: 'smtp', whatsapp: 'whatsapp', sms: 'twilio', instagram: 'instagram', slack: 'slack', gcal: 'gcal', http: 'http', mcp: 'mcp', higgsfield: 'higgsfield'};
 function gapFix(g, aid){
   const m = g.match(/no (\w+) connector|needs a (\w+)/); const kind = m && NEED_KIND[m[1] || m[2]];
-  if (kind) return `<button class="btn sm" onclick="connectKind('${kind}')">Connect ${esc(KINDS && KINDS[kind] ? KINDS[kind].label : kind)} →</button>`;
-  if (/cannot send/.test(g)) return `<button class="btn sm" onclick="grantTool('${aid}','queue_action')">Let it send (with your approval)</button>`;
-  if (/no camera tools/.test(g)) return `<button class="btn sm" onclick="grantTool('${aid}','camera_ask')">Give it camera tools</button>`;
+  if (kind) return `<button class="btn sm" onclick="connectKind(${jsa(kind)})">Connect ${esc(KINDS && KINDS[kind] ? KINDS[kind].label : kind)} →</button>`;
+  if (/cannot send/.test(g)) return `<button class="btn sm" onclick="grantTool(${jsa(aid)},'queue_action')">Let it send (with your approval)</button>`;
+  if (/no camera tools/.test(g)) return `<button class="btn sm" onclick="grantTool(${jsa(aid)},'camera_ask')">Give it camera tools</button>`;
   return '';
 }
 async function connectKind(kind){
@@ -2473,7 +2473,7 @@ async function loadVisionEvents(){
   const cam = $('#ev-cam').value, hours = $('#ev-hours').value, alerts = $('#ev-alerts').checked;
   const E = await api(`/vision/events?camera=${encodeURIComponent(cam)}&hours=${hours}&alerts=${alerts?1:0}&limit=120`); if (!E) return;
   const key = E.map(e=>e.id).join(',') + '|' + E.length; if (key === _lastEvKey) return; _lastEvKey = key;
-  $('#ev-list').innerHTML = E.length ? E.map(e=>`<div class="evline ${e.triggered?'alert':''}"><span class="t">${hms(e.ts).slice(0,5)}<br>${when(e.ts).slice(0,6)}</span>${e.snapshot_url ? `<img class="th" src="${e.snapshot_url}" loading="lazy" onclick="zoom('${e.snapshot_url}')">` : '<span class="th none">'+esc(e.source||'')+'</span>'}<div><b>${esc(e.camera)}</b> · ${esc(e.seen)}${e.motion ? ` · motion ${Number(e.motion).toFixed(2)}` : ''} <span class="r">${e.triggered?'ALERT · ':''}${esc(e.reason||'')}</span>${e.answer ? `<div class="ans" style="margin-top:4px">${esc(e.answer)}</div>` : ''}${e.run_id ? `<button class="link" style="padding:0;font-size:12px" onclick="liveWant='${e.run_id}';go('live')">run ${esc(e.run_id.slice(-6))} ›</button>` : ''}</div></div>`).join('') : '<div class="empty">Nothing logged yet for this filter.</div>';
+  $('#ev-list').innerHTML = E.length ? E.map(e=>`<div class="evline ${e.triggered?'alert':''}"><span class="t">${hms(e.ts).slice(0,5)}<br>${when(e.ts).slice(0,6)}</span>${e.snapshot_url ? `<img class="th" src="${e.snapshot_url}" loading="lazy" onclick="zoom(${jsa(e.snapshot_url)})">` : '<span class="th none">'+esc(e.source||'')+'</span>'}<div><b>${esc(e.camera)}</b> · ${esc(e.seen)}${e.motion ? ` · motion ${Number(e.motion).toFixed(2)}` : ''} <span class="r">${e.triggered?'ALERT · ':''}${esc(e.reason||'')}</span>${e.answer ? `<div class="ans" style="margin-top:4px">${esc(e.answer)}</div>` : ''}${e.run_id ? `<button class="link" style="padding:0;font-size:12px" onclick="liveWant=${jsa(e.run_id)};go('live')">run ${esc(e.run_id.slice(-6))} ›</button>` : ''}</div></div>`).join('') : '<div class="empty">Nothing logged yet for this filter.</div>';
 }
 async function askCams(){
   const q = $('#ask-q').value.trim(); if (!q) return; const btn = $('#ask-btn'); btn.disabled = true; $('#ask-out').textContent = 'Reading the log…'; $('#ask-ev').innerHTML = '';
@@ -2482,7 +2482,7 @@ async function askCams(){
   $('#ask-out').innerHTML = fmtNote(r.answer);
   const m = r.retrieval || {};
   const how = m.embedder ? `<div class="hint" style="margin:0 0 4px">retrieval: ${esc(m.embedder)} · window ${esc(m.window || '')} · ${m.considered ?? 0} events, ${m.indexed ?? 0} indexed · ${esc(m.grounding || '')}${(m.looked_at || []).length ? ' · re-looked at ' + m.looked_at.map(id => `<span class="cite">#${id}</span>`).join(' ') : ''}</div>` : '';
-  $('#ask-ev').innerHTML = how + ((r.evidence||[]).length ? `${r.events_considered||r.evidence.length} event(s) considered · ` + r.evidence.slice(-6).map(e=>`<span class="cite">#${e.id}</span> ${esc(e.camera)} ${hms(e.ts).slice(0,5)}${e.snapshot_url?` <a href="#" onclick="zoom('${e.snapshot_url}');return false">↗</a>`:''}`).join(' · ') : '');
+  $('#ask-ev').innerHTML = how + ((r.evidence||[]).length ? `${r.events_considered||r.evidence.length} event(s) considered · ` + r.evidence.slice(-6).map(e=>`<span class="cite">#${e.id}</span> ${esc(e.camera)} ${hms(e.ts).slice(0,5)}${e.snapshot_url?` <a href="#" onclick="zoom(${jsa(e.snapshot_url)});return false">↗</a>`:''}`).join(' · ') : '');
 }
 const FEED = {cid: null, name: '', tab: 'stream', uploaded: '', source: '', samples: []};
 function feedOpen(cid, name, src){
@@ -2494,6 +2494,7 @@ function feedOpen(cid, name, src){
   $('#fd-prev').innerHTML = '<span>Test the source to see a frame from it.</span>'; $('#fd-msg').textContent = '';
   $('#fd-go').textContent = cid ? 'Switch feed →' : 'Attach feed →';
   const sel = $('#fd-sample'); sel.innerHTML = (FEED.samples || []).map(x => `<option value="sample:${esc(x.name)}">${esc(x.label || x.name)}</option>`).join('') || '<option value="">no samples bundled</option>';
+  if (src && String(src).startsWith('sample:') && [...sel.options].some(o => o.value === src)) sel.value = src;
   feedTab(src && String(src).startsWith('sample:') ? 'sample' : /^\d+$/.test(String(src||'')) ? 'webcam' : 'stream');
   $('#feed-veil').classList.remove('hide');
   setTimeout(() => (name ? $('#fd-' + (FEED.tab === 'upload' ? 'file' : FEED.tab)) || $('#fd-stream') : $('#fd-name')).focus(), 60);
@@ -2549,7 +2550,7 @@ async function loadJobs(){
   $('#n-jobs').textContent = R.jobs.filter(j=>j.enabled).length;
   const rel = t => !t ? '—' : (t - R.now > 0 ? 'in ' + Math.round((t-R.now)/60) + ' min' : Math.round((R.now-t)/60) + ' min ago');
   window.jobWords = j => j.every_min === 1440 && j.next_run ? 'daily at ' + new Date(j.next_run*1000).toTimeString().slice(0,5) : j.every_min ? 'every ' + (j.every_min % 60 ? j.every_min + ' min' : (j.every_min/60) + 'h') : 'once';
-  $('#job-list').innerHTML = R.jobs.length ? `<table><tr><th>Name</th><th>Kind</th><th>Every</th><th>Next</th><th>Last result</th><th>On</th><th></th></tr>` + R.jobs.map(j=>`<tr><td><b>${esc(j.name)}</b><div class="hint" style="max-width:260px">${esc((j.task||'').slice(0,90))}</div></td><td><span class="tag">${esc(j.kind)}</span></td><td>${jobWords(j)}</td><td>${j.enabled?rel(j.next_run):'paused'}</td><td class="hint" style="max-width:220px">${esc(j.last_result||'')}${j.last_run?'<br>'+rel(j.last_run):''}</td><td><input type="checkbox" style="width:auto" ${j.enabled?'checked':''} onchange="api('/jobs/${j.id}',{method:'PATCH',body:{enabled:this.checked}}).then(loadJobs)"></td><td class="row"><button class="btn sm" onclick="api('/jobs/${j.id}/run',{method:'POST',body:{}}).then(()=>{toast('Queued — runs within 20s');setTimeout(loadJobs,1500)})">Run now</button>${j.kind==='task'?`<button class="btn sm" onclick="jobEdit(${j.id}, ${jsa(j.name)}, ${jsa(j.task||'')}, ${Number(j.every_min) || 0})">Edit</button>`:''}<button class="btn sm d" onclick="api('/jobs/${j.id}',{method:'DELETE',body:{}}).then(loadJobs)">✕</button></td></tr>`).join('') + '</table>' : '<div class="empty">No automations yet. Add an inbox watcher, a follow-up chaser or a scheduled task.</div>';
+  $('#job-list').innerHTML = R.jobs.length ? `<table><tr><th>Name</th><th>Kind</th><th>Every</th><th>Next</th><th>Last result</th><th>On</th><th></th></tr>` + R.jobs.map(j=>`<tr><td><b>${esc(j.name)}</b><div class="hint" style="max-width:260px">${esc((j.task||'').slice(0,90))}</div></td><td><span class="tag">${esc(j.kind)}</span></td><td>${jobWords(j)}</td><td>${j.enabled?rel(j.next_run):'paused'}</td><td class="hint" style="max-width:220px">${esc(j.last_result||'')}${j.last_run?'<br>'+rel(j.last_run):''}</td><td><input type="checkbox" style="width:auto" ${j.enabled?'checked':''} onchange="api(${jsa('/jobs/' + j.id)},{method:'PATCH',body:{enabled:this.checked}}).then(loadJobs)"></td><td class="row"><button class="btn sm" onclick="api(${jsa('/jobs/' + j.id + '/run')},{method:'POST',body:{}}).then(()=>{toast('Queued — runs within 20s');setTimeout(loadJobs,1500)})">Run now</button>${j.kind==='task'?`<button class="btn sm" onclick="jobEdit(${j.id}, ${jsa(j.name)}, ${jsa(j.task||'')}, ${Number(j.every_min) || 0})">Edit</button>`:''}<button class="btn sm d" onclick="api(${jsa('/jobs/' + j.id)},{method:'DELETE',body:{}}).then(loadJobs)">✕</button></td></tr>`).join('') + '</table>' : '<div class="empty">No automations yet. Add an inbox watcher, a follow-up chaser or a scheduled task.</div>';
 }
 function jobFields(){ const k=$('#j-kind').value; $('#j-task-wrap').classList.toggle('hide', k!=='task'); $('#j-poll-wrap').classList.toggle('hide', k!=='http_poll'); $('#j-days-wrap').classList.toggle('hide', k!=='followups'); }
 async function addJob(){
@@ -2595,15 +2596,15 @@ async function renderModels(){
   const desk = CFG.desk || {};
   const opts = (sel) => MODELCAT.filter(m => m.engine !== 'hermes_agent').map(m => `<option value="${m.id}" ${sel===m.id?'selected':''}>${esc(m.label)} · ${esc(m.cost)}${m.tools?'':' · no tools'}</option>`).join('');
   if (!MODELCAT.tiers) { const T = await api('/templates'); MODELCAT.tiers = T ? T.tiers : []; }
-  const tierBar = `<div class="row" style="margin-bottom:12px;gap:6px;flex-wrap:wrap">` + MODELCAT.tiers.map(t => `<button class="btn sm ${CFG.tier===t.id?'on':''}" title="${esc(t.note)}" onclick="setTier('${t.id}')">${esc(t.label)}</button>`).join('') +
+  const tierBar = `<div class="row" style="margin-bottom:12px;gap:6px;flex-wrap:wrap">` + MODELCAT.tiers.map(t => `<button class="btn sm ${CFG.tier===t.id?'on':''}" title="${esc(t.note)}" onclick="setTier(${jsa(t.id)})">${esc(t.label)}</button>`).join('') +
     `<span class="hint" style="margin:0 0 0 8px">${esc((MODELCAT.tiers.find(t=>t.id===CFG.tier)||{}).note||'')}</span></div>`;
   el.innerHTML = tierBar + `<table><tr><th>Agent</th><th>Engine</th><th>Model</th><th>Now running</th></tr>` + CFG.agents.map(a => {
     const isHermes = (a.model === 'hermes-agent');
     return `<tr><td><b>${esc(a.name)}</b> <span class="model">${esc(a.id)}</span></td>
-      <td><select style="width:210px" onchange="setModelOv('${a.id}', this.value==='hermes_agent' ? {engine:'hermes_agent'} : {engine:'atlas'})">
+      <td><select style="width:210px" onchange="setModelOv(${jsa(a.id)}, this.value==='hermes_agent' ? {engine:'hermes_agent'} : {engine:'atlas'})">
         <option value="atlas" ${isHermes?'':'selected'}>Built-in loop</option>
         <option value="hermes_agent" ${isHermes?'selected':''}>Hermes Agent runtime</option></select></td>
-      <td><select style="width:280px" ${isHermes?'disabled':''} onchange="setModelOv('${a.id}', {engine:'atlas', model:this.value, provider:'openrouter'})">${opts(a.model)}</select></td>
+      <td><select style="width:280px" ${isHermes?'disabled':''} onchange="setModelOv(${jsa(a.id)}, {engine:'atlas', model:this.value, provider:'openrouter'})">${opts(a.model)}</select></td>
       <td class="model">${esc(a.model || '(default)')}</td></tr>`;
   }).join('') + `</table><p class="hint" style="margin-top:8px">Paid models need OpenRouter credits. The Hermes Agent runtime uses the desk's Hermes connector (or the global instance) and brings its own browser, terminal, memory and skills.</p>`;
 }
@@ -2622,11 +2623,11 @@ async function loadByo(){
           ${p.needs_url ? `<input id="byo-u-${p.id}" placeholder="https://your-box:8000/v1" style="width:220px">` : ''}
           <input id="byo-m-${p.id}" list="byo-ml-${p.id}" placeholder="model · default ${esc(p.default_model || 'from the server')}" value="${e ? esc(e.model) : ''}" style="width:220px">
           <datalist id="byo-ml-${p.id}">${p.models.map(m => `<option value="${esc(m)}">`).join('')}</datalist>
-          <button class="btn sm p" onclick="byoSave('${p.id}')">${e ? 'Update' : 'Connect'}</button>
-          ${e ? `<button class="btn sm" onclick="byoTest('${p.id}', this)">Test</button>` : ''}
-          ${e && !isOn ? `<button class="btn sm" onclick="byoDefault('${p.id}')">Use for this desk</button>` : ''}
+          <button class="btn sm p" onclick="byoSave(${jsa(p.id)})">${e ? 'Update' : 'Connect'}</button>
+          ${e ? `<button class="btn sm" onclick="byoTest(${jsa(p.id)}, this)">Test</button>` : ''}
+          ${e && !isOn ? `<button class="btn sm" onclick="byoDefault(${jsa(p.id)})">Use for this desk</button>` : ''}
           ${e && isOn ? `<button class="btn sm" onclick="byoDefault('')">Back to house models</button>` : ''}
-          ${e ? `<button class="btn sm d" onclick="byoDel('${p.id}')">Remove</button>` : ''}
+          ${e ? `<button class="btn sm d" onclick="byoDel(${jsa(p.id)})">Remove</button>` : ''}
         </div></div>`; }).join('');
 }
 async function byoSave(preset){

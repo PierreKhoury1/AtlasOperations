@@ -159,9 +159,8 @@ class Feed:
             cap = cv2.VideoCapture(s)
         else:
             from . import vision as V
-            why = V.stream_reason(s)                 # OpenCV opens rtsp/http itself: same address rule as a grab
-            if why:
-                raise RuntimeError(why)
+            # OpenCV opens rtsp/http itself: the same address rule as a grab, and RTSP connects to the checked address
+            s = V.pinned_stream(s)
             os.environ.setdefault("OPENCV_FFMPEG_CAPTURE_OPTIONS", "rtsp_transport;tcp")
             cap = cv2.VideoCapture(s, cv2.CAP_FFMPEG)
         if not cap.isOpened():

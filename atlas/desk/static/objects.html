@@ -106,6 +106,8 @@ label.chk{display:flex;gap:8px;align-items:center;font-size:13px;color:var(--tex
 <script>
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const jstr = v => JSON.stringify(String(v ?? '')).replace(/'/g, '\\u0027').replace(/</g, '\\u003c');   // a JS string literal (no quote or < left raw)
+const jsa = v => esc(jstr(v));                    // the only way a value goes into an inline handler: one string literal
 const hms = ts => ts ? new Date(ts * 1000).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit', second:'2-digit'}) : '–';
 const F = {camera:'', label:'', verdict:'', name:''};
 let NAMES = [];
@@ -131,8 +133,8 @@ function card(o){
 }
 function facet(id, key, counts){
   const el = $(id); const total = Object.values(counts).reduce((a, b) => a + b, 0);
-  el.innerHTML = `<button class="${F[key] ? '' : 'on'}" onclick="setF('${key}','')">all <small>${total}</small></button>` +
-    Object.entries(counts).sort((a, b) => b[1] - a[1]).map(([k, n]) => `<button class="${F[key] === k ? 'on' : ''}" onclick="setF('${key}',${esc(JSON.stringify(k))})">${esc(k)} <small>${n}</small></button>`).join('');
+  el.innerHTML = `<button class="${F[key] ? '' : 'on'}" onclick="setF(${jsa(key)},'')">all <small>${total}</small></button>` +
+    Object.entries(counts).sort((a, b) => b[1] - a[1]).map(([k, n]) => `<button class="${F[key] === k ? 'on' : ''}" onclick="setF(${jsa(key)},${jsa(k)})">${esc(k)} <small>${n}</small></button>`).join('');
 }
 function setF(k, v){ F[k] = v; load(); }
 async function load(){
@@ -146,7 +148,7 @@ async function load(){
   facet('#f-camera', 'camera', r.facets.camera || {}); facet('#f-label', 'label', r.facets.label || {}); facet('#f-verdict', 'verdict', r.facets.verdict || {});
   NAMES = r.names || [];
   const nf = $('#f-name'); const nc = {}; NAMES.forEach(n => nc[n.id] = (r.facets.name || {})[n.name] || 0);
-  nf.innerHTML = `<button class="${F.name ? '' : 'on'}" onclick="setF('name','')">all</button>` + NAMES.map(n => `<button class="${String(F.name) === String(n.id) ? 'on' : ''}" onclick="setF('name','${n.id}')">${esc(n.name)} <small>${nc[n.id]}</small></button>`).join('') + (NAMES.length ? '' : '<div class="hint">name a person or thing from its card</div>');
+  nf.innerHTML = `<button class="${F.name ? '' : 'on'}" onclick="setF('name','')">all</button>` + NAMES.map(n => `<button class="${String(F.name) === String(n.id) ? 'on' : ''}" onclick="setF('name',${jsa(n.id)})">${esc(n.name)} <small>${nc[n.id]}</small></button>`).join('') + (NAMES.length ? '' : '<div class="hint">name a person or thing from its card</div>');
   const w = Object.entries(r.workers || {});
   $('#t-workers').textContent = w.length ? 'workers: ' + w.map(([c, s]) => `${c} ${s.running ? (s.detect_ms || 0) + 'ms' : 'stopped'}${s.error ? ' !' : ''}`).join(' · ') : 'workers: none running';
   $('#t-workers').className = 'tag ' + (w.some(([, s]) => s.error) ? 'warn' : '');

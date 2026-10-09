@@ -96,7 +96,9 @@ def test_mjpeg_generator_yields_only_new_frames(clip):
 def test_grab_returns_the_live_frame_when_a_feed_runs(clip, monkeypatch):
     calls = []
     real = V._grab_video
-    monkeypatch.setattr(V, "_grab_video", lambda p: (calls.append(p), real(p))[1])
+    # only this clip counts: the app's scheduler thread may be grabbing another test's camera (a camera_watch job
+    # left by test_journal) through the same patched function at the same moment
+    monkeypatch.setattr(V, "_grab_video", lambda p: (calls.append(p) if p == clip else None, real(p))[1])
     f = LIVE.open(clip)
     assert _wait(lambda: f.seq >= 2), f.error
     jpeg = V.grab(clip)

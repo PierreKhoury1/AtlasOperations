@@ -234,9 +234,10 @@ def desk_configs(desk: dict[str, Any]) -> dict[str, Any]:
             e = SEC.decrypt_config(blob)
             if e.get("type"):
                 # url_guard: the endpoint is re-checked on every call, so a hostname that passed when it was saved
-                # cannot later be re-pointed (DNS) at loopback, the LAN or the metadata service
+                # cannot later be re-pointed (DNS) at loopback, the LAN or the metadata service.
+                # env_key=False: an entry saved without a key (a custom server) sends no key, never the house one
                 providers.setdefault("providers", {})["desk:" + n] = {**{k: v for k, v in e.items() if k not in ("preset", "last_test")},
-                                                                      "url_guard": True}
+                                                                      "url_guard": True, "env_key": False}
         if byo.get("default") and ("desk:" + byo["default"]) in (providers.get("providers") or {}):
             prov = "desk:" + byo["default"]
         providers["default_provider"] = prov
@@ -247,6 +248,9 @@ def desk_configs(desk: dict[str, Any]) -> dict[str, Any]:
         else:
             for a in agents:
                 a["model"] = ""
+        # an owner's override may name the house catalogue provider, the desk default or the desk's own accounts -
+        # never another house entry (e.g. the local Ollama presets), which would get the house key on the server's loopback
+        may_use = {prov, "openrouter"} | {k for k in (providers.get("providers") or {}) if k.startswith("desk:")}
         for a in agents:                               # per-agent landscape overrides beat the tier default
             ov = (over.get("models") or {}).get(a["id"])
             if not ov:
@@ -255,7 +259,7 @@ def desk_configs(desk: dict[str, Any]) -> dict[str, Any]:
                 a["engine"] = ov["engine"]
             if ov.get("model") and ov["model"] != "hermes-agent":
                 a["model"] = ov["model"]
-                if ov.get("provider") and ov["provider"] != "hermes_agent":
+                if ov.get("provider") in may_use:
                     a["provider"] = ov["provider"]
     # Hermes Agent engine (the real Nous Research agent, via its API server). Config comes from the desk's
     # hermes_agent connector, or globally from HERMES_AGENT_URL / HERMES_AGENT_KEY env. When
@@ -315,7 +319,7 @@ def desk_configs(desk: dict[str, Any]) -> dict[str, Any]:
                           else tier_cfg.get("hermes_model", templates.FREE_MODEL))
                 providers.setdefault("providers", {})["hermes_agent_atlas"] = {
                     "type": "hermes_agent", "base_url": hcfg.get("base_url", ""), "api_key": hcfg.get("api_key", ""),
-                    "default_model": hmodel, "url_guard": h_guard,
+                    "default_model": hmodel, "url_guard": h_guard, "env_key": False,
                     "session_key": f"{hcfg.get('session_prefix') or 'atlas'}:desk{desk['id']}:atlas"}
                 a["provider"], a["model"], a["engine"], a["text_tools"] = "hermes_agent_atlas", hmodel, "hermes_agent", True
             elif lead_hermes:
@@ -335,7 +339,7 @@ def desk_configs(desk: dict[str, Any]) -> dict[str, Any]:
         hmodel = ov.get("model") if ov.get("model") and ov["model"] != "hermes-agent" else tier_cfg.get("hermes_model", templates.FREE_MODEL)
         providers.setdefault("providers", {})[pname] = {"type": "hermes_agent", "base_url": hcfg.get("base_url", ""),
                                                          "api_key": hcfg.get("api_key", ""), "default_model": hmodel,
-                                                         "url_guard": h_guard,
+                                                         "url_guard": h_guard, "env_key": False,
                                                          "session_key": f"{hcfg.get('session_prefix') or 'atlas'}:desk{desk['id']}:{a['id']}"}
         a["provider"], a["model"], a["tools"], a["engine"] = pname, hmodel, [], "hermes_agent"
     return {"providers": providers, "orchestration": cfg.load("orchestration", cfg.DEFAULT_ORCHESTRATION),
@@ -1177,6 +1181,7 @@ def api_desk_provider_test(did, name):
     pcfg["max_tokens"] = 64
     pcfg["timeout"] = 45
     pcfg["url_guard"] = True                           # checked again now, not only when it was saved
+    pcfg["env_key"] = False                            # no key of its own -> none is sent (never the house key)
     try:
         note = make_provider(pcfg).test(e.get("default_model") or "")
         ok = True
@@ -2418,6 +2423,7 @@ def api_cameras():
         seen = scheduler.last_seen(desk["id"], c["name"]) or {}
         last = store.last_vision_event(desk["id"], c["name"])
         cams.append({**_conn_public(c), "source_kind": V.source_kind(str(c["config"].get("source", ""))),
+                     "sample": DS.sample_name(str(c["config"].get("source", ""))),   # sample footage: shown as sample:<name>
                      "rule": V.rule_config(c["config"]),
                      "seen": {k: v for k, v in seen.items() if k not in ("annotated", "detections")},
                      "last_event": _vev_public(last) if last else None,
@@ -5051,13 +5057,39 @@ def hook_instagram(token):
     return jsonify({"ok": True, "messages": len(msgs), "runs": runs})
 
 
+def _twilio_unsigned(desk_id: int):
+    """None when this POST carries Twilio's X-Twilio-Signature made with the auth token of one of the desk's Twilio
+    connectors, else the refusal. Same reason as the Meta hooks: the URL token is the public form token, and without
+    the signature anyone holding it could forge texts that open leads, threads and runs."""
+    conns = [c for c in store.connectors(desk_id) if c["kind"] == "twilio"]
+    if not conns:
+        return jsonify({"error": "no Twilio connector on this desk"}), 404
+    keys = [k for k in (str((c.get("config") or {}).get("auth_token") or "").strip() for c in conns) if k]
+    if not keys:
+        return jsonify({"error": "set auth_token on the Twilio connector: inbound messages are accepted only with "
+                                 "Twilio's signature"}), 403
+    # the URL Twilio signed is the public one: what this app sees, the same over https (TLS ends at the proxy), or
+    # PUBLIC_URL's origin with this path
+    tail = request.path + ("?" + request.query_string.decode("latin-1") if request.query_string else "")
+    bases = (request.host_url.rstrip("/"), "https://" + request.host, os.environ.get("PUBLIC_URL", "").strip().rstrip("/"))
+    urls = list(dict.fromkeys(b + tail for b in bases if b))
+    params = request.form.to_dict(flat=False)
+    sig = request.headers.get("X-Twilio-Signature", "")
+    if not any(I.twilio_signature_ok(k, urls, params, sig) for k in keys):
+        return jsonify({"error": "missing or wrong X-Twilio-Signature"}), 403
+    return None
+
+
 @app.post("/hook/<token>/sms")
 def hook_sms(token):
-    """Twilio inbound webhook (SMS or WhatsApp sandbox): form fields From, Body, ProfileName."""
+    """Twilio inbound webhook (SMS or WhatsApp sandbox): form fields From, Body, ProfileName, signed by Twilio."""
     desk = store.desk_by_token(token)
     if not desk:
         abort(404)
-    f = request.form.to_dict() if request.form else (request.get_json(silent=True) or {})
+    refused = _twilio_unsigned(desk["id"])
+    if refused:
+        return refused
+    f = request.form.to_dict()                       # Twilio posts a form; the signature covers exactly these fields
     frm, body = (f.get("From") or f.get("from") or ""), (f.get("Body") or f.get("body") or "")
     if not frm:
         return jsonify({"error": "From required"}), 400
