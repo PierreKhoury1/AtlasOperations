@@ -78,7 +78,7 @@ def test_review_endpoints(app_client, tmp_path, monkeypatch):
     monkeypatch.setattr(A, "REVIEW_DATA", tmp_path / "data")
     assert c.get("/desk/review").status_code == 200
     r = c.get("/api/review/data")
-    assert r.status_code == 404 and "mcam-eval" in r.get_json()["error"]
+    assert r.status_code == 200 and r.get_json()["review"] is None and "mcam-eval" in r.get_json()["error"]   # empty, not an error
     (tmp_path / "out").mkdir()
     (tmp_path / "out" / "review.json").write_text(json.dumps({"cameras": ["C1"], "instants": []}))
     j = c.get("/api/review/data").get_json()

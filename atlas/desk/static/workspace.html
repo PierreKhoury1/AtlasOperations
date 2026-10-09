@@ -3,17 +3,18 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="theme-color" content="#1C2127">
-<title>Atlas Workspace</title>
-<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<title>Atlas Desk · Workspace</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<script>try{var t=localStorage.getItem("atlas-theme");document.documentElement.dataset.theme=t||(matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light")}catch(e){document.documentElement.dataset.theme="light"}</script>
+<script>try{if(localStorage.getItem("sh-mini")==="1")document.documentElement.classList.add("sh-mini-pre")}catch(e){}</script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/desk/static/workspace.css">
+<link rel="stylesheet" href="/desk/static/shell.css">
+<script src="/desk/static/shell.js" defer></script>
 </head>
 <body>
 <svg width="0" height="0" style="position:absolute" aria-hidden="true">
-  <symbol id="i-logo" viewBox="0 0 24 24"><path d="M12 2.5 21 20H3L12 2.5Z"/><path d="M8.2 14.5h7.6"/></symbol>
   <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="m20 20-4.2-4.2"/></symbol>
-  <symbol id="i-bell" viewBox="0 0 24 24"><path d="M6 16V11a6 6 0 1 1 12 0v5l1.5 2h-15Z"/><path d="M10 20a2 2 0 0 0 4 0"/></symbol>
   <symbol id="i-help" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9.6 9.3a2.5 2.5 0 1 1 3.6 2.3c-.8.4-1.2 1-1.2 1.9"/><path d="M12 16.8h.01"/></symbol>
   <symbol id="i-grid" viewBox="0 0 24 24"><rect x="3.5" y="3.5" width="7" height="7" rx="1"/><rect x="13.5" y="3.5" width="7" height="7" rx="1"/><rect x="3.5" y="13.5" width="7" height="7" rx="1"/><rect x="13.5" y="13.5" width="7" height="7" rx="1"/></symbol>
   <symbol id="i-desk" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="13" rx="1.5"/><path d="M8 21h8M12 17v4"/></symbol>
@@ -36,227 +37,203 @@
   <symbol id="i-reset" viewBox="0 0 24 24"><path d="M4 12a8 8 0 1 0 2.4-5.7L4 8.5"/><path d="M4 4v4.5h4.5"/></symbol>
   <symbol id="i-zin" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="m20 20-4.2-4.2M8.5 11h5M11 8.5v5"/></symbol>
   <symbol id="i-zout" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="m20 20-4.2-4.2M8.5 11h5"/></symbol>
-  <symbol id="i-sparkle" viewBox="0 0 24 24"><path d="M12 3.5 13.8 10 20.5 12l-6.7 2L12 20.5 10.2 14 3.5 12l6.7-2L12 3.5Z"/></symbol>
   <symbol id="i-filter" viewBox="0 0 24 24"><path d="M4 5h16l-6 7.5V19l-4-2v-4.5L4 5Z"/></symbol>
   <symbol id="i-edit" viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16v4Z"/></symbol>
   <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z"/><circle cx="12" cy="12" r="2.8"/></symbol>
-  <symbol id="i-mail" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="1.5"/><path d="m3.5 6.5 8.5 6.5 8.5-6.5"/></symbol>
-  <symbol id="i-chat" viewBox="0 0 24 24"><path d="M4 5.5h16v10H9l-5 4v-14Z"/></symbol>
-  <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3 4.5 6v6c0 4.5 3.2 7.6 7.5 9 4.3-1.4 7.5-4.5 7.5-9V6L12 3Z"/></symbol>
   <symbol id="i-flow" viewBox="0 0 24 24"><rect x="3" y="4" width="6" height="5" rx="1"/><rect x="15" y="4" width="6" height="5" rx="1"/><rect x="9" y="15" width="6" height="5" rx="1"/><path d="M6 9v3h12V9M12 12v3"/></symbol>
-  <symbol id="i-plug" viewBox="0 0 24 24"><path d="M9 3v5M15 3v5M6 8h12v3a6 6 0 0 1-12 0V8ZM12 17v4"/></symbol>
-  <symbol id="i-more" viewBox="0 0 24 24"><circle cx="6" cy="12" r="1.2"/><circle cx="12" cy="12" r="1.2"/><circle cx="18" cy="12" r="1.2"/></symbol>
   <symbol id="i-clip" viewBox="0 0 24 24"><path d="m16.5 7.5-7.6 7.6a2 2 0 0 0 2.8 2.8l8-8a4 4 0 0 0-5.6-5.6l-8.4 8.4a6 6 0 0 0 8.5 8.5l6.3-6.3"/></symbol>
   <symbol id="i-pause" viewBox="0 0 24 24"><path d="M8 5v14M16 5v14"/></symbol>
   <symbol id="i-sidebar" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="1.5"/><path d="M9 4v16"/></symbol>
-  <symbol id="i-menu" viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></symbol>
-  <symbol id="i-home" viewBox="0 0 24 24"><path d="M4 11 12 4l8 7v9h-5v-6H9v6H4v-9Z"/></symbol>
 </svg>
 
-<!-- app bar -->
-<header class="appbar">
-  <a class="brand" href="/desk/workspace" title="New operation"><svg class="i logo"><use href="#i-logo"/></svg><b class="wordmark">Atlas</b></a>
-  <nav class="gnav">
-    <a class="on" href="/desk/workspace"><svg class="i i14"><use href="#i-grid"/></svg>Workspace</a>
-    <a href="/desk"><svg class="i i14"><use href="#i-desk"/></svg>Dashboard</a>
-    <a id="journal-nav" href="/api/vision/journal?format=html" target="_blank" rel="noopener"><svg class="i i14"><use href="#i-book"/></svg>Journal</a>
-    <a href="/desk/cyber"><svg class="i i14"><use href="#i-shield"/></svg>Security</a>
-    <a href="/desk/ops"><svg class="i i14"><use href="#i-activity"/></svg>Ops</a>
-  </nav>
-  <button class="gsearch" onclick="openPalette()" title="Search and run commands"><svg class="i i14"><use href="#i-search"/></svg><span class="ph">Search agents, cameras, desks, commands</span><span class="kd">Ctrl</span><span class="kd">K</span></button>
-  <div class="tb-right">
-    <span class="clock mono" id="sb-clock" title="UTC">--:--:-- UTC</span>
-    <button class="tbi" id="approvals-btn" onclick="toggleApprovals()" title="Approvals waiting"><svg class="i"><use href="#i-bell"/></svg><span class="badge hide" id="ap-n">0</span></button>
-    <button class="tbi" onclick="openGuide()" title="How Atlas works"><svg class="i"><use href="#i-help"/></svg></button>
-    <button class="tbi mob" onclick="openPalette()" title="Search"><svg class="i"><use href="#i-search"/></svg></button>
+<div class="wk" id="wk" data-phase="meet">
+<script>(function(){var w=document.getElementById('wk');if(/[?&]desk=\d/.test(location.search))w.dataset.phase='load';document.body.dataset.phase=w.dataset.phase})()</script>
+
+<!-- page header, Home's language: eyebrow, title + phase, one honest sentence, status pills, the page's actions -->
+<header class="wk-head" id="wk-head">
+  <div class="wk-id">
+    <div class="eyebrow" id="ph-k">Atlas workspace</div>
+    <div class="wk-title"><h1 id="ph-title">&nbsp;</h1><span class="tag" id="phase-label">&nbsp;</span></div>
+    <p class="lead" id="ph-sum">&nbsp;</p>
+  </div>
+  <div class="wk-side">
+    <div class="pills">
+      <button class="pill" id="run-pill" onclick="showTab('runs')" title="Runs in progress on this desk"><i></i><b id="run-n">0</b>running<span class="mono hide" id="sb-run-t"></span></button>
+      <span class="pill" id="eng-pill" title="The agent engine"><i></i><span id="sb-engine">checking…</span></span>
+      <button class="pill hide" id="tier-pill" onclick="toggleTier()" title="Free models cost nothing but have a daily limit; paid models cost a few pence a job"><i></i><span id="sb-tier">Free models</span></button>
+    </div>
+    <div class="acts">
+      <button class="btn g" id="ex-btn" onclick="toggleExplorer()" title="Explorer: agents, cameras, workflows and desk health"><svg class="i"><use href="#i-sidebar"/></svg><span class="t-l">Explorer</span><span class="t-s">Explorer</span></button>
+      <button class="btn g" id="help-btn" onclick="openGuide()" title="How Atlas works"><svg class="i"><use href="#i-help"/></svg><span class="t-l">How it works</span><span class="t-s">Guide</span></button>
+      <button class="btn" id="cam-btn" onclick="openAttach(null)" title="Connect a camera: RTSP, upload, webcam, snapshot URL or sample footage"><svg class="i"><use href="#i-cam"/></svg><span class="t-l">Add camera</span><span class="t-s">Add camera</span></button>
+      <button class="btn p" id="build-btn" onclick="buildDesk()" disabled title="Available once Atlas has drafted a team"><svg class="i"><use href="#i-build"/></svg>Build desk</button>
+      <button class="btn p hide" id="newjob-btn" onclick="newJob()" title="Give the team a job (N)"><svg class="i"><use href="#i-plus"/></svg>New job<kbd>N</kbd></button>
+    </div>
   </div>
 </header>
 
-<!-- context bar -->
-<div class="ctx scroll-x">
-  <div class="crumbs"><a href="/desk">Desks</a><span class="sep">/</span><b id="bz-name">New operation</b><span class="chip c-grey" id="phase-label">brief</span></div>
-  <span class="vsep"></span>
-  <span class="live hide" id="sb-live"><i class="dot d-live"></i>LIVE</span>
-  <span class="chip c-amber hide" id="sb-demo">DEMO</span>
-  <span class="stat" title="Agent engine"><svg class="i i14"><use href="#i-plug"/></svg><span class="k">Engine</span><span class="v" id="sb-engine">-</span></span>
-  <button class="stat btnlike" id="tier-pill" onclick="toggleTier()" title="Free models cost nothing but have a daily limit; paid models cost a few pence"><svg class="i i14"><use href="#i-sparkle"/></svg><span class="k">Models</span><span class="v" id="sb-tier">free</span></button>
-  <span class="stat hide" id="sb-spend" title="Model spend against the cap"><span class="k">Spend</span><span class="meter"><span class="f" id="sp-f"></span></span><span class="v mono" id="sp-v"></span></span>
-  <span class="grow"></span>
-  <span class="stat" id="sb-state-wrap"><span class="k">State</span><b id="sb-state">ready</b></span>
-  <span class="stat hide" id="sb-run"><span class="k">Run</span><span class="v mono" id="sb-run-id"></span><span class="mono t3" id="sb-run-t"></span></span>
-  <button class="btn" onclick="openAttach(null)"><svg class="i"><use href="#i-cam"/></svg>Add camera</button>
-  <button class="btn btn-p" id="build-btn" onclick="buildDesk()" disabled title="Build the desk from the current draft"><svg class="i"><use href="#i-build"/></svg>Build desk</button>
-  <button class="btn btn-p hide" id="newjob-btn" onclick="newJob()"><svg class="i"><use href="#i-plus"/></svg>New job <span class="ki">N</span></button>
-</div>
-
-<!-- alert band (spend cap, missing model key, flagged approval) -->
-<div class="banner hide" id="banner"><svg class="i"><use href="#i-alert"/></svg><span class="bmsg" id="banner-msg"></span><a href="/desk" id="banner-link">Open dashboard</a></div>
-
-<main class="main meet" id="ws">
-  <!-- explorer -->
+<main class="main dock" id="ws">
+  <!-- explorer: docked on very wide screens, a drawer otherwise -->
   <aside class="explorer" id="explorer">
-    <div class="phead"><span class="sect">Explorer</span><span class="grow"></span><button class="ibtn" onclick="openAttach(null)" title="Add camera"><svg class="i i14"><use href="#i-plus"/></svg></button><button class="ibtn mob" onclick="mtab('overview')" title="Close"><svg class="i i14"><use href="#i-x"/></svg></button></div>
-    <div class="ex-tools"><label class="input"><svg class="i i14"><use href="#i-filter"/></svg><input id="ex-filter" placeholder="Filter objects" oninput="renderExplorer()"><span class="kbd">/</span></label></div>
+    <div class="ph"><h2>Explorer</h2><span class="meta"></span><button class="ibtn" onclick="openAttach(null)" title="Add camera"><svg class="i i14"><use href="#i-plus"/></svg></button><button class="ibtn ex-close" onclick="toggleExplorer(false)" title="Close (Esc)"><svg class="i i14"><use href="#i-x"/></svg></button></div>
+    <div class="ex-tools"><label class="input"><svg class="i"><use href="#i-filter"/></svg><input id="ex-filter" placeholder="Filter agents, cameras, workflows" oninput="renderExplorer()"></label></div>
     <div class="seg" id="ex-seg"><button class="on" data-f="all" onclick="exFilter('all')">All</button><button data-f="active" onclick="exFilter('active')">Active</button><button data-f="attention" onclick="exFilter('attention')">Attention</button></div>
     <div class="tree scroll" id="tree"></div>
     <div class="ex-foot">
-      <span class="sect">Desk health</span>
+      <span class="gk">Desk health</span>
       <div class="hrow"><span class="k">Engine</span><span class="v" id="h-engine"><i class="dot" id="sb-dot"></i><span id="sb-mode">-</span></span></div>
-      <div class="hrow"><span class="k">Models</span><span class="v" id="h-models">free tier</span></div>
-      <div class="hrow"><span class="k">Journal</span><span class="v" id="h-journal">-</span></div>
-      <div class="hrow"><span class="k">Queue</span><span class="v" id="h-queue">-</span></div>
-      <div class="hrow"><span class="k">Desk</span><span class="v" id="sb-desk">none</span></div>
+      <div class="hrow"><span class="k">Models</span><span class="v"><span id="h-models">free tier</span></span></div>
+      <div class="hrow"><span class="k">Cameras</span><span class="v" id="h-journal">-</span></div>
+      <div class="hrow"><span class="k">Approvals</span><span class="v" id="h-queue">-</span></div>
+      <div class="hrow"><span class="k">Desk</span><span class="v"><span id="sb-desk" class="mono">none</span></span></div>
     </div>
   </aside>
 
   <!-- centre -->
-  <section class="center">
-    <div class="objhead">
-      <div class="oh-ic"><svg class="i"><use href="#i-team"/></svg></div>
-      <div class="oh-t"><div class="oh-k" id="ph-k">Atlas workspace · describe the business to draft a desk</div><h1 id="ph-title">New operation</h1></div>
-      <div class="oh-chips" id="ph-chips"></div>
-      <span class="grow"></span>
-      <button class="btn mob" onclick="mtab('explorer')"><svg class="i"><use href="#i-sidebar"/></svg>Objects</button>
-      <button class="btn" onclick="openGuide()"><svg class="i"><use href="#i-help"/></svg>How it works</button>
-    </div>
+  <section class="center" id="center">
+    <!-- alert band (spend cap, missing model key, an approval waiting for days): the centre column's, so the right stack keeps its height -->
+    <div class="banner hide" id="banner"><svg class="i"><use href="#i-alert"/></svg><span class="bmsg" id="banner-msg"></span><a href="/desk#dash" id="banner-link">Open Home</a></div>
     <div class="kpis" id="kpis">
-      <div class="kpi" id="k-agents"><span class="l">Agents</span><span class="v">0</span><span class="s">no team drafted yet</span></div>
-      <div class="kpi" id="k-cams"><span class="l">Cameras live</span><span class="v">0<small>of 0</small></span><span class="s">none attached</span></div>
-      <div class="kpi" id="k-journal"><span class="l">Camera events · 24 h</span><span class="v">-</span><span class="s">journal off</span></div>
-      <div class="kpi" id="k-ap"><span class="l">Approvals waiting</span><span class="v">0</span><span class="s">nothing outbound queued</span></div>
-      <div class="kpi" id="k-spend"><span class="l">Model spend · key total</span><span class="v">$0.00</span><span class="s"><span class="bar"><i style="width:0%"></i></span>free models</span></div>
+      <button class="kpi" id="k-agents" onclick="showTab('team')"><span class="l">Agents</span><span class="v">–</span><span class="s">&nbsp;</span></button>
+      <button class="kpi" id="k-cams" onclick="showTab('cameras')"><span class="l">Cameras live</span><span class="v">–</span><span class="s">&nbsp;</span></button>
+      <button class="kpi" id="k-journal" onclick="showTab('cameras')"><span class="l"><span class="t-l">Camera notes · 24h</span><span class="t-s">Notes · 24h</span></span><span class="v">–</span><span class="s">&nbsp;</span></button>
+      <button class="kpi" id="k-ap" onclick="showTab('approvals')"><span class="l"><span class="t-l">Approvals waiting</span><span class="t-s">Approvals</span></span><span class="v">–</span><span class="s">&nbsp;</span></button>
+      <button class="kpi" id="k-spend" onclick="goDesk('setup')" title="An estimate at paid-model rates, not a bill. The provider's own total is in Desk setup."><span class="l"><span class="t-l">Model cost · est.</span><span class="t-s">Cost · est.</span></span><span class="v">–</span><span class="s">&nbsp;</span></button>
     </div>
     <div class="tabs" id="tabs">
-      <button class="tab on" data-tab="overview" onclick="showTab('overview')"><svg class="i"><use href="#i-grid"/></svg>Overview</button>
-      <button class="tab" data-tab="team" onclick="showTab('team')"><svg class="i"><use href="#i-team"/></svg>Team <span class="n" id="tab-n-team">0</span></button>
-      <button class="tab" data-tab="cameras" onclick="showTab('cameras')"><svg class="i"><use href="#i-cam"/></svg>Cameras <span class="n" id="tab-n-cams">0</span></button>
-      <button class="tab" data-tab="runs" onclick="showTab('runs')"><svg class="i"><use href="#i-activity"/></svg>Runs <span class="n hide" id="tab-n-runs">live</span></button>
-      <button class="tab" data-tab="approvals" onclick="showTab('approvals')"><svg class="i"><use href="#i-inbox"/></svg>Approvals <span class="n" id="tab-n-ap">0</span></button>
-      <a class="tab" id="journal-tab" href="/api/vision/journal?format=html" target="_blank" rel="noopener"><svg class="i"><use href="#i-book"/></svg>Journal<svg class="i i12"><use href="#i-ext"/></svg></a>
-      <span class="r" id="tab-upd"></span>
+      <button class="tab on" data-tab="overview" onclick="showTab('overview')">Overview</button>
+      <button class="tab" data-tab="team" onclick="showTab('team')">Team<span class="n" id="tab-n-team">0</span></button>
+      <button class="tab" data-tab="cameras" onclick="showTab('cameras')">Cameras<span class="n" id="tab-n-cams">0</span></button>
+      <button class="tab" data-tab="runs" onclick="showTab('runs')">Runs<span class="n live hide" id="tab-n-runs">live</span></button>
+      <button class="tab" data-tab="approvals" onclick="showTab('approvals')">Approvals<span class="n" id="tab-n-ap">0</span></button>
+      <span class="r" id="tab-upd" title="When this page last read the desk"></span>
     </div>
 
     <!-- overview -->
-    <div class="tpane body scroll" id="pane-overview">
+    <div class="tpane" id="pane-overview">
+      <div class="panel span2 hide" id="camstrip">
+        <div class="ph"><h2>Cameras<span class="n" id="cam-n">0</span></h2><span class="meta" id="cam-meta">each camera keeps a written journal</span><button class="link" id="journal-link" onclick="showTab('cameras', 'journal')">Journal ›</button><button class="btn sm" onclick="openAttach(null)"><svg class="i"><use href="#i-cam"/></svg>Add camera</button></div>
+        <div class="camrow" id="camrow"><div class="cams strip" id="cams"><div class="cam add" id="cam-add" onclick="openAttach(null)" title="Connect a camera: RTSP, upload, webcam, snapshot URL or sample footage"><div class="pic"><svg class="i"><use href="#i-plus"/></svg><span>Add camera</span></div><div class="cn"><b>Add camera</b></div><div class="note">RTSP stream, recording, webcam, snapshot URL or sample footage. Test shows a frame first.</div></div></div><div class="cam-side" id="cam-side"><div class="in scroll" id="cam-side-in"></div></div></div>
+      </div>
+
       <div class="panel" id="team-panel">
-        <div class="ph"><span class="sect">Team</span><span class="meta" id="team-meta">drafted as you talk to Atlas</span><span class="grow"></span>
-          <div class="seg sm" id="team-view"><button class="on" data-v="table" onclick="teamView('table')">Table</button><button data-v="chart" onclick="teamView('chart')">Org chart</button></div>
-          <span id="canvas-tools" class="hide"><button class="ibtn" onclick="zoomBy(1/1.15)" title="Zoom out"><svg class="i i14"><use href="#i-zout"/></svg></button><button class="ibtn" onclick="zoomBy(1.15)" title="Zoom in"><svg class="i i14"><use href="#i-zin"/></svg></button><button class="ibtn" onclick="resetLayout()" title="Reset layout"><svg class="i i14"><use href="#i-reset"/></svg></button></span>
+        <div class="ph"><h2>Team<span class="n" id="team-n">0</span></h2><span class="meta" id="team-meta">drafted here as you talk to Atlas</span>
+          <span class="tools"><span id="canvas-tools" class="hide"><button class="ibtn" onclick="zoomBy(1/1.15)" title="Zoom out"><svg class="i i14"><use href="#i-zout"/></svg></button><button class="ibtn" onclick="zoomBy(1.15)" title="Zoom in"><svg class="i i14"><use href="#i-zin"/></svg></button><button class="ibtn" onclick="resetLayout()" title="Reset layout"><svg class="i i14"><use href="#i-reset"/></svg></button></span>
+          <span class="seg" id="team-view"><button class="on" data-v="table" onclick="teamView('table')">Table</button><button data-v="chart" onclick="teamView('chart')">Org chart</button></span></span>
         </div>
         <div class="tscroll" id="team-table">
           <table class="team"><thead><tr><th>Agent</th><th>State</th><th>Engine</th><th class="num">Turns</th><th>Tools</th></tr></thead><tbody id="team-rows"></tbody></table>
-          <div id="team-empty" class="empty"><svg class="i"><use href="#i-team"/></svg><b>No team yet</b><span>Describe the business and the work in the Atlas panel. The team is drafted here, one agent at a time.</span></div>
+          <div id="team-empty" class="none">No agents drafted yet. They appear here, one row per agent, as Atlas drafts them from your description.</div>
         </div>
-        <div id="canvas" class="hide"><svg id="edges"></svg><div id="nodes"></div>
-          <div id="empty" class="empty"><svg class="i"><use href="#i-team"/></svg><b>No team yet</b><span>Describe the business and the work in the Atlas panel.</span></div>
-          <div class="cv-hint">Drag cards · drag background to pan · Ctrl+scroll zoom</div>
+        <div id="canvas" class="hide" title="Drag cards to arrange · drag the background to pan · Ctrl + scroll to zoom"><svg id="edges"></svg><div id="nodes"></div>
+          <div id="empty" class="empty"><svg class="i"><use href="#i-team"/></svg><b>No team yet</b><span>Describe the business and the work to Atlas.</span></div>
         </div>
+        <div class="pfoot" id="team-foot"><button class="btn sm" onclick="addAgent()" title="Add a specialist on the team canvas (Home)"><svg class="i"><use href="#i-plus"/></svg>Add an agent</button><button class="btn sm" onclick="changeTeamPrompt()" title="Atlas proposes the change; nothing changes until you apply it"><svg class="i"><use href="#i-edit"/></svg>Change the team with Atlas</button><span class="grow"></span><span class="meta" id="team-foot-m"></span></div>
       </div>
 
       <div class="panel" id="run-panel">
-        <div class="ph"><span class="sect">Current run</span><span class="meta mono" id="run-id"></span><span class="meta" id="run-meta">no run yet</span><span class="grow"></span><button class="ibtn hide" id="run-cancel" onclick="cancelRun()" title="Stop this run"><svg class="i i14"><use href="#i-pause"/></svg></button></div>
-        <div id="run-body" class="scroll"><div class="empty sm"><svg class="i"><use href="#i-run"/></svg><b>No run yet</b><span>Build the desk, then press New job (N). Every agent's progress shows here as it happens.</span></div></div>
+        <div class="ph"><h2>Current run</h2><span class="meta mono" id="run-id"></span><span class="meta" id="run-meta"></span><button class="ibtn hide" id="run-cancel" onclick="cancelRun()" title="Stop this run"><svg class="i i14"><use href="#i-pause"/></svg></button></div>
+        <div id="run-body" class="scroll"><div class="none" id="run-none">Loading the desk…</div></div>
       </div>
 
-      <div class="panel span2 hide" id="camstrip">
-        <div class="ph"><span class="sect">Cameras</span><span class="meta" id="cam-meta">each camera keeps a written journal</span><span class="grow"></span><a id="journal-link" href="/api/vision/journal?format=html" target="_blank" rel="noopener">Read today's journal</a><button class="btn btn-s" onclick="openAttach(null)"><svg class="i"><use href="#i-cam"/></svg>Add camera</button></div>
-        <div class="cams" id="cams"></div>
-      </div>
-
-      <div class="panel span2" id="start-panel">
-        <div class="ph"><span class="sect">Get started</span><span class="meta">Atlas builds the desk from a conversation</span></div>
+      <div class="panel" id="start-panel">
+        <div class="ph"><h2>How Atlas builds a desk</h2><span class="meta">nothing is built until you press Build desk</span></div>
         <div class="starts">
-          <div class="st"><span class="sno">1</span><div><b>Brief Atlas</b><span>Describe the business and the work in the panel on the right. Plain questions get plain answers; a brief drafts a team.</span></div></div>
-          <div class="st"><span class="sno">2</span><div><b>Shape the team</b><span>"Add a reviewer", "put the writers under one lead", "remove the researcher". Click a row to read an agent's brief.</span></div></div>
-          <div class="st"><span class="sno">3</span><div><b>Add cameras</b><span>RTSP stream, uploaded recording, webcam, snapshot URL or sample footage. Test shows a frame before you attach it.</span></div></div>
-          <div class="st"><span class="sno">4</span><div><b>Build, then give the team a job</b><span>Nothing outbound is sent without your approval.</span></div></div>
+          <div class="st2"><span class="sno">1</span><div><b>Brief Atlas</b><span>Describe the business and the work that eats your time. Plain questions get plain answers; a brief drafts a team.</span></div></div>
+          <div class="st2"><span class="sno">2</span><div><b>Shape the team</b><span>"Add a reviewer", "put the writers under one lead", "remove the researcher". Click a row to read an agent's brief.</span></div></div>
+          <div class="st2"><span class="sno">3</span><div><b>Add cameras</b><span>RTSP stream, uploaded recording, webcam, snapshot URL or sample footage. Test shows a frame before you attach it.</span></div></div>
+          <div class="st2"><span class="sno">4</span><div><b>Build, then give the team a job</b><span>Nothing outbound is sent without your approval.</span></div></div>
         </div>
-        <div id="mydesks" class="hide"></div>
+      </div>
+
+      <div class="panel hide" id="other-panel">
+        <div class="ph"><h2>Other ways to start</h2><span class="meta">on Home, without the conversation</span></div>
+        <div class="others">
+          <button onclick="otherWay('template')"><svg class="i"><use href="#i-grid"/></svg><span><b>Ready-made desk</b><small>Sales, site-watch, consultancy, agency, SaaS or e-commerce, from a short form</small></span><svg class="i i14 go"><use href="#i-chev"/></svg></button>
+          <button onclick="otherWay('blank')"><svg class="i"><use href="#i-plus"/></svg><span><b>Start from scratch</b><small>Just Atlas: add agents, cameras and apps yourself</small></span><svg class="i i14 go"><use href="#i-chev"/></svg></button>
+        </div>
+      </div>
+
+      <div class="panel hide" id="desks-panel">
+        <div class="ph"><h2>Your desks<span class="n" id="desks-n">0</span></h2><span class="meta">or open one you already have</span></div>
+        <div id="mydesks" class="scroll"></div>
       </div>
     </div>
 
     <!-- team (full) -->
-    <div class="tpane body one scroll hide" id="pane-team"><div id="team-big" class="fill"></div></div>
+    <div class="tpane hide" id="pane-team"><div id="team-big" class="fill"></div></div>
 
     <!-- cameras -->
-    <div class="tpane body scroll hide" id="pane-cameras">
+    <div class="tpane hide" id="pane-cameras">
       <div class="panel span2 cam-page">
-        <div class="ph"><span class="sect">Feeds</span><span class="meta" id="cam-meta2">YOLO detections · VLM journal</span><span class="grow"></span><a href="/api/vision/journal?format=html" target="_blank" rel="noopener">Read today's journal</a><button class="btn btn-s" onclick="openAttach(null)"><svg class="i"><use href="#i-cam"/></svg>Add camera</button></div>
+        <div class="ph"><h2>Feeds<span class="n" id="cam-n2">0</span></h2><span class="meta" id="cam-meta2">frames through the local detector</span><button class="btn sm" onclick="openAttach(null)"><svg class="i"><use href="#i-cam"/></svg>Add camera</button></div>
         <div id="cam-big"></div>
-        <div id="cam-none" class="empty sm"><svg class="i"><use href="#i-cam"/></svg><b>No cameras yet</b><span>Press Add camera, or ask Atlas to watch a feed.</span></div>
+        <div id="cam-none" class="none">No cameras yet. Press <b>Add camera</b>, or ask Atlas to watch a feed.</div>
       </div>
-      <div class="panel span2">
-        <div class="ph"><span class="sect">Latest journal</span><span class="meta" id="jr-meta">last 24 hours</span></div>
-        <div class="jr scroll" id="journal-list"><div class="empty sm"><span>Journal notes appear here once a camera is live.</span></div></div>
+      <div class="panel span2" id="journal-panel">
+        <div class="ph"><h2>Journal</h2><span class="meta" id="jr-meta">written notes from the cameras · UTC</span><a class="link" id="journal-page" href="/api/vision/journal?format=html" target="_blank" rel="noopener">Printable page<svg class="i i12"><use href="#i-ext"/></svg></a></div>
+        <div class="jr scroll" id="journal-list"><div class="none">Loading the journal…</div></div>
       </div>
     </div>
 
     <!-- runs -->
-    <div class="tpane body scroll hide" id="pane-runs">
-      <div class="jobbar span2" id="jobbar"><svg class="i"><use href="#i-run"/></svg><input id="job" placeholder="Give the team a job - a customer enquiry, a report to prepare, a list to chase" onkeydown="if(event.key==='Enter')deploy()"><button class="btn btn-p" id="deploy-btn" onclick="deploy()"><svg class="i"><use href="#i-send"/></svg>Deploy</button></div>
+    <div class="tpane hide" id="pane-runs">
+      <div class="jobbar span2" id="jobbar"><svg class="i"><use href="#i-run"/></svg><input id="job" placeholder="Give the team a job" onkeydown="if(event.key==='Enter')deploy()"><button class="btn p" id="deploy-btn" onclick="deploy()"><svg class="i"><use href="#i-send"/></svg>Deploy</button></div>
+      <div class="panel span2 hide" id="wf-panel">
+        <div class="ph"><h2>Workflows<span class="n" id="wf-n">0</span></h2><span class="meta">fixed hand-offs between the agents · Run starts one now</span></div>
+        <div id="wf-list"></div>
+      </div>
       <div class="panel" id="runs-panel">
-        <div class="ph"><span class="sect">Recent runs</span><span class="meta" id="runs-meta"></span><span class="grow"></span><button class="ibtn" onclick="loadRuns()" title="Refresh"><svg class="i i14"><use href="#i-reset"/></svg></button></div>
-        <div id="runs-list" class="scroll"><div class="empty sm"><span>Runs appear here once the team has had a job.</span></div></div>
+        <div class="ph"><h2>Recent runs</h2><span class="meta" id="runs-meta"></span><button class="ibtn" onclick="loadRuns()" title="Refresh"><svg class="i i14"><use href="#i-reset"/></svg></button></div>
+        <div id="runs-list" class="scroll"><div class="none">Runs appear here once the team has had a job.</div></div>
       </div>
       <div class="panel" id="summary-panel">
-        <div class="ph"><span class="sect">Result</span><span class="meta" id="sum-meta">verified by the desk, not claimed by the model</span></div>
-        <div id="summary" class="hide"><div class="sum-h"><svg class="i i14"><use href="#i-check"/></svg>Run finished<span class="grow"></span><button class="ibtn" onclick="$('#summary').classList.add('hide')" title="Hide"><svg class="i i14"><use href="#i-x"/></svg></button></div><div id="summary-text" class="md scroll"></div></div>
-        <div id="summary-empty" class="empty sm"><span>The verified result of the last run shows here.</span></div>
+        <div class="ph"><h2>Result</h2><span class="meta" id="sum-meta">verified by the desk, not claimed by the model</span></div>
+        <div id="summary" class="hide"><div class="sum-h" id="sum-h"><svg class="i i14"><use href="#i-check"/></svg><span id="sum-title">Run finished</span><span class="grow"></span><button class="ibtn" onclick="$('#summary').classList.add('hide');$('#summary-empty').classList.remove('hide')" title="Hide"><svg class="i i14"><use href="#i-x"/></svg></button></div><div id="summary-text" class="md scroll"></div></div>
+        <div id="summary-empty" class="none">Pick a run on the left to read its verified result.</div>
       </div>
     </div>
 
     <!-- approvals (the panel moves here from the right stack) -->
-    <div class="tpane body one scroll hide" id="pane-approvals"><div id="ap-big" class="fill"></div></div>
+    <div class="tpane hide" id="pane-approvals"><div id="ap-big" class="fill"></div></div>
   </section>
 
-  <!-- right stack: approvals, activity, Atlas -->
+  <!-- right stack: approvals, activity, Atlas (an overlay on narrow workspaces) -->
   <aside class="right" id="right">
-    <div class="rp" id="ap-panel">
-      <div class="ph"><span class="sect">Approvals</span><span class="chip c-amber hide" id="ap-n2">0</span><span class="grow"></span><span class="meta" id="ap-oldest"></span><button class="ibtn" onclick="showTab('approvals')" title="Open approvals"><svg class="i i14"><use href="#i-chev"/></svg></button></div>
-      <div id="ap-body" class="scroll"><div class="empty sm"><span>Nothing waiting. When an agent wants to send something, it lands here first.</span></div></div>
+    <div class="panel" id="ap-panel">
+      <div class="ph"><h2>Approvals<span class="n" id="ap-n2">0</span></h2><span class="meta" id="ap-oldest"></span><button class="link" onclick="showTab('approvals')">Queue ›</button></div>
+      <div id="ap-body" class="scroll"><div class="none">Nothing waiting. When an agent wants to send something, it lands here first.</div></div>
     </div>
-    <div class="rp" id="act-panel">
-      <div class="ph"><span class="sect">Activity</span><span class="meta">UTC</span><span class="grow"></span><button class="ibtn" onclick="clearFeed()" title="Clear"><svg class="i i14"><use href="#i-x"/></svg></button></div>
+    <div class="panel" id="act-panel">
+      <div class="ph"><h2>Activity</h2><span class="meta">UTC</span><button class="ibtn" onclick="clearFeed()" title="Clear this list (the audit log keeps everything)"><svg class="i i14"><use href="#i-x"/></svg></button></div>
       <div class="log scroll" id="feed"></div>
     </div>
-    <div class="rp" id="atlas-panel">
-      <div class="as-h" id="chat-head"><span class="as-mark"><svg class="i i14"><use href="#i-logo"/></svg></span><div class="as-t"><b>Atlas</b> <span class="sub" id="as-sub">orchestrator</span></div><span class="grow"></span><span class="state" id="chat-state">ready</span><span class="kbd">/</span></div>
+    <div class="panel" id="atlas-panel">
+      <div class="ph as-h" id="chat-head"><span class="amark"></span><h2>Atlas</h2><span class="meta" id="as-sub">orchestrator · free models</span><span class="tag" id="chat-state">ready</span><span class="kbd" title="Press / anywhere to type here">/</span><button class="ibtn as-close" onclick="closeAtlas()" title="Close (Esc)"><svg class="i i14"><use href="#i-x"/></svg></button></div>
       <div id="msgs" class="scroll"></div>
       <div id="sugg"></div>
       <div id="chat-foot" class="hide"><svg class="i i14"><use href="#i-build"/></svg><span class="hint" id="build-hint">Build is available once there is a first draft.</span></div>
+      <div class="as-modes hide" id="as-modes"><button data-m="job" onclick="setMode('job')" title="Every message starts a run of the team">Give a job</button><button data-m="ask" onclick="setMode('ask')" title="Answers come only from what the cameras logged">Ask the cameras</button><button data-m="change" onclick="setMode('change')" title="Atlas proposes the change on the Team canvas; nothing changes until you apply it">Change the team</button></div>
       <div id="composer">
         <textarea id="say" rows="3" placeholder="Describe the business and the work, or ask a question" onkeydown="sayKey(event)"></textarea>
-        <div class="cm-foot"><span class="kbd">Enter</span><span class="t3">send</span><span class="sh"><span class="kbd">Shift Enter</span><span class="t3">newline</span></span><span class="grow"></span><button class="ibtn" onclick="openAttach(null)" title="Attach a camera"><svg class="i i14"><use href="#i-clip"/></svg></button><button class="btn btn-p btn-ic" id="send" onclick="send()" title="Send"><svg class="i"><use href="#i-send"/></svg></button></div>
+        <div class="cm-foot"><span class="kbd">Enter</span><span>send</span><span class="sh"><span class="kbd">Shift Enter</span><span>new line</span></span><span class="grow"></span><button class="ibtn" onclick="openAttach(null)" title="Attach a camera"><svg class="i i14"><use href="#i-clip"/></svg></button><button class="btn p" id="send" onclick="send()" title="Send (Enter)"><svg class="i"><use href="#i-send"/></svg></button></div>
       </div>
-      <div class="as-foot"><svg class="i i12"><use href="#i-check"/></svg>Nothing outbound is sent without your approval<span class="grow"></span><button class="linkish" id="tier-btn" onclick="toggleTier()">free models</button></div>
+      <div class="as-foot"><svg class="i i12"><use href="#i-check"/></svg><span>Nothing outbound is sent without your approval</span></div>
     </div>
   </aside>
+
+  <!-- inspector drawer -->
+  <aside id="insp" class="drawer"><div class="dh"><div><div class="gk" id="insp-k">Agent</div><b id="insp-name"></b><span class="sub" id="insp-sub"></span></div><button class="ibtn" onclick="closeInsp()" title="Close (Esc)"><svg class="i"><use href="#i-x"/></svg></button></div><div class="db scroll" id="insp-body"></div></aside>
 </main>
-
-<!-- phone navigation -->
-<nav class="mnav" id="mnav">
-  <button class="on" data-m="overview" onclick="mtab('overview')"><svg class="i"><use href="#i-grid"/></svg>Overview</button>
-  <button data-m="cameras" onclick="mtab('cameras')"><svg class="i"><use href="#i-cam"/></svg>Cameras</button>
-  <button data-m="runs" onclick="mtab('runs')"><svg class="i"><use href="#i-activity"/></svg>Runs</button>
-  <button data-m="approvals" onclick="mtab('approvals')"><svg class="i"><use href="#i-inbox"/></svg>Approvals<span class="badge hide" id="ap-n3">0</span></button>
-  <button data-m="atlas" onclick="mtab('atlas')"><svg class="i"><use href="#i-logo"/></svg>Atlas</button>
-</nav>
-
-<!-- inspector drawer -->
-<aside id="insp" class="drawer"><div class="dh"><div><div class="gk">Agent</div><b id="insp-name"></b></div><button class="ibtn" onclick="closeInsp()" title="Close"><svg class="i"><use href="#i-x"/></svg></button></div><div class="db scroll" id="insp-body"></div></aside>
+<div class="scrim" id="scrim" onclick="closeAtlas();toggleExplorer(false)"></div>
+</div>
 
 <!-- tutorial coach marks -->
-<div id="coach" class="hide"><div id="coach-box"><div id="coach-step" class="gk"></div><h3 id="coach-title"></h3><p id="coach-text"></p><div class="mrow"><button class="btn btn-s" onclick="tutSkip()">Skip</button><span class="grow"></span><button class="btn btn-s btn-p" id="coach-next" onclick="tutNext()">Next</button></div></div></div>
-
-<!-- command palette -->
-<div id="palette" class="modal hide" onclick="if(event.target===this)closePalette()"><div class="pal">
-  <div class="pal-in"><svg class="i"><use href="#i-search"/></svg><input id="pal-q" placeholder="Type a command, an agent, a camera or a desk" oninput="renderPalette()" onkeydown="palKey(event)"><span class="kbd">Esc</span></div>
-  <div class="pal-list scroll" id="pal-list"></div>
-</div></div>
+<div id="coach" class="hide"><div id="coach-box"><div id="coach-step" class="gk"></div><h3 id="coach-title"></h3><p id="coach-text"></p><div class="mrow"><button class="btn sm" onclick="tutSkip()">Skip</button><span class="grow"></span><button class="btn sm p" id="coach-next" onclick="tutNext()">Next</button></div></div></div>
 
 <!-- attach a feed to a camera -->
 <div id="attach" class="modal hide" onclick="if(event.target===this)closeAttach()"><div class="mbox">
-  <div class="gh"><div><div class="gk" id="at-kicker">Camera feed</div><h2 id="at-title">Connect a camera</h2></div><button class="ibtn" onclick="closeAttach()" title="Close"><svg class="i"><use href="#i-x"/></svg></button></div>
+  <div class="gh"><div><div class="gk" id="at-kicker">Camera feed</div><h2 id="at-title">Connect a camera</h2></div><button class="ibtn" onclick="closeAttach()" title="Close (Esc)"><svg class="i"><use href="#i-x"/></svg></button></div>
   <div class="field" id="at-name-row"><label for="at-cam-name">Camera name</label><input id="at-cam-name" placeholder="e.g. front-door, till, kitchen-pass" maxlength="60"></div>
   <div class="mtabs" id="at-tabs">
     <button data-k="rtsp" onclick="atTab('rtsp')">RTSP stream</button><button data-k="upload" onclick="atTab('upload')">Upload file</button><button data-k="webcam" onclick="atTab('webcam')">Webcam</button><button data-k="http" onclick="atTab('http')">Snapshot URL</button><button data-k="sample" onclick="atTab('sample')">Sample footage</button>
@@ -278,32 +255,40 @@
     <div class="field"><label for="at-http">Snapshot or MJPEG URL</label><input id="at-http" spellcheck="false" placeholder="http://user:password@192.168.1.20/ISAPI/Streaming/channels/101/picture" onkeydown="if(event.key==='Enter')testAttach()"></div>
     <div class="hint">Any address that returns a JPEG (ESP32-CAM <code>/capture</code>, Hikvision <code>/ISAPI/.../picture</code>) or an MJPEG stream.</div>
   </div>
-  <div class="pane" data-k="sample"><div class="list" id="at-samples"><div class="hint">Loading sample footage...</div></div></div>
+  <div class="pane" data-k="sample"><div id="at-samples"><div class="hint" style="padding:10px">Loading sample footage…</div></div></div>
   <div class="preview"><div class="pv" id="at-pv"><span>Test the source to see a frame from it.</span></div><div class="pmsg" id="at-msg"></div></div>
-  <div class="mrow"><button class="btn" id="at-live" onclick="atLive()"><svg class="i"><use href="#i-eye"/></svg>Open live view</button><span class="grow"></span><button class="btn" id="at-test" onclick="testAttach()">Test</button><button class="btn btn-p" id="at-go" onclick="doAttach()"><svg class="i"><use href="#i-check"/></svg>Attach feed</button></div>
+  <div class="mrow"><button class="btn" id="at-live" onclick="atLive()"><svg class="i"><use href="#i-eye"/></svg>Open live view</button><span class="grow"></span><button class="btn" id="at-test" onclick="testAttach()">Test</button><button class="btn p" id="at-go" onclick="doAttach()"><svg class="i"><use href="#i-check"/></svg><span id="at-go-t">Attach feed</span></button></div>
 </div></div>
 
 <!-- live view of one camera -->
 <div id="liveview" class="modal hide" onclick="if(event.target===this)closeLive()"><div class="mbox wide">
-  <div class="gh"><div><div class="gk">Live camera</div><h2 id="live-name"></h2></div><button class="ibtn" onclick="closeLive()" title="Close"><svg class="i"><use href="#i-x"/></svg></button></div>
-  <img id="live-img" alt="">
-  <div class="lnote"><span class="sect">Latest journal note</span><p id="live-note"></p><a id="live-journal" target="_blank" rel="noopener">Read this camera's journal</a></div>
+  <div class="gh"><div><div class="gk" id="live-k">Live camera</div><h2 id="live-name"></h2></div><button class="ibtn" onclick="closeLive()" title="Close (Esc)"><svg class="i"><use href="#i-x"/></svg></button></div>
+  <div class="live-wrap"><img id="live-img" alt=""><div class="live-state" id="live-state"></div></div>
+  <div class="lnote"><span class="gk" id="live-note-k">Latest journal note</span><p id="live-note"></p><button class="link" id="live-journal" onclick="closeLive();showTab('cameras','journal')">This desk's journal ›</button></div>
 </div></div>
 
 <!-- guide -->
 <div id="guide" class="modal hide" onclick="if(event.target===this)closeGuide()"><div class="mbox">
-  <div class="gh"><div><div class="gk">Guide</div><h2>Operating Atlas</h2></div><button class="ibtn" onclick="closeGuide()" title="Close"><svg class="i"><use href="#i-x"/></svg></button></div>
+  <div class="gh"><div><div class="gk">Guide</div><h2>How to use Atlas</h2></div><button class="ibtn" onclick="closeGuide()" title="Close (Esc)"><svg class="i"><use href="#i-x"/></svg></button></div>
   <ol class="gsteps">
     <li><b>Brief.</b> Describe the business and the work in the Atlas panel. Plain questions get plain answers and do not create a team. The team is drafted in the Team panel as you talk.</li>
     <li><b>Shape the team.</b> Click a row to read an agent's brief. Say "add a reviewer", "put the writers under one lead", "remove the researcher". Switch to Org chart to drag cards.</li>
     <li><b>Add cameras.</b> Press <i>Add camera</i>, or click a camera tile, and choose an RTSP stream, an uploaded recording, a webcam, a snapshot URL or sample footage. Test shows a frame before you attach it.</li>
     <li><b>Build.</b> Press <i>Build desk</i>. Agents and cameras go live; each camera keeps a written journal.</li>
     <li><b>Give the team a job.</b> <i>New job</i> (or N) opens Runs: every agent's progress, tool calls and output stream into Current run and Activity.</li>
-    <li><b>Ask anything.</b> With cameras on, questions such as "Was any bag left unattended?" are answered from the journal with times and frames.</li>
+    <li><b>Ask the cameras.</b> In the Atlas panel choose <i>Ask the cameras</i>: questions such as "Was any bag left unattended?" are answered from the journal with times and frames.</li>
     <li><b>Approve.</b> Outbound messages wait under <i>Approvals</i>: edit, approve or reject with a note.</li>
-    <li><b>Keyboard.</b> Ctrl K command palette · / focus the Atlas composer · N new job · Esc close.</li>
+    <li><b>Keyboard.</b> Ctrl K search and commands · / Atlas · N new job · Esc close.</li>
   </ol>
-  <div class="mrow"><button class="btn" onclick="closeGuide();tutStart(true)">Replay the walkthrough</button><span class="grow"></span><button class="btn btn-p" onclick="closeGuide()">Got it</button></div>
+  <div class="mrow"><button class="btn" onclick="closeGuide();tutStart(true)">Replay the walkthrough</button><span class="grow"></span><button class="btn p" onclick="closeGuide()">Got it</button></div>
+</div></div>
+
+<!-- name the desk before it is built (a draft that names no business) -->
+<div id="namedlg" class="modal hide" onclick="if(event.target===this)closeDeskName()"><div class="mbox narrow">
+  <div class="gh"><div><div class="gk">Build desk</div><h2>Name this desk</h2></div><button class="ibtn" onclick="closeDeskName()" title="Close (Esc)"><svg class="i"><use href="#i-x"/></svg></button></div>
+  <div class="field"><label for="nm-in">Business or desk name</label><input id="nm-in" maxlength="60" placeholder="e.g. Harbour Dental" autocomplete="organization" onkeydown="if(event.key==='Enter')nameAndBuild()"></div>
+  <div class="hint">The brief did not name the business. The menu, the desk switcher and every page show this name; you can change it later in Desk setup.</div>
+  <div class="mrow"><span class="grow"></span><button class="btn" onclick="closeDeskName()">Cancel</button><button class="btn p" onclick="nameAndBuild()"><svg class="i"><use href="#i-build"/></svg>Build desk</button></div>
 </div></div>
 
 <div id="toast"></div>

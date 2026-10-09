@@ -210,6 +210,7 @@ class DesignSession:
         self.turn = 0
         self.links: list[str] = []
         self.profile: dict[str, Any] | None = None       # company profile from the pre-study of their links
+        self.owner_id: int | None = None                 # the account that started it: its draft comes back on any device
         self.lock = threading.Lock()
 
     def public(self) -> dict[str, Any]:
@@ -220,12 +221,13 @@ class DesignSession:
     def to_dict(self) -> dict[str, Any]:
         return {"id": self.id, "mode": self.mode, "tier": self.tier, "created": self.created, "messages": self.messages,
                 "transcript": self.transcript, "blueprint": self.blueprint, "suggestions": self.suggestions,
-                "ready": self.ready, "desk_id": self.desk_id, "turn": self.turn, "links": self.links, "profile": self.profile}
+                "ready": self.ready, "desk_id": self.desk_id, "turn": self.turn, "links": self.links, "profile": self.profile,
+                "owner_id": self.owner_id}
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> "DesignSession":
         s = cls(d.get("mode", "demo"), d.get("tier", "free"))
-        for k in ("id", "created", "messages", "transcript", "blueprint", "suggestions", "ready", "desk_id", "turn", "links", "profile"):
+        for k in ("id", "created", "messages", "transcript", "blueprint", "suggestions", "ready", "desk_id", "turn", "links", "profile", "owner_id"):
             if k in d:
                 setattr(s, k, d[k])
         return s
