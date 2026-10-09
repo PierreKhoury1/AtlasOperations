@@ -9,9 +9,9 @@
   --warn-soft:color-mix(in srgb,var(--warn) 10%,var(--panel));--danger-soft:color-mix(in srgb,var(--danger) 9%,var(--panel));
   --accent-line:color-mix(in srgb,var(--accent) 42%,transparent);--ok-line:color-mix(in srgb,var(--ok) 42%,transparent);
   --warn-line:color-mix(in srgb,var(--warn) 42%,transparent);--danger-line:color-mix(in srgb,var(--danger) 42%,transparent);
-  --video:#05070a;--shadow:0 18px 60px rgba(16,22,29,.18);--ex:256px;--rt:340px;--gap:12px;--pad:16px;--ease:cubic-bezier(.2,0,0,1)}
+  --video:#05070a;--dot:#cdd5df;--shadow:0 18px 60px rgba(16,22,29,.18);--ex:256px;--rt:340px;--gap:12px;--pad:16px;--ease:cubic-bezier(.2,0,0,1)}
 :root[data-theme="dark"]{color-scheme:dark;--bg:#111418;--side:#1c2127;--panel:#1c2127;--panel2:#252a31;--line:#2a3038;--line2:#3a414b;--text:#f6f7f9;--text2:#d3d8de;
-  --muted:#abb3bf;--faint:#738091;--accent:#4c90f0;--accent2:#8abbff;--accent-soft:rgba(76,144,240,.14);--ok:#72ca9b;--ok-soft:rgba(50,164,103,.16);--warn:#fbb360;--danger:#fa999c;
+  --muted:#abb3bf;--faint:#738091;--dot:#3b434e;--accent:#4c90f0;--accent2:#8abbff;--accent-soft:rgba(76,144,240,.14);--ok:#72ca9b;--ok-soft:rgba(50,164,103,.16);--warn:#fbb360;--danger:#fa999c;
   --shadow:0 18px 60px rgba(0,0,0,.45)}
 :root[data-theme="dark"] ::-webkit-scrollbar{width:10px;height:10px}:root[data-theme="dark"] ::-webkit-scrollbar-thumb{background:#3a414b;border-radius:0;border:2px solid var(--bg)}:root[data-theme="dark"] ::-webkit-scrollbar-track{background:transparent}
 body.sh-on{--rail-x:var(--sh-w)}
@@ -98,8 +98,8 @@ input,textarea,select{font:inherit;color:inherit}
 .eyebrow{font:400 10.5px/1.4 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--faint);margin-bottom:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .wk-title{display:flex;align-items:center;gap:10px;min-width:0}
 .wk-title h1{font-size:21px;font-weight:600;letter-spacing:-.015em;line-height:1.2;margin:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
-.lead{margin:5px 0 0;font-size:13px;color:var(--text2);min-height:19.5px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}   /* wraps, never cut mid-sentence */
-.lead b{font-weight:600}.lead b.warn{color:var(--warn)}.lead b.ok{color:var(--ok)}
+p.lead{margin:5px 0 0;font-size:13px;color:var(--text2);min-height:19.5px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}   /* wraps, never cut mid-sentence (p: the "lead" tag on a chart card is another thing) */
+p.lead b{font-weight:600}p.lead b.warn{color:var(--warn)}p.lead b.ok{color:var(--ok)}
 .wk-side{display:flex;flex-direction:column;align-items:flex-end;gap:8px;flex:0 1 auto;min-width:0}
 .pills{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;min-width:0}
 .pill{display:inline-flex;align-items:center;gap:7px;border:1px solid var(--line);background:var(--panel);border-radius:var(--r);height:30px;padding:0 10px;font-size:12px;color:var(--muted);white-space:nowrap;flex:none}
@@ -130,7 +130,7 @@ button.pill:hover{border-color:var(--line2);color:var(--text)}
 .kpi{display:block;background:var(--panel);padding:9px 12px 8px;min-width:0;text-align:left;cursor:pointer;color:var(--text)}
 .kpi:hover{background:var(--panel2)}
 .kpi{container:kpi/inline-size}
-@container kpi (max-width:136px){.kpi .l .t-l{display:none}.kpi .l .t-s{display:inline}}   /* a narrow tile: the short label, never a cut one */
+@container kpi (max-width:136px){.kpi :is(.l,.s) .t-l{display:none}.kpi :is(.l,.s) .t-s{display:inline}}   /* a narrow tile: the short label, never a cut one */
 .kpi .l{display:block;font:400 11px/1.4 var(--mono);letter-spacing:.05em;text-transform:uppercase;color:var(--faint);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .kpi .v{display:block;font-size:19px;font-weight:600;letter-spacing:-.02em;line-height:1.3;margin:3px 0 1px;white-space:nowrap;overflow:hidden;font-variant-numeric:tabular-nums}
 .kpi .v small{font-size:12px;font-weight:400;color:var(--muted);margin-left:5px;letter-spacing:0}
@@ -215,7 +215,7 @@ table.team{width:100%;border-collapse:collapse;table-layout:fixed;font-size:12.5
 #team-empty{min-height:150px}
 
 /* org chart canvas */
-#canvas{position:relative;flex:1 1 auto;min-height:340px;height:min(46vh,440px);overflow:hidden;background-color:var(--panel2);background-image:radial-gradient(var(--line) 1px,transparent 1px);background-size:20px 20px;cursor:grab;touch-action:none}
+#canvas{position:relative;flex:1 1 auto;min-height:340px;height:min(46vh,440px);overflow:hidden;background-color:var(--panel2);background-image:radial-gradient(var(--dot) 1px,transparent 1px);background-size:20px 20px;cursor:grab;touch-action:none}
 #pane-team #canvas,#wk:not([data-w="s"]) #pane-overview #canvas{height:auto;min-height:0;flex:1 1 0}
 #canvas.panning{cursor:grabbing}#canvas.dragging,#canvas.dragging .node{cursor:grabbing}
 #edges{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;overflow:visible}
@@ -238,6 +238,7 @@ table.team{width:100%;border-collapse:collapse;table-layout:fixed;font-size:12.5
 .node.flash,.flash{animation:flash .6s ease}
 @keyframes flash{0%{background-color:var(--accent-soft)}100%{background-color:var(--panel)}}
 .node .nm{display:flex;align-items:center;gap:6px;font-weight:600;font-size:13px;color:var(--text);line-height:18px;min-width:0}
+.node .nm .nt{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .node .nm .tag{margin-left:auto;text-transform:none;letter-spacing:0;font-weight:500;font-size:11px;max-width:58%;overflow:hidden;text-overflow:ellipsis}
 .node .nm .tag.lead{color:#e8820d;border-color:color-mix(in srgb,#e8820d 45%,transparent);background:transparent}
 .node .nm .tag.busy{color:var(--accent2);border-color:var(--accent-line);background:var(--accent-soft)}
@@ -252,10 +253,32 @@ table.team{width:100%;border-collapse:collapse;table-layout:fixed;font-size:12.5
 .node .out::after{content:"";position:absolute;left:0;right:0;bottom:0;height:16px;background:linear-gradient(transparent,var(--panel2))}
 .node .ft{display:flex;gap:8px;margin-top:6px;font:500 11px var(--mono);color:var(--muted)}.node .ft:empty{display:none}
 .node.ghost{opacity:.92;border-style:dashed}
+/* the Overview's chart fits its panel (layoutFit): fixed-height cards, no dragging; f0 name, role and a row of tools,
+   c1 name and role, mini the name. While an agent works its assignment takes the role's line. */
+#canvas.fit{cursor:default;min-height:0}
+#canvas.fit .node{width:var(--fw);height:var(--fh);overflow:hidden;cursor:pointer;padding:8px 10px 7px}
+#canvas.fit .node.atlas{width:var(--faw)}
+#canvas.fit .node :is(.out,.ft),#canvas.fit .node.ghost,#canvas.fit .node .asg{display:none}
+#canvas.fit .node.busy .asg:not(:empty){display:block;margin-top:1px;max-height:none;line-height:18px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--accent2)}
+#canvas.fit .node.busy:has(.asg:not(:empty)) .role{display:none}
+#canvas.fit .node .role{line-height:18px}
+#canvas.fit .node .chips{flex-wrap:nowrap;overflow:hidden;margin-top:8px}
+#canvas.fit .node .chips span{flex:none}
+#canvas.fit:is(.f-c1,.f-mini) .node .chips,#canvas.fit.f-mini .node :is(.role,.asg){display:none!important}
+#canvas.fit .node .nm .tag{max-width:46%}
+#canvas.fit.f-mini .node .nm .tag:not(.busy):not(.err){display:none}   /* one line: the name; a state only while it matters */
+#canvas.fit .node .nm .tag.rel{display:none}                            /* "sub-team lead", "reports to": the lines already say it */
+.node .nm .tag.err{color:var(--danger);border-color:var(--danger-line)}
+/* a short Overview panel: Add an agent and Change the team move from the footer into the header */
+.tacts{display:none;gap:2px}
+#wk[data-phase="run"] #team-panel.short .tacts{display:inline-flex}
+#team-panel.short>#team-foot{display:none}
+#canvas.fit.f-mini .node{padding:7px 10px}
+#edges path{stroke-linejoin:round}
+#pane-overview #canvas-tools{display:none}                              /* zoom and reset belong to the Team tab's hand-made chart */
 
 /* current run */
 #run-body{flex:1 1 auto;min-height:0;max-height:440px}
-#pane-overview #run-panel{min-height:220px}
 .run-task{padding:10px 14px;border-bottom:1px solid var(--line);font-size:12.5px;line-height:1.45;max-height:62px;overflow:hidden;color:var(--text)}
 .run-task .gk{margin-right:6px}
 .steps{padding:4px 14px;display:grid;grid-template-columns:22px minmax(0,max-content) minmax(72px,1fr);column-gap:10px}   /* one name column for every row: names win, assignments truncate */
@@ -276,6 +299,7 @@ table.team{width:100%;border-collapse:collapse;table-layout:fixed;font-size:12.5
 .rmeta{display:flex;gap:16px;padding:2px 14px 12px;font-size:11.5px;color:var(--muted);white-space:nowrap;overflow:hidden;flex-wrap:wrap}.rmeta b{font:500 12px var(--mono);color:var(--text)}
 .nsteps{display:flex;flex-direction:column}
 .nsteps .gk{padding:10px 14px 7px}
+.nsteps .gk~.gk{border-top:1px solid var(--line);margin-top:0}
 .nstep{display:grid;grid-template-columns:16px minmax(0,1fr) auto;gap:12px;align-items:center;padding:9px 12px 9px 14px;border-top:1px solid var(--line)}
 .nstep>.i{color:var(--muted)}
 .nstep b{display:block;font-weight:600;font-size:13px}.nstep small{display:block;color:var(--muted);font-size:12px;line-height:1.4}
@@ -368,6 +392,20 @@ table.team{width:100%;border-collapse:collapse;table-layout:fixed;font-size:12.5
 #mydesks b{font-weight:600;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 #mydesks small{display:block;color:var(--muted);font-size:11.5px}
 #mydesks .c{font:400 11px var(--mono);color:var(--muted);white-space:nowrap}#mydesks .go{color:var(--faint)}
+
+/* a draft's plan (tall screens): workflows, connections, outbound rules side by side */
+#plan-panel{grid-column:1/-1}
+.plan{display:grid;grid-template-columns:repeat(3,minmax(0,1fr))}
+.pcol{min-width:0;border-right:1px solid var(--line);padding-bottom:6px}.pcol:last-child{border-right:0}
+.pcol .gk{display:block;padding:9px 14px 4px}
+.prow{padding:5px 14px 6px;font-size:12.5px;line-height:1.45;min-width:0;color:var(--text2)}
+.prow b{display:flex;align-items:center;gap:8px;font-weight:600;font-size:13px;color:var(--text);min-width:0}
+.prow b .tag{height:18px;font-size:10.5px;padding:0 5px}
+.prow small{display:block;color:var(--muted);font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.prow>span{display:block;position:relative;padding-left:12px}.prow>span::before{content:"";position:absolute;left:1px;top:9px;width:5px;height:1px;background:var(--faint)}
+#wk:not([data-phase="design"]) #plan-panel{display:none!important}
+@media (max-height:999px){#plan-panel{display:none!important}}           /* only a tall screen has room for it beside the team and the steps */
+#wk[data-w="s"] #plan-panel{display:none!important}
 
 /* runs tab */
 .jobbar{display:flex;align-items:center;gap:8px;min-height:44px;padding:6px 6px 6px 12px;background:var(--panel);border:1px solid var(--line2);border-radius:var(--r)}
@@ -491,7 +529,7 @@ table.team{width:100%;border-collapse:collapse;table-layout:fixed;font-size:12.5
 #say::placeholder{color:var(--faint)}
 .cm-foot{display:flex;align-items:center;gap:6px;padding:0 6px 6px 10px;font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden}
 .cm-foot .sh{display:inline-flex;align-items:center;gap:6px}
-.cm-foot .btn.p{width:30px;height:28px;padding:0}
+.cm-foot .btn.p{height:28px;padding:0 10px 0 9px;gap:6px}
 .as-foot{display:flex;align-items:center;gap:7px;min-height:28px;padding:0 14px;border-top:1px solid var(--line);font-size:11.5px;color:var(--muted);flex:none;white-space:nowrap;overflow:hidden}
 .as-foot>span{min-width:0;overflow:hidden;text-overflow:ellipsis}
 .as-foot .i{color:var(--ok)}
@@ -579,6 +617,18 @@ table.team{width:100%;border-collapse:collapse;table-layout:fixed;font-size:12.5
 #insp.below .db .is.wide{grid-column:1/-1}
 #insp.below .db .is>h4{margin-top:8px}
 #insp.below .db .ask button{padding:6px 2px}
+/* ... or beside a fitted org chart when the panel is wide */
+#team-panel.has-side{display:grid;grid-template-columns:minmax(0,1fr) var(--bw,360px);grid-template-rows:auto minmax(0,1fr) auto}
+#team-panel.has-side>:is(.ph,#team-foot){grid-column:1/-1}
+#team-panel.has-side>#canvas{grid-column:1;grid-row:2;height:auto;min-height:0}
+#wk #pane-overview #team-panel.has-below>#canvas{flex:none;min-height:0}   /* sized to the chart (fitTeam), the brief takes the rest */
+#insp.side{grid-column:2;grid-row:2;border:0;border-left:1px solid var(--line);border-radius:0;min-height:0;background:var(--panel)}
+#insp.side .dh{padding:10px 10px 8px 14px}
+#insp.side .dh b{font-size:14px}
+#insp.side .db{padding:0 14px 12px;display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:0 24px;align-content:start}   /* a wide brief sets its sections side by side */
+#insp.side .db .is.wide{grid-column:1/-1}
+#insp.side .db h4{margin-top:10px}
+#insp.side .db .ask button{padding:6px 2px}
 .drawer .db{flex:1;padding:4px 16px 16px;font-size:12.5px;color:var(--text2)}
 .drawer .db h4{font:500 10.5px/1.4 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--faint);margin:14px 0 5px}
 .drawer .db ul{margin:0;padding-left:18px}.drawer .db li{margin:3px 0;line-height:1.5}
@@ -635,8 +685,13 @@ table.team{width:100%;border-collapse:collapse;table-layout:fixed;font-size:12.5
 #wk[data-phase="design"]:not([data-w="s"]) #pane-overview{grid-template-rows:minmax(260px,1fr);align-content:stretch}
 #wk[data-phase="load"] .tpane>.panel:not(#team-panel):not(#run-panel){display:none}
 #wk:is([data-phase="run"],[data-phase="load"]):not([data-w="s"]) #pane-overview{grid-template-rows:minmax(220px,1fr);align-content:stretch}
-#wk:is([data-phase="run"],[data-phase="load"]):not([data-w="s"]) #pane-overview:has(>#camstrip:not(.hide)){grid-template-rows:auto minmax(220px,1fr)}
-#pane-overview>#camstrip{min-height:min-content}                     /* the strip never clips: on a short screen Team and Current run give way */
+#wk:is([data-phase="run"],[data-phase="load"]):not([data-w="s"]) #pane-overview:has(>#camstrip:not(.hide)){grid-template-rows:max-content minmax(200px,1fr)}   /* max-content, not auto: an auto row lets the grid squeeze the strip under Team */
+/* a short Overview (fitStrip): the strip gives way first - one line of note under each frame, then no note and smaller frames */
+#camstrip.cs1 .cams .cam .note{-webkit-line-clamp:1;min-height:16px}
+#camstrip.cs1 .cams .cam .note b{display:none}                          /* the frame's badge already carries the time */
+#camstrip.cs2 .cams .cam .note{display:none}
+#camstrip.cs2 .cams .cam{padding-bottom:8px}
+#camstrip.few.cs2 .camrow>.cams{width:min(calc(var(--cols,1) * 196px),45%)}
 #wk:is([data-phase="run"],[data-phase="load"]):not([data-w="s"]) #pane-overview :is(.tscroll,#run-body){max-height:none}
 .pfoot{display:flex;align-items:center;gap:8px;padding:8px 10px 8px 14px;border-top:1px solid var(--line);flex:none;margin-top:auto;min-width:0;white-space:nowrap}
 .pfoot .meta{font-size:12px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;min-width:0}
@@ -702,9 +757,11 @@ table.team{width:100%;border-collapse:collapse;table-layout:fixed;font-size:12.5
 
 /* ---------- narrower workspaces */
 #wk:is([data-w="lm"],[data-w="m"]) .kpi{padding:8px 10px}
-#wk:is([data-w="lm"],[data-w="m"],[data-w="s"]) .cm-foot .sh{display:none}
+#wk:not([data-phase="meet"]) .cm-foot .sh,#wk:is([data-w="lm"],[data-w="m"],[data-w="s"]) .cm-foot .sh{display:none}   /* the Send button keeps its label: the Shift Enter hint stays only beside the wide first-brief box */
 #wk[data-w="m"] .wk-side .acts .btn.g span,#wk[data-w="m"] #cam-btn span{display:none}
 #wk[data-w="m"] .wk-side .acts .btn.g,#wk[data-w="m"] #cam-btn{width:30px;padding:0}
+#wk:is([data-w="lm"],[data-w="m"]) .eb-d{display:none}                 /* a narrower header: the kicker drops the date before it cuts the desk's tier */
+@media (max-height:820px){#wk:not([data-w="s"]) p.lead{-webkit-line-clamp:1}}   /* a short screen: one line of summary (the full sentence on hover) */
 
 /* ---------- one column (s): the page scrolls, tabs stick under the frame's phone bar, Atlas is a sheet */
 body[data-w="s"]{height:auto;min-height:100dvh;overflow:visible}
@@ -714,7 +771,7 @@ body[data-w="s"] .wk{height:auto;display:block}
 #wk[data-w="s"] .wk-id{flex:none}
 #wk[data-w="s"] .wk-title h1{font-size:18px}
 #wk[data-w="s"] .eyebrow{font-size:10.5px;letter-spacing:.1em}
-#wk[data-w="s"] .lead{white-space:normal;font-size:12.5px}
+#wk[data-w="s"] p.lead{white-space:normal;font-size:12.5px}
 #wk[data-w="s"] .wk-side{align-items:stretch}
 #wk[data-w="s"] .pills{flex-wrap:nowrap;justify-content:flex-start;overflow-x:auto;scrollbar-width:none;margin:0 calc(-1 * var(--pad));padding:0 var(--pad)}
 #wk[data-w="s"] .pills::-webkit-scrollbar{display:none}
@@ -726,7 +783,7 @@ body[data-w="s"] .wk{height:auto;display:block}
 #wk[data-w="s"] .wk-side .acts .t-s{display:inline}
 #wk[data-w="s"] .wk-side .acts .btn.p{order:-1}
 @media (max-width:760px){#wk[data-w="s"] .wk-side .acts .btn.p{flex:1}}   /* a phone: the primary button takes the row; wider, its own width */
-#wk[data-w="s"]:not([data-phase="meet"]) .main{display:block;padding:0 var(--pad) 20px}
+#wk[data-w="s"]:not([data-phase="meet"]):not([data-phase="design"]) .main{display:block;padding:0 var(--pad) 20px}
 #wk[data-w="s"] .center{gap:var(--gap)}
 #wk[data-w="s"] .kpis{grid-template-columns:repeat(5,minmax(0,1fr))}
 #wk[data-w="s"]:not([data-sw="w"]) .kpis{grid-template-columns:repeat(6,minmax(0,1fr))}
@@ -768,17 +825,18 @@ body[data-w="s"] .wk{height:auto;display:block}
 #wk[data-w="s"] .jobbar input{font-size:16px}
 body[data-w="s"] #toast{bottom:16px}
 /* s + meet: the conversation first (sized to its content, the composer right under it), then the team and the steps */
-#wk[data-w="s"][data-phase="meet"] .main{display:flex;flex-direction:column;gap:var(--gap);padding:0 var(--pad) 20px}
-#wk[data-w="s"][data-phase="meet"] .right{order:-1;flex:none}
-#wk[data-w="s"][data-phase="meet"] #atlas-panel{min-height:0;flex:none}
-#wk[data-w="s"][data-phase="meet"] #msgs{flex:none;min-height:0;max-height:min(64vh,620px)}
+/* ... and the draft keeps that order: the conversation where the owner left it, the team drafted under it (no sheet over it) */
+#wk[data-w="s"]:is([data-phase="meet"],[data-phase="design"]) .main{display:flex;flex-direction:column;gap:var(--gap);padding:0 var(--pad) 20px}
+#wk[data-w="s"]:is([data-phase="meet"],[data-phase="design"]) .right{order:-1;flex:none}
+#wk[data-w="s"]:is([data-phase="meet"],[data-phase="design"]) #atlas-panel{min-height:0;flex:none}
+#wk[data-w="s"]:is([data-phase="meet"],[data-phase="design"]) #msgs{flex:none;min-height:0;max-height:min(64vh,620px)}
 /* phones: the frame's bar above already names the desk, so the page title steps aside; the phase tag joins the eyebrow */
 @media (max-width:760px){
   body.sh-on #wk .wk-id{display:flex;flex-wrap:wrap;align-items:center;column-gap:8px}
   body.sh-on #wk .eyebrow{flex:1 1 0;min-width:0;margin-bottom:0}
   body.sh-on #wk .wk-title h1{display:none}
-  body.sh-on #wk .lead{flex:1 1 100%;margin-top:6px}
-  #wk .eb-d{display:none}
+  body.sh-on #wk p.lead{flex:1 1 100%;margin-top:6px}
+  #wk :is(.eb-d,.eb-w){display:none}
 }
 body[data-w="s"] .mbox{padding:0 14px 14px}body[data-w="s"] .gh{margin:0 -14px 6px;padding-left:14px}
 @media (max-width:760px){.modal{padding:8px}.mbox{max-height:calc(100dvh - 16px)}}

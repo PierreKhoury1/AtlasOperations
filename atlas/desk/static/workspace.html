@@ -119,6 +119,7 @@
       <div class="panel" id="team-panel">
         <div class="ph"><h2>Team<span class="n" id="team-n">0</span></h2><span class="meta" id="team-meta">drafted here as you talk to Atlas</span>
           <span class="tools"><span id="canvas-tools" class="hide"><button class="ibtn" onclick="zoomBy(1/1.15)" title="Zoom out"><svg class="i i14"><use href="#i-zout"/></svg></button><button class="ibtn" onclick="zoomBy(1.15)" title="Zoom in"><svg class="i i14"><use href="#i-zin"/></svg></button><button class="ibtn" onclick="resetLayout()" title="Reset layout"><svg class="i i14"><use href="#i-reset"/></svg></button></span>
+          <span class="tacts" id="team-acts"><button class="ibtn" onclick="addAgent()" title="Add an agent (on Home's team canvas)"><svg class="i i14"><use href="#i-plus"/></svg></button><button class="ibtn" onclick="changeTeamPrompt()" title="Change the team with Atlas: it proposes the change, nothing changes until you apply it"><svg class="i i14"><use href="#i-edit"/></svg></button></span>
           <span class="seg" id="team-view"><button class="on" data-v="table" onclick="teamView('table')">Table</button><button data-v="chart" onclick="teamView('chart')">Org chart</button></span></span>
         </div>
         <div class="tscroll" id="team-table">
@@ -134,6 +135,12 @@
       <div class="panel" id="run-panel">
         <div class="ph"><h2>Current run</h2><span class="meta mono" id="run-id"></span><span class="meta" id="run-meta"></span><button class="ibtn hide" id="run-cancel" onclick="cancelRun()" title="Stop this run"><svg class="i i14"><use href="#i-pause"/></svg></button></div>
         <div id="run-body" class="scroll"><div class="none" id="run-none">Loading the desk…</div></div>
+      </div>
+
+      <!-- a draft on a tall screen: the rest of what Build creates, from Atlas's own draft (workflows, connections, outbound rules) -->
+      <div class="panel hide" id="plan-panel">
+        <div class="ph"><h2>Draft plan</h2><span class="meta">what Build sets up besides the agents · from Atlas's draft</span></div>
+        <div class="plan" id="plan-body"></div>
       </div>
 
       <div class="panel" id="start-panel">
@@ -216,7 +223,7 @@
       <div class="as-modes hide" id="as-modes"><button data-m="job" onclick="setMode('job')" title="Every message starts a run of the team">Give a job</button><button data-m="ask" onclick="setMode('ask')" title="Answers come only from what the cameras logged">Ask the cameras</button><button data-m="change" onclick="setMode('change')" title="Atlas proposes the change on the Team canvas; nothing changes until you apply it">Change the team</button></div>
       <div id="composer">
         <textarea id="say" rows="3" placeholder="Describe the business and the work, or ask a question" onkeydown="sayKey(event)"></textarea>
-        <div class="cm-foot"><span class="kbd">Enter</span><span>send</span><span class="sh"><span class="kbd">Shift Enter</span><span>new line</span></span><span class="grow"></span><button class="ibtn" onclick="openAttach(null)" title="Attach a camera"><svg class="i i14"><use href="#i-clip"/></svg></button><button class="btn p" id="send" onclick="send()" title="Send (Enter)"><svg class="i"><use href="#i-send"/></svg></button></div>
+        <div class="cm-foot"><span class="kbd">Enter</span><span>send</span><span class="sh"><span class="kbd">Shift Enter</span><span>new line</span></span><span class="grow"></span><button class="ibtn" onclick="openAttach(null)" title="Attach a camera"><svg class="i i14"><use href="#i-clip"/></svg></button><button class="btn p" id="send" onclick="send()" title="Send (Enter)"><svg class="i"><use href="#i-send"/></svg>Send</button></div>
       </div>
       <div class="as-foot"><svg class="i i12"><use href="#i-check"/></svg><span>Nothing outbound is sent without your approval</span></div>
     </div>
@@ -272,7 +279,7 @@
   <div class="gh"><div><div class="gk">Guide</div><h2>How to use Atlas</h2></div><button class="ibtn" onclick="closeGuide()" title="Close (Esc)"><svg class="i"><use href="#i-x"/></svg></button></div>
   <ol class="gsteps">
     <li><b>Brief.</b> Describe the business and the work in the Atlas panel. Plain questions get plain answers and do not create a team. The team is drafted in the Team panel as you talk.</li>
-    <li><b>Shape the team.</b> Click a row to read an agent's brief. Say "add a reviewer", "put the writers under one lead", "remove the researcher". Switch to Org chart to drag cards.</li>
+    <li><b>Shape the team.</b> Click a row to read an agent's brief. Say "add a reviewer", "put the writers under one lead", "remove the researcher". Org chart shows who reports to whom; arrange it by hand on the Team tab.</li>
     <li><b>Add cameras.</b> Press <i>Add camera</i>, or click a camera tile, and choose an RTSP stream, an uploaded recording, a webcam, a snapshot URL or sample footage. Test shows a frame before you attach it.</li>
     <li><b>Build.</b> Press <i>Build desk</i>. Agents and cameras go live; each camera keeps a written journal.</li>
     <li><b>Give the team a job.</b> <i>New job</i> (or N) opens Runs: every agent's progress, tool calls and output stream into Current run and Activity.</li>

@@ -292,7 +292,7 @@ aside.simple [data-lvl="full"]{display:none}
 @media (max-width:900px){.livewrap .lbody{grid-template-columns:1fr}.livewrap .ljr{border-left:0;border-top:1px solid var(--line);height:360px}}
 .cam .shot .ov .tag{background:rgba(5,7,10,.75);backdrop-filter:blur(2px)}
 .cam .shot .live{position:absolute;right:8px;top:8px;font-family:var(--mono);font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;padding:2px 6px;border:1px solid var(--line);background:rgba(5,7,10,.75)}
-.cam .shot .live.on{border-color:var(--ok);color:var(--ok)}
+.cam .shot .live.on{border-color:var(--ok);color:var(--ok)}.cam .shot .live.fix{border-color:var(--warn);color:var(--warn)}
 .cam .body{padding:10px 12px;display:flex;flex-direction:column;gap:6px}
 .cam .body h3{margin:0;font-size:14px;font-weight:600;display:flex;align-items:center;gap:8px}
 .cam .body h3 small{font-family:var(--mono);font-size:11px;color:var(--faint);font-weight:400;margin-left:auto}
@@ -999,6 +999,7 @@ async function loadCfg(){
   loadDesks();
   const me = await api('/me'); ME = me; if (me && me.id) { $('#who').textContent = me.name; $('#whoco').textContent = me.company || me.email; $('#whoav').textContent = (me.name||'?').trim()[0].toUpperCase(); } else { $('#who').textContent = 'Guest'; $('#whoco').textContent = 'open test mode'; document.querySelectorAll('a[href="/logout"]').forEach(a => a.remove()); }
   colors = Object.fromEntries(CFG.agents.map(a=>[a.id, a.color || '#7c3aed']));
+  colors.atlas = '#e8820d';   // Atlas wears the brand's orange everywhere (the rail's mark, the workspace's team and chart)
   applyLevel(); fillNotify();
   $('#bizname').textContent = CFG.business.name; $('#wshint').textContent = (CFG.template || '').replace('_', ' ') + ' · ' + CFG.mode;
   { const sec = document.getElementById('nav-security'); if (sec) sec.style.display = CFG.template === 'soc_desk' ? 'flex' : 'none'; }   // security console only on security desks
@@ -1260,7 +1261,7 @@ function homeAgents(running){
     const what = a.id === 'atlas' ? 'team lead: plans each job, briefs the agents, checks their work'
       : [L.cameras && L.cameras.length ? 'watches ' + L.cameras.join(', ') : L.any_camera ? 'any camera' : '', (L.connectors || []).length ? 'sends via ' + L.connectors.join(', ') : '', a.role].filter(Boolean).join(' · ');
     const st = a.enabled === false ? ['off', ''] : busy.has(a.id) ? ['working', 'on'] : gaps ? [plural(gaps, 'gap'), 'warn'] : ['ready', ''];
-    return `<div class="hm-row" onclick="homeOpenAgent(${jsa(a.id)})" title="open ${esc(a.name)} on the team canvas" ${a.enabled === false ? 'style="opacity:.55"' : ''}><span class="sw" style="background:${a.color || '#7c3aed'}"></span><span class="m"><b>${esc(a.name)}</b><small>${esc(what)}</small></span><span class="st ${st[1]}">${esc(st[0])}</span></div>`;
+    return `<div class="hm-row" onclick="homeOpenAgent(${jsa(a.id)})" title="open ${esc(a.name)} on the team canvas" ${a.enabled === false ? 'style="opacity:.55"' : ''}><span class="sw" style="background:${colors[a.id] || a.color || '#7c3aed'}"></span><span class="m"><b>${esc(a.name)}</b><small>${esc(what)}</small></span><span class="st ${st[1]}">${esc(st[0])}</span></div>`;
   }).join('') || '<div class="hm-none">No agents yet.</div>';
 }
 function homeCases(){
@@ -2342,10 +2343,11 @@ async function loadCameras(){
     const watching = !!(c.watch_job && c.watch_job.enabled);
     const src = c.sample ? 'sample:' + c.sample : (c.config.source || '');   // sample footage reopens on its clip
     const hasFrame = !!(s.ts || (le && le.snapshot_url));
+    const prob = (c.status && c.status.problem) || '';                 // the server's own reason (the workspace says the same): fix the feed first
     return `<div class="cam" id="cam-${c.id}">
       <div class="shot" onclick="${hasFrame?`zoom(${jsa('/api/cameras/' + c.id + '/frame.jpg?t=')}+Date.now())`:`feedOpen(${c.id}, ${jsa(c.name)}, ${jsa(src)})`}" ${hasFrame?'':'style="cursor:pointer" title="no frame yet — click to check or change the feed"'}>${hasFrame ? `<img src="/api/cameras/${c.id}/frame.jpg?t=${Math.floor((ts||0)*1000)}" alt="">` : `<span>${busy?'grabbing…':'no frame yet — Look now'}</span>`}
         <div class="ov">${s.counts ? Object.entries(s.counts).map(([k,n])=>`<span class="tag">${n} ${esc(k)}</span>`).join('') : ''}${s.triggered ? '<span class="tag" style="color:var(--warn);border-color:var(--warn)">alert</span>' : ''}</div>
-        <span class="live ${watching?'on':''}">${watching ? 'watching · '+(JSON.parse(c.watch_job.task||'{}').every_s||30)+'s' : 'idle'}</span></div>
+        <span class="live ${prob ? 'fix' : watching ? 'on' : ''}" title="${esc(prob)}">${prob ? 'fix feed' : watching ? 'watching · '+(JSON.parse(c.watch_job.task||'{}').every_s||30)+'s' : 'not watching'}</span></div>
       <div class="body">
         <h3>${esc(c.name)}<small title="${esc(src)}">${esc(c.source_kind)}${ts ? ' · ' + utcShort(ts) : ''}</small></h3>
         <div class="camagents" id="ca-${c.id}"></div>
@@ -2353,7 +2355,8 @@ async function loadCameras(){
         <div class="hint" style="margin:0">watch for <b>${esc(c.rule.labels.join(', '))}</b> ≥${c.rule.min_count}${c.rule.dwell_min > 0 ? ' for '+c.rule.dwell_min+' min' : ''}${c.rule.hours ? ' during '+esc(c.rule.hours) : ''} · cooldown ${c.rule.cooldown_min}m · ${c.rule.repeat==='always' ? 'repeats' : c.rule.repeat==='once' ? 'once per stay' : 'repeats on change'}${s.present_s ? ' · present '+Math.round(s.present_s/60)+'m' : ''}${['1','true','on','yes'].includes(String((c.config||{}).journal||'').toLowerCase()) ? ' · <b>journal on</b>' : ''}${c.rule.alerts===false ? ' · alerts off' : ''}${c.rule.question ? ` · asks “${esc(c.rule.question)}”` : ''}</div>
         ${(s.answer || (le && le.answer)) ? `<div class="ans">${esc(s.answer || le.answer)}</div>` : ''}
         <div class="act"><input id="camq-${c.id}" placeholder="ask the analyst about this frame…" onkeydown="if(event.key==='Enter')lookCam(${c.id})"><button class="btn sm p" onclick="lookCam(${c.id})" ${busy?'disabled':''}>${busy?'…':'Look now'}</button><button class="btn sm ${LIVE.id===c.id?'p':''}" onclick="${LIVE.id===c.id?'closeLive()':`openLive(${c.id})`}" title="Watch this camera as live video with detections, and the journal being written in real time">${LIVE.id===c.id?'Close live':'Live'}</button></div>
-        <div class="act"><button class="btn sm ${watching?'':'p'}" onclick="watchCam(${c.id}, ${watching?'false':'true'}, ${['1','true','on','yes'].includes(String((c.config||{}).journal||'').toLowerCase()) ? 8 : 30})">${watching ? 'Stop watching' : 'Watch'}</button><button class="btn sm" onclick="lookCam(${c.id}, true)" title="Force an alert run now (demo / test)">Trigger alert</button><button class="btn sm" onclick="feedOpen(${c.id}, ${jsa(c.name)}, ${jsa(src)})" title="swap this camera onto a different stream, webcam, upload or sample">Feed</button><span class="spacer"></span>${s.run_id ? `<button class="btn sm" onclick="liveWant=${jsa(s.run_id)};go('live')">See run ›</button>` : ''}<button class="btn sm d" onclick="delCam(${c.id})">✕</button></div>
+        ${prob ? `<div class="hint" style="margin:0;color:var(--warn)">${esc(prob)}</div>` : ''}
+        <div class="act">${prob ? `<button class="btn sm p" onclick="feedOpen(${c.id}, ${jsa(c.name)}, ${jsa(src)})" title="Re-enter the stream address or pick another source">Fix feed</button>` : ''}<button class="btn sm ${watching||prob?'':'p'}" onclick="watchCam(${c.id}, ${watching?'false':'true'}, ${['1','true','on','yes'].includes(String((c.config||{}).journal||'').toLowerCase()) ? 8 : 30})">${watching ? 'Stop watching' : 'Watch'}</button><button class="btn sm" onclick="lookCam(${c.id}, true)" title="Force an alert run now (demo / test)">Trigger alert</button><button class="btn sm" onclick="feedOpen(${c.id}, ${jsa(c.name)}, ${jsa(src)})" title="swap this camera onto a different stream, webcam, upload or sample">Feed</button><span class="spacer"></span>${s.run_id ? `<button class="btn sm" onclick="liveWant=${jsa(s.run_id)};go('live')">See run ›</button>` : ''}<button class="btn sm d" onclick="delCam(${c.id})">✕</button></div>
       </div></div>`; }).join('') + planTiles + nodeCards + addTile;
   loadLinks().then(renderCamAgents);
 }

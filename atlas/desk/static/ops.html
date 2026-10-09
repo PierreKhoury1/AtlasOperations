@@ -28,13 +28,13 @@ svg.i.s{width:14px;height:14px}
 .brand{display:flex;align-items:center;gap:8px;font-weight:600;font-size:14px;white-space:nowrap}
 .brand i{width:16px;height:16px;border-radius:2px;background:var(--accent);position:relative;display:inline-block}
 .brand i::after{content:"";position:absolute;inset:5px;background:var(--appbar);border-radius:1px}
-.crumb{color:#abb3bf;font-size:13px;white-space:nowrap;max-width:260px;overflow:hidden;text-overflow:ellipsis}.crumb b{color:#5f6b7a;font-weight:400;margin:0 6px}.crumb span{color:#d3d8de}
+.crumb{color:#abb3bf;font-size:13px;white-space:nowrap;max-width:min(440px,30vw);overflow:hidden;text-overflow:ellipsis}.crumb b{color:#5f6b7a;font-weight:400;margin:0 6px}.crumb span{color:#d3d8de}
 .tabs{display:flex;gap:2px;height:100%;margin-left:6px}
 .tabs button{display:flex;align-items:center;gap:7px;background:none;border:0;border-bottom:2px solid transparent;color:#abb3bf;padding:0 12px;font-weight:600;cursor:pointer;height:100%}
 .tabs button:hover{color:#f6f7f9}.tabs button.on{color:#f6f7f9;border-bottom-color:var(--accent)}
 .tabs .n{font-family:var(--mono);font-size:11px;background:#2b3138;color:#d3d8de;border-radius:2px;padding:0 6px;min-width:20px;text-align:center}
 .bar .spacer{flex:1}
-.bpills{display:flex;gap:6px;flex-wrap:nowrap;overflow:hidden}
+.bpills{display:flex;gap:6px;flex-wrap:wrap;overflow:hidden;height:30px;align-content:flex-start}   /* a pill that does not fit wraps out of sight, never half shown */
 .kbtn{display:flex;align-items:center;gap:8px;height:30px;padding:0 10px;background:#22272e;border:1px solid #3a414b;border-radius:var(--r);color:#abb3bf;cursor:pointer;white-space:nowrap}
 .kbtn:hover{color:#f6f7f9;border-color:#5f6b7a}
 kbd{font-family:var(--mono);font-size:10.5px;border:1px solid #3a414b;border-bottom-width:2px;border-radius:2px;padding:0 5px;color:#abb3bf;background:#1c2127}
@@ -191,10 +191,12 @@ td.dim{color:var(--muted)}
 .toast{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);background:var(--text);color:var(--bg);padding:8px 14px;border-radius:3px;font-size:12.5px;opacity:0;transition:opacity .18s;pointer-events:none;z-index:40}
 .toast.on{opacity:1}
 .err{color:var(--bad);font-size:12px}
-@media (max-width:1180px){.shell{grid-template-columns:200px minmax(0,1fr)}.insp{position:fixed;right:0;top:48px;bottom:0;width:min(420px,100%);transform:translateX(100%);transition:transform .2s;z-index:20;box-shadow:-10px 0 30px rgba(0,0,0,.25)}.insp.open{transform:none}.bpills{display:none}}
+@media (max-width:1180px){.shell{grid-template-columns:200px minmax(0,1fr)}.insp{position:fixed;right:0;top:48px;bottom:0;width:min(420px,100%);transform:translateX(100%);transition:transform .2s,visibility 0s .2s;visibility:hidden;z-index:20}.insp.open{transform:none;visibility:visible;transition:transform .2s;box-shadow:-10px 0 30px rgba(0,0,0,.25)}.bpills{display:none}}   /* closed: hidden, no shadow bleeding at the edge */
 @media (max-width:760px){.shell{grid-template-columns:1fr}.side{display:none}.crumb,.kbtn span{display:none}.ph input{width:140px}#palbtn,#themebtn{display:none}.bar .tabs button svg{display:none}}
 body.sh-on .bar>.brand{display:none}   /* inside the app frame the rail carries the brand */
 .bar>.bpills,.bar>.crumb{min-width:0;flex:0 1 auto}   /* the bar's extras give way before it can push the page sideways */
+.bar>:is(.brand,.tabs,#palbtn,#newbtn,#themebtn){flex:none}             /* ... and the buttons never shrink */
+@media (max-width:1100px){#palbtn span{display:none}}                   /* then the Search label goes, the icon and Ctrl K stay */
 @media (max-width:1000px){body.sh-on .bar>.crumb{display:none}}   /* a narrow frame: the rail already names the desk */
 </style>
 <link rel="stylesheet" href="/desk/static/shell.css">

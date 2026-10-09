@@ -62,7 +62,7 @@ const PALETTE = ['#4c90f0', '#32a467', '#ec9a3c', '#9881f3', '#2ec4b6', '#e76a6e
 function agentName(id){ if (!id) return ''; if (id === 'atlas') return 'Atlas'; if (id === 'system') return 'Desk'; if (id === 'owner') return 'You'; const base = String(id).split('#')[0]; const a = W.agents.get(base); return a ? a.name + (base !== id ? ' #' + String(id).split('#')[1] : '') : id; }
 function setState(t){ t = String(t || 'ready').toLowerCase(); const el = $('#chat-state'); el.textContent = t; el.className = 'tag' + (t !== 'ready' ? ' busy' : ''); }
 function setPhase(t){ const e = $('#phase-label'); e.textContent = t; e.className = 'tag ' + (/^running/.test(t) ? 'running' : /ready|built/.test(t) ? 'done' : /fail|error/.test(t) ? 'error' : ''); }
-function setPhaseAttr(){ $('#wk').dataset.phase = document.body.dataset.phase = W.phase; placePanels(); if (typeof msgsBottom === 'function') msgsBottom(); if (W.teamView !== viewFor()) applyTeamView(); else fitTeam(); }
+function setPhaseAttr(){ $('#wk').dataset.phase = document.body.dataset.phase = W.phase; placePanels(); fitStrip(); if (typeof msgsBottom === 'function') msgsBottom(); if (W.teamView !== viewFor()) applyTeamView(); else fitTeam(); }
 function setDeskStatus(){
   const free = W.tier === 'free';
   $('#sb-desk').textContent = W.deskId ? '#' + W.deskId : (W.bp ? 'draft' : 'none');
@@ -94,6 +94,8 @@ async function boot(){
   applySize();
   applyTeamView();
   if (window.ResizeObserver) new ResizeObserver(fitTeam).observe($('#team-panel'));
+  if (window.ResizeObserver) new ResizeObserver(() => { cancelAnimationFrame(W.actRaf); W.actRaf = requestAnimationFrame(snapAct); }).observe($('#act-panel'));
+  if (window.ResizeObserver) new ResizeObserver(() => { cancelAnimationFrame(W.stripRaf); W.stripRaf = requestAnimationFrame(fitStrip); }).observe($('#pane-overview'));
   if (window.ResizeObserver) new ResizeObserver(() => { cancelAnimationFrame(W.sizeRaf); W.sizeRaf = requestAnimationFrame(applySize); }).observe($('#wk'));
   else window.addEventListener('resize', applySize);
   setTimeout(() => { if (!document.getElementById('sh-rail')) document.body.classList.add('no-frame'); }, 3000);
@@ -134,10 +136,10 @@ async function boot(){
 }
 async function resumeDesign(s, from){
   W.sid = s.sid; W.mode = s.mode || W.mode; W.tier = s.tier || W.tier; loadView();
-  (s.transcript || []).forEach(m => addMsg(m.role === 'user' ? 'u' : 'a', m.text || '', '', true));
-  if ((s.transcript || []).length > 1) addMsg('s', from === 'mine' ? 'draft continued from your last session' : 'draft restored', 'assign');
+  (s.transcript || []).forEach(m => addMsg(m.role === 'user' ? 'u' : 'a', m.text || '', '', !m.ts, m.ts));
   if ((s.transcript || []).some(m => m.role === 'user')) setSugg(s.suggestions || []); else addBriefs(s.suggestions || []);
   if (s.blueprint && (s.blueprint.agents || []).length) await applyBlueprint(s.blueprint, true);
+  if ((s.transcript || []).length > 1) addMsg('s', (from === 'mine' ? 'draft continued from your last session' : 'draft restored') + (W.agents.size ? ` · Atlas + ${plural(W.agents.size, 'specialist')}: ${[...W.agents.values()].map(a => a.name).join(', ')}` : ''), 'assign');
   $('#build-btn').disabled = !(W.bp && (W.bp.agents || []).length);
   setDeskStatus(); loadMyDesks(); renderAll();
   tutStart(false, W.bp ? 'team' : 'meet');
@@ -158,7 +160,7 @@ async function openBuiltDesk(cfg){
   loadMyDesks();
   if (W.cams.size) startCamPoll();
   setMode(liveCams() ? 'ask' : 'job');                           // asking the cameras is the default only while one is live
-  W.greetEl = addMsg('a', greeting()); W.greetEl.classList.add('greet');   // kept current until the owner's first message
+  W.greetEl = addMsg('a', greeting()); W.greetEl.classList.add('greet'); msgsEnd();   // kept current until the owner's first message
   loadLatestRun();
   tutStart(false, W.cams.size ? 'watching' : 'built');
 }
@@ -178,7 +180,7 @@ function greeting(){
   if (W.runs) { const r = W.runs[0], t = r ? String(r.task || '').replace(/\s+/g, ' ') : ''; out.push('- Last job: ' + (r ? `${runState(r)[0]} ${fmtTs(r.created)} UTC · ${t.length > 48 ? t.slice(0, 47) + '…' : t}` : 'none yet, give the team its first one below')); }
   return out.join('\n');
 }
-function refreshGreeting(){ const el = W.greetEl; if (!el || !el.isConnected || W.greetDone) return; const h = md(greeting()); if (el.innerHTML !== h) { el.innerHTML = h; if (W.msgsPinned) $('#msgs').scrollTop = 1e9; } }
+function refreshGreeting(){ const el = W.greetEl; if (!el || !el.isConnected || W.greetDone) return; const h = md(greeting()); if (el.innerHTML !== h) { el.innerHTML = h; if (W.msgsPinned) msgsEnd(); } }
 
 function loadAgentsFromConfig(list){
   W.agents.clear(); W.order = [];
@@ -195,12 +197,14 @@ function engineLabel(a){
 }
 
 /* ------------------------------------------------------------------ chat */
-function addMsg(role, text, cls, noTime){
+function addMsg(role, text, cls, noTime, ts){
   const d = document.createElement('div'); d.className = 'm ' + role + (cls ? ' ' + cls : '');
-  d.dataset.who = role === 'u' ? 'You' : (role === 'a' ? 'Atlas' : ''); d.dataset.t = noTime ? '' : hhmmss() + ' UTC';
+  d.dataset.who = role === 'u' ? 'You' : (role === 'a' ? 'Atlas' : ''); d.dataset.t = noTime ? '' : (ts ? fmtTs(ts, true) : hhmmss()) + ' UTC';
   if (role === 'a') { d.classList.add('md'); d.innerHTML = md(text); } else d.textContent = text;
-  $('#msgs').appendChild(d); $('#msgs').scrollTop = 1e9; return d;
+  $('#msgs').appendChild(d); msgsEnd(); return d;
 }
+// the conversation shows its newest line; Atlas's opening status, alone and taller than the panel, shows from its heading
+function msgsEnd(){ const m = $('#msgs'); const lone = W.greetEl && W.greetEl.isConnected && !W.greetDone && m.children.length === 1; m.scrollTop = lone ? 0 : 1e9; }
 function setSugg(list){
   W.suggFns = [];
   $('#sugg').innerHTML = (list || []).filter(Boolean).map((s, i) => { if (typeof s === 'object') { W.suggFns[i] = s.run; return `<button onclick="suggRun(${i})">${esc(s.label)}</button>`; }
@@ -331,7 +335,7 @@ async function applyBlueprint(bp, quiet){
   incoming.forEach((a, id) => { const old = W.agents.get(id); if (!old) added.push(a); else { if (old.reports_to !== a.reports_to) moved.push(a); else if (old.role !== a.role || old.name !== a.name || (old.tools || []).join() !== (a.tools || []).join()) changed.push(a); } });
   W.agents.forEach((a, id) => { if (!incoming.has(id)) removed.push(a); });
   if (first && added.length && !quiet) addMsg('s', 'drafting the team', 'assign');
-  W.agents = incoming; W.order = orderIds();
+  W.agents = incoming; W.order = orderIds(); fitTeamNow();
   removed.forEach(a => { const el = nodeEl(a.id); if (el) { el.classList.add('gone'); setTimeout(() => el.remove(), 500); } removeEdge(a.id); if (!quiet) addMsg('s', `− ${a.name} removed`, 'assign'); });
   layoutAll(!quiet, added.map(a => a.id));
   for (const a of added) {
@@ -345,6 +349,7 @@ async function applyBlueprint(bp, quiet){
   W.addedCams.forEach((src, name) => { const list = bp.cameras = bp.cameras || []; const c = list.find(x => x.name === name); if (c) { if (!c.source) c.source = src; } else list.push({name, source: src, journal: true, notes: '', focus: ''}); });   // hand-attached feeds survive a redraft
   await applyCams(bp.cameras || [], quiet);
   if (first && !quiet) tutHook('team');
+  if (!quiet && !first && added.length && $('#insp').classList.contains('inline')) W.sel = added[added.length - 1].id;   // a brief on screen follows the newest agent
   renderAll();
   if (W.sel && W.sel !== 'atlas' && !W.agents.has(W.sel)) closeInsp();
   else if (W.sel) inspect(W.sel);
@@ -355,10 +360,13 @@ async function spawnAll(instant){
   if (instant) redrawEdges();
 }
 
-/* ---- layout: Atlas col 0, top-level col 1, members col 2; vertical stack centred (top-aligned when taller than the canvas) */
+/* ---- layout: Atlas col 0, top-level col 1, members col 2; vertical stack centred (top-aligned when taller than the canvas).
+   That is the Team tab's chart, dragged and zoomed by hand. The Overview's chart fits its panel instead (layoutFit). */
 const NW = 236, NW_ATLAS = 214, COL = 300, ROW_MAX = 118, GAP_MAX = 26, K_MIN = .8;
 function layoutAll(animate, freshIds){
+  if (fitMode()) return layoutFit(animate, freshIds);
   const c = $('#canvas'); const H0 = c.clientHeight || 600, W0 = c.clientWidth || 900;
+  if (c.classList.contains('fit')) { c.classList.remove('fit', 'f-f0', 'f-c1', 'f-mini'); W.fit = null; applyView(); }
   const tops = W.order.filter(id => { const a = W.agents.get(id); return a && (a.reports_to === 'atlas' || !W.agents.has(a.reports_to)); });
   const blocks = tops.map(id => ({id, members: (W.agents.get(id).members || []).filter(m => W.agents.has(m))}));
   const tallest = [...document.querySelectorAll('#nodes .node:not(.atlas):not(.ghost)')].reduce((m, n) => Math.max(m, n.offsetHeight || 0), 0);
@@ -386,12 +394,97 @@ function layoutAll(animate, freshIds){
   $('#empty').classList.toggle('hide', W.agents.size > 0);
   redrawEdges(); if (animate) animateEdges(900);
 }
+/* ---- the Overview's chart fits its panel: fixed-height cards in as many columns as the room needs, never a card cut at
+   the edge. Three card densities, the richest that reads wins: f0 (name, role, one row of tools), c1 (name, role), mini
+   (name). Atlas sits left of the columns (lr), or above them in a narrow panel (tb); a lead's members sit beside it.
+   Lines run square: a trunk beside each column, a bus joining the trunks. */
+const FIT = {f0: {aw: 214, w: 236, h: 86, gy: 12, gm: 16, gc: 24, ga: 44}, c1: {aw: 170, w: 204, h: 52, gy: 10, gm: 14, gc: 22, ga: 40},
+             mini: {aw: 132, w: 172, h: 34, gy: 8, gm: 12, gc: 18, ga: 32}};
+const FPAD = 16, FBUS = 14, FTB = 26, FIT_OK = .9, FIT_MIN = .8;
+function fitMode(){ return W.teamView === 'chart' && W.phase !== 'meet' && $('#team-panel').parentElement === $('#pane-overview'); }
+function fitBlocks(){ return W.order.filter(id => { const a = W.agents.get(id); return a && (a.reports_to === 'atlas' || !W.agents.has(a.reports_to)); })
+  .map(id => ({id, members: (W.agents.get(id).members || []).filter(m => W.agents.has(m))})); }
+// every way to pack the blocks into columns, both ways round, for each density: the richest card that still reads (k >= .9)
+function fitPlan(W0, H0){
+  const blocks = fitBlocks(), rowsOf = b => Math.max(1, b.members.length);
+  const total = blocks.reduce((s, b) => s + rowsOf(b), 0), maxB = Math.max(1, ...blocks.map(rowsOf));
+  let best = null;
+  for (const d of ['f0', 'c1', 'mini']) {
+    const S = FIT[d]; let top = null;
+    for (let T = Math.max(maxB, total); T >= maxB; T--) {
+      const cols = []; let cur = null;
+      for (const b of blocks) { const r = rowsOf(b); if (!cur || cur.rows + r > T) cols.push(cur = {rows: 0, blocks: [], wide: false}); cur.blocks.push(b); cur.rows += r; if (b.members.length) cur.wide = true; }
+      const rows = Math.max(1, ...cols.map(c => c.rows)), gridH = Math.max(S.h, rows * (S.h + S.gy) - S.gy);
+      const gridW = cols.reduce((s, c) => s + (c.wide ? 2 * S.w + S.gm : S.w), 0) + Math.max(0, cols.length - 1) * S.gc;
+      for (const o of blocks.length ? ['lr', 'tb'] : ['lr']) {
+        const bus = o === 'lr' && cols.length > 1 ? FBUS : 0;
+        const needH = 2 * FPAD + (o === 'tb' ? S.h + FTB + gridH : bus + gridH);
+        const needW = 2 * FPAD + (o === 'tb' ? Math.max(S.aw, gridW + 12) : S.aw + (blocks.length ? S.ga + gridW : 0));
+        const k = Math.min(1, W0 / needW, H0 / needH);
+        const p = {d, S, o, cols, rows, bus, gridH, gridW, needW, needH, k};
+        if (!top || k > top.k + .005) top = p;                   // ties keep the fewer columns and Atlas on the left
+      }
+    }
+    if (!best || top.k > best.k + .02) best = top;
+    if (top.k >= FIT_OK) { best = top; break; }
+  }
+  return best;
+}
+function layoutFit(animate, freshIds){
+  const c = $('#canvas'); const H0 = c.clientHeight, W0 = c.clientWidth; if (!H0 || !W0) return;
+  const P = W.fit = fitPlan(W0, H0), S = P.S, fresh = freshIds || [];
+  c.classList.add('fit'); ['f0', 'c1', 'mini'].forEach(d => c.classList.toggle('f-' + d, P.d === d));
+  c.style.setProperty('--fw', S.w + 'px'); c.style.setProperty('--faw', S.aw + 'px'); c.style.setProperty('--fh', S.h + 'px');
+  const k = W.k = Math.max(FIT_MIN, P.k);                           // below .8 the text stops reading: the chart pans instead
+  const Wd = Math.max(W0 / k, P.needW), H = Math.max(H0 / k, P.needH);
+  W.vb = [Wd, H]; W.fpan = {x: 0, y: 0};
+  ['#nodes', '#edges'].forEach(q => { const st = $(q).style; st.inset = 'auto'; st.left = st.top = '0'; st.width = Wd + 'px'; st.height = H + 'px'; st.transformOrigin = '0 0'; }); applyView();
+  const ox = Math.max(0, Math.round((W0 / k - P.needW) / 2)), oy = Math.max(0, Math.round((H0 / k - P.needH) / 2));
+  let x, top;
+  if (P.o === 'tb') {                                                // Atlas above the columns, centred; a bus under it
+    fitPos('atlas', ox + Math.round((P.needW - S.aw) / 2), oy + FPAD, S.aw, -1, animate);
+    top = oy + FPAD + S.h + FTB; P.busY = oy + FPAD + S.h + Math.round(FTB / 2) - 2;
+    x = ox + FPAD + 12 + Math.max(0, Math.round((P.needW - 2 * FPAD - 12 - P.gridW) / 2));
+  } else {
+    top = oy + FPAD + P.bus; P.busY = top - Math.round(P.bus / 2) - 1;
+    fitPos('atlas', ox + FPAD, top + Math.round((P.gridH - S.h) / 2), S.aw, -1, animate);
+    x = ox + FPAD + S.aw + S.ga;
+  }
+  P.colX = [];
+  P.cols.forEach((col, ci) => {
+    let y = top; P.colX.push(x);
+    col.blocks.forEach(b => {
+      fitPos(b.id, x, y, S.w, ci, animate && !fresh.includes(b.id));
+      b.members.forEach((m, j) => fitPos(m, x + S.w + S.gm, y + j * (S.h + S.gy), S.w, ci, animate && !fresh.includes(m)));
+      y += Math.max(1, b.members.length) * (S.h + S.gy);
+    });
+    x += (col.wide ? 2 * S.w + S.gm : S.w) + S.gc;
+  });
+  ensureAtlasNode();
+  $('#empty').classList.toggle('hide', W.agents.size > 0);
+  redrawEdges(); if (animate) animateEdges(900);
+  if (W.run && W.run.active) { const busy = [...W.run.inst.values()].filter(s => !s.ghost && ['writing', 'thinking'].includes(s.status)).pop(); if (busy) fitFollow(busy.base); }
+}
+function fitPos(id, x, y, w, col, animate){
+  W.pos.set(id, {x, y, w, col}); const el = nodeEl(id);
+  if (el && !el.classList.contains('spawn')) { if (!animate) el.style.transition = 'none'; el.style.transform = `translate(${x}px,${y}px)`; if (!animate) { void el.offsetWidth; el.style.transition = ''; } }
+}
+// a chart too big for a very small panel pans: the agent at work is brought into view
+function fitFollow(id){
+  if (!W.fit || W.fit.k >= FIT_MIN || !fitMode()) return;
+  const p = W.pos.get(id), c = $('#canvas'); if (!p) return;
+  const k = W.k, vw = c.clientWidth, vh = c.clientHeight, x0 = p.x * k + W.fpan.x, y0 = p.y * k + W.fpan.y, w = p.w * k, h = W.fit.S.h * k;
+  const nx = x0 < 8 ? W.fpan.x + 8 - x0 : x0 + w > vw - 8 ? W.fpan.x - (x0 + w - vw + 8) : W.fpan.x;
+  const ny = y0 < 8 ? W.fpan.y + 8 - y0 : y0 + h > vh - 8 ? W.fpan.y - (y0 + h - vh + 8) : W.fpan.y;
+  if (nx !== W.fpan.x || ny !== W.fpan.y) { W.fpan = {x: nx, y: ny}; applyView(); }
+}
 function setPos(id, x, y, w, animate){ const m = W.manual.get(id); if (m) { x = m.x; y = m.y; } W.pos.set(id, {x, y, w}); const el = nodeEl(id); if (el && !el.classList.contains('spawn')) { if (!animate) el.style.transition = 'none'; el.style.transform = `translate(${x}px,${y}px)`; if (!animate) { void el.offsetWidth; el.style.transition = ''; } } }
 function nodeEl(id){ return document.getElementById('n-' + String(id).replace(/[^a-zA-Z0-9_#-]/g, '-')); }
 function ensureAtlasNode(){
   let el = nodeEl('atlas'); const p = W.pos.get('atlas');
   if (!el) { el = document.createElement('div'); el.className = 'node atlas'; el.id = 'n-atlas'; el.dataset.id = 'atlas'; el.onclick = () => { if (!W.dragged) inspect('atlas'); };
-    el.innerHTML = `<div class="nm">Atlas <span class="tag lead">lead</span></div><div class="role">Orchestrator · briefs, reviews, approves</div><div class="asg"></div><div class="chips"></div><div class="out"></div><div class="ft"></div>`;
+    el.title = 'Atlas · orchestrator: briefs the team, reviews every result, holds outbound for your approval';
+    el.innerHTML = `<div class="nm"><span class="nt">Atlas</span><span class="tag lead">lead</span></div><div class="role">Orchestrator · briefs, reviews, approves</div><div class="asg"></div><div class="chips"></div><div class="out"></div><div class="ft"></div>`;
     el.style.transition = 'none'; el.style.transform = `translate(${p.x}px,${p.y}px)`; $('#nodes').appendChild(el); void el.offsetWidth; el.style.transition = ''; }
   else el.style.transform = `translate(${p.x}px,${p.y}px)`;
   const ac = atlasCfg(); if (ac && !W.run) el.querySelector('.chips').innerHTML = (ac.tools || []).filter(t => !['list_agents', 'finish'].includes(t)).slice(0, 4).map(t => `<span>${esc(t)}</span>`).join('');
@@ -399,8 +492,8 @@ function ensureAtlasNode(){
 function renderNodeInner(el, a){
   const isLead = (a.members || []).length > 0; const member = a.reports_to && a.reports_to !== 'atlas' && W.agents.has(a.reports_to);
   el.style.setProperty('--c', a.color);
-  el.querySelector('.nm').innerHTML = `${esc(a.name)} <span class="tag ${isLead ? 'lead' : ''}">${isLead ? 'sub-team lead' : (member ? '↳ ' + esc((W.agents.get(a.reports_to) || {}).name || a.reports_to) : (W.phase === 'run' ? 'ready' : 'drafted'))}</span>`;
-  el.querySelector('.role').textContent = a.role;
+  el.querySelector('.nm').innerHTML = `<span class="nt">${esc(a.name)}</span><span class="tag ${isLead ? 'lead rel' : member ? 'rel' : ''}">${isLead ? 'sub-team lead' : (member ? '↳ ' + esc((W.agents.get(a.reports_to) || {}).name || a.reports_to) : (W.phase === 'run' ? 'ready' : 'drafted'))}</span>`;
+  el.querySelector('.role').textContent = a.role; el.title = a.name + (a.role ? ' · ' + a.role : '');
   if (!el.querySelector('.chips').children.length || !W.run) el.querySelector('.chips').innerHTML = (a.tools || []).slice(0, 5).map(t => `<span>${esc(t)}</span>`).join('');
 }
 async function spawn(id, fromId, instant){
@@ -421,6 +514,18 @@ async function spawn(id, fromId, instant){
 /* ---- edges (parent right-middle -> child left-middle) */
 function edgeD(fromId, toId){
   const f = W.pos.get(fromId), t = W.pos.get(toId); if (!f || !t) return '';
+  if (W.fit && fitMode()) {                                              // square lines: a trunk beside each column, a bus over them
+    const P = W.fit, S = P.S, y1 = Math.round(f.y + S.h / 2), y2 = Math.round(t.y + S.h / 2), x1 = f.x + f.w, x2 = t.x;
+    if (String(toId).includes('#')) return '';                           // parallel copies show on their agent's card here
+    if (fromId !== 'atlas') { const tx = x2 - Math.round(S.gm / 2); return `M${x1},${y1} H${tx} V${y2} H${x2}`; }
+    if (P.o === 'tb') { const ax = Math.round(f.x + f.w / 2);
+      if (P.rows === 1) return `M${ax},${f.y + S.h} V${P.busY} H${Math.round(t.x + t.w / 2)} V${t.y}`;
+      const tx = x2 - (t.col > 0 ? Math.round(S.gc / 2) : 10); return `M${ax},${f.y + S.h} V${P.busY} H${tx} V${y2} H${x2}`; }
+    const tx = x2 - Math.round((t.col > 0 ? S.gc : S.ga) / 2);
+    if (!(t.col > 0)) return `M${x1},${y1} H${tx} V${y2} H${x2}`;
+    const t0 = P.colX[0] - Math.round(S.ga / 2);
+    return `M${x1},${y1} H${t0} V${P.busY} H${tx} V${y2} H${x2}`;
+  }
   const fe = nodeEl(fromId), te = nodeEl(toId);
   const fh = fe ? fe.offsetHeight : 90, th = te ? te.offsetHeight : 90;
   const x1 = f.x + f.w, y1 = f.y + fh / 2, x2 = t.x, y2 = t.y + th / 2, mx = (x1 + x2) / 2;
@@ -445,8 +550,8 @@ function animateEdges(ms){ const end = performance.now() + ms; cancelAnimationFr
   const user = () => { W.msgUserT = Date.now(); };                       // only the owner's own scrolling unpins it
   ['wheel', 'touchmove', 'keydown', 'pointerdown'].forEach(t => m.addEventListener(t, user, {passive: true}));
   m.addEventListener('scroll', () => { const bottom = m.scrollTop + m.clientHeight >= m.scrollHeight - 12; if (bottom) W.msgsPinned = true; else if (Date.now() - (W.msgUserT || 0) < 600) W.msgsPinned = false; });
-  if (window.ResizeObserver) new ResizeObserver(() => { if (W.msgsPinned) m.scrollTop = 1e9; }).observe(m); })();
-function msgsBottom(){ W.msgsPinned = true; requestAnimationFrame(() => { $('#msgs').scrollTop = 1e9; }); }
+  if (window.ResizeObserver) new ResizeObserver(() => { if (W.msgsPinned) msgsEnd(); }).observe(m); })();
+function msgsBottom(){ W.msgsPinned = true; requestAnimationFrame(msgsEnd); }
 // re-lay out whenever the canvas changes size (window, rail collapse, the column opening, the tab changing)
 if (window.ResizeObserver) new ResizeObserver(() => { if (W.phase === 'meet') return; cancelAnimationFrame(W.relayout); W.relayout = requestAnimationFrame(() => layoutAll(false)); }).observe(document.getElementById('canvas'));
 
@@ -487,12 +592,12 @@ function inspAsk(s){ closeInsp(); if (W.phase === 'design') return send(s); setM
 // Overview, a small team's brief sits under its rows when the panel has the room (fitTeam). Elsewhere it is a drawer.
 function placeInsp(){
   const insp = $('#insp'), tp = $('#team-panel');
-  const mode = W.tab === 'team' && !isPhone() && W.phase !== 'meet' ? 'inline' : (W.below && W.tab !== 'team' && W.teamView === 'table' ? 'below' : '');
-  tp.classList.toggle('has-below', mode === 'below');
-  if (!mode) { if (insp.classList.contains('inline')) { insp.classList.remove('inline', 'below'); $('#ws').appendChild(insp); closeInsp(); } return; }
+  const mode = W.tab === 'team' && !isPhone() && W.phase !== 'meet' ? 'inline' : (W.tab !== 'team' && W.tmode ? W.tmode : '');
+  tp.classList.toggle('has-below', mode === 'below'); tp.classList.toggle('has-side', mode === 'side');
+  if (!mode) { if (insp.classList.contains('inline')) { insp.classList.remove('inline', 'below', 'side'); $('#ws').appendChild(insp); closeInsp(); } return; }
   if (mode === 'inline' && insp.parentElement !== $('#pane-team')) $('#pane-team').appendChild(insp);
-  if (mode === 'below' && insp.parentElement !== tp) tp.insertBefore(insp, $('#team-foot'));
-  insp.classList.add('inline'); insp.classList.toggle('below', mode === 'below');
+  if ((mode === 'below' || mode === 'side') && insp.parentElement !== tp) tp.insertBefore(insp, $('#team-foot'));
+  insp.classList.add('inline'); insp.classList.toggle('below', mode === 'below'); insp.classList.toggle('side', mode === 'side');
   const id = W.sel && (W.sel === 'atlas' || W.agents.has(W.sel)) ? W.sel : (W.order[0] || 'atlas');
   inspect(id);
 }
@@ -590,7 +695,7 @@ function makeGhost(s){
   const n = parseInt(s.inst.split('#')[1] || '2', 10); const x = bp.x + 22 * (n - 1), y = bp.y + 34 * (n - 1);
   W.pos.set(s.inst, {x, y, w: bp.w});
   const el = baseEl.cloneNode(true); el.id = 'n-' + s.inst.replace(/[^a-zA-Z0-9_#-]/g, '-'); el.classList.add('ghost', 'spawn'); el.classList.remove('sel', 'busy', 'done');
-  el.onclick = () => inspect(s.base); el.querySelector('.nm').innerHTML = `${esc((W.agents.get(s.base) || {}).name || s.base)} <span class="tag">#${n}</span>`; el.querySelector('.out').textContent = ''; el.querySelector('.chips').innerHTML = ''; el.querySelector('.asg').textContent = '';
+  el.onclick = () => inspect(s.base); el.querySelector('.nm').innerHTML = `<span class="nt">${esc((W.agents.get(s.base) || {}).name || s.base)}</span><span class="tag">#${n}</span>`; el.querySelector('.out').textContent = ''; el.querySelector('.chips').innerHTML = ''; el.querySelector('.asg').textContent = '';
   el.style.transition = 'none'; el.style.transform = `translate(${bp.x}px,${bp.y}px) scale(.6)`; $('#nodes').appendChild(el); void el.offsetWidth; el.style.transition = '';
   requestAnimationFrame(() => { el.classList.remove('spawn'); el.style.transform = `translate(${x}px,${y}px)`; });
   const p = document.createElementNS('http://www.w3.org/2000/svg', 'path'); p.dataset.e = s.inst; p.setAttribute('pathLength', '1'); p.setAttribute('d', edgeD(s.parent, s.inst)); p.classList.add('draw'); $('#edges').appendChild(p);
@@ -610,6 +715,14 @@ function feed(e){
   d.className = 'k-' + kind; d.title = `${fullTs(ts)} · ${agentName((e.data && e.data.inst) || e.agent)} · ${e.kind}\n${String(e.text || '').slice(0, 600)}`;
   d.innerHTML = `<span class="t">${today ? hhmmss(new Date(ts * 1000)) : esc(fmtTs(ts).split(' ').slice(0, 2).join(' '))}</span><span class="k">${esc(kind)}</span><span class="x"><span class="a">${esc(agentName((e.data && e.data.inst) || e.agent))}</span>${esc(text)}</span>`;
   f.appendChild(d); f.scrollTop = 1e9; while (f.children.length > 150) f.firstChild.remove();
+  cancelAnimationFrame(W.actRaf); W.actRaf = requestAnimationFrame(snapAct);
+}
+// Activity shows whole rows: a stack too short for every line stops at the last row that fits, never half a row
+function snapAct(){
+  const a = $('#act-panel'), log = $('#feed'); a.style.maxHeight = '';
+  if (a.parentElement !== $('#right') || !log.children.length) return;
+  const h = log.clientHeight, cut = h % 28;                              // rows are 28 px with their rule
+  if (cut > 1 && h > 28) a.style.maxHeight = (a.offsetHeight - cut) + 'px';
 }
 function runFailed(status, summary){ return /error|fail|cancel/.test(status || '') || /^ERROR from /.test(summary || ''); }
 function onRunEvent(e){
@@ -625,7 +738,7 @@ function onRunEvent(e){
     else if (e.kind === 'log') { s.turns++; s.status = 'thinking'; const tx = String(e.text || ''); if (tx && !tx.startsWith('(')) { s.text = tx.slice(-6000); if (el) el.querySelector('.out').textContent = s.text.slice(-420); } if (el) { setTag(el, `turn ${s.turns}`, 'busy'); el.querySelector('.ft').textContent = plural(s.turns, 'turn'); } }
     else if (e.kind === 'tool') { const name = String(e.text || '').split(/[( →:]/)[0]; s.chips.push(name); if (el) { const c = el.querySelector('.chips'); c.querySelectorAll('.hot').forEach(x => x.classList.remove('hot')); const sp = document.createElement('span'); sp.className = 'hot'; sp.textContent = name; c.appendChild(sp); while (c.children.length > 7) c.firstChild.remove(); setTag(el, name, 'busy'); } if (name === 'delegate') { const m = String(e.text).match(/delegate → ([\w#-]+)/); if (m) edgeState(m[1], 'on'); } }
     else if (e.kind === 'agent_end') { s.status = 'done'; if (el) { el.classList.remove('busy'); el.classList.add('done'); setTag(el, 'done', 'done'); } edgeState(s.ghost ? s.inst : s.base, 'done'); }
-    else if (e.kind === 'error') { s.status = 'error'; s.err = String(e.text || '').slice(0, 300); if (el) { el.classList.remove('busy'); el.classList.add('error'); setTag(el, 'error', ''); } }
+    else if (e.kind === 'error') { s.status = 'error'; s.err = String(e.text || '').slice(0, 300); if (el) { el.classList.remove('busy'); el.classList.add('error'); setTag(el, 'error', 'err'); } }
     else if (e.kind === 'approval') { if (el) { const sp = document.createElement('span'); sp.className = 'hot'; sp.textContent = 'waiting: ' + (e.data.action_kind || 'approval'); el.querySelector('.chips').appendChild(sp); } if (live) { loadApprovals(); shellRefresh(); toast('Waiting for your approval: ' + (e.data.action_kind || 'an outbound action')); tutHook('approval'); } }
     else if (e.kind === 'policy') { if (el) { const sp = document.createElement('span'); sp.className = 'hot'; sp.textContent = 'policy'; el.querySelector('.chips').appendChild(sp); } }
     if (live && W.sel === s.base && ['agent_start', 'agent_end', 'tool', 'log'].includes(e.kind)) inspect(s.base);
@@ -637,7 +750,8 @@ function onRunEvent(e){
     W.run.status = runFailed(e.data.status || W.run.status, text) ? (e.data.status && e.data.status !== 'done' ? e.data.status : 'error') : (e.data.status || 'done');
     if (W.run.es) W.run.es.close();
     $('#run-cancel').classList.add('hide'); $('#tab-n-runs').classList.add('hide');
-    document.querySelectorAll('.node.busy').forEach(n => { n.classList.remove('busy'); n.classList.add('done'); setTag(n, 'done', 'done'); });
+    document.querySelectorAll('.node.busy').forEach(n => { n.classList.remove('busy'); n.classList.add('done'); });
+    document.querySelectorAll('.node:not(.error)').forEach(n => setTag(n, 'ready', ''));            // the run is over: ready again (the green edge marks who worked)
     $('#edges').querySelectorAll('path.on').forEach(p => { p.classList.remove('on'); p.classList.add('done'); });
     setPhase('ready'); setState('ready');
     showSummary(W.run.id, W.run.status, text);
@@ -655,6 +769,7 @@ function headSoon(){ if (!W.headRaf) W.headRaf = requestAnimationFrame(() => { W
 // cards grow while their agents work (assignment, live output): the org chart re-spaces its rows so they never overlap
 function chartSoon(){
   if (W.teamView !== 'chart' || W.chartT) return;
+  if (fitMode()) { const s = W.run && [...W.run.inst.values()].filter(x => !x.ghost && ['writing', 'thinking'].includes(x.status)).pop(); if (s) fitFollow(s.base); return; }   // fixed-height cards: nothing to re-space
   W.chartT = setTimeout(() => { W.chartT = 0;
     const tallest = [...document.querySelectorAll('#nodes .node:not(.atlas):not(.ghost)')].reduce((m, n) => Math.max(m, n.offsetHeight || 0), 0);
     if (Math.abs(tallest - (W.chartTall || 0)) > 6) { W.chartTall = tallest; layoutAll(true); } }, 450);
@@ -803,7 +918,7 @@ async function applyCams(list, instant){
   $('#camstrip').classList.toggle('hide', !incoming.size); $('#camstrip').classList.toggle('has', incoming.size > 0);
   $('#cams').style.setProperty('--n', Math.max(1, incoming.size)); $('#cams').style.setProperty('--cols', Math.min(6, Math.max(1, incoming.size)));
   $('#cam-none').classList.toggle('hide', incoming.size > 0);
-  fitCams();
+  fitCams(); fitStrip();
   if (first) { layoutAll(!instant); }
   if (W.phase === 'run') setMode(W.modeSel);
   renderAll();
@@ -876,11 +991,11 @@ async function pollCams(withNotes){
 // one or two cameras leave the strip half empty: beside them, what needs fixing and the newest written notes (30 days)
 function renderCamSide(){
   const few = W.phase === 'run' && W.cams.size > 0 && W.cams.size <= 2 && !isPhone();
-  $('#camstrip').classList.toggle('few', few); if (!few) return;
+  if ($('#camstrip').classList.contains('few') !== few) { $('#camstrip').classList.toggle('few', few); fitStrip(); } if (!few) return;
   const fixes = [...W.cams.values()].filter(k => k.id && k.problem), notes = W.recentNotes || [];
   const html = (fixes.length ? `<div class="gk">Needs attention</div>` + fixes.map(k => `<div class="cs-row"><svg class="i i14"><use href="#i-alert"/></svg><span><b>${esc(k.name)}</b> ${esc(k.problem)}</span><button class="btn sm" onclick="openAttach(${jsa(k.name)})">Fix feed</button></div>`).join('') : '')
     + `<div class="gk">Newest notes · UTC</div>` + (notes.length ? notes.map(e => `<div class="cs-note" title="${esc(fullTs(e.ts))}"><span class="ts">${esc(fmtTs(e.ts))}</span><b>${esc(e.camera)}</b><span class="tx">${esc(e.answer)}</span></div>`).join('')
-      : `<div class="none">${W.recentNotes ? 'No written notes in the last 30 days. Notes appear while a camera is watched with its journal on.' : 'Reading the journal…'}</div>`);
+      : `<div class="none" title="Notes appear while a camera is watched with its journal on">${W.recentNotes ? 'No written notes in the last 30 days.' : 'Reading the journal…'}</div>`);   // one line: the side list is only as tall as the frames beside it
   if (html !== W.camSideHtml) { W.camSideHtml = html; $('#cam-side-in').innerHTML = html; }   // the poll repaints only what changed
 }
 function stamp(){ W.updatedAt = Date.now(); $('#tab-upd').textContent = 'Updated ' + hhmmss() + ' UTC'; }
@@ -1038,8 +1153,9 @@ function pushLayout(){                                            // the drafted
   if (!W.sid || W.deskId) return; clearTimeout(W.layoutT);
   W.layoutT = setTimeout(() => { api(`/design/${W.sid}/layout`, {method: 'POST', body: {positions: Object.fromEntries(W.manual)}}).catch(() => {}); }, 400);
 }
-function applyView(){ ['#nodes', '#edges'].forEach(q => { $(q).style.transform = `translate(${W.pan.x}px,${W.pan.y}px) scale(${W.k || 1})`; }); }
+function applyView(){ const p = W.fit && fitMode() ? (W.fpan || {x: 0, y: 0}) : W.pan; ['#nodes', '#edges'].forEach(q => { $(q).style.transform = `translate(${p.x}px,${p.y}px) scale(${W.k || 1})`; }); }
 function zoomBy(f, cx, cy){
+  if (fitMode()) return;                                                // the Overview's chart sizes itself
   const c = $('#canvas').getBoundingClientRect(); cx = cx ?? c.width / 2; cy = cy ?? c.height / 2;
   const k0 = W.k || 1, uz = Math.max(.35, Math.min(2.5, (W.uz || 1) * f)); const k1 = k0 * uz / (W.uz || 1);
   W.pan = {x: cx - (cx - W.pan.x) * k1 / k0, y: cy - (cy - W.pan.y) * k1 / k0};           // zoom about the pointer
@@ -1051,6 +1167,7 @@ function resetLayout(){ W.manual.clear(); W.pan = {x: 0, y: 0}; W.uz = 1; saveVi
   cv.addEventListener('pointerdown', ev => {
     if (ev.button !== 0) return;
     const node = ev.target.closest('.node'); W.dragged = false;
+    if (fitMode()) { if (!node && W.fit && W.fit.k < FIT_MIN) drag = {kind: 'fpan', x0: ev.clientX, y0: ev.clientY, px: W.fpan.x, py: W.fpan.y, pid: ev.pointerId}; return; }   // the Overview's chart: click a card, pan only when it overflows
     if (node && node.dataset.id && !node.classList.contains('ghost')) {
       const id = node.dataset.id, p = W.pos.get(id); if (!p) return;
       drag = {kind: 'node', id, el: node, x0: ev.clientX, y0: ev.clientY, px: p.x, py: p.y};
@@ -1065,12 +1182,13 @@ function resetLayout(){ W.manual.clear(); W.pan = {x: 0, y: 0}; W.uz = 1; saveVi
       const k = W.k || 1, x = drag.px + dx / k, y = drag.py + dy / k, p = W.pos.get(drag.id);
       W.pos.set(drag.id, {...p, x, y}); W.manual.set(drag.id, {x: Math.round(x), y: Math.round(y)});
       drag.el.style.transform = `translate(${x}px,${y}px)`; redrawEdges();
-    } else { W.pan = {x: drag.px + dx, y: drag.py + dy}; applyView(); }
+    } else if (drag.kind === 'fpan') { W.fpan = {x: drag.px + dx, y: drag.py + dy}; applyView(); }
+    else { W.pan = {x: drag.px + dx, y: drag.py + dy}; applyView(); }
   });
   const end = () => {
     if (!drag) return;
     if (drag.el) { drag.el.style.transition = ''; drag.el.classList.remove('lifted'); }
-    cv.classList.remove('dragging', 'panning'); if (W.dragged) saveView();
+    cv.classList.remove('dragging', 'panning'); if (W.dragged && drag.kind !== 'fpan') saveView();
     drag = null; setTimeout(() => { W.dragged = false; }, 0);                   // the click that ends a drag is not a click
   };
   cv.addEventListener('pointerup', end); cv.addEventListener('pointercancel', end);
@@ -1200,20 +1318,21 @@ function agentState(id){
   if (id === 'atlas') return W.run && W.run.active ? {cls: 'run', dot: 'd-run', label: 'Leading', turns: ''} : {cls: W.phase === 'run' ? 'ready' : 'q', dot: W.phase === 'run' ? 'd-ok' : 'd-q', label: W.phase === 'run' ? 'Ready' : 'Lead', turns: ''};
   if (W.run) { const st = [...W.run.inst.values()].filter(s => s.base === id); if (st.length) { const s = st[st.length - 1];
     const map = {writing: ['run', 'd-run', 'Writing'], thinking: ['run', 'd-think', 'Thinking'], done: ['ok', 'd-ok', 'Done'], error: ['err', 'd-err', 'Error'], idle: ['q', 'd-q', 'Queued']};
+    if (!W.run.active && s.status !== 'error') return {cls: 'ready', dot: 'd-ok', label: 'Ready', turns: s.turns, tip: `Last run ${W.run.id}: ${s.status === 'done' ? 'done' : 'did not finish'}${s.turns ? ', ' + plural(s.turns, 'turn') : ''}`};   // between runs every agent is ready, as on Home; the last run is history
     const [cls, dot, label] = map[s.status] || ['q', 'd-q', s.status]; return {cls, dot, label: label + (s.turns && s.status !== 'done' ? ' · t' + s.turns : ''), turns: s.turns}; } }
   return {cls: W.phase === 'run' ? 'ready' : 'q', dot: W.phase === 'run' ? 'd-ok' : 'd-q', label: W.phase === 'run' ? 'Ready' : 'Drafted', turns: ''};
 }
 // what stops an agent doing part of its job: shown beside its run state, whatever the last run did
 const agentGaps = id => (W.phase === 'run' && W.gaps && W.gaps.get(id)) || [];
 function workingCount(){ return W.run && W.run.active ? [...W.run.inst.values()].filter(s => ['writing', 'thinking'].includes(s.status)).length : 0; }
-function renderAll(){ renderHead(); renderKpis(); renderTeamTable(); renderExplorer(); }
+function renderAll(){ renderHead(); renderKpis(); renderTeamTable(); renderExplorer(); renderPlan(); }
 function renderHead(){
   const n = W.agents.size, built = !!W.deskId, cams = [...W.cams.values()];
   const date = new Date().toLocaleDateString('en-GB', {weekday: 'long', day: 'numeric', month: 'long', timeZone: 'UTC'});
   const eb = W.phase === 'load' ? 'Atlas workspace · loading the desk'
     : built ? `Atlas workspace · desk #${W.deskId} · ${(W.template || 'custom').replace(/_/g, ' ')} · ${W.tier === 'free' ? 'free' : 'paid'} models`
     : n ? 'Atlas workspace · draft, not built' : `Atlas workspace · ${(W.desks || []).length ? 'new desk' : 'no desk yet'}`;
-  $('#ph-k').innerHTML = `<span class="eb-d">${esc(date)} · </span>${esc(eb)}`;
+  $('#ph-k').innerHTML = `<span class="eb-d">${esc(date)} · </span>` + esc(eb).replace(/^Atlas workspace · /, '<span class="eb-w">Atlas workspace · </span>');
   $('#ph-title').textContent = W.phase === 'load' ? 'Loading the desk…' : (W.deskName || 'New desk');
   document.title = (W.deskName ? W.deskName + ' · ' : '') + 'Atlas workspace';
   let lead = '';
@@ -1231,17 +1350,36 @@ function renderHead(){
     const day = Date.now() / 1000 - 86400, jobs = (W.runs || []).filter(r => r.created > day).length;
     lead = `${ap}${team}${camBit} · ${plural(jobs, 'job')} in 24 h.`;
   }
-  $('#ph-sum').innerHTML = lead || '&nbsp;';
+  $('#ph-sum').innerHTML = lead || '&nbsp;'; $('#ph-sum').title = $('#ph-sum').textContent.trim();
   $('#tab-n-team').textContent = n + 1; $('#team-n').textContent = n + 1;
   renderSteps();
   $('#tab-n-cams').textContent = W.cams.size; $('#cam-n').textContent = W.cams.size; $('#cam-n2').textContent = W.cams.size;
-  $('#team-meta').textContent = !n ? 'drafted here as you talk to Atlas' : (W.teamView === 'chart' ? 'drag cards to arrange · drag the background to pan · Ctrl + scroll to zoom'
-    : (W.phase === 'run' ? `Atlas + ${plural(n, 'specialist')} · click a row for the brief` : `draft · Atlas + ${plural(n, 'specialist')} · click a row for the brief`));
+  teamMeta();
   const live = cams.filter(c => c.st === 'live').length, watching = cams.filter(c => c.watching).length;
   $('#cam-meta').textContent = !cams.length ? '' : !W.deskId ? 'planned · each camera keeps a written journal once built' : (live ? `${live} live · newest frame and note per camera · UTC` : watching ? 'watching, waiting for frames · UTC' : 'not being watched · newest frame and note kept · UTC');
   refreshGreeting();
   $('#cam-meta2').textContent = cams.length ? `${live} of ${cams.length} live · detections by the local detector${W.vlmReady ? ' · notes by the vision model' : ''} · times UTC` : 'frames through the local detector';
   renderRunPill();
+}
+// what the Team panel's header says: the Team tab's chart is arranged by hand; the Overview's is fitted, a click opens the brief
+function teamMeta(){
+  const n = W.agents.size, ov = $('#team-panel').parentElement === $('#pane-overview'), chart = W.teamView === 'chart';
+  $('#team-meta').textContent = !n ? 'drafted here as you talk to Atlas' : chart && !ov ? 'drag cards to arrange · drag the background to pan · Ctrl + scroll to zoom'
+    : `${W.phase === 'run' ? '' : 'draft · '}Atlas + ${plural(n, 'specialist')} · click a ${chart ? 'card' : 'row'} for the brief`;
+}
+// a draft's plan beyond its agents, as Atlas drafted it: workflows (who hands to whom, what starts them), the connections
+// they need, and the rules every outbound message must pass. Shown on tall screens, where the draft has the room.
+function renderPlan(){
+  const bp = W.phase === 'design' ? W.bp : null, el = $('#plan-panel');
+  const wf = (bp && bp.workflows) || [], cx = (bp && bp.connectors) || [], pol = (bp && bp.policy) || {};
+  const rules = [pol.max_words ? `at most ${pol.max_words} words` : '', pol.no_money_figures ? 'no prices or money figures' : '',
+    (pol.banned_phrases || []).length ? 'never says ' + pol.banned_phrases.map(p => `"${p}"`).join(', ') : ''].filter(Boolean);
+  el.classList.toggle('hide', !(wf.length || cx.length || rules.length)); if (!bp) return;
+  const col = (title, n, rows, none) => `<div class="pcol"><div class="gk">${esc(title)}${n != null ? ' · ' + n : ''}</div>${rows.length ? rows.join('') : `<div class="prow muted">${esc(none)}</div>`}</div>`;
+  $('#plan-body').innerHTML =
+    col('Workflows', wf.length, wf.map(w => { const t = w.trigger || {}; return `<div class="prow"><b>${esc(w.name || w.id)}</b><small>${esc((w.steps || []).map(agentName).join(' → '))}${t.kind ? ` · starts on ${esc(t.kind)}${t.detail ? ': ' + esc(t.detail) : ''}` : ''}</small></div>`; }), 'none: every job is planned by Atlas')
+    + col('Connections', cx.length, cx.map(c => `<div class="prow"><b>${esc(c.name || c.kind)}<span class="tag${c.required ? ' warn' : ''}">${c.required ? 'needed' : 'optional'}</span></b><small>${esc([c.kind, c.purpose].filter(Boolean).join(' · '))}</small></div>`), 'none needed yet')
+    + col('Outbound rules', null, rules.map(r => `<div class="prow"><span>${esc(r)}</span></div>`).concat(['<div class="prow"><span>every message waits for your approval</span></div>']), '');
 }
 // the four steps with where this desk stands: brief, shape the team, cameras (optional), build
 function renderSteps(){
@@ -1258,21 +1396,23 @@ function renderRunPill(){
   $('#run-n').textContent = n; $('#sb-run-t').classList.toggle('hide', !local);
   p.title = local ? `Run ${W.run.id} in progress: open Runs` : 'Runs in progress on this desk';
 }
-function kpi(sel, v, small, s, cls){ const el = $(sel); if (!el) return; el.className = 'kpi' + (cls ? ' ' + cls : ''); el.querySelector('.v').innerHTML = esc(String(v)) + (small ? `<small>${esc(small)}</small>` : ''); if (s !== undefined) { const e = el.querySelector('.s'); e.textContent = s || '\u00a0'; e.title = s || ''; } }
+function kpi(sel, v, small, s, cls){ const el = $(sel); if (!el) return; el.className = 'kpi' + (cls ? ' ' + cls : ''); el.querySelector('.v').innerHTML = esc(String(v)) + (small ? `<small>${esc(small)}</small>` : '');
+  if (s !== undefined) { const e = el.querySelector('.s'), [l, sh] = Array.isArray(s) ? s : [s, '']; if (sh) e.innerHTML = `<span class="t-l">${esc(l)}</span><span class="t-s">${esc(sh)}</span>`; else e.textContent = l || '\u00a0'; e.title = l || ''; } }   // [long, short]: a narrow tile shows the short one
 function renderKpis(){
   if (W.phase === 'load') return;
   const nSpec = W.agents.size, n = nSpec ? nSpec + 1 : 0, wk = workingCount();
-  kpi('#k-agents', n, '', !n ? 'no team yet' : (W.run && W.run.active ? `${wk} working now · Atlas + ${plural(nSpec, 'specialist')}` : `Atlas + ${plural(nSpec, 'specialist')}`));
+  kpi('#k-agents', n, '', !n ? 'no team yet' : (W.run && W.run.active ? [`${wk} working now · Atlas + ${plural(nSpec, 'specialist')}`, `${wk} working now`] : [`Atlas + ${plural(nSpec, 'specialist')}`, `Atlas + ${nSpec}`]));
   const cams = [...W.cams.values()], live = cams.filter(c => c.st === 'live').length, watching = cams.filter(c => c.watching).length, fixes = cams.filter(c => c.problem).length;
   const lastF = cams.reduce((m, c) => Math.max(m, c.frameTs || 0), 0);
   if (!cams.length) kpi('#k-cams', 0, '', 'none attached');
   else kpi('#k-cams', live, `of ${cams.length}`, live === cams.length ? 'all being watched' : fixes ? `${plural(fixes, 'feed')} to fix` : !watching ? (lastF ? 'not watched · frame ' + fmtTs(lastF) : 'not being watched') : `${watching - live} waiting for frames`, live < cams.length ? 'warn' : 'ok');
-  kpi('#k-journal', W.notes24 == null ? (cams.length ? '–' : 0) : W.notes24, '', W.lastNoteTs ? 'last ' + fmtTs(W.lastNoteTs) + ' UTC' : (cams.length ? 'no notes yet' : 'no cameras'));
-  kpi('#k-ap', W.apCount == null ? '–' : W.apCount, '', W.apCount ? 'oldest ' + W.apOldest : 'nothing outbound queued', W.apCount ? 'warn' : '');
+  kpi('#k-journal', W.notes24 == null ? (cams.length ? '–' : 0) : W.notes24, '', W.lastNoteTs ? ['last ' + fmtTs(W.lastNoteTs) + ' UTC', 'last ' + fmtTs(W.lastNoteTs)] : (cams.length ? 'no notes yet' : 'no cameras'));
+  kpi('#k-ap', W.apCount == null ? '–' : W.apCount, '', W.apCount ? 'oldest ' + W.apOldest : ['nothing outbound queued', 'none queued'], W.apCount ? 'warn' : '');
   // the server's figure in the server's words (the same on Home): a free-tier desk leads with "Free", the paid-rate
   // estimate under it; the qualifier leads the sub-line, so it never truncates away
   const c = W.cost;
-  if (c) { kpi('#k-spend', c.value || '£' + Number(c.gbp || 0).toFixed(2), c.small || '', c.note || 'at paid rates'); $('#k-spend').title = c.title || ''; }
+  if (c) { kpi('#k-spend', c.value || '£' + Number(c.gbp || 0).toFixed(2), c.small || '', c.note || 'at paid rates'); $('#k-spend').title = c.title || '';
+    const nt = c.note || 'at paid rates'; $('#k-spend .s').innerHTML = `<span class="t-l">${esc(nt)}</span><span class="t-s">${esc(nt.replace(/^at paid rates\s*/, 'paid rates '))}</span>`; }
   else kpi('#k-spend', '–', '', 'not reported yet');
   const lb = $('#k-spend .l'); if (lb && c && c.label) { lb.querySelector('.t-l').textContent = c.label; lb.querySelector('.t-s').textContent = c.short || c.label; }
 }
@@ -1290,7 +1430,7 @@ function renderTeamTable(){
     const toolCell = tools == null ? '<span class="muted" style="font-size:11.5px">set at build</span>' : tools.length ? `<div class="tools-c">${tools.slice(0, 6).map((t, i) => `<span class="chip${i > 1 ? ' x' : ''}${i > 2 ? ' x3' : ''}">${esc(t)}</span>`).join('')}${more(2, 'more')}${more(3, 'more2')}${more(6, 'more3')}</div>` : '<span class="muted">none</span>';
     const orders = (id === 'atlas' ? ((ac && ac.instructions) || []) : (a.instructions || [])).slice(0, 3);
     rows.push(`<tr id="tr-${esc(id)}" class="${W.sel === id ? 'sel' : ''}" onclick="inspect(${jsa(id)})"><td><div class="obj" style="--c:${esc(a.color || '')}">${id === 'atlas' ? '<span class="amark"></span>' : '<span class="sw"></span>'}<div><b>${esc(a.name)}</b><span>${esc(a.role || '')}${member ? ' · reports to ' + esc(member) : ''}</span><small class="goal" title="${esc(goalOf(id, a))}">${esc(goalOf(id, a))}</small>${orders.length ? `<ul class="ord">${orders.map(x => `<li title="${esc(x)}">${esc(x)}</li>`).join('')}</ul>` : ''}</div></div></td>` +
-      `<td><div class="stc"><span class="st ${st.cls}"><i class="dot ${st.dot}"></i>${esc(st.label)}</span>${gaps.length ? `<span class="gapc" title="${esc(gaps.join('; '))}">${gaps.length === 1 ? 'gap' : gaps.length + ' gaps'}</span>` : ''}</div></td><td><span class="eng" title="${esc(eng.title)}">${esc(eng.t)}</span></td><td class="num">${st.turns || '<span class="muted">–</span>'}</td>` +
+      `<td><div class="stc"><span class="st ${st.cls}"${st.tip ? ` title="${esc(st.tip)}"` : ''}><i class="dot ${st.dot}"></i>${esc(st.label)}</span>${gaps.length ? `<span class="gapc" title="${esc(gaps.join('; '))}">${gaps.length === 1 ? 'gap' : gaps.length + ' gaps'}</span>` : ''}</div></td><td><span class="eng" title="${esc(eng.title)}">${esc(eng.t)}</span></td><td class="num">${st.turns || '<span class="muted">–</span>'}</td>` +
       `<td>${toolCell}</td></tr>`);
   }
   $('#team-rows').innerHTML = rows.join(''); $('#team-empty').classList.toggle('hide', W.agents.size > 0);
@@ -1319,19 +1459,36 @@ function applyTeamView(v){
 // the table uses the room it has. A big team: one line per agent. Fewer agents: each agent's goal, then its goal on two
 // lines with its tools and standing orders. In the Overview, a small team in a tall panel is a list and its detail: the
 // rows with their goals, the selected agent's brief under them (never a half-empty panel)
-function fitTeam(){
-  cancelAnimationFrame(W.fitRaf);
-  W.fitRaf = requestAnimationFrame(() => {
-    const p = $('#team-panel'); let d = 0, below = false;
-    if (!isPhone() && W.phase !== 'meet' && W.teamView === 'table' && p.clientHeight > 0) {
-      const ft = $('#team-foot'), avail = p.clientHeight - p.querySelector('.ph').offsetHeight - (ft.offsetHeight || 0) - 2;
-      const rows = W.agents.size + 1, room = avail - 34;
-      if (p.parentElement === $('#pane-overview') && W.agents.size && room - rows * 60 >= 200) { d = 1; below = true; }
-      else d = room >= rows * 150 ? 3 : room >= rows * 104 ? 2 : room >= rows * 62 ? 1 : 0;
+// The Overview's org chart works the same way: beside the selected agent's brief when the panel is wide, above it when
+// the panel is tall, alone (fitted to the panel) otherwise.
+function fitTeam(){ cancelAnimationFrame(W.fitRaf); W.fitRaf = requestAnimationFrame(fitTeamNow); }
+function fitTeamNow(){
+  {
+    const p = $('#team-panel'), cv = $('#canvas'); let d = 0, mode = '', canvasH = '', bw = '';
+    const inOv = p.parentElement === $('#pane-overview');
+    p.classList.toggle('short', inOv && !isPhone() && W.phase === 'run' && p.clientHeight > 0 && p.clientHeight < 300);   // a short panel: its two actions move into the header
+    if (!isPhone() && W.phase !== 'meet' && p.clientHeight > 0) {
+      const ft = $('#team-foot'), avail = p.clientHeight - p.querySelector('.ph').offsetHeight - (ft.offsetHeight || 0) - 2, aw = p.clientWidth;
+      if (W.teamView === 'table') {
+        const rows = W.agents.size + 1, room = avail - 34;
+        const b = inOv && W.agents.size ? [[3, 150, 300], [2, 104, 220], [1, 60, 130], [0, 38, 150]].find(([, rh, br]) => room - rows * rh >= br) : null;
+        if (b) { d = b[0]; mode = 'below'; }                             // [density, row height, room the brief needs]
+        else d = room >= rows * 150 ? 3 : room >= rows * 104 ? 2 : room >= rows * 62 ? 1 : 0;
+      } else if (inOv && W.agents.size) {
+        if (aw >= 640 && avail >= 220) {                                // beside: the chart keeps its own width, the brief takes the rest
+          const P0 = fitPlan(Math.round(aw * .6), avail), cw = Math.ceil(P0.needW * Math.min(1, P0.k)) + 8;
+          const sw = Math.min(aw - 300, Math.max(300, aw - Math.max(cw, Math.round(aw * .4)) - 1)), P = fitPlan(aw - sw - 1, avail);
+          if (P.k >= FIT_OK && P.d !== 'mini') { mode = 'side'; bw = sw + 'px'; }
+        }
+        if (!mode) { const P = fitPlan(aw, avail), h = Math.ceil(P.needH * Math.min(1, P.k)); if (P.k >= FIT_OK && avail - h >= 150) { mode = 'below'; canvasH = h + 'px'; } }
+      }
     }
+    if (isPhone() && fitMode() && W.agents.size) { const P = fitPlan(cv.clientWidth || p.clientWidth, 2000); canvasH = Math.max(160, Math.ceil(P.needH * Math.max(FIT_MIN, Math.min(1, P.k)))) + 'px'; mode = ''; }   // one column: the chart as tall as it is
     p.classList.toggle('d1', d === 1); p.classList.toggle('d2', d >= 2); p.classList.toggle('d3', d === 3);
-    if (below !== !!W.below) { W.below = below; placeInsp(); }
-  });
+    if (bw) p.style.setProperty('--bw', bw);
+    cv.style.height = (mode === 'below' || isPhone()) && W.teamView === 'chart' ? canvasH : '';
+    if (mode !== (W.tmode || '')) { W.tmode = mode; placeInsp(); }
+  }
 }
 function renderRunPanel(){
   const body = $('#run-body'); const r = W.run;
@@ -1360,9 +1517,14 @@ function nextSteps(){
     ['i-plus', 'Give the team its first job', 'A reply to an enquiry, a report, a list to chase. Every agent\'s progress shows here as it happens.', '<button class="btn sm p" onclick="newJob()">New job</button>'],
     W.cams.size ? null : ['i-cam', 'Add a camera', 'RTSP stream, recording, webcam, snapshot URL or sample footage. Each camera keeps a written journal.', '<button class="btn sm" onclick="openAttach(null)">Add camera</button>'],
     ['i-inbox', 'Connect an app', 'Email, WhatsApp, SMS or a calendar, so approved messages can go out.', '<button class="btn sm" onclick="goDesk(\'integrations\')">Integrations</button>'],
-    wf.length ? ['i-flow', 'Run a workflow', `${plural(wf.length, 'fixed hand-off')} between the agents: ${wf.map(w => w.name).join(', ')}.`, '<button class="btn sm" onclick="showTab(\'runs\')">Workflows</button>'] : null,
   ].filter(Boolean);
-  return `<div class="nsteps"><div class="gk">No run yet · next steps</div>${rows.map(([ic, t, d, a]) => `<div class="nstep"><svg class="i"><use href="#${ic}"/></svg><div><b>${esc(t)}</b><small>${esc(d)}</small></div>${a}</div>`).join('')}</div>`;
+  const row = ([ic, t, d, a]) => `<div class="nstep"><svg class="i"><use href="#${ic}"/></svg><div><b>${esc(t)}</b>${d ? `<small>${esc(d)}</small>` : ''}</div>${a}</div>`;
+  // the desk's own workflows and the first jobs Atlas suggests, each with its button (a click starts a run)
+  const wfRows = wf.slice(0, 4).map(w => ['i-flow', w.name, wfDesc(w.description), `<button class="btn sm" onclick="runWorkflowNow(${jsa(w.id)})"><svg class="i"><use href="#i-run"/></svg>Run</button>`]);
+  const jobs = modeSugg('job').map(t => ['i-run', t, '', `<button class="btn sm" onclick="deploy(${jsa(t)})" title="Starts a run of the team now; anything outbound waits for your approval"><svg class="i"><use href="#i-run"/></svg>Run</button>`]);
+  return `<div class="nsteps"><div class="gk">No run yet · next steps</div>${rows.map(row).join('')}`
+    + (wfRows.length ? `<div class="gk">Workflows · fixed hand-offs</div>${wfRows.map(row).join('')}` : '')
+    + `<div class="gk">First jobs to try</div>${jobs.map(row).join('')}</div>`;
 }
 async function goDesk(hash){ if (W.deskId) await api(`/desks/${W.deskId}/select`, {method: 'POST', body: {}}); location.href = '/desk#' + hash; }   // Home, on this desk
 function renderRunLive(s){ const box = $('#run-live'); if (!box || box.dataset.inst !== s.inst) { if (!W.liveRaf) W.liveRaf = requestAnimationFrame(() => { W.liveRaf = 0; renderRunPanel(); }); return; } box.querySelector('.tx').textContent = s.text.slice(-360); }
@@ -1400,10 +1562,12 @@ async function openRun(id){
   const text = (r.summary || '').trim() + (r.deliverables || []).filter(d => d.name !== 'SUMMARY.md').map(d => `\n\n### ${d.name}\n\n${d.content}`).join('');   // SUMMARY.md is the summary itself
   showSummary(id, status, text);
 }
+// a workflow's hand-offs ("research -> writer") in the agents' names
+function wfDesc(d){ const s = String(d || ''), parts = s.split(/\s*->\s*/).map(x => x.trim()); return parts.length > 1 && parts.every(x => W.agents.has(x)) ? parts.map(agentName).join(' → ') : s.replace(/->/g, '→'); }
 function renderWorkflows(){
   const wf = W.workflows || [];
   $('#wf-panel').classList.toggle('hide', !wf.length); $('#wf-n').textContent = wf.length;
-  $('#wf-list').innerHTML = wf.map(w => `<div class="wfrow" id="wf-${esc(w.id)}"><div style="min-width:0"><b>${esc(w.name)}</b><small title="${esc(w.description || '')}">${esc((w.description || '').replace(/->/g, '→'))}</small></div><button class="btn sm" onclick="runWorkflowNow(${jsa(w.id)})"><svg class="i"><use href="#i-run"/></svg>Run</button></div>`).join('');
+  $('#wf-list').innerHTML = wf.map(w => `<div class="wfrow" id="wf-${esc(w.id)}"><div style="min-width:0"><b>${esc(w.name)}</b><small title="${esc(wfDesc(w.description))}">${esc(wfDesc(w.description))}</small></div><button class="btn sm" onclick="runWorkflowNow(${jsa(w.id)})"><svg class="i"><use href="#i-run"/></svg>Run</button></div>`).join('');
 }
 function runWorkflowNow(id){ const w = (W.workflows || []).find(x => x.id === id); if (!w) return; deploy(`Run the "${w.name}" workflow now.`, w.id); }
 function showTab(name, focus){
@@ -1412,7 +1576,7 @@ function showTab(name, focus){
   document.querySelectorAll('.tpane').forEach(p => p.classList.toggle('hide', p.id !== 'pane-' + name));
   const tp = $('#team-panel'); if (name === 'team') $('#team-big').appendChild(tp); else if (tp.parentElement !== $('#pane-overview')) $('#pane-overview').insertBefore(tp, $('#run-panel'));
   const cams = $('#cams'); cams.classList.toggle('big', name === 'cameras'); cams.classList.toggle('strip', name !== 'cameras'); if (name === 'cameras') $('#cam-big').appendChild(cams); else if (cams.parentElement !== $('#camrow')) $('#camrow').insertBefore(cams, $('#cam-side'));
-  fitCams(); fitTeam();
+  fitCams(); fitStrip(); fitTeam(); teamMeta();
   const ap = $('#ap-panel'); if (name === 'approvals') $('#ap-big').appendChild(ap); else if (ap.parentElement !== $('#right')) $('#right').insertBefore(ap, $('#right').firstChild);
   placeInsp();
   renderApprovals();
@@ -1484,7 +1648,7 @@ const gapCount = () => [...(W.gaps || new Map()).values()].reduce((m, g) => m + 
 /* ------------------------------------------------------------------ layout by the workspace's own width (viewport minus the rail) */
 const SIZES = [['xl', 1560], ['l', 1280], ['lm', 1040], ['m', 860], ['s', 0]];
 function isPhone(){ return $('#wk').dataset.w === 's'; }
-function docked(){ const s = $('#wk').dataset.w, ph = W.phase; if (ph === 'meet') return true; if (s === 'xl' || s === 'l' || s === 'lm') return true; return s === 'm' && ph === 'design'; }
+function docked(){ const s = $('#wk').dataset.w, ph = W.phase; if (ph === 'meet' || ph === 'design') return true; return s === 'xl' || s === 'l' || s === 'lm'; }   // a draft keeps its conversation in the page at every width
 function placePanels(){
   const ws = $('#ws'), d = docked(), s = $('#wk').dataset.w;
   ws.classList.toggle('dock', d);
@@ -1492,6 +1656,7 @@ function placePanels(){
   const act = $('#act-panel'), short = $('#wk').clientHeight < 860;     // a short screen keeps the right stack for approvals and Atlas (Activity goes under Runs)
   if (d && !short) { if (act.parentElement !== $('#right')) $('#right').insertBefore(act, $('#atlas-panel')); }
   else if (act.parentElement !== $('#pane-runs')) $('#pane-runs').appendChild(act);
+  snapAct();
   if (d) ws.classList.remove('atlas-open');
 }
 function applySize(){
@@ -1501,6 +1666,18 @@ function applySize(){
     if (was && (was === 's') !== (s === 's') && W.teamView && W.teamView !== viewFor()) applyTeamView(); }   // the default view follows the layout until the owner picks one
   wk.dataset.sw = w >= 720 ? 'w' : 'n';                                   // one column: five stat tiles across from 720 px, 3 + 2 below
   placePanels(); fitCams();
+}
+// the Overview's camera strip gives way before Team and Current run do: first one line of note under each frame, then no
+// note and smaller frames (the side list and the Cameras tab keep the notes). Its grid row never shrinks below what it draws.
+const STRIP_ROOM = 236;                                                   // Team and Current run: a header, three rows, the footer
+function fitStrip(){
+  const cs = $('#camstrip'), pane = $('#pane-overview');
+  if (isPhone() || cs.classList.contains('hide') || pane.classList.contains('hide') || !['run', 'load'].includes(W.phase)) { cs.classList.remove('cs1', 'cs2'); return; }
+  const H = pane.clientHeight; if (!H) return;
+  for (const lvl of ['', 'cs1', 'cs2']) {
+    cs.classList.toggle('cs1', lvl === 'cs1'); cs.classList.toggle('cs2', lvl === 'cs2');
+    if (H - cs.offsetHeight - 12 >= STRIP_ROOM) return;
+  }
 }
 // one column: whole rows of camera tiles, the Add camera tile filling the last one (2-4 columns, the fewest blank cells)
 function fitCams(){
@@ -1513,7 +1690,7 @@ function fitCams(){
 }
 function openAtlas(){
   const ws = $('#ws');
-  if (ws.classList.contains('dock')) { const p = $('#atlas-panel'); p.classList.remove('flash'); void p.offsetWidth; p.classList.add('flash'); }
+  if (ws.classList.contains('dock')) { const p = $('#atlas-panel'); p.classList.remove('flash'); void p.offsetWidth; p.classList.add('flash'); if (isPhone()) p.scrollIntoView({block: 'nearest'}); }
   else ws.classList.add('atlas-open');
   setTimeout(() => { $('#msgs').scrollTop = 1e9; $('#say').focus({preventScroll: true}); }, 60);
 }

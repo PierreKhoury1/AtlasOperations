@@ -123,7 +123,7 @@ Editing an existing sketch - the canvas is the owner's, not yours
 - Keep the agents in their existing order; append new ones at the end."""
 
 GREETING = ("Describe the business and the work to take off your plate: enquiries, proposals, invoices, an inbox, cameras. "
-            "The team is drafted on the canvas as you go, and nothing is sent without your approval. "
+            "The team is drafted in the Team panel as you go, and nothing is sent without your approval. "
             "You can also ask a question directly.")
 
 CAMERA_GUIDE = """
@@ -241,7 +241,7 @@ class DesignSession:
         self.tier = tier
         self.created = time.time()
         self.messages: list[dict[str, Any]] = []         # provider-neutral {"role","content"} history
-        self.transcript: list[dict[str, Any]] = [{"role": "assistant", "text": GREETING}]
+        self.transcript: list[dict[str, Any]] = [{"role": "assistant", "text": GREETING, "ts": round(self.created, 3)}]   # ts: the time a resumed draft shows
         self.blueprint: dict[str, Any] | None = None
         self.ready = False
         self.desk_id: int | None = None
@@ -287,7 +287,7 @@ class DesignSession:
         """Seed the conversation from a study of the owner's links: opening message, next steps, first-draft blueprint."""
         self.profile = profile
         opening = profile.get("opening_message") or GREETING
-        self.transcript = [{"role": "assistant", "text": opening}]
+        self.transcript = [{"role": "assistant", "text": opening, "ts": round(time.time(), 3)}]
         self.messages = [{"role": "assistant", "content": opening}]
         bp = normalise(profile.get("blueprint"), None) if isinstance(profile.get("blueprint"), dict) else None
         if bp and not bp["business"].get("name") and profile.get("name"):
@@ -637,7 +637,7 @@ def reply(session: DesignSession, user_text: str, on_token: Callable[[str], None
     user_text = (user_text or "").strip()
     with session.lock:
         session.turn += 1
-        session.transcript.append({"role": "user", "text": user_text})
+        session.transcript.append({"role": "user", "text": user_text, "ts": round(time.time(), 3)})
         session.messages.append({"role": "user", "content": user_text})
         session.fixed_turn = False                       # _live_turn sets it when the model never answered
         if session.mode == "demo":
@@ -667,7 +667,7 @@ def reply(session: DesignSession, user_text: str, on_token: Callable[[str], None
         # after the blueprint settles, so "build" is real; the paid switch only from the server's own steps
         session.next = session_next(session, steps, intent, paid=session.fixed_turn)
         session.suggestions = NS.labels(session.next)
-        session.transcript.append({"role": "assistant", "text": prose})
+        session.transcript.append({"role": "assistant", "text": prose, "ts": round(time.time(), 3)})
         session.messages.append({"role": "assistant", "content": raw})
         if len(session.messages) > 24:                       # keep the context bounded; blueprint state is in the last reply
             session.messages = session.messages[-16:]
