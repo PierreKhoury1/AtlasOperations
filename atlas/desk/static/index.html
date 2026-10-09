@@ -1598,7 +1598,7 @@ function applyLive(e, live){
 function buildStage(){
   const g = $('#sgrid');
   const order = [...CFG.agents.filter(a => a.id === 'atlas'), ...CFG.agents.filter(a => a.id !== 'atlas')];
-  g.innerHTML = order.map(a => `<div class="node ${a.id === 'atlas' ? 'atlas' : ''}" id="${nid(a.id)}" data-key="${a.id}" style="--c:${a.color || '#7c3aed'}">
+  g.innerHTML = order.map(a => `<div class="node ${a.id === 'atlas' ? 'atlas' : ''}" id="${nid(a.id)}" data-key="${a.id}" style="--c:${colors[a.id] || a.color || '#7c3aed'}">
     <div class="nh"><i></i><b>${esc(a.name)}</b><span class="role" id="role-${nid(a.id)}">${esc(a.role)}</span><span class="st" id="st-${nid(a.id)}">idle</span></div>
     <div class="chips" id="chips-${nid(a.id)}"></div>
     <div class="stream" id="stream-${nid(a.id)}"></div>
@@ -1803,7 +1803,7 @@ function renderTeam(){
   box.innerHTML = TEAM.agents.map((a, i) => {
     const isAtlas = a.id === 'atlas'; if (!a._k) a._k = a.id || ('new' + (++TEAM.seq));
     const k = tkid(a._k), nt = a.tools.length;
-    return `<div class="tmn ${isAtlas ? 'atlas' : ''} ${a.enabled ? '' : 'off'}" id="${k}" data-i="${i}" data-key="${esc(a._k)}" style="--c:${esc(a.color)}" title="Click to edit · drag to move">
+    return `<div class="tmn ${isAtlas ? 'atlas' : ''} ${a.enabled ? '' : 'off'}" id="${k}" data-i="${i}" data-key="${esc(a._k)}" style="--c:${isAtlas ? (colors.atlas || '#e8820d') : esc(a.color)}" title="Click to edit · drag to move">
       <div class="nm"><b id="nm-${k}">${esc(a.name)}</b>${isAtlas ? '<span class="tag" title="Atlas leads the desk and cannot be removed">lead</span>' : (a.members && a.members.length ? `<span class="tag" title="Leads a sub-team: ${esc(a.members.join(', '))}">sub-team lead</span>` : (a.reports_to && a.reports_to !== 'atlas' ? `<span class="tag" title="Reports to ${esc(a.reports_to)}">member</span>` : ''))}<span class="st" id="st-${k}">${a.enabled ? 'idle' : 'off'}</span></div>
       <div class="role" id="role-${k}">${esc(a.role) || '<span style="color:var(--faint)">no role yet</span>'}</div>
       <div class="asg hide" id="asg-${k}"></div>
@@ -1921,7 +1921,7 @@ function teamInspect(i){
   document.querySelectorAll('#tm-nodes .tmn').forEach(el => el.classList.toggle('sel', +el.dataset.i === i));
   const chips = teamCatalogue(a).map(t => { const on = a.tools.includes(t.id), gated = TOOL_GATED.includes(t.id);
     return `<label class="tchip ${on ? 'on' : ''}" title="${esc(t.description || t.id)}${gated ? ' — approval-gated' : ''}"><input type="checkbox" ${on ? 'checked' : ''} onchange="teamTool(${i},${jsa(t.id)},this)">${esc(t.id)}${gated ? ' <span class="g" title="approval-gated">⏸</span>' : ''}</label>`; }).join('');
-  insp.innerHTML = `<div class="hd"><input type="color" value="${esc(a.color)}" title="Colour" oninput="teamField(${i},'color',this.value)"><input class="nm" id="tm-i-name" value="${esc(a.name)}" placeholder="A clear job title — Bookings Manager, Enquiry Responder…" oninput="teamField(${i},'name',this.value)">${isAtlas ? '<span class="tag" title="Atlas leads the desk and cannot be removed">lead</span>' : ''}<button class="x" onclick="teamClose()" title="Close (Esc)">×</button></div>
+  insp.innerHTML = `<div class="hd">${isAtlas ? '' : `<input type="color" value="${esc(a.color)}" title="Colour" oninput="teamField(${i},'color',this.value)">`}<input class="nm" id="tm-i-name" value="${esc(a.name)}" placeholder="A clear job title — Bookings Manager, Enquiry Responder…" oninput="teamField(${i},'name',this.value)">${isAtlas ? '<span class="tag" title="Atlas leads the desk and cannot be removed">lead</span>' : ''}<button class="x" onclick="teamClose()" title="Close (Esc)">×</button></div>
     <label>Role</label><input value="${esc(a.role)}" placeholder="${isAtlas ? 'Role — e.g. Orchestrator' : 'Role — e.g. Researcher'}" oninput="teamField(${i},'role',this.value)">
     <label class="act" title="${isAtlas ? 'Atlas is always active' : 'Inactive agents are skipped on the next run'}"><input type="checkbox" ${a.enabled ? 'checked' : ''} ${isAtlas ? 'disabled' : ''} onchange="teamField(${i},'enabled',this.checked)"> active</label>
     ${isAtlas ? '' : `<label>Reports to</label><select onchange="teamField(${i},'reports_to',this.value)"><option value="atlas" ${(!a.reports_to || a.reports_to === 'atlas') ? 'selected' : ''}>Atlas (top level)</option>${TEAM.agents.filter(x => x.id && x.id !== 'atlas' && x.id !== a.id && (!x.reports_to || x.reports_to === 'atlas')).map(x => `<option value="${esc(x.id)}" ${a.reports_to === x.id ? 'selected' : ''}>${esc(x.name)} (sub-team lead)</option>`).join('')}</select><div class="hint" style="margin-top:4px">A sub-team lead delegates only to its members and hands Atlas one merged result.</div>`}
