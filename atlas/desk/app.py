@@ -41,6 +41,7 @@ from .. import config as cfg
 from .. import designer as DS
 from .. import integrations as I
 from .. import metrics as MX
+from .. import nextsteps as NS
 from .. import records as R
 from .. import templates
 from .. import tools as T
@@ -3517,8 +3518,12 @@ def api_vision_ask():
                       text_answer=text_answer, vlm_model=vlm)
     except Exception as exc:
         return jsonify({"error": f"model error: {type(exc).__name__}: {str(exc)[:200]}"}), 502
+    scores = res.get("scores") or {}
+    best = sorted(res["evidence"], key=lambda r: -scores.get(int(r["id"]), 0))       # best match first for the follow-ups
+    cams = [c["name"] for c in store.connectors(desk["id"]) if c["kind"] == "camera"]
     return jsonify({"answer": res["answer"], "evidence": [_vev_public(r) for r in res["evidence"]], "mode": _mode(),
-                    "events_considered": res["events_considered"], "retrieval": res["retrieval"]})
+                    "events_considered": res["events_considered"], "retrieval": res["retrieval"],
+                    "next": NS.normalise([], NS.camera_answer(q, best, hours, cams), allow=NS.RUN)})
 
 
 @app.route("/hook/<token>/vision", methods=["GET", "POST"])
@@ -4684,7 +4689,8 @@ def api_design_start():
 @app.post("/api/design/<sid>/study")
 def api_design_study(sid):
     """Read the owner's links (website, socials, booking page), stream progress, then seed the designer with a company
-    profile + first-draft blueprint. SSE: {"t":"status","d":...}* then {"t":"done", profile, transcript, suggestions, blueprint}."""
+    profile + first-draft blueprint. SSE: {"t":"status","d":...}* then {"t":"done", profile, transcript, next, suggestions,
+    blueprint, ready}."""
     from .. import study as ST
     s = _design_session(sid)
     d = request.get_json(silent=True) or {}
@@ -4714,7 +4720,7 @@ def api_design_study(sid):
             with s.lock:
                 s.apply_profile(profile)
             _save_design(s)
-            q.put({"t": "done", "profile": profile, "transcript": s.transcript, "suggestions": s.suggestions,
+            q.put({"t": "done", "profile": profile, "transcript": s.transcript, "next": s.next, "suggestions": s.suggestions,
                    "blueprint": s.blueprint, "ready": s.ready})
         except Exception as exc:
             q.put({"t": "error", "error": f"{type(exc).__name__}: {exc}"})
@@ -4802,8 +4808,9 @@ def api_design_blueprint(sid):
     if bp:
         s.blueprint = bp
         s.ready = bool(bp.get("agents"))
+        s.refresh_next()                                 # no "build" step once the canvas has no agents left
         _save_design(s)
-    return jsonify({"blueprint": s.blueprint, "ready": s.ready})
+    return jsonify({"blueprint": s.blueprint, "ready": s.ready, "next": s.next})
 
 
 @app.post("/api/design/<sid>/layout")
@@ -4832,8 +4839,9 @@ def api_design_tier(sid):
     if tier not in templates.TIERS:
         return jsonify({"error": "unknown tier"}), 400
     s.tier = tier
+    s.refresh_next()                                     # the paid switch is offered only while the session is on free models
     _save_design(s)
-    return jsonify({"tier": s.tier, "label": templates.TIERS[tier]["label"]})
+    return jsonify({"tier": s.tier, "label": templates.TIERS[tier]["label"], "next": s.next})
 
 
 @app.post("/api/design/<sid>/build")
@@ -4934,6 +4942,41 @@ def api_design_connect(sid):
         return jsonify({"error": "not built"}), 400
     return jsonify(_connect_plan(store.desk(s.desk_id), s.blueprint or {}))
 
+
+@app.post("/api/next")
+def api_next():
+    """Three ways to proceed in run mode, from the desk's real state (no model call): {context: "desk_open"} when a desk
+    opens, {context: "run_done", run_id?, status?, task?} after a job. Never a "say" step: typed text is a job here.
+    A run_id must be a run of this desk (else 404); once it has finished, its stored status and task win."""
+    desk = need_desk()
+    d = request.get_json(silent=True)
+    d = d if isinstance(d, dict) else {}
+    ctx = str(d.get("context") or "")
+    if ctx not in ("desk_open", "run_done"):
+        return jsonify({"error": "context must be desk_open or run_done"}), 400
+    cams = [c["name"] for c in store.connectors(desk["id"]) if c["kind"] == "camera"]
+    pending = len(store.actions("pending", limit=100000, desk_id=desk["id"]))
+    if ctx == "desk_open":
+        c = desk_configs(desk)
+        agents = [a for a in c["agents"] if a["id"] != "atlas" and a.get("enabled", True)]
+        planned = [p["name"] for p in _planned_cameras(desk, [{"name": n} for n in cams])]
+        own = (desk.get("config") or {}).get("workflows")        # a built desk's own list, even when empty: desk_configs
+        wfs = own if isinstance(own, list) else c["workflows"]   # backs an empty one with a template's, which the owner never made
+        steps = NS.desk_open(c["business"].get("name") or desk["name"], agents, cams, pending, (wfs or [None])[0], planned)
+    else:
+        rid = str(d.get("run_id") or "").strip()
+        status, task = str(d.get("status") or ""), str(d.get("task") or "")
+        if rid:
+            row, live = store.run(rid), _runs.get(rid)
+            if row and row.get("desk_id") == desk["id"]:
+                status = status if row.get("status") in (None, "", "running") else row["status"]   # finished: the DB has the truth
+                task = row.get("task") or task
+            elif live and live["desk_id"] == desk["id"]:           # started, DB row not written yet
+                task = live.get("task") or task
+            else:
+                return jsonify({"error": "no such run on this desk"}), 404
+        steps = NS.run_done(status or "done", task, pending, cams)
+    return jsonify({"context": ctx, "next": NS.normalise([], steps, allow=NS.RUN), "pending": pending})
 
 
 # an ordinary address: RFC 5322 atext in the local part (o'brien@ included), no quoted strings, comments or spaces

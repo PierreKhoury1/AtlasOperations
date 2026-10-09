@@ -353,6 +353,8 @@ def study(links: list[str], on_status: Callable[[str], None] | None = None, prov
             if data.get(k):
                 base[k] = data[k]
         base["source"] = "model"
+        if not data.get("opportunities"):          # the model named none: the list (and its reasons) is the generic one
+            base["opportunities_source"] = "heuristic"
     else:
         base["source"] = "heuristic"
     base["study_seconds"] = round(time.time() - t0, 1)

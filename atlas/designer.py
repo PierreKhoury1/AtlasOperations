@@ -2,7 +2,7 @@
 
 Flow
   1. The owner chats with the designer. Every designer reply carries a hidden machine block
-     <atlas-design>{...}</atlas-design> with suggestion chips and the current blueprint draft.
+     <atlas-design>{...}</atlas-design> with three next steps (atlas/nextsteps.py) and the current blueprint draft.
   2. The blueprint (agents, hierarchy, tools, workflows, connectors, policy) grows turn by turn and is drawn
      live on the sketch canvas in the portal.
   3. `blueprint_to_desk` converts the approved blueprint into the desk config the engine runs.
@@ -18,6 +18,7 @@ import uuid
 from pathlib import Path
 from typing import Any, Callable
 
+from . import nextsteps as NS
 from . import templates as T
 from . import tools as TL
 
@@ -94,12 +95,24 @@ key terms, a numbered or bulleted list when there are steps or options, a "### "
 table only when comparing options. No headings on short replies. Then, on a new line, append exactly one machine block
 and nothing after it:
 
-<atlas-design>{"intent": "design", "suggestions": ["3-4 short reply options for the owner, max 8 words each"], "ready": false, "blueprint": { "business": {...}, "agents": [...], "workflows": [...], "connectors": [...], "policy": {...} }}</atlas-design>
+<atlas-design>{"intent": "design", "next": [{"label": "moves forward", "detail": "what happens if picked", "say": "the owner's exact message"}, {"label": "refines the draft", "detail": "...", "say": "..."}, {"label": "an alternative or added capability", "detail": "...", "say": "..."}], "ready": false, "blueprint": { "business": {...}, "agents": [...], "workflows": [...], "connectors": [...], "policy": {...} }}</atlas-design>
 
 "intent" is "design" when the turn shapes the desk and "answer" when you only answered a question (then "blueprint"
-is null and "suggestions" are natural follow-up questions, or an empty list).
+is null).
 On a design turn the blueprint must be COMPLETE (full current state, not a diff). On the very first turn, before the owner
 has said anything substantive, "blueprint" may be null.
+
+"next" - exactly 3 ways for the owner to proceed, one click each:
+- Three genuinely different directions: one that moves forward ("action": "build" when the draft is solid, otherwise
+  the most useful next question), one concrete refinement of the current draft, one alternative or added capability.
+- Specific to this owner's business and this turn (their business, customers, channels, agent names), never generic
+  ("Tell me more", "Continue").
+- "label": imperative, sentence case, max 7 words, no trailing period, no emoji. "detail": max 14 words, what happens if
+  they pick it - no figures, prices or results the owner did not give you. "say": the exact message sent in the owner's
+  voice, first person and complete (omit when equal to label).
+- "action" only as "build" (proposing to build a draft that has agents) or "camera" (connect a camera feed; add
+  "camera": "<camera name>", or "" for a new one). Otherwise leave it out.
+- On "answer" turns: three natural follow-ups - go deeper, apply it to their business, back to the desk.
 
 Editing an existing sketch - the canvas is the owner's, not yours
 - Start from the "Current blueprint" you are given and change ONLY what this turn calls for. Every agent, workflow,
@@ -112,8 +125,6 @@ Editing an existing sketch - the canvas is the owner's, not yours
 GREETING = ("Describe the business and the work to take off your plate: enquiries, proposals, invoices, an inbox, cameras. "
             "The team is drafted on the canvas as you go, and nothing is sent without your approval. "
             "You can also ask a question directly.")
-GREETING_SUGGESTIONS = ["We get enquiries we answer too slowly", "Proposals take us days to write",
-                        "Our inbox needs triage every morning", "I want my shop cameras documented"]
 
 CAMERA_GUIDE = """
 
@@ -134,7 +145,12 @@ Cameras (the desk's eyes)
 - One watcher per camera: give that agent "camera": "<camera name>" so it only reads its own feed."""
 
 
-SWITCH_TO_PAID = "Switch to the paid model"
+SWITCH_TO_PAID = NS.SWITCH_TO_PAID
+# fixed steps for turns the model never answered (quota, error, empty reply)
+RETRY_STEP = {"label": "Try that again", "detail": "Asks Atlas to answer your last message again; the sketch so far is kept",
+              "say": "Please try my last message again."}
+PAID_STEP = {"label": SWITCH_TO_PAID, "detail": "About 3p a message; your last message is resent", "action": "paid"}
+BUILD_STEP = {"label": "Build the desk from this draft", "detail": "Uses the sketch as it stands; no model call needed", "action": "build"}
 PAID_VLM = os.environ.get("ATLAS_PAID_VLM", "google/gemini-2.5-flash-lite")   # cheap paid eyes for desks off the free tier
 
 
@@ -227,44 +243,72 @@ class DesignSession:
         self.messages: list[dict[str, Any]] = []         # provider-neutral {"role","content"} history
         self.transcript: list[dict[str, Any]] = [{"role": "assistant", "text": GREETING}]
         self.blueprint: dict[str, Any] | None = None
-        self.suggestions: list[str] = list(GREETING_SUGGESTIONS) + (["Try it on sample hotel footage"] if sample_clips() else [])
         self.ready = False
         self.desk_id: int | None = None
         self.turn = 0
         self.links: list[str] = []
         self.profile: dict[str, Any] | None = None       # company profile from the pre-study of their links
+        self.next = session_next(self, [], fallback=NS.greeting(bool(sample_clips())))
+        self.suggestions: list[str] = NS.labels(self.next)   # legacy chips (studio.js, old sessions)
         self.lock = threading.Lock()
 
     def public(self) -> dict[str, Any]:
         return {"sid": self.id, "mode": self.mode, "tier": self.tier, "transcript": self.transcript,
-                "blueprint": self.blueprint, "suggestions": self.suggestions, "ready": self.ready,
+                "blueprint": self.blueprint, "next": self.next, "suggestions": self.suggestions, "ready": self.ready,
                 "desk_id": self.desk_id, "turn": self.turn, "links": self.links, "profile": self.profile}
 
     def to_dict(self) -> dict[str, Any]:
         return {"id": self.id, "mode": self.mode, "tier": self.tier, "created": self.created, "messages": self.messages,
-                "transcript": self.transcript, "blueprint": self.blueprint, "suggestions": self.suggestions,
+                "transcript": self.transcript, "blueprint": self.blueprint, "next": self.next, "suggestions": self.suggestions,
                 "ready": self.ready, "desk_id": self.desk_id, "turn": self.turn, "links": self.links, "profile": self.profile}
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> "DesignSession":
         s = cls(d.get("mode", "demo"), d.get("tier", "free"))
-        for k in ("id", "created", "messages", "transcript", "blueprint", "suggestions", "ready", "desk_id", "turn", "links", "profile"):
+        for k in ("id", "created", "messages", "transcript", "blueprint", "ready", "desk_id", "turn", "links", "profile"):
             if k in d:
                 setattr(s, k, d[k])
+        # sessions saved before next steps carry only the legacy chips: derive the steps from them
+        s.refresh_next(d["next"] if isinstance(d.get("next"), list) else d.get("suggestions") or [])
         return s
 
+    def refresh_next(self, items: Any = None) -> list[dict[str, Any]]:
+        """Re-check the steps (`items`, default the current ones) against the session as it stands: a restored session,
+        a tier switch or a canvas edit can make "paid" or "build" invalid; the sketch's fallback fills any gap."""
+        items = self.next if items is None else items
+        self.next = session_next(self, items, fallback=None if self.turn or self.blueprint else NS.greeting(bool(sample_clips())))
+        self.suggestions = NS.labels(self.next)
+        return self.next
+
     def apply_profile(self, profile: dict[str, Any]) -> None:
-        """Seed the conversation from a study of the owner's links: opening message, chips, first-draft blueprint."""
+        """Seed the conversation from a study of the owner's links: opening message, next steps, first-draft blueprint."""
         self.profile = profile
         opening = profile.get("opening_message") or GREETING
         self.transcript = [{"role": "assistant", "text": opening}]
         self.messages = [{"role": "assistant", "content": opening}]
-        self.suggestions = [str(x)[:60] for x in (profile.get("suggestions") or GREETING_SUGGESTIONS)][:4]
         bp = normalise(profile.get("blueprint"), None) if isinstance(profile.get("blueprint"), dict) else None
         if bp and not bp["business"].get("name") and profile.get("name"):
             bp["business"]["name"] = profile["name"]
         if bp and bp.get("agents"):
             self.blueprint = bp
+        opps = [o for o in profile.get("opportunities") or [] if isinstance(o, dict) and isinstance(o.get("title"), str)]
+        # a "why" is shown only when a model wrote it from their pages; the heuristic list's reasons are generic copy
+        read = profile.get("source") == "model" and profile.get("opportunities_source") != "heuristic"
+        items = ((profile["next"] if isinstance(profile.get("next"), list) else [])     # the opportunities, as the owner's reply
+                 + [{"label": o["title"], "detail": (o.get("why") or "") if read else "", "say": o["title"]} for o in opps]
+                 + (profile["suggestions"] if isinstance(profile.get("suggestions"), list) else []))
+        self.next = session_next(self, items, fallback=None if self.blueprint else NS.greeting(bool(sample_clips())))
+        self.suggestions = NS.labels(self.next)
+
+
+def session_next(session: DesignSession, items: Any, intent: str = "design", fallback: list | None = None) -> list[dict[str, Any]]:
+    """The 3 steps under a designer turn: `items` (the model's, or a fixed set) first, then the sketch's fallback.
+    Build only once the blueprint has agents; the paid switch only on a live session still on free models."""
+    drop = set() if session.blueprint and session.blueprint.get("agents") else {"build"}
+    if session.mode == "demo" or session.tier != "free":
+        drop.add("paid")
+    fb = fallback if fallback is not None else NS.design_fallback(session.blueprint, session.ready, intent)
+    return NS.normalise(items, fb, allow=[a for a in NS.DESIGN if a not in drop])
 
 
 SESSIONS: dict[str, DesignSession] = {}
@@ -299,7 +343,7 @@ def split_reply(raw: str) -> tuple[str, dict[str, Any] | None]:
             last = f[-1]
             try:
                 cand = json.loads(last.group(1))
-                if isinstance(cand, dict) and ("blueprint" in cand or "suggestions" in cand):
+                if isinstance(cand, dict) and ("blueprint" in cand or "next" in cand or "suggestions" in cand):
                     data = cand
                     prose = (raw[: last.start()] + raw[last.end():]).strip()
             except json.JSONDecodeError:
@@ -596,11 +640,11 @@ def reply(session: DesignSession, user_text: str, on_token: Callable[[str], None
         prose = prose.strip()                                # light markdown: the workspace renders it
         if not prose:
             prose = "Noted. I have updated the sketch — tell me more, or press Approve & build when it looks right."
-        suggestions = []
+        steps: Any = []
+        intent = "design"
         if data:
-            sg = data.get("suggestions")
-            if isinstance(sg, list):
-                suggestions = [str(x).strip()[:60] for x in sg if str(x).strip()][:4]
+            steps = data["next"] if isinstance(data.get("next"), list) and data["next"] else data.get("suggestions")
+            intent = "answer" if str(data.get("intent") or "").lower() == "answer" else "design"
             # a follow-up that never mentioned dropping anyone must not shrink the team (truncated / lazy replies did)
             protect = bool(session.blueprint and session.blueprint.get("agents")) and not REMOVAL_WORDS.search(user_text)
             bp = normalise(data.get("blueprint"), session.blueprint, keep_missing=protect)
@@ -612,13 +656,19 @@ def reply(session: DesignSession, user_text: str, on_token: Callable[[str], None
                 session.blueprint = bp
             if isinstance(data.get("ready"), bool):
                 session.ready = data["ready"] and bool(session.blueprint and session.blueprint.get("agents"))
-        session.suggestions = suggestions or session.suggestions
+        session.next = session_next(session, steps, intent)   # after the blueprint settles, so "build" is real
+        session.suggestions = NS.labels(session.next)
         session.transcript.append({"role": "assistant", "text": prose})
         session.messages.append({"role": "assistant", "content": raw})
         if len(session.messages) > 24:                       # keep the context bounded; blueprint state is in the last reply
             session.messages = session.messages[-16:]
-        return {"text": prose, "suggestions": session.suggestions, "blueprint": session.blueprint, "ready": session.ready,
-                "turn": session.turn}
+        return {"text": prose, "next": session.next, "suggestions": session.suggestions, "blueprint": session.blueprint,
+                "ready": session.ready, "turn": session.turn}
+
+
+def _fixed_block(*steps: dict[str, Any]) -> str:
+    """Machine block for a turn the model never answered. No "ready": the design state stays as it was."""
+    return chr(10) + "<atlas-design>" + json.dumps({"next": list(steps), "blueprint": None}) + "</atlas-design>"
 
 
 def _live_turn(session: DesignSession, providers_cfg: dict[str, Any] | None, model: str,
@@ -674,9 +724,10 @@ def _live_turn(session: DesignSession, providers_cfg: dict[str, Any] | None, mod
         if "free-models-per-day" in err or ("429" in err and ":free" in (model or "")):
             return ("Today's free model allowance on this account is used up (it resets at midnight UTC). You can switch "
                     "this conversation to the paid model, about 3p a message, or come back after the reset. The sketch so far is kept."
-                    + chr(10) + '<atlas-design>{"suggestions": ["' + SWITCH_TO_PAID + '", "I will come back later"], "ready": false, "blueprint": null}</atlas-design>')
+                    + _fixed_block(PAID_STEP, BUILD_STEP, {**RETRY_STEP, "label": "Try the free model again",
+                                                           "detail": "Works again after the midnight UTC reset"}))
         return (f"The model did not answer ({err}). Say that again in a moment — the sketch so far is kept."
-                + chr(10) + '<atlas-design>{"suggestions": ["Continue"], "ready": false, "blueprint": null}</atlas-design>')
+                + _fixed_block(RETRY_STEP, PAID_STEP, BUILD_STEP))
     if not raw.strip():                                    # some free models return content="" - try the fallback model once
         fallback = (getattr(prov, "cfg", {}) or {}).get("fallback_model") or ""
         if fallback and fallback != model:
@@ -687,7 +738,7 @@ def _live_turn(session: DesignSession, providers_cfg: dict[str, Any] | None, mod
                 err = f"{type(exc).__name__}: {str(exc)[:160]}"
     if not raw.strip():
         return ("I did not get a reply from the model that time - nothing was lost. Say that again, or switch to the paid model."
-                + chr(10) + '<atlas-design>{"suggestions": ["Say it again", "' + SWITCH_TO_PAID + '"], "ready": false, "blueprint": null}</atlas-design>')
+                + _fixed_block(RETRY_STEP, PAID_STEP, BUILD_STEP))
     # repair pass: the prose came back without a usable machine block -> ask for the block alone (not streamed).
     # Only once the owner has actually said something about the business (a greeting or "what did you understand"
     # must not conjure a team).
@@ -699,11 +750,11 @@ def _live_turn(session: DesignSession, providers_cfg: dict[str, Any] | None, mod
         if session.blueprint:
             ask = ("Output ONLY the <atlas-design>{...}</atlas-design> block, nothing else. Start from the Current blueprint "
                    "in your instructions and apply ONLY the changes your last reply described - same ids, same order, "
-                   "everything else copied unchanged. Keep the same suggestions.")
+                   "everything else copied unchanged. Keep the same next steps.")
         else:
             ask = ("Output ONLY the <atlas-design>{...}</atlas-design> block, nothing else. Include your best FIRST-DRAFT "
                    "blueprint for what has been said so far (make reasonable assumptions; the owner can adjust it on the "
-                   "canvas). Keep the same suggestions. If the owner has only asked general questions and not described "
+                   "canvas). Keep the same next steps. If the owner has only asked general questions and not described "
                    "work to take on, set \"intent\": \"answer\" and \"blueprint\": null instead.")
         try:
             fix = prov.chat(system, msgs + [{"role": "assistant", "content": raw}, prov.user_message(ask)], [], model or "")
@@ -808,23 +859,37 @@ def _demo_turn(session: DesignSession, text: str, on_token: Callable[[str], None
         session._demo_name = name  # type: ignore[attr-defined]
     turn = session.turn
     label = {"sales": "inbound enquiry desk", "proposal": "proposal desk", "inbox": "inbox triage desk", "orders": "order-care desk"}[kind]
+    whose = (name + ("'" if name.endswith("s") else "'s")) if name else "the"
     scripts = {
         1: (f"Understood — that points to an {label}. I have sketched the core: Atlas orchestrating, a researcher and a writer. "
             f"Every outbound message will wait for your approval, and the policy layer blocks prices and placeholders. "
             f"Who are your customers, and how do enquiries usually arrive — web form, email, phone?",
-            ["Mostly through our website form", "By email to one inbox", "Phone and WhatsApp mostly", "A mix of all of these"]),
+            [{"label": "Wire up the website form", "detail": "Form enquiries become the desk's first trigger", "say": "Mostly through our website form."},
+             {"label": "Watch one shared inbox", "detail": "Email enquiries land in one inbox the desk triages", "say": "By email to one inbox."},
+             {"label": "Cover phone and WhatsApp too", "detail": "Calls and chats are logged and answered from one queue",
+              "say": "Phone and WhatsApp mostly."}]),
         2: ("Good. I have added a CRM keeper so every contact gets a stage and a dated next action, and wired the intake as the "
             "first trigger. What tone should the replies have, and is there anything the agents must never say or promise?",
-            ["Warm and local, never pushy", "Formal and precise", "Never quote prices in writing", "No guarantees or timelines"]),
+            [{"label": "Keep replies warm and local", "detail": "Friendly and never pushy, checked before it reaches you",
+              "say": "Warm and local, never pushy."},
+             {"label": "Never quote prices in writing", "detail": "The policy layer blocks money figures in every draft",
+              "say": "Never quote prices in writing."},
+             {"label": "Make replies formal and precise", "detail": "Short, exact wording for professional clients", "say": "Formal and precise."}]),
         3: ("Noted, added to policy. The team is complete: a quality reviewer now checks every draft before it reaches your "
             "approval queue, and a follow-up chaser runs on a schedule. Review the sketch — click any agent to adjust its role or "
             "tools — then press Approve & build. Next we connect your data live.",
-            ["Approve & build", "Add a second workflow", "Rename an agent", "Explain the approval flow"]),
+            [{"label": "Build the desk now", "detail": f"Creates {whose} desk; nothing is sent without your approval",
+              "action": "build"},
+             {"label": "Add a chaser for quiet quotes", "detail": "A second workflow that follows up quotes nobody answered",
+              "say": "Add a second workflow that chases quotes nobody answered."},
+             {"label": "Explain the approval flow", "detail": "What waits for you and what runs on its own",
+              "say": "Explain the approval flow: what waits for me and what doesn't?"}]),
     }
-    prose, sugg = scripts.get(turn, ("[Scripted preview] This deployment has no model key, so I can't actually respond to what you typed. "
-                                     "The sketch shows a sample desk. For the real designer, run the desk with a live model "
-                                     "(locally: AtlasDesk launcher; hosted: set OPENROUTER_API_KEY).",
-                                     ["Approve & build the sample desk", "How do I go live?"]))
+    prose, nxt = scripts.get(turn, ("[Scripted preview] This deployment has no model key, so I can't actually respond to what you typed. "
+                                    "The sketch shows a sample desk. For the real designer, run the desk with a live model "
+                                    "(locally: AtlasDesk launcher; hosted: set OPENROUTER_API_KEY).",
+                                    [{"label": "Build the sample desk", "detail": "Builds the desk sketched on the canvas", "action": "build"},
+                                     {"label": "Show me how to go live", "detail": "What a live model key changes", "say": "How do I go live?"}]))
     bp = _demo_blueprint(kind, name, turn)
     cams = getattr(session, "_demo_cams", None)
     if cams is None and re.search(r"camera|cctv|footage|lobby|hotel|till|restaurant|kitchen", low):
@@ -836,6 +901,11 @@ def _demo_turn(session: DesignSession, text: str, on_token: Callable[[str], None
                              "goal": "Answer questions and write the daily report from the camera journal, citing times.",
                              "tools": ["camera_ask", "camera_events", "save_deliverable"]})
         prose_note = f" I have added {len(cams)} camera{'s' if len(cams) != 1 else ''} with a detailed journal, and a reporter who reads it."
+        if turn == 3:
+            c0 = cams[0]
+            nxt = nxt[:2] + [{"label": f"Use your own feed for {c0['name']}", "action": "camera", "camera": c0["name"],
+                              "detail": ("Swap the sample footage for your RTSP stream or a recording" if c0.get("source")
+                                         else "Add its stream address or a recording")}]
     else:
         prose_note = ""
     if turn >= 3 and "never" in low:
@@ -845,7 +915,7 @@ def _demo_turn(session: DesignSession, text: str, on_token: Callable[[str], None
         for w in prose.split(" "):
             on_token(w + " ")
             time.sleep(0.018)
-    return prose + "\n<atlas-design>" + json.dumps({"suggestions": sugg, "ready": turn >= 3, "blueprint": bp}) + "</atlas-design>"
+    return prose + "\n<atlas-design>" + json.dumps({"next": nxt, "ready": turn >= 3, "blueprint": bp}) + "</atlas-design>"
 
 
 def _demo_cameras(low: str) -> list[dict[str, Any]]:
