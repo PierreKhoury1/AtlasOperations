@@ -949,7 +949,11 @@ window.addEventListener('hashchange', ()=>{const h=location.hash.slice(1); if(do
 const $ = s => document.querySelector(s);
 const api = async (p, opt) => { const r = await fetch('/api' + p, opt ? {headers:{'Content-Type':'application/json'}, ...opt, body: opt.body ? JSON.stringify(opt.body) : undefined} : undefined); if (r.status === 401) { location.href = '/login?next=/desk'; return; } if (r.status === 409) { const j = await r.json(); if (j.error === 'no_desk') { showOnboarding(); return null; } return j; } return r.json(); };
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
-const jstr = v => JSON.stringify(String(v ?? '')).replace(/'/g, '\\u0027').replace(/</g, '\\u003c');   // a JS string literal safe inside a single-quoted attribute
+const jstr = v => JSON.stringify(String(v ?? '')).replace(/'/g, '\\u0027').replace(/</g, '\\u003c');   // a JS string literal (no quote or < left raw)
+// The ONLY way data goes into an inline handler (onclick="fn(${jsa(x)})"): a JS string literal, HTML-escaped for the
+// attribute. Never '${esc(x)}' there: esc() leaves ' alone and the browser decodes &quot; / &#39; back before the JS runs,
+// so a contact, camera or memory key with a quote in it would close the string and run as code.
+const jsa = v => esc(jstr(v));
 const when = ts => new Date(ts * 1000).toLocaleString('en-GB', {day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit'});
 const hms = ts => new Date(ts * 1000).toLocaleTimeString('en-GB');
 let CFG = {}, colors = {}, af = 'pending', curRun = null, page = 'dash', ME = null;
@@ -1310,7 +1314,7 @@ async function loadInbox(){
   MSG.threads = r.threads; MSG.ch = r.channels || {};
   $('#msg-conns').innerHTML = ['email', 'whatsapp', 'sms', 'instagram'].map(k => `<span class="kv"><span class="dot ${MSG.ch[k] ? 'live' : ''}"></span>${k}</span>`).join('')
     + `<button class="btn sm" onclick="go('integrations')">Connect a channel</button>`;
-  $('#mlist').innerHTML = MSG.threads.length ? MSG.threads.map(t => `<div class="mrow ${MSG.key === t.key ? 'on' : ''}" onclick="msgOpen('${esc(t.key)}')">
+  $('#mlist').innerHTML = MSG.threads.length ? MSG.threads.map(t => `<div class="mrow ${MSG.key === t.key ? 'on' : ''}" onclick="msgOpen(${jsa(t.key)})">
       <b>${esc(t.name)}<span class="mt">${ago(t.last.ts)}</span></b>
       <small>${t.last.dir === 'out' ? '↑ ' : '↓ '}${esc(t.last.subject || t.last.body || '').slice(0, 64)}</small>
       <small>${t.channels.map(c => `<span class="tag">${esc(c)}</span>`).join(' ')} · ${t.count}</small></div>`).join('')
@@ -1353,7 +1357,7 @@ async function msgSend(){
 async function loadCrm(){
   const C = await api('/contacts?q=' + encodeURIComponent($('#crm-q').value||''));
   const stages = ['New','Contacted','Qualified','Proposal','Won','Lost'];
-  $('#crm-table').innerHTML = C.length ? `<table><tr><th>Contact</th><th>Company</th><th>Stage</th><th>Notes</th><th>Next action</th><th>Updated</th></tr>` + C.map(c=>`<tr><td><b>${esc(c.name)}</b><br><span style="color:var(--muted)">${esc(c.email||'')} ${esc(c.phone||'')}</span><br><button class="link" style="padding:0" onclick="go('inbox');setTimeout(()=>msgOpen(msgKey('${esc(c.email||c.phone||'')}')),400)">Messages ›</button></td><td>${esc(c.company||'')}</td><td><select onchange="stage('${esc(c.email||c.name)}', this.value)" style="width:130px">${stages.map(s=>`<option ${s===c.stage?'selected':''}>${s}</option>`).join('')}</select></td><td style="max-width:320px">${esc(c.notes||'')}</td><td>${esc(c.next_action||'')}</td><td>${when(c.updated)}</td></tr>`).join('') + '</table>' : '<div class="empty">No contacts yet</div>';
+  $('#crm-table').innerHTML = C.length ? `<table><tr><th>Contact</th><th>Company</th><th>Stage</th><th>Notes</th><th>Next action</th><th>Updated</th></tr>` + C.map(c=>`<tr><td><b>${esc(c.name)}</b><br><span style="color:var(--muted)">${esc(c.email||'')} ${esc(c.phone||'')}</span><br><button class="link" style="padding:0" onclick="go('inbox');setTimeout(()=>msgOpen(msgKey(${jsa(c.email||c.phone||'')})),400)">Messages ›</button></td><td>${esc(c.company||'')}</td><td><select onchange="stage(${jsa(c.email||c.name)}, this.value)" style="width:130px">${stages.map(s=>`<option ${s===c.stage?'selected':''}>${s}</option>`).join('')}</select></td><td style="max-width:320px">${esc(c.notes||'')}</td><td>${esc(c.next_action||'')}</td><td>${when(c.updated)}</td></tr>`).join('') + '</table>' : '<div class="empty">No contacts yet</div>';
 }
 async function stage(contact, s){ await api('/contacts', {method:'POST', body:{contact, fields:{stage:s}}}); toast('Stage → '+s); }
 
@@ -1839,7 +1843,7 @@ function teamInspect(i){
   TEAM.sel = i; const isAtlas = a.id === 'atlas';
   document.querySelectorAll('#tm-nodes .tmn').forEach(el => el.classList.toggle('sel', +el.dataset.i === i));
   const chips = teamCatalogue(a).map(t => { const on = a.tools.includes(t.id), gated = TOOL_GATED.includes(t.id);
-    return `<label class="tchip ${on ? 'on' : ''}" title="${esc(t.description || t.id)}${gated ? ' — approval-gated' : ''}"><input type="checkbox" ${on ? 'checked' : ''} onchange="teamTool(${i},'${esc(t.id)}',this)">${esc(t.id)}${gated ? ' <span class="g" title="approval-gated">⏸</span>' : ''}</label>`; }).join('');
+    return `<label class="tchip ${on ? 'on' : ''}" title="${esc(t.description || t.id)}${gated ? ' — approval-gated' : ''}"><input type="checkbox" ${on ? 'checked' : ''} onchange="teamTool(${i},${jsa(t.id)},this)">${esc(t.id)}${gated ? ' <span class="g" title="approval-gated">⏸</span>' : ''}</label>`; }).join('');
   insp.innerHTML = `<div class="hd"><input type="color" value="${esc(a.color)}" title="Colour" oninput="teamField(${i},'color',this.value)"><input class="nm" id="tm-i-name" value="${esc(a.name)}" placeholder="A clear job title — Bookings Manager, Enquiry Responder…" oninput="teamField(${i},'name',this.value)">${isAtlas ? '<span class="tag" title="Atlas leads the desk and cannot be removed">lead</span>' : ''}<button class="x" onclick="teamClose()" title="Close (Esc)">×</button></div>
     <label>Role</label><input value="${esc(a.role)}" placeholder="${isAtlas ? 'Role — e.g. Orchestrator' : 'Role — e.g. Researcher'}" oninput="teamField(${i},'role',this.value)">
     <label class="act" title="${isAtlas ? 'Atlas is always active' : 'Inactive agents are skipped on the next run'}"><input type="checkbox" ${a.enabled ? 'checked' : ''} ${isAtlas ? 'disabled' : ''} onchange="teamField(${i},'enabled',this.checked)"> active</label>
@@ -2244,15 +2248,15 @@ async function loadCameras(){
         <h3>${esc(n.name)}<small title="reports through the sensor hook">${esc(n.backend)}${n.last_ts ? ' · ' + hms(n.last_ts) : ''}</small></h3>
         <div class="hint" style="margin:0">${esc(le.seen || '—')}${le.reason ? ` · ${esc(le.reason)}` : ''}</div>
         <div class="hint" style="margin:0">${n.events} event${n.events===1?'':'s'} · ${n.alerts} alert${n.alerts===1?'':'s'} in 24h · watched continuously by the node, every frame</div>
-        <div class="act"><button class="btn sm" onclick="$('#ev-cam').value='${esc(n.name)}';loadVisionEvents();document.getElementById('ev-list').scrollIntoView({behavior:'smooth'})">Events ›</button><span class="spacer"></span>${le.run_id ? `<button class="btn sm" onclick="liveWant='${le.run_id}';go('live')">See run ›</button>` : ''}</div>
+        <div class="act"><button class="btn sm" onclick="$('#ev-cam').value=${jsa(n.name)};loadVisionEvents();document.getElementById('ev-list').scrollIntoView({behavior:'smooth'})">Events ›</button><span class="spacer"></span>${le.run_id ? `<button class="btn sm" onclick="liveWant='${le.run_id}';go('live')">See run ›</button>` : ''}</div>
       </div></div>`; }).join('');
   const who = n => (CFG.agents || []).filter(a => a.id !== 'atlas' && JSON.stringify([a.goal, a.role, a.instructions]).toLowerCase().includes(String(n).toLowerCase()));
   const planTiles = planned.map(p => `<div class="cam plan">
-      <div class="shot" onclick="feedOpen(null, '${esc(p.name)}', '')"><span>no feed yet — click to connect<br>a stream, a webcam or a video file</span></div>
+      <div class="shot" onclick="feedOpen(null, ${jsa(p.name)}, '')"><span>no feed yet — click to connect<br>a stream, a webcam or a video file</span></div>
       <div class="body"><h3>${esc(p.name)}<small>planned by Atlas</small></h3>
         <div class="hint" style="margin:0">${esc(p.notes || p.focus || 'Part of the designed team; waiting for its feed.')}</div>
         <div class="camagents">${who(p.name).map(a => agentChip(a.id)).join('') || '<span class="none">no agent named it yet</span>'}</div>
-        <div class="act"><button class="btn sm p" onclick="feedOpen(null, '${esc(p.name)}', '')">Connect the feed →</button></div>
+        <div class="act"><button class="btn sm p" onclick="feedOpen(null, ${jsa(p.name)}, '')">Connect the feed →</button></div>
       </div></div>`).join('');
   const addTile = `<div class="cam addtile" onclick="feedOpen(null, '', '')" title="Connect a camera: RTSP, a webcam, an uploaded recording or sample footage"><div style="text-align:center"><b>+ Connect a camera</b><br><small>stream · webcam · upload a video · sample</small></div></div>`;
   if (!CAMS.length && !NODES.length) { $('#cam-grid').innerHTML = planTiles + addTile; return; }
@@ -2263,7 +2267,7 @@ async function loadCameras(){
     const src = c.config.source || '';
     const hasFrame = !!(s.ts || (le && le.snapshot_url));
     return `<div class="cam" id="cam-${c.id}">
-      <div class="shot" onclick="${hasFrame?`zoom('/api/cameras/${c.id}/frame.jpg?t='+Date.now())`:`feedOpen(${c.id}, '${esc(c.name)}', ${jstr(src)})`}" ${hasFrame?'':'style="cursor:pointer" title="no frame yet — click to check or change the feed"'}>${hasFrame ? `<img src="/api/cameras/${c.id}/frame.jpg?t=${Math.floor((ts||0)*1000)}" alt="">` : `<span>${busy?'grabbing…':'no frame yet — Look now'}</span>`}
+      <div class="shot" onclick="${hasFrame?`zoom('/api/cameras/${c.id}/frame.jpg?t='+Date.now())`:`feedOpen(${c.id}, ${jsa(c.name)}, ${jsa(src)})`}" ${hasFrame?'':'style="cursor:pointer" title="no frame yet — click to check or change the feed"'}>${hasFrame ? `<img src="/api/cameras/${c.id}/frame.jpg?t=${Math.floor((ts||0)*1000)}" alt="">` : `<span>${busy?'grabbing…':'no frame yet — Look now'}</span>`}
         <div class="ov">${s.counts ? Object.entries(s.counts).map(([k,n])=>`<span class="tag">${n} ${esc(k)}</span>`).join('') : ''}${s.triggered ? '<span class="tag" style="color:var(--warn);border-color:var(--warn)">alert</span>' : ''}</div>
         <span class="live ${watching?'on':''}">${watching ? 'watching · '+(JSON.parse(c.watch_job.task||'{}').every_s||30)+'s' : 'idle'}</span></div>
       <div class="body">
@@ -2273,7 +2277,7 @@ async function loadCameras(){
         <div class="hint" style="margin:0">watch for <b>${esc(c.rule.labels.join(', '))}</b> ≥${c.rule.min_count}${c.rule.dwell_min > 0 ? ' for '+c.rule.dwell_min+' min' : ''}${c.rule.hours ? ' during '+esc(c.rule.hours) : ''} · cooldown ${c.rule.cooldown_min}m · ${c.rule.repeat==='always' ? 'repeats' : c.rule.repeat==='once' ? 'once per stay' : 'repeats on change'}${s.present_s ? ' · present '+Math.round(s.present_s/60)+'m' : ''}${['1','true','on','yes'].includes(String((c.config||{}).journal||'').toLowerCase()) ? ' · <b>journal on</b>' : ''}${c.rule.alerts===false ? ' · alerts off' : ''}${c.rule.question ? ` · asks “${esc(c.rule.question)}”` : ''}</div>
         ${(s.answer || (le && le.answer)) ? `<div class="ans">${esc(s.answer || le.answer)}</div>` : ''}
         <div class="act"><input id="camq-${c.id}" placeholder="ask the analyst about this frame…" onkeydown="if(event.key==='Enter')lookCam(${c.id})"><button class="btn sm p" onclick="lookCam(${c.id})" ${busy?'disabled':''}>${busy?'…':'Look now'}</button><button class="btn sm ${LIVE.id===c.id?'p':''}" onclick="${LIVE.id===c.id?'closeLive()':`openLive(${c.id})`}" title="Watch this camera as live video with detections, and the journal being written in real time">${LIVE.id===c.id?'Close live':'Live'}</button></div>
-        <div class="act"><button class="btn sm ${watching?'':'p'}" onclick="watchCam(${c.id}, ${watching?'false':'true'}, ${['1','true','on','yes'].includes(String((c.config||{}).journal||'').toLowerCase()) ? 8 : 30})">${watching ? 'Stop watching' : 'Watch'}</button><button class="btn sm" onclick="lookCam(${c.id}, true)" title="Force an alert run now (demo / test)">Trigger alert</button><button class="btn sm" onclick="feedOpen(${c.id}, '${esc(c.name)}', ${jstr(src)})" title="swap this camera onto a different stream, webcam, upload or sample">Feed</button><span class="spacer"></span>${s.run_id ? `<button class="btn sm" onclick="liveWant='${s.run_id}';go('live')">See run ›</button>` : ''}<button class="btn sm d" onclick="delCam(${c.id})">✕</button></div>
+        <div class="act"><button class="btn sm ${watching?'':'p'}" onclick="watchCam(${c.id}, ${watching?'false':'true'}, ${['1','true','on','yes'].includes(String((c.config||{}).journal||'').toLowerCase()) ? 8 : 30})">${watching ? 'Stop watching' : 'Watch'}</button><button class="btn sm" onclick="lookCam(${c.id}, true)" title="Force an alert run now (demo / test)">Trigger alert</button><button class="btn sm" onclick="feedOpen(${c.id}, ${jsa(c.name)}, ${jsa(src)})" title="swap this camera onto a different stream, webcam, upload or sample">Feed</button><span class="spacer"></span>${s.run_id ? `<button class="btn sm" onclick="liveWant='${s.run_id}';go('live')">See run ›</button>` : ''}<button class="btn sm d" onclick="delCam(${c.id})">✕</button></div>
       </div></div>`; }).join('') + planTiles + nodeCards + addTile;
   loadLinks().then(renderCamAgents);
 }
@@ -2339,8 +2343,8 @@ function renderPlanned(planned, samples){   // superseded by the planned tiles i
   box.innerHTML = `<div class="ph"><h2>Cameras your team is waiting for</h2><span class="hint" style="margin:0">Atlas planned these; give each a stream address (rtsp://, http://…/snapshot, a webcam number) or sample footage</span></div>
     <div class="pb">${planned.map(p => `<div class="planrow"><div class="pn"><b>📷 ${esc(p.name)}</b><small>${esc(p.notes || p.focus || '')}</small><div class="camagents">${who(p.name).map(a => agentChip(a.id)).join('') || '<span class="none">no agent named it yet</span>'}</div></div>
       <input id="pl-${esc(p.name)}" placeholder="rtsp://… or http://…/snapshot.jpg or 0">
-      <select onchange="if(this.value){document.getElementById('pl-${esc(p.name)}').value=this.value}"><option value="">or sample footage…</option>${opts}</select>
-      <button class="btn sm p" onclick="connectPlanned('${esc(p.name)}')">Connect</button></div>`).join('')}</div>`;
+      <select onchange="if(this.value){document.getElementById(${jsa('pl-' + p.name)}).value=this.value}"><option value="">or sample footage…</option>${opts}</select>
+      <button class="btn sm p" onclick="connectPlanned(${jsa(p.name)})">Connect</button></div>`).join('')}</div>`;
 }
 async function connectPlanned(name){
   const src = (document.getElementById('pl-' + name) || {}).value || '';
@@ -2545,7 +2549,7 @@ async function loadJobs(){
   $('#n-jobs').textContent = R.jobs.filter(j=>j.enabled).length;
   const rel = t => !t ? '—' : (t - R.now > 0 ? 'in ' + Math.round((t-R.now)/60) + ' min' : Math.round((R.now-t)/60) + ' min ago');
   window.jobWords = j => j.every_min === 1440 && j.next_run ? 'daily at ' + new Date(j.next_run*1000).toTimeString().slice(0,5) : j.every_min ? 'every ' + (j.every_min % 60 ? j.every_min + ' min' : (j.every_min/60) + 'h') : 'once';
-  $('#job-list').innerHTML = R.jobs.length ? `<table><tr><th>Name</th><th>Kind</th><th>Every</th><th>Next</th><th>Last result</th><th>On</th><th></th></tr>` + R.jobs.map(j=>`<tr><td><b>${esc(j.name)}</b><div class="hint" style="max-width:260px">${esc((j.task||'').slice(0,90))}</div></td><td><span class="tag">${esc(j.kind)}</span></td><td>${jobWords(j)}</td><td>${j.enabled?rel(j.next_run):'paused'}</td><td class="hint" style="max-width:220px">${esc(j.last_result||'')}${j.last_run?'<br>'+rel(j.last_run):''}</td><td><input type="checkbox" style="width:auto" ${j.enabled?'checked':''} onchange="api('/jobs/${j.id}',{method:'PATCH',body:{enabled:this.checked}}).then(loadJobs)"></td><td class="row"><button class="btn sm" onclick="api('/jobs/${j.id}/run',{method:'POST',body:{}}).then(()=>{toast('Queued — runs within 20s');setTimeout(loadJobs,1500)})">Run now</button>${j.kind==='task'?`<button class="btn sm" onclick='jobEdit(${j.id}, ${jstr(j.name)}, ${jstr(j.task||"")}, ${j.every_min})'>Edit</button>`:''}<button class="btn sm d" onclick="api('/jobs/${j.id}',{method:'DELETE',body:{}}).then(loadJobs)">✕</button></td></tr>`).join('') + '</table>' : '<div class="empty">No automations yet. Add an inbox watcher, a follow-up chaser or a scheduled task.</div>';
+  $('#job-list').innerHTML = R.jobs.length ? `<table><tr><th>Name</th><th>Kind</th><th>Every</th><th>Next</th><th>Last result</th><th>On</th><th></th></tr>` + R.jobs.map(j=>`<tr><td><b>${esc(j.name)}</b><div class="hint" style="max-width:260px">${esc((j.task||'').slice(0,90))}</div></td><td><span class="tag">${esc(j.kind)}</span></td><td>${jobWords(j)}</td><td>${j.enabled?rel(j.next_run):'paused'}</td><td class="hint" style="max-width:220px">${esc(j.last_result||'')}${j.last_run?'<br>'+rel(j.last_run):''}</td><td><input type="checkbox" style="width:auto" ${j.enabled?'checked':''} onchange="api('/jobs/${j.id}',{method:'PATCH',body:{enabled:this.checked}}).then(loadJobs)"></td><td class="row"><button class="btn sm" onclick="api('/jobs/${j.id}/run',{method:'POST',body:{}}).then(()=>{toast('Queued — runs within 20s');setTimeout(loadJobs,1500)})">Run now</button>${j.kind==='task'?`<button class="btn sm" onclick="jobEdit(${j.id}, ${jsa(j.name)}, ${jsa(j.task||'')}, ${Number(j.every_min) || 0})">Edit</button>`:''}<button class="btn sm d" onclick="api('/jobs/${j.id}',{method:'DELETE',body:{}}).then(loadJobs)">✕</button></td></tr>`).join('') + '</table>' : '<div class="empty">No automations yet. Add an inbox watcher, a follow-up chaser or a scheduled task.</div>';
 }
 function jobFields(){ const k=$('#j-kind').value; $('#j-task-wrap').classList.toggle('hide', k!=='task'); $('#j-poll-wrap').classList.toggle('hide', k!=='http_poll'); $('#j-days-wrap').classList.toggle('hide', k!=='followups'); }
 async function addJob(){
@@ -2661,7 +2665,7 @@ async function setModelOv(aid, ov){
   if (!r || r.error) return toast(r?.error || 'failed');
   toast('Model landscape updated'); await loadCfg();
 }
-async function loadMem(){ const M = await api('/memory'); if(!M) return; $('#mem-list').innerHTML = M.length ? `<table><tr><th>Key</th><th>Value</th><th>Source</th><th></th></tr>` + M.map(m=>`<tr><td><b>${esc(m.key)}</b></td><td class="md">${esc(m.value)}</td><td class="hint">${esc(m.source||'')}</td><td><button class="btn sm d" onclick="api('/memory/${encodeURIComponent(m.key)}',{method:'DELETE',body:{}}).then(loadMem)">✕</button></td></tr>`).join('') + '</table>' : '<div class="empty">Nothing remembered yet.</div>'; }
+async function loadMem(){ const M = await api('/memory'); if(!M) return; $('#mem-list').innerHTML = M.length ? `<table><tr><th>Key</th><th>Value</th><th>Source</th><th></th></tr>` + M.map(m=>`<tr><td><b>${esc(m.key)}</b></td><td class="md">${esc(m.value)}</td><td class="hint">${esc(m.source||'')}</td><td><button class="btn sm d" onclick="api(${jsa('/memory/' + encodeURIComponent(m.key))},{method:'DELETE',body:{}}).then(loadMem)">✕</button></td></tr>`).join('') + '</table>' : '<div class="empty">Nothing remembered yet.</div>'; }
 async function addMem(){ const k=$('#m-key').value.trim(), v=$('#m-val').value.trim(); if(!k) return; await api('/memory',{method:'POST',body:{key:k,value:v}}); $('#m-key').value=''; $('#m-val').value=''; loadMem(); }
 init();
 </script>

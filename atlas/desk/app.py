@@ -94,7 +94,10 @@ app.secret_key = _secret()
 # cookie must never travel in plain HTTP, so Secure follows that, not the platform name alone.
 _HTTPS = bool(os.environ.get("RENDER")) or os.environ.get("PUBLIC_URL", "").strip().lower().startswith("https://")
 app.config.update(SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE="Lax",
-                  SESSION_COOKIE_SECURE=_HTTPS, PERMANENT_SESSION_LIFETIME=30 * 86400)
+                  SESSION_COOKIE_SECURE=_HTTPS, PERMANENT_SESSION_LIFETIME=30 * 86400,
+                  # every request body is bounded before it is parsed; the few upload routes that take more (camera
+                  # recordings, videos, log files) raise request.max_content_length for themselves
+                  MAX_CONTENT_LENGTH=int(float(os.environ.get("MAX_BODY_MB", "64") or 64) * 1024 * 1024))
 OPEN = os.environ.get("DESK_OPEN", "").strip() in ("1", "true", "yes")
 DEFAULT_TEMPLATE = os.environ.get("DESK_TEMPLATE", "sales_desk")
 
@@ -282,6 +285,9 @@ def desk_configs(desk: dict[str, Any]) -> dict[str, Any]:
     no_hermes = bool(business.get("no_hermes_engine"))
     hermes_off = "Hermes Agent runtime is off on this desk (security desk: no shell or browser tools)"
     hconn = next((c for c in _conns if c["kind"] == "hermes_agent"), None)
+    # an instance the desk owner typed in is checked on every call (it may sit on their LAN, never on this server's
+    # loopback or the metadata service); the operator's own HERMES_AGENT_URL is trusted and may be local
+    h_guard: Any = "internal" if hconn else False
     if hconn:
         hcfg = hconn["config"]
     elif os.environ.get("HERMES_AGENT_URL", "").strip():
@@ -309,7 +315,7 @@ def desk_configs(desk: dict[str, Any]) -> dict[str, Any]:
                           else tier_cfg.get("hermes_model", templates.FREE_MODEL))
                 providers.setdefault("providers", {})["hermes_agent_atlas"] = {
                     "type": "hermes_agent", "base_url": hcfg.get("base_url", ""), "api_key": hcfg.get("api_key", ""),
-                    "default_model": hmodel,
+                    "default_model": hmodel, "url_guard": h_guard,
                     "session_key": f"{hcfg.get('session_prefix') or 'atlas'}:desk{desk['id']}:atlas"}
                 a["provider"], a["model"], a["engine"], a["text_tools"] = "hermes_agent_atlas", hmodel, "hermes_agent", True
             elif lead_hermes:
@@ -329,6 +335,7 @@ def desk_configs(desk: dict[str, Any]) -> dict[str, Any]:
         hmodel = ov.get("model") if ov.get("model") and ov["model"] != "hermes-agent" else tier_cfg.get("hermes_model", templates.FREE_MODEL)
         providers.setdefault("providers", {})[pname] = {"type": "hermes_agent", "base_url": hcfg.get("base_url", ""),
                                                          "api_key": hcfg.get("api_key", ""), "default_model": hmodel,
+                                                         "url_guard": h_guard,
                                                          "session_key": f"{hcfg.get('session_prefix') or 'atlas'}:desk{desk['id']}:{a['id']}"}
         a["provider"], a["model"], a["tools"], a["engine"] = pname, hmodel, [], "hermes_agent"
     return {"providers": providers, "orchestration": cfg.load("orchestration", cfg.DEFAULT_ORCHESTRATION),
@@ -449,7 +456,8 @@ def _rate_limits():
     p = request.path
     if p.startswith("/hook/") and not _RL_HOOK.allow(f"{p}:{ip}"):
         return Response(json.dumps({"error": "rate limited"}), 429, mimetype="application/json")
-    if request.method == "POST" and p in ("/login", "/signup", "/desk/login", "/login/verify") and not _RL_AUTH.allow(ip):
+    if ((request.method == "POST" and p in ("/login", "/signup", "/desk/login", "/login/verify"))
+            or (request.method == "PATCH" and p == "/api/me")) and not _RL_AUTH.allow(ip):
         return Response(json.dumps({"error": "too many attempts - wait a few minutes"}), 429, mimetype="application/json")
     if request.method == "POST" and p.startswith("/api/design/") and (p.endswith("/say") or p.endswith("/study")) and not _RL_MODEL.allow(ip):
         return Response(json.dumps({"error": "rate limited - slow down a little"}), 429, mimetype="application/json")
@@ -501,16 +509,13 @@ def login():
         nxt = request.args.get("next") or _front_door(u)           # a desk's Home, or the workspace chat for new owners
         nxt = nxt if nxt.startswith("/desk") else _front_door(u)
         if _needs_code(u):
-            try:
-                rec = AUTH.challenge(u["id"], u["email"], app.secret_key, nxt)
-            except Exception as e:                                  # mail down: never let the password alone through
-                print("2fa mail failed:", e)
+            sess, why, code = _mfa_begin(u, nxt)                   # mail down or not set up: never the password alone
+            if not sess:
                 if request.is_json:
-                    return jsonify({"error": "could not send the sign-in code - try again in a minute"}), 503
-                return _page("login.html", error="We could not send your sign-in code. Try again in a minute.",
-                             email=email, google=_google_cls()), 503
+                    return jsonify({"error": why}), code
+                return _page("login.html", error=why, email=email, google=_google_cls()), code
             session.clear()
-            session["mfa"] = rec
+            session["mfa"] = sess
             if request.is_json:
                 return jsonify({"ok": False, "mfa": True, "verify": "/login/verify"}), 202
             return redirect("/login/verify")
@@ -541,42 +546,71 @@ def _google_cls() -> str:
 
 
 def _needs_code(u: dict[str, Any]) -> bool:
-    """Second factor on a password login: platform policy on, the account has not opted out, and this browser is not
-    trusted. Accounts that only ever sign in with Google never reach here."""
-    if not AUTH.two_factor_active() or not int(u.get("two_factor") or 0):
+    """Second factor on a password login: platform policy on, the account has not opted out (TWO_FACTOR=required
+    ignores an opt-out), and this browser is not trusted. Accounts that only sign in with Google never reach here."""
+    if not AUTH.two_factor_active():
+        return False
+    if AUTH.two_factor_mode() != "required" and not int(u.get("two_factor") or 0):
         return False
     return AUTH.trusted_uid(request.cookies.get("atlas_trust"), app.secret_key) != u["id"]
 
 
+_MFA_UNCONFIGURED = "Sign-in codes are required on this server, but it cannot send email yet. Ask the administrator to set up the portal's mail."
+_MFA_MAIL_DOWN = "We could not send your sign-in code. Try again in a minute."
+_MFA_TOO_MANY = "Too many sign-in codes were requested for this account. Wait an hour, then try again."
+
+
+def _mfa_begin(u: dict[str, Any], nxt: str) -> tuple[dict[str, Any] | None, str, int]:
+    """Mail a code and keep its challenge on the user row (atlas/desk/auth.py). Returns (session record, "", 0): the
+    session holds only the challenge id. On failure (None, the message for the person, HTTP status): a setup error
+    says so instead of posing as a passing mail outage."""
+    if AUTH.two_factor_problem():
+        print("2fa:", AUTH.two_factor_problem())
+        return None, _MFA_UNCONFIGURED, 503
+    try:
+        rec = AUTH.issue(u["email"], app.secret_key, store.mfa_get(u["id"]))
+    except AUTH.TooManyCodes:
+        return None, _MFA_TOO_MANY, 429
+    except Exception as e:
+        print("2fa mail failed:", e)
+        return None, _MFA_MAIL_DOWN, 503
+    store.mfa_put(u["id"], rec)
+    return {"uid": u["id"], "cid": rec["id"], "email": u["email"], "next": nxt}, "", 0
+
+
 @app.route("/login/verify", methods=["GET", "POST"])
 def login_verify():
-    rec = session.get("mfa")
-    if not rec:
+    sess = session.get("mfa")
+    if not sess or not sess.get("cid"):
         return redirect("/login")
-    masked = rec["email"][:2] + "…@" + rec["email"].split("@")[-1]
+    masked = sess["email"][:2] + "…@" + sess["email"].split("@")[-1]
     if request.method == "POST":
         d = request.form if request.form else (request.get_json(silent=True) or {})
         if d.get("resend"):
-            if not AUTH.can_resend(rec):
+            live = store.mfa_get(sess["uid"])
+            u = store.user(sess["uid"])
+            if not u or live.get("id") != sess["cid"]:         # used, or replaced by a newer login
+                return _page("verify.html", error="Start again from the login page.", email=masked), 400
+            if not AUTH.can_resend(live):
                 return _page("verify.html", error="A code was sent moments ago - check your spam folder, then try again.",
                              email=masked), 429
-            try:
-                session["mfa"] = AUTH.challenge(rec["uid"], rec["email"], app.secret_key, rec.get("next", "/desk/workspace"))
-            except Exception as e:
-                print("2fa mail failed:", e)
-                return _page("verify.html", error="We could not send a new code. Try again in a minute.", email=masked), 503
+            new, why, code = _mfa_begin(u, sess.get("next") or "")
+            if not new:
+                return _page("verify.html", error=why, email=masked), code
+            session["mfa"] = new
             return _page("verify.html", error="", email=masked, notice="New code sent.")
-        ok, err = AUTH.check_code(rec, str(d.get("code") or ""), app.secret_key)
-        session["mfa"] = rec                                   # persist the attempt counter
+        rec, used = store.mfa_spend(sess["uid"], sess["cid"])  # the guess is counted before it is checked
+        ok, err = AUTH.check_code(rec, str(d.get("code") or ""), app.secret_key, used)
         if not ok:
             if request.is_json:
                 return jsonify({"error": err}), 401
             return _page("verify.html", error=err, email=masked), 401
-        nxt = rec.get("next") or _front_door(store.user(rec["uid"]))
-        _sign_in(rec["uid"])
+        store.mfa_clear(sess["uid"])                           # a code works once
+        nxt = sess.get("next") or _front_door(store.user(sess["uid"]))
+        _sign_in(sess["uid"])
         resp = jsonify({"ok": True}) if request.is_json else redirect(nxt)
         if d.get("trust"):
-            resp.set_cookie("atlas_trust", AUTH.trust_token(rec["uid"], app.secret_key), max_age=AUTH.TRUST_DAYS * 86400,
+            resp.set_cookie("atlas_trust", AUTH.trust_token(sess["uid"], app.secret_key), max_age=AUTH.TRUST_DAYS * 86400,
                             httponly=True, secure=_HTTPS, samesite="Lax")
         return resp
     return _page("verify.html", error="", email=masked)
@@ -639,7 +673,25 @@ def signup():
             if request.is_json:
                 return jsonify({"error": err}), 400
             return _page("signup.html", error=err, name=name, company=company, email=email, google=_google_cls()), 400
+        required = AUTH.two_factor_mode() == "required"
+        if required and AUTH.two_factor_problem():               # refuse before an account exists that cannot sign in
+            print("2fa:", AUTH.two_factor_problem())
+            if request.is_json:
+                return jsonify({"error": _MFA_UNCONFIGURED}), 503
+            return _page("signup.html", error=_MFA_UNCONFIGURED, name=name, company=company, email=email, google=_google_cls()), 503
         u = store.add_user(email, name, company, generate_password_hash(pw))
+        if required:                    # TWO_FACTOR=required: no session from a password alone, a brand-new one included
+            sess, why, code = _mfa_begin(u, "/desk/workspace")
+            if not sess:
+                why = "Your account is ready, but we could not send your sign-in code. Log in again in a minute."
+                if request.is_json:
+                    return jsonify({"error": why}), code
+                return _page("login.html", error=why, email=email, google=_google_cls()), code
+            session.clear()
+            session["mfa"] = sess
+            if request.is_json:
+                return jsonify({"ok": False, "mfa": True, "verify": "/login/verify"}), 202
+            return redirect("/login/verify")
         _sign_in(u["id"])
         if request.is_json:
             return jsonify({"ok": True})
@@ -662,20 +714,32 @@ def api_me():
         return jsonify({"id": None, "name": "Guest", "email": "", "company": "", "open": OPEN})
     out = {k: v for k, v in u.items() if k != "google_sub"}
     out["google"] = bool(u.get("google_sub"))
-    out["two_factor"] = bool(int(u.get("two_factor") or 0)) and AUTH.two_factor_active()
+    required = AUTH.two_factor_mode() == "required"
+    out["two_factor"] = AUTH.two_factor_active() and (required or bool(int(u.get("two_factor") or 0)))
     out["two_factor_available"] = AUTH.two_factor_active()
+    out["two_factor_required"] = required
     return jsonify(out)
 
 
 @app.patch("/api/me")
 def api_me_patch():
-    """Account settings: {two_factor: bool} turns the mailed sign-in code on or off for this account."""
+    """Account settings: {two_factor: bool} turns the mailed sign-in code on or off for this account. Off needs the
+    account password ({password}): a session cookie alone must not be able to strip the second factor. With
+    TWO_FACTOR=required there is no opting out."""
     u = current_user()
     if not u:
         abort(401)
     d = request.get_json(silent=True) or {}
     if "two_factor" in d:
-        store.set_two_factor(u["id"], bool(d["two_factor"]))
+        on = bool(d["two_factor"])
+        if not on:
+            if AUTH.two_factor_mode() == "required":
+                return jsonify({"error": "sign-in codes are required on this server"}), 400
+            full = store.user_by_email(u["email"]) or {}
+            if full.get("pw_hash") and not check_password_hash(full["pw_hash"], str(d.get("password") or "")):
+                time.sleep(0.8)
+                return jsonify({"error": "enter your password to turn sign-in codes off"}), 403
+        store.set_two_factor(u["id"], on)
     return api_me()
 
 
@@ -705,7 +769,8 @@ def api_health():
     return jsonify({"ok": True, "mode": _mode(), "live_ready": not reason, "live_reason": reason,
                     "hermes_agent": bool(os.environ.get("HERMES_AGENT_URL", "").strip()),
                     "db": store.backend, "db_ok": store.ping(),
-                    "mail": AUTH.mail_ready(), "two_factor": AUTH.two_factor_active(), "google": AUTH.google_ready()})
+                    "mail": AUTH.mail_ready(), "two_factor": AUTH.two_factor_active(), "google": AUTH.google_ready(),
+                    "two_factor_mode": AUTH.two_factor_mode(), "two_factor_ready": not AUTH.two_factor_problem()})
 
 
 # ---------------------------------------------------------------------------- static
@@ -1084,7 +1149,7 @@ def api_desk_provider_set(did):
     if preset == "custom":
         if not base.startswith(("http://", "https://")):
             return jsonify({"error": "give the server's base URL (https://…/v1)"}), 400
-        why = SEC.private_url_reason(base)
+        why = SEC.private_url_reason(base, unresolvable_ok=False)   # a name that resolves nowhere today is not stored
         if why:
             return jsonify({"error": f"that URL is not reachable from here: {why}"}), 400
     entry = {k: v for k, v in p.items() if k not in ("label", "key_hint", "models")}
@@ -2105,6 +2170,9 @@ def api_add_connector():
     config = d.get("config") or {}
     if kind == "camera":                                   # "sample:<clip>" is resolved once, here, like the designer does
         config["source"] = DS.resolve_camera_source(str(config.get("source") or "")) or str(config.get("source") or "")
+        why = _camera_source_reason(config["source"], desk.get("owner_id")) if config["source"] else None
+        if why:
+            return jsonify({"error": why}), 400
     c = store.add_connector(desk["id"], kind, name, config, bool(d.get("auto")))
     return jsonify(_conn_public(c))
 
@@ -2121,6 +2189,9 @@ def api_update_connector(cid):
         if c["kind"] == "camera" and "source" in (d["config"] or {}):
             src = str(d["config"].get("source") or "")
             d["config"]["source"] = DS.resolve_camera_source(src) or src
+            why = _camera_source_reason(d["config"]["source"], desk.get("owner_id")) if d["config"]["source"] else None
+            if why:
+                return jsonify({"error": why}), 400
         fields["config"] = I.merge_secrets(c["config"], d["config"] or {})
     if "auto" in d:
         fields["auto"] = 1 if d["auto"] else 0
@@ -2381,8 +2452,12 @@ def api_camera_planned():
     cam = next((c for c in bp.get("cameras") or [] if c.get("name") == d.get("name")), None)
     if not cam:
         return jsonify({"error": "no planned camera by that name"}), 404
-    if not DS.resolve_camera_source(str(d.get("source") or "")):
+    src = DS.resolve_camera_source(str(d.get("source") or ""))
+    if not src:
         return jsonify({"error": "give a stream address (rtsp://, http://, a webcam index) or pick sample footage"}), 400
+    why = _camera_source_reason(src, desk.get("owner_id"))
+    if why:
+        return jsonify({"error": why}), 400
     made, missing = _build_cameras(desk, {"cameras": [dict(cam, source=str(d["source"]))]})
     if not made:
         return jsonify({"error": f"could not use that source for {cam['name']}"}), 400
@@ -2393,6 +2468,11 @@ def api_camera_planned():
 CAMERA_UPLOAD_DIR = cfg.DATA_DIR / "uploads" / "cameras"
 CAMERA_UPLOAD_EXT = V.VIDEO_EXT | {".jpg", ".jpeg", ".png"}
 CAMERA_UPLOAD_MAX = int(os.environ.get("CAMERA_UPLOAD_MAX_MB", "2048")) * 1024 * 1024
+# Any file on this machine as a camera: only on a single-user install (open mode, or CAMERA_LOCAL_FILES=1). On a shared
+# server a file source is the owner's own upload or the bundled sample footage, never a path someone typed: the probe
+# hands back a frame of whatever it reads, so a path would let one tenant read another's upload or object crops.
+CAMERA_LOCAL_FILES = os.environ.get("CAMERA_LOCAL_FILES", "").strip().lower() in ("1", "true", "yes")
+_CAMERA_FILE_REFUSED = "camera source refused: use a stream address, a webcam, sample footage or a file you uploaded"
 
 
 def _signed_in() -> None:
@@ -2400,22 +2480,51 @@ def _signed_in() -> None:
         abort(401)
 
 
+def _upload_dir(uid: Any) -> Path:
+    """Each account's camera uploads live in their own folder (open mode: one shared folder)."""
+    return CAMERA_UPLOAD_DIR / (f"u{int(uid)}" if uid else "open")
+
+
+def _camera_source_reason(src: str, uid: Any) -> str | None:
+    """Why `uid` may not point a camera at `src`, or None. Streams may sit on the LAN (cameras do) but never on
+    loopback, link-local or the metadata service; files must be this owner's uploads or the sample footage."""
+    kind = V.source_kind(src)
+    if kind in ("rtsp", "http"):
+        return V.stream_reason(src)
+    if kind == "webcam" or OPEN or CAMERA_LOCAL_FILES:
+        return None
+    try:
+        p = Path(src.strip()).resolve()
+    except (OSError, ValueError, RuntimeError):
+        return _CAMERA_FILE_REFUSED
+    for root in ((_upload_dir(uid) if uid else None), DS.sample_dir()):
+        try:
+            if root is not None and p.is_relative_to(root.resolve()):
+                return None
+        except (OSError, ValueError, RuntimeError):
+            continue
+    return _CAMERA_FILE_REFUSED
+
+
 @app.post("/api/cameras/upload")
 def api_camera_upload():
     """multipart "file": a recording (mp4, mov, mkv, ...) or a still image, stored on the server and played as a camera
     (recordings loop on the shared clock, like the sample footage). Returns {"source": path} for /attach."""
     _signed_in()
+    if (request.content_length or 0) > CAMERA_UPLOAD_MAX:     # before the body is parsed, not after
+        return jsonify({"error": f"file is larger than {CAMERA_UPLOAD_MAX // (1024 * 1024)} MB"}), 413
+    request.max_content_length = CAMERA_UPLOAD_MAX           # also bounds a body sent without a Content-Length
     f = request.files.get("file")
     if not f or not f.filename:
         return jsonify({"error": "choose a video or image file"}), 400
     ext = Path(f.filename).suffix.lower()
     if ext not in CAMERA_UPLOAD_EXT:
         return jsonify({"error": f"{ext or 'that file type'} is not supported; use " + ", ".join(sorted(CAMERA_UPLOAD_EXT))}), 400
-    if request.content_length and request.content_length > CAMERA_UPLOAD_MAX:
-        return jsonify({"error": f"file is larger than {CAMERA_UPLOAD_MAX // (1024 * 1024)} MB"}), 413
-    CAMERA_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+    u = current_user()
+    folder = _upload_dir(u["id"] if u else None)
+    folder.mkdir(parents=True, exist_ok=True)
     stem = re.sub(r"[^a-zA-Z0-9_-]+", "-", Path(f.filename).stem).strip("-")[:40] or "camera"
-    dest = CAMERA_UPLOAD_DIR / f"{stem}-{secrets.token_hex(4)}{ext}"
+    dest = folder / f"{stem}-{secrets.token_hex(8)}{ext}"
     f.save(dest)
     return jsonify({"source": str(dest), "name": f.filename, "kind": V.source_kind(str(dest)), "bytes": dest.stat().st_size})
 
@@ -2430,6 +2539,10 @@ def api_camera_probe():
     if not src:
         return jsonify({"ok": False, "error": "enter a stream address, pick a file or choose sample footage"}), 400
     kind = V.source_kind(src)
+    u = current_user()
+    why = _camera_source_reason(src, u["id"] if u else None)
+    if why:
+        return jsonify({"ok": False, "kind": kind, "error": why}), 400
     try:
         jpeg = V.grab(src)
     except Exception as exc:
@@ -2449,6 +2562,9 @@ def api_camera_attach():
         return jsonify({"error": "name the camera"}), 400
     if not src:
         return jsonify({"error": "give a stream address (rtsp://, http://), a webcam number, an uploaded file or sample footage"}), 400
+    why = _camera_source_reason(src, desk.get("owner_id"))
+    if why:
+        return jsonify({"error": why}), 400
     c = store.connector(int(d["cid"])) if d.get("cid") else store.connector_by_name(desk["id"], name)
     if c and (c["desk_id"] != desk["id"] or c["kind"] != "camera"):
         abort(404)
@@ -2945,12 +3061,18 @@ def api_camera_watch(cid):
     return jsonify({"ok": True, "watching": True, "job": j})
 
 
+VIDEO_UPLOAD_MAX = 300 * 1024 * 1024
+
+
 @app.post("/api/vision/video")
 def api_vision_video():
     """Upload a video file (or pass {url}) and have the vision analyst describe it as a timeline.
     The result is logged as a vision event, so 'ask the cameras' can recall it later."""
     desk = need_desk()
     from .. import vision as V
+    if (request.content_length or 0) > VIDEO_UPLOAD_MAX:
+        return jsonify({"error": f"video too large (max {VIDEO_UPLOAD_MAX // (1024 * 1024)} MB)"}), 413
+    request.max_content_length = VIDEO_UPLOAD_MAX              # before the form is parsed
     question = (request.form.get("question") or (request.json or {}).get("question", "") if not request.files else request.form.get("question", "")) or ""
     try:
         frames = min(int(request.form.get("frames") or 6), 10)
@@ -2963,7 +3085,7 @@ def api_vision_video():
         name = re.sub(r"[^\w.\- ]+", "_", f.filename)[-80:] or "clip.mp4"
         src = vdir / f"{int(time.time())}_{name}"
         f.save(str(src))
-        if src.stat().st_size > 300 * 1024 * 1024:
+        if src.stat().st_size > VIDEO_UPLOAD_MAX:
             src.unlink(missing_ok=True)
             return jsonify({"error": "video too large (max 300 MB)"}), 413
         label = name
@@ -4757,7 +4879,7 @@ def _build_cameras(desk: dict[str, Any], bp: dict[str, Any]) -> tuple[list[dict[
     have = {c["name"]: c for c in store.connectors(desk["id"]) if c["kind"] == "camera"}
     for cam in bp.get("cameras") or []:
         src = DS.resolve_camera_source(cam.get("source", ""))
-        if not src:
+        if not src or _camera_source_reason(src, desk.get("owner_id")):
             missing.append(cam["name"])
             continue
         journal = bool(cam.get("journal", True))
@@ -4808,6 +4930,11 @@ def api_design_connect(sid):
 
 
 
+# an ordinary address: RFC 5322 atext in the local part (o'brien@ included), no quoted strings, comments or spaces
+_FORM_EMAIL = re.compile(r"(?=.{3,254}$)[A-Za-z0-9.!#$%&'*+/=?^_{|}~-]+@[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?"
+                         r"(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?)+")
+
+
 @app.route("/hook/<token>", methods=["GET", "POST"])
 def hook(token):
     desk = store.desk_by_token(token)
@@ -4816,18 +4943,23 @@ def hook(token):
     if request.method == "GET":
         return jsonify({"ok": True, "desk": desk["name"], "post": "JSON {name, email, phone, company, notes, source}"})
     d = request.get_json(silent=True) or request.form.to_dict() or {}
-    name = (d.get("name") or d.get("full_name") or "").strip()
-    email_ = (d.get("email") or "").strip()
-    notes = (d.get("notes") or d.get("message") or d.get("enquiry") or "").strip()
+    name = str(d.get("name") or d.get("full_name") or "").strip()[:200]
+    email_ = str(d.get("email") or "").strip()
+    notes = str(d.get("notes") or d.get("message") or d.get("enquiry") or "").strip()
     if not name and not email_:
         return jsonify({"error": "name or email required"}), 400
+    if email_ and not _FORM_EMAIL.fullmatch(email_):
+        # this URL sits in public website forms: the address becomes a contact and a message-thread key, so it has to
+        # be an address and nothing else (double quotes, brackets, backticks, spaces... are refused, never stored)
+        return jsonify({"error": "email is not a valid address"}), 400
+    company = str(d.get("company") or "").strip()[:200]
+    phone = str(d.get("phone") or "").strip()[:40]
     dstore = store.for_desk(desk["id"])
-    lid = dstore.add_lead(name or email_.split("@")[0], (d.get("company") or "").strip(), email_, (d.get("phone") or "").strip(),
-                          (d.get("source") or "webhook").strip(), notes)
+    lid = dstore.add_lead(name or email_.split("@")[0], company, email_, phone, str(d.get("source") or "webhook").strip()[:60], notes)
     if email_ or notes:
         dstore.add_message("form", "in", email_ or name, notes or "(no message)", actor=name or email_)
     if email_ and not dstore.contact_for(email_):
-        dstore.upsert_contact(email_, {"name": name, "company": d.get("company", ""), "email": email_, "phone": d.get("phone", ""), "stage": "New", "notes": "Inbound via webhook"})
+        dstore.upsert_contact(email_, {"name": name, "company": company, "email": email_, "phone": phone, "stage": "New", "notes": "Inbound via webhook"})
     rid = _lead_case_run(desk, lid)
     return jsonify({"ok": True, "lead_id": lid, "run_id": rid})
 
@@ -4855,6 +4987,24 @@ def _inbound_message(desk: dict[str, Any], phone: str, name: str, text: str, sou
     return _lead_case_run(desk, lid, extra=how)
 
 
+def _meta_unsigned(desk_id: int, kind: str, label: str):
+    """None when this POST is signed with the app secret of one of the desk's `kind` connectors, else the refusal.
+    The Meta hooks share their URL token with the public web-form hook, so the token alone proves nothing: without
+    the signature anyone holding the form URL could forge DMs that start runs and land in the owner's threads."""
+    conns = [c for c in store.connectors(desk_id) if c["kind"] == kind]
+    if not conns:
+        return jsonify({"error": f"no {label} connector on this desk"}), 404
+    keys = [str((c.get("config") or {}).get("app_secret") or "").strip() for c in conns]
+    keys = [k for k in keys if k]
+    if not keys:
+        return jsonify({"error": f"set app_secret on the {label} connector (Meta app settings → Basic → App secret): "
+                                 "inbound messages are accepted only with Meta's signature"}), 403
+    body, sig = request.get_data(cache=True), request.headers.get("X-Hub-Signature-256", "")
+    if not any(I.meta_signature_ok(k, body, sig) for k in keys):
+        return jsonify({"error": "missing or wrong X-Hub-Signature-256"}), 403
+    return None
+
+
 @app.route("/hook/<token>/whatsapp", methods=["GET", "POST"])
 def hook_whatsapp(token):
     desk = store.desk_by_token(token)
@@ -4866,6 +5016,9 @@ def hook_whatsapp(token):
         if request.args.get("hub.mode") == "subscribe" and want and request.args.get("hub.verify_token") == want:
             return Response(request.args.get("hub.challenge", ""), 200, mimetype="text/plain")   # echoed as text, never HTML
         return jsonify({"error": "verify_token mismatch or no WhatsApp connector"}), 403
+    refused = _meta_unsigned(desk["id"], "whatsapp", "WhatsApp")
+    if refused:
+        return refused
     msgs = I.parse_whatsapp_webhook(request.get_json(silent=True) or {})
     runs = [_inbound_message(desk, m["from"], m["name"], m["text"], "whatsapp") for m in msgs if m.get("from")]
     return jsonify({"ok": True, "messages": len(msgs), "runs": runs})
@@ -4882,6 +5035,9 @@ def hook_instagram(token):
         if request.args.get("hub.mode") == "subscribe" and want and request.args.get("hub.verify_token") == want:
             return Response(request.args.get("hub.challenge", ""), 200, mimetype="text/plain")   # echoed as text, never HTML
         return jsonify({"error": "verify_token mismatch or no Instagram connector"}), 403
+    refused = _meta_unsigned(desk["id"], "instagram", "Instagram")
+    if refused:
+        return refused
     msgs = I.parse_instagram_webhook(request.get_json(silent=True) or {})
     dstore = store.for_desk(desk["id"])
     runs = []
@@ -4918,6 +5074,8 @@ if _n_enc:
     print(f"encrypted {_n_enc} legacy connector config(s)")
 if OPEN and os.environ.get("RENDER"):
     print("WARNING: DESK_OPEN=1 on a public deployment - the portal and every desk are reachable without login")
+if not OPEN and AUTH.two_factor_problem():
+    print("WARNING: " + AUTH.two_factor_problem())
 scheduler.LIVE = lambda desk=None: _mode() != "demo" and not _live_reason(desk)
 scheduler.DISPATCH = _dispatch
 scheduler.LEAD_RUN = _lead_case_run

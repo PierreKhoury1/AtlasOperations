@@ -226,7 +226,7 @@ def test_portal_real_send_crm_mirror_slack(app_client, fake):
     _login(c)
     R = J(c.get("/api/connectors"))
     assert set(R["kinds"]) >= {"resend", "whatsapp", "twilio", "hubspot", "pipedrive", "gcal", "slack"}
-    assert R["channels"] == {"email": False, "whatsapp": False, "sms": False, "booking": False, "slack": False}
+    assert R["channels"] == {"email": False, "whatsapp": False, "sms": False, "booking": False, "slack": False, "instagram": False}
     assert R["whatsapp_hook_url"].endswith("/whatsapp") and R["sms_hook_url"].endswith("/sms")
     for kind, name, cfg in [("resend", "resend", {"api_key": "re_k", "from_email": "desk@atlasdesks.com", "from_name": "Maya"}),
                             ("hubspot", "hubspot", {"access_token": "pat"}),
@@ -244,6 +244,7 @@ def test_portal_real_send_crm_mirror_slack(app_client, fake):
     assert pend, "demo desk should have queued an email for the lead"
     slack_before = len(fake.sent("hooks.slack.com"))
     assert slack_before >= 1                                          # approval ping from the orchestrator
+    stage_before = next(x for x in J(c.get("/api/contacts")) if x["email"] == "hannah@x.com")["stage"]
     row = J(c.post(f"/api/actions/{pend[0]['id']}/decide", json={"status": "approved", "note": "go"}))
     assert row["status"] == "sent" and "sent via Resend as desk@atlasdesks.com" in row["note"], row["note"]
     sent = fake.sent("api.resend.com/emails")[-1][2]
@@ -253,7 +254,8 @@ def test_portal_real_send_crm_mirror_slack(app_client, fake):
     detail = J(c.get(f"/api/runs/{row['run_id']}"))
     assert any(e["kind"] == "tool" and "crm sync → HubSpot" in e["text"] for e in detail["events"])
     contact = next(x for x in J(c.get("/api/contacts")) if x["email"] == "hannah@x.com")
-    assert contact["stage"] == "Contacted"
+    # a send moves New -> Contacted and never knocks back a stage the run already set (the demo CRM keeper qualifies)
+    assert contact["stage"] == ("Contacted" if stage_before == "New" else stage_before)
 
 
 def test_inbound_whatsapp_and_sms_hooks(app_client, fake):
@@ -261,8 +263,8 @@ def test_inbound_whatsapp_and_sms_hooks(app_client, fake):
     _login(c)
     R = J(c.get("/api/connectors"))
     token = R["hook_url"].rsplit("/", 1)[1]
-    wa = J(c.post("/api/connectors", json={"kind": "whatsapp", "name": "wa", "config": {"phone_number_id": "111", "access_token": "EAAG", "verify_token": "shh"}}))
-    assert wa["id"]
+    wa = J(c.post("/api/connectors", json={"kind": "whatsapp", "name": "wa", "config": {"phone_number_id": "111", "access_token": "EAAG", "verify_token": "shh", "app_secret": "wa-secret"}}))
+    assert wa["id"] and wa["config"]["app_secret"].startswith("••••")              # masked like every secret
     # Meta verification handshake
     assert c.get(f"/hook/{token}/whatsapp?hub.mode=subscribe&hub.verify_token=wrong&hub.challenge=123").status_code == 403
     ok = c.get(f"/hook/{token}/whatsapp?hub.mode=subscribe&hub.verify_token=shh&hub.challenge=123")
@@ -270,7 +272,15 @@ def test_inbound_whatsapp_and_sms_hooks(app_client, fake):
     # inbound message → lead + run
     payload = {"entry": [{"changes": [{"value": {"contacts": [{"wa_id": "447700900555", "profile": {"name": "Priya Raman"}}],
                                                   "messages": [{"from": "447700900555", "id": "wamid.9", "type": "text", "text": {"body": "Do you have anything Thursday?"}}]}}]}]}
-    r = J(c.post(f"/hook/{token}/whatsapp", json=payload))
+    import hashlib
+    import hmac
+    raw = json.dumps(payload).encode()
+    assert c.post(f"/hook/{token}/whatsapp", data=raw, content_type="application/json").status_code == 403   # unsigned
+    forged = "sha256=" + hmac.new(b"not-the-secret", raw, hashlib.sha256).hexdigest()
+    assert c.post(f"/hook/{token}/whatsapp", data=raw, content_type="application/json",
+                  headers={"X-Hub-Signature-256": forged}).status_code == 403
+    signed = "sha256=" + hmac.new(b"wa-secret", raw, hashlib.sha256).hexdigest()
+    r = J(c.post(f"/hook/{token}/whatsapp", data=raw, content_type="application/json", headers={"X-Hub-Signature-256": signed}))
     assert r["ok"] and r["messages"] == 1 and len(r["runs"]) == 1
     lead = next(l for l in J(c.get("/api/leads")) if l["phone"] == "+447700900555")
     assert lead["name"] == "Priya Raman" and lead["source"] == "whatsapp" and "Thursday" in lead["notes"]

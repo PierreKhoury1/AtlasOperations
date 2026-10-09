@@ -263,8 +263,9 @@ def test_login_lands_in_workspace_then_home(app_client):
     c.get("/logout")
     r = c.post("/login", data={"email": "ws-land@example.com", "password": "password1"})
     assert r.status_code == 302 and r.headers["Location"].endswith("/desk/workspace")
-    page = c.get("/desk/workspace").get_data(as_text=True)
-    assert 'id="camstrip"' in page and 'id="guide"' in page and "How to use Atlas" in page
+    r = c.get("/desk/workspace")
+    page = r.get_data(as_text=True)
+    assert r.status_code == 200 and "<title>Atlas Workspace</title>" in page and "/desk/static/workspace.js" in page
     c.post("/api/desks", json={"name": "L", "template": "site_watch", "tier": "free"})   # with a desk, its Home is the front door
     c.get("/logout")
     r = c.post("/login", data={"email": "ws-land@example.com", "password": "password1"})

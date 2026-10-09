@@ -158,6 +158,10 @@ class Feed:
                 raise RuntimeError(f"camera source not found: {s[:120]}")
             cap = cv2.VideoCapture(s)
         else:
+            from . import vision as V
+            why = V.stream_reason(s)                 # OpenCV opens rtsp/http itself: same address rule as a grab
+            if why:
+                raise RuntimeError(why)
             os.environ.setdefault("OPENCV_FFMPEG_CAPTURE_OPTIONS", "rtsp_transport;tcp")
             cap = cv2.VideoCapture(s, cv2.CAP_FFMPEG)
         if not cap.isOpened():

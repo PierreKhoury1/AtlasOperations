@@ -132,7 +132,7 @@ function card(o){
 function facet(id, key, counts){
   const el = $(id); const total = Object.values(counts).reduce((a, b) => a + b, 0);
   el.innerHTML = `<button class="${F[key] ? '' : 'on'}" onclick="setF('${key}','')">all <small>${total}</small></button>` +
-    Object.entries(counts).sort((a, b) => b[1] - a[1]).map(([k, n]) => `<button class="${F[key] === k ? 'on' : ''}" onclick="setF('${key}',${JSON.stringify(k)})">${esc(k)} <small>${n}</small></button>`).join('');
+    Object.entries(counts).sort((a, b) => b[1] - a[1]).map(([k, n]) => `<button class="${F[key] === k ? 'on' : ''}" onclick="setF('${key}',${esc(JSON.stringify(k))})">${esc(k)} <small>${n}</small></button>`).join('');
 }
 function setF(k, v){ F[k] = v; load(); }
 async function load(){

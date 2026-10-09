@@ -134,19 +134,39 @@ def _targets(url: str):
     return None, [ip for ip in ips if ip is not None]
 
 
-def private_url_reason(url: str) -> str | None:
+def _public_ip_reason(ip) -> str | None:
+    # is_global is False for private, loopback, link-local, CGNAT (100.64/10), reserved and documentation ranges
+    if not ip.is_global or ip.is_multicast or ip in _METADATA_IPS:
+        return f"resolves to non-public address {ip}"
+    return None
+
+
+def _internal_ip_reason(ip) -> str | None:
+    if ip.is_loopback or ip.is_link_local or ip.is_unspecified or ip.is_multicast or ip in _METADATA_IPS:
+        return f"refused - {ip} is a server-internal address"
+    return None
+
+
+_IP_RULES = {"public": _public_ip_reason, "internal": _internal_ip_reason}
+
+
+def private_url_reason(url: str, unresolvable_ok: bool = True) -> str | None:
     """Reason string when a URL reaches anything that is not public internet space, else None.
     Used for agent-driven fetches (web_fetch, link study, the browser agent): a model that reads an attacker's page
-    must not be able to point the next request at the LAN, loopback or the metadata service."""
+    must not be able to point the next request at the LAN, loopback or the metadata service.
+    unresolvable_ok=False for an endpoint being SAVED (a BYO model URL): a name that does not resolve now is refused
+    rather than stored, so it cannot start resolving to somewhere internal later."""
     if _ALLOW_PRIVATE:
         return None
     reason, ips = _targets(url)
     if reason:
         return reason
+    if not ips and not unresolvable_ok:
+        return "the host name does not resolve"
     for ip in ips or []:
-        # is_global is False for private, loopback, link-local, CGNAT (100.64/10), reserved and documentation ranges
-        if not ip.is_global or ip.is_multicast or ip in _METADATA_IPS:
-            return f"resolves to non-public address {ip}"
+        why = _public_ip_reason(ip)
+        if why:
+            return why
     return None
 
 
@@ -160,9 +180,86 @@ def internal_target_reason(url: str) -> str | None:
     if reason:
         return reason
     for ip in ips or []:
-        if ip.is_loopback or ip.is_link_local or ip.is_unspecified or ip.is_multicast or ip in _METADATA_IPS:
-            return f"refused - {ip} is a server-internal address"
+        why = _internal_ip_reason(ip)
+        if why:
+            return why
     return None
+
+
+def vetted_ips(host: str, scope: str = "public") -> list:
+    """Every address `host` resolves to right now, IPv4 first, once ALL of them pass the `scope` rules ("public":
+    internet only; "internal": the LAN too, never loopback / link-local / metadata). Raises UnsafeTarget otherwise,
+    including when the name does not resolve. GuardedTransport connects to these exact addresses. ALLOW_PRIVATE_FETCH=1
+    (a single-user install) turns the rules off: [] = connect as usual."""
+    if _ALLOW_PRIVATE:
+        return []
+    rule = _IP_RULES[scope]
+    h = (host or "").strip().strip("[]").rstrip(".").lower()
+    if not h:
+        raise UnsafeTarget("no host in URL")
+    if h == "localhost" or h.endswith(_INTERNAL_NAMES[1:]):
+        raise UnsafeTarget(f"internal hostname '{host}'")
+    lit = _ip(h)
+    if lit is not None:
+        ips = [lit]
+    else:
+        try:
+            infos = socket.getaddrinfo(h, None, proto=socket.IPPROTO_TCP)
+        except (socket.gaierror, UnicodeError, OSError):
+            raise UnsafeTarget(f"cannot resolve '{host}'") from None
+        ips = list(dict.fromkeys(ip for ip in (_ip(i[4][0].split("%")[0]) for i in infos) if ip is not None))
+    if not ips:
+        raise UnsafeTarget(f"cannot resolve '{host}'")
+    for ip in ips:
+        why = rule(ip)
+        if why:
+            raise UnsafeTarget(why)
+    return sorted(ips, key=lambda ip: ip.version)
+
+
+def guarded_transport(scope: str = "public", **kw):
+    """An httpx transport for URLs an owner typed in (BYO model endpoints, Hermes Agent instances): see GuardedTransport."""
+    return _guarded_cls()(scope, **kw)
+
+
+_GT = None
+
+
+def _guarded_cls():
+    global _GT
+    if _GT is not None:
+        return _GT
+    import httpx
+
+    class GuardedTransport(httpx.HTTPTransport):
+        """Connects only to an address the rules approved, and to exactly that address: the host is resolved once per
+        request, every answer is checked (vetted_ips), and the connection goes to a checked IP while the Host header
+        and the TLS name (SNI + certificate check) stay the host name. A name that answers with a public address for
+        the check and with 127.0.0.1 a moment later for the connect (DNS rebinding, TTL 0) never reaches loopback, the
+        LAN or the metadata service. Redirects are not followed by the clients that use it."""
+
+        def __init__(self, scope: str = "public", **kw):
+            super().__init__(**kw)
+            self._scope = scope
+
+        def handle_request(self, request):
+            host = request.url.host
+            ips = vetted_ips(host, self._scope)
+            if not ips or (len(ips) == 1 and str(ips[0]) == host):
+                return super().handle_request(request)
+            url = request.url
+            request.extensions = {**request.extensions, "sni_hostname": host}
+            err = None
+            for ip in ips:                              # every address passed; use the first that accepts a connection
+                request.url = url.copy_with(host=str(ip))
+                try:
+                    return super().handle_request(request)
+                except (httpx.ConnectError, httpx.ConnectTimeout) as exc:
+                    err = exc
+            raise err  # type: ignore[misc]
+
+    _GT = GuardedTransport
+    return _GT
 
 
 def send_checked(client, method: str, url: str, *, guard=private_url_reason, max_hops: int = 5, **kw):

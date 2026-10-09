@@ -109,9 +109,19 @@ def test_daily_report_send_now_and_daily_at_jobs(app_client, monkeypatch):
     assert c.post("/api/jobs", json={"kind": "task", "name": "x", "task": "y", "at": "25:99"}).status_code == 400
 
 
+def _meta_post(c, url, payload, secret):
+    """POST like Meta does: the raw JSON body signed with the app secret (X-Hub-Signature-256)."""
+    import hashlib
+    import hmac
+    raw = json.dumps(payload).encode()
+    sig = "sha256=" + hmac.new(secret.encode(), raw, hashlib.sha256).hexdigest() if secret else ""
+    return c.post(url, data=raw, content_type="application/json", headers={"X-Hub-Signature-256": sig} if sig else {})
+
+
 def test_instagram_dms_thread_and_reply(app_client, monkeypatch):
     c = app_client
     did, tok = _desk(c, "msg6@example.com")
+    assert _meta_post(c, f"/hook/{tok}/instagram", {"entry": []}, "s3").status_code == 404     # no Instagram connector yet
     A.store.add_connector(did, "instagram", "insta", {"page_id": "123", "access_token": "tok", "verify_token": "v1"}, False)
     # Meta verification handshake
     ok = c.get(f"/hook/{tok}/instagram?hub.mode=subscribe&hub.verify_token=v1&hub.challenge=ch42")
@@ -122,7 +132,14 @@ def test_instagram_dms_thread_and_reply(app_client, monkeypatch):
         {"sender": {"id": "778899"}, "message": {"text": "Do you take walk-ins?"}},
         {"sender": {"id": "1"}, "message": {"is_echo": True, "text": "our own echo"}},
     ]}]}
-    r = J(c.post(f"/hook/{tok}/instagram", json=payload))
+    # anyone holding the hook URL (it is the public form token) cannot forge a DM: Meta's signature is required
+    assert _meta_post(c, f"/hook/{tok}/instagram", payload, "").status_code == 403            # no app_secret set yet
+    conn = next(x for x in A.store.connectors(did) if x["kind"] == "instagram")
+    A.store.update_connector(conn["id"], config={**conn["config"], "app_secret": "ig-app-secret"})
+    assert _meta_post(c, f"/hook/{tok}/instagram", payload, "").status_code == 403            # unsigned
+    assert _meta_post(c, f"/hook/{tok}/instagram", payload, "guessed").status_code == 403     # signed with the wrong key
+    assert not any(t["key"] == "ig:778899" for t in J(c.get("/api/messages/threads"))["threads"])
+    r = J(_meta_post(c, f"/hook/{tok}/instagram", payload, "ig-app-secret"))
     assert r["messages"] == 1
     th = J(c.get("/api/messages/threads"))["threads"]
     ig = next(t for t in th if t["key"] == "ig:778899")
@@ -139,3 +156,17 @@ def test_instagram_dms_thread_and_reply(app_client, monkeypatch):
     J(c.post(f"/api/actions/{aid}/decide", json={"status": "approved", "subject": "", "body": "See you at 6."}))
     msgs = J(c.get("/api/messages?contact=ig%3A778899"))["messages"]
     assert len(msgs) == 3 and msgs[-1]["actor"] == "host"
+
+
+def test_form_hook_refuses_addresses_that_are_not_addresses(app_client):
+    """The web-form hook is public: its email becomes a contact and a thread key, so only real addresses are kept."""
+    c = app_client
+    did, tok = _desk(c, "msg7@example.com")
+    for bad in ("a'-alert(document.domain)-'@x.example", "a'-alert`1`-'@evil.example", "x@y", "a b@c.de",
+                '"q"@x.example', "<a@b.co>", "a@b.co>"):
+        r = c.post(f"/hook/{tok}", json={"email": bad, "notes": "hi"})
+        assert r.status_code == 400 and "valid address" in r.get_json()["error"], bad
+    assert not any("alert" in t["key"] for t in J(c.get("/api/messages/threads"))["threads"])
+    ok = c.post(f"/hook/{tok}", json={"name": "Sean O'Brien", "email": "sean.o'brien@example.ie", "company": 7, "notes": "table for 2"})
+    assert ok.status_code == 200 and ok.get_json()["ok"]
+    assert any(t["key"] == "sean.o'brien@example.ie" for t in J(c.get("/api/messages/threads"))["threads"])

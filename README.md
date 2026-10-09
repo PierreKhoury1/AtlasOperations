@@ -145,14 +145,15 @@ Every outbound action still goes through the approval queue. Connectors decide w
 
 Inbound URLs (shown on the Integrations page, per desk):
 
-- `POST /hook/<token>` — web forms / Zapier / Make: JSON `{name, email, phone, company, notes, source}`.
-- `GET|POST /hook/<token>/whatsapp` — Meta WhatsApp webhook. GET answers the verification handshake using the connector's `verify_token`; POST turns each text message into a lead + run, and Atlas is told to reply on WhatsApp.
+- `POST /hook/<token>` — web forms / Zapier / Make: JSON `{name, email, phone, company, notes, source}`. `email`, when given, must be a plain address (400 otherwise).
+- `GET|POST /hook/<token>/whatsapp` — Meta WhatsApp webhook. GET answers the verification handshake using the connector's `verify_token`; POST turns each text message into a lead + run, and Atlas is told to reply on WhatsApp. POSTs must carry Meta's `X-Hub-Signature-256` made with the connector's `app_secret` (403 otherwise): the hook URL shares its token with the public form hook, so the token alone proves nothing.
+- `GET|POST /hook/<token>/instagram` — Instagram DMs (Meta Graph API), same handshake and the same signature rule.
 - `POST /hook/<token>/sms` — Twilio inbound (SMS or WhatsApp sandbox). Returns empty TwiML; the reply is drafted and queued for approval.
 
 Set-up crib sheet:
 
 - **Resend**: verify your domain at resend.com → API key → `from_email` on that domain.
-- **WhatsApp Cloud API**: Meta for Developers → app → WhatsApp → API setup → Phone number ID + permanent System User token. Webhooks → callback URL = the WhatsApp hook URL, verify token = whatever you typed in the connector, subscribe to `messages`.
+- **WhatsApp Cloud API**: Meta for Developers → app → WhatsApp → API setup → Phone number ID + permanent System User token. Webhooks → callback URL = the WhatsApp hook URL, verify token = whatever you typed in the connector, subscribe to `messages`. Copy the app's App secret (App settings → Basic) into the connector's `app_secret`, or inbound messages are refused.
 - **Twilio**: Console → Account SID / Auth token; buy a number (`from_number`); for WhatsApp use the sandbox sender or your approved sender as `whatsapp_from`; set the number's messaging webhook to the SMS hook URL.
 - **HubSpot**: Settings → Integrations → Private apps → scopes `crm.objects.contacts.read`, `crm.objects.contacts.write` → access token.
 - **Pipedrive**: Personal preferences → API → token; `company_domain` is the subdomain.
@@ -186,6 +187,12 @@ Add a camera on the **Cameras** page (webcam index, `rtsp://...`, or an `http://
 carries one rule; **Watch** polls it (5 s minimum), runs YOLO locally, and wakes the desk when the rule fires. The run
 gets the counts, the analyst's answer to the standing question and the snapshot; whatever it decides to send waits
 in the approval queue.
+
+Sources an owner can use: a stream on the internet or the LAN (never this server's loopback, link-local or the cloud
+metadata address), a webcam index, sample footage, or a file **they uploaded** (kept per account under
+`uploads/cameras/u<id>/`). A typed server path is refused with accounts on, so one tenant cannot read another's upload
+or object crops through the probe; a single-user install can allow any local file with `CAMERA_LOCAL_FILES=1`
+(`DESK_OPEN=1` allows it too).
 
 | Field | Meaning |
 |---|---|

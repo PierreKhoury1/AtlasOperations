@@ -67,3 +67,60 @@ def test_upload_probe_attach_swap_delete(app_client):
     assert J(c.post("/api/cameras/attach", json={"name": "x", "source": ""})).get("error")
     assert J(c.delete(f"/api/connectors/{cid}"))["ok"]
     assert watch_jobs() == []                                              # the watch job goes with the camera
+
+
+def _owner(A, email):
+    c = A.app.test_client()
+    A._RL_AUTH._hits.clear()
+    assert c.post("/signup", json={"name": "Cam", "company": "Cam Co", "email": email, "password": "password1"}).status_code in (200, 302)
+    c.post("/api/desks", json={"name": "Cam Co", "template": "site_watch", "tier": "free"})
+    return c
+
+
+def test_file_sources_are_the_owners_own_uploads(app_client):
+    """A file source is the signed-in owner's own upload (or sample footage), never a path someone typed: the probe
+    returns a frame of whatever it reads, so a path would read another tenant's upload or crop, or any server file."""
+    import atlas.desk.app as A
+    a, b = _owner(A, "cam-tenant-a@example.com"), _owner(A, "cam-tenant-b@example.com")
+    mine = J(a.post("/api/cameras/upload", data={"file": (io.BytesIO(_png()), "private.png")}, content_type="multipart/form-data"))
+    uid_a = A.store.user_by_email("cam-tenant-a@example.com")["id"]
+    assert f"u{uid_a}" in mine["source"]                                  # per-account folder
+    assert J(a.post("/api/cameras/probe", json={"source": mine["source"]}))["ok"]
+    # tenant B: A's upload, a server file, a missing path - one answer for all, and no frame
+    for src in (mine["source"], str(A.cfg.DATA_DIR / "desk.db"), str(A.cfg.DATA_DIR / "nope.jpg"),
+                str(A.cfg.DATA_DIR / "objects" / "desk1" / "1.jpg")):
+        r = b.post("/api/cameras/probe", json={"source": src})
+        assert r.status_code == 400 and "refused" in J(r)["error"] and "preview" not in J(r), src
+        assert b.post("/api/cameras/attach", json={"name": "peek", "source": src}).status_code == 400
+        assert b.post("/api/connectors", json={"kind": "camera", "name": "peek", "config": {"source": src}}).status_code == 400
+    assert not any(x["name"] == "peek" for x in J(b.get("/api/cameras"))["cameras"])
+    # streams may sit on the LAN, never on this server's loopback or the metadata service
+    for src in ("rtsp://127.0.0.1:8114/x", "rtsp://user:pw@localhost/stream", "http://127.0.0.1:9/snap.jpg",
+                "rtsp://169.254.169.254/latest", "http://[::1]/x.jpg"):
+        r = b.post("/api/cameras/probe", json={"source": src})
+        assert r.status_code == 400 and "refused" in J(r)["error"], src
+    # B's own upload is fine
+    theirs = J(b.post("/api/cameras/upload", data={"file": (io.BytesIO(_png()), "door.png")}, content_type="multipart/form-data"))
+    assert J(b.post("/api/cameras/probe", json={"source": theirs["source"]}))["ok"]
+    assert J(b.post("/api/cameras/attach", json={"name": "door", "source": theirs["source"]}))["ok"]
+
+
+def test_upload_size_is_checked_before_the_body_is_read(app_client, monkeypatch):
+    import atlas.desk.app as A
+    c = _owner(A, "cam-big@example.com")
+    monkeypatch.setattr(A, "CAMERA_UPLOAD_MAX", 1024)
+    r = c.post("/api/cameras/upload", data={"file": (io.BytesIO(b"\0" * 4096), "big.mp4")}, content_type="multipart/form-data")
+    assert r.status_code == 413
+    assert A.app.config["MAX_CONTENT_LENGTH"] and A.app.config["MAX_CONTENT_LENGTH"] <= 1024 ** 3   # every body is bounded
+
+
+def test_stream_rule_also_guards_grabs_and_live_feeds():
+    from atlas import vision as V
+    assert V.stream_reason("rtsp://127.0.0.1:554/x").startswith("camera source refused")
+    assert V.stream_reason("rtsp://192.168.1.20:554/stream1") is None      # a LAN camera is fine
+    assert V.stream_reason("C:/videos/x.mp4") is None                       # not a stream: the portal decides files
+    try:
+        V._grab_rtsp("rtsp://127.0.0.1:9/x")
+        raise AssertionError("grab must refuse loopback")
+    except RuntimeError as exc:
+        assert "refused" in str(exc)

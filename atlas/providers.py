@@ -210,11 +210,16 @@ class OpenAICompatProvider(Provider):
         model = model or self.default_model
         if not self.base_url:
             raise RuntimeError("OpenAI-compatible provider: base_url not set (Settings).")
-        if self.cfg.get("url_guard"):                   # a desk owner's own endpoint (BYO): public addresses only, every call
+        guard = self.cfg.get("url_guard")             # an endpoint a desk owner typed in: checked on every call, and the
+        transport = None                              # connection is pinned to the checked address (no DNS rebinding)
+        if guard:
             from . import secure as SEC
-            why = SEC.private_url_reason(self.base_url)
-            if why:
-                raise RuntimeError(f"model endpoint refused: {why}")
+            scope = "internal" if guard == "internal" else "public"   # BYO model URLs: public internet only;
+            try:                                                        # a Hermes Agent instance may sit on the LAN
+                SEC.vetted_ips(self._httpx.URL(self.base_url).host, scope)
+            except (SEC.UnsafeTarget, self._httpx.InvalidURL) as exc:
+                raise RuntimeError(f"model endpoint refused: {exc}") from None
+            transport = SEC.guarded_transport(scope)
         if not model:
             raise RuntimeError("OpenAI-compatible provider: model not set (Settings or agent).")
         msgs = ([{"role": "system", "content": system}] if system else []) + list(messages)
@@ -253,7 +258,7 @@ class OpenAICompatProvider(Provider):
         # Wall-clock limits for streamed calls. OpenRouter keeps a queued request alive with ": PROCESSING"
         # comments, so the socket read timeout alone never fires - without these a throttled model hangs a run forever.
         limits = {"first_token_s": float(self.cfg.get("first_token_s", 120)), "call_max_s": float(self.cfg.get("call_max_s", 420))}
-        with self._httpx.Client(base_url=self.base_url, headers=headers,
+        with self._httpx.Client(base_url=self.base_url, headers=headers, transport=transport,
                                 timeout=float(self.cfg.get("timeout", 300))) as client:
             try:
                 body = self._once(client, payload, on_token, _raise, limits)

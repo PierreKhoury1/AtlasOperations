@@ -24,6 +24,17 @@ def tmp_dir():
     return _TMP
 
 
+@pytest.fixture(autouse=True)
+def _fresh_sign_in_limit():
+    """Every test client is 127.0.0.1, so the per-IP sign-in limit (20 per 10 minutes) is shared by the whole suite and
+    used to run out halfway, failing unrelated tests with 429. Each test starts with a clean count; the tests about
+    the limit install their own limiter."""
+    A = sys.modules.get("atlas.desk.app")
+    if A is not None:
+        A._RL_AUTH._hits.clear()
+    yield
+
+
 # Set ATLAS_TEST_DATABASE_URL=postgres://... to run the whole suite against PostgreSQL instead of SQLite
 # (scripts/test_pg.py starts an embedded server and does exactly that).
 PG_URL = os.environ.get("ATLAS_TEST_DATABASE_URL", "").strip() or None

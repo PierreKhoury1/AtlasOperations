@@ -14,17 +14,30 @@ def client(app_client):
         yield c
 
 
+def _mail_env(monkeypatch, mode):
+    monkeypatch.setenv("TWO_FACTOR", mode)
+    monkeypatch.setenv("ATLAS_SMTP_HOST", "smtp.invalid")         # "configured" - nothing is ever sent
+    monkeypatch.setenv("ATLAS_MAIL_FROM", "desk@example.com")
+
+
 @pytest.fixture()
 def mailbox(monkeypatch):
-    """2FA on, with the portal's mail captured instead of sent."""
+    """2FA required, the portal's mail configured but captured instead of sent."""
     sent = []
-    monkeypatch.setenv("TWO_FACTOR", "required")
+    _mail_env(monkeypatch, "required")
     monkeypatch.setattr(AUTH, "send_mail", lambda to, subject, body: sent.append((to, subject, body)) or "ok")
     return sent
 
 
 def _code(mailbox):
     return re.search(r"code is (\d{6})", mailbox[-1][2]).group(1)
+
+
+def _account(email, name="Pat"):
+    """An existing password account (signup itself is tested separately: in required mode it needs a code too)."""
+    from werkzeug.security import generate_password_hash
+    if not A.store.user_by_email(email):
+        A.store.add_user(email, name, "Co", generate_password_hash("password1"))
 
 
 def _signup(client, email, name="Pat"):
@@ -41,23 +54,55 @@ def test_password_login_without_mail_configured_skips_the_code(client, monkeypat
     r = client.post("/login", json={"email": "plain@example.com", "password": "password1"})
     assert r.status_code == 200 and r.get_json()["ok"] is True
     assert client.get("/api/me").get_json()["two_factor_available"] is False
+    h = client.get("/api/health").get_json()
+    assert h["two_factor"] is False and h["two_factor_ready"] is True and h["two_factor_mode"] == "auto"
+
+
+def test_required_without_any_mail_says_it_is_a_setup_problem(client, monkeypatch):
+    for k in ("ATLAS_SMTP_HOST", "ATLAS_RESEND_KEY", "ATLAS_MAIL_FROM"):
+        monkeypatch.delenv(k, raising=False)
+    _account("nomail@example.com")
+    monkeypatch.setenv("TWO_FACTOR", "required")
+    assert AUTH.two_factor_problem().startswith("TWO_FACTOR=required but the portal has no mail sender")
+    h = client.get("/api/health").get_json()
+    assert h["two_factor"] is True and h["two_factor_ready"] is False and h["mail"] is False
+    r = client.post("/login", json={"email": "nomail@example.com", "password": "password1"})
+    assert r.status_code == 503 and "cannot send email yet" in r.get_json()["error"]
+    page = client.post("/login", data={"email": "nomail@example.com", "password": "password1"})
+    assert page.status_code == 503 and "cannot send email yet" in page.get_data(as_text=True)
+    assert client.get("/api/me").get_json()["id"] is None
+    # no account is created that could never sign in
+    r = client.post("/signup", json={"name": "N", "email": "nomail-new@example.com", "password": "password1"})
+    assert r.status_code == 503 and A.store.user_by_email("nomail-new@example.com") is None
 
 
 def test_required_mode_fails_closed_when_mail_is_down(client, monkeypatch):
-    monkeypatch.setenv("TWO_FACTOR", "required")
+    _mail_env(monkeypatch, "required")
     monkeypatch.setattr(AUTH, "send_mail", lambda *a: (_ for _ in ()).throw(RuntimeError("smtp down")))
-    _signup(client, "closed@example.com")
+    _account("closed@example.com")
     r = client.post("/login", json={"email": "closed@example.com", "password": "password1"})
-    assert r.status_code == 503
+    assert r.status_code == 503 and "Try again in a minute" in r.get_json()["error"]
     assert client.get("/api/me").get_json()["id"] is None
 
 
+def test_required_mode_signup_proves_the_address_with_a_code(client, mailbox):
+    r = client.post("/signup", json={"name": "New", "company": "Co", "email": "fresh-2fa@example.com", "password": "password1"})
+    assert r.status_code == 202 and r.get_json()["mfa"] is True
+    assert A.store.user_by_email("fresh-2fa@example.com") is not None
+    assert client.get("/api/me").get_json()["id"] is None              # the password alone is not a session
+    assert mailbox[-1][0] == "fresh-2fa@example.com"
+    r = client.post("/login/verify", data={"code": _code(mailbox)})
+    assert r.status_code == 302 and r.headers["Location"].endswith("/desk/workspace")
+    assert client.get("/api/me").get_json()["email"] == "fresh-2fa@example.com"
+
+
 def test_code_flow_wrong_then_right_then_trusted_device(client, mailbox):
-    _signup(client, "mfa@example.com")
+    _account("mfa@example.com")
     r = client.post("/login", json={"email": "mfa@example.com", "password": "password1"})
     assert r.status_code == 202 and r.get_json()["mfa"] is True
     assert client.get("/api/me").get_json()["id"] is None          # password alone is not a session
     assert mailbox[-1][0] == "mfa@example.com" and "Many thanks" in mailbox[-1][2]
+    pending = client.get_cookie("session").value                   # holds only the challenge id
     assert client.get("/login/verify").status_code == 200
     assert client.post("/login/verify", json={"code": "000000"}).status_code == 401
     good = _code(mailbox)
@@ -65,35 +110,77 @@ def test_code_flow_wrong_then_right_then_trusted_device(client, mailbox):
     assert r.status_code == 200 and r.get_json()["ok"] is True
     assert client.get("/api/me").get_json()["email"] == "mfa@example.com"
     assert client.get_cookie("atlas_trust") is not None
-    # a code never works twice
+    # a code never works twice: not after logout, not with the pre-verify cookie replayed
     client.get("/logout")
     assert client.post("/login/verify", json={"code": good}).status_code in (302, 401)
+    client.set_cookie("session", pending)
+    r = client.post("/login/verify", json={"code": good})
+    assert r.status_code == 401 and "Start again" in r.get_json()["error"]
+    client.get("/logout")
     # trusted browser: straight in next time, no mail
     n = len(mailbox)
     r = client.post("/login", json={"email": "mfa@example.com", "password": "password1"})
     assert r.status_code == 200 and r.get_json()["ok"] is True and len(mailbox) == n
 
 
-def test_five_wrong_codes_lock_the_challenge(client, mailbox):
-    _signup(client, "lock@example.com")
+def test_five_wrong_codes_lock_the_challenge_even_with_a_replayed_cookie(client, mailbox):
+    _account("lock@example.com")
     client.post("/login", json={"email": "lock@example.com", "password": "password1"})
+    fresh = client.get_cookie("session").value                       # the cookie right after the password step
     for _ in range(5):
         assert client.post("/login/verify", json={"code": "111111"}).status_code == 401
     good = _code(mailbox)
     r = client.post("/login/verify", json={"code": good})
     assert r.status_code == 401 and "Too many" in r.get_json()["error"]
+    # the attempts are counted on the server: an older cookie does not hand them back
+    client.set_cookie("session", fresh)
+    r = client.post("/login/verify", json={"code": good})
+    assert r.status_code == 401 and "Too many" in r.get_json()["error"]
+    assert client.get("/api/me").get_json()["id"] is None
 
 
-def test_account_can_opt_out_of_the_code(client, mailbox):
-    _signup(client, "optout@example.com")
-    client.post("/login", json={"email": "optout@example.com", "password": "password1"})
-    client.post("/login/verify", json={"code": _code(mailbox)})
-    r = client.patch("/api/me", json={"two_factor": False})
-    assert r.status_code == 200 and r.get_json()["two_factor"] is False
+def test_resend_replaces_the_code_and_codes_per_hour_are_capped(client, mailbox, monkeypatch):
+    _account("resend@example.com")
+    client.post("/login", json={"email": "resend@example.com", "password": "password1"})
+    first = _code(mailbox)
+    assert client.post("/login/verify", data={"resend": "1"}).status_code == 429     # moments after the first one
+    monkeypatch.setattr(AUTH, "RESEND_GAP_S", 0)
+    assert client.post("/login/verify", data={"resend": "1"}).status_code == 200
+    second = _code(mailbox)
+    if second != first:                                               # (1 in a million they match)
+        assert client.post("/login/verify", json={"code": first}).status_code == 401
+    assert client.post("/login/verify", json={"code": second}).status_code == 200
+    client.get("/logout")
+    monkeypatch.setattr(AUTH, "CODES_PER_HOUR", 3)                    # 2 sent above; one more, then refused
+    assert client.post("/login", json={"email": "resend@example.com", "password": "password1"}).status_code == 202
     client.get("/logout")
     n = len(mailbox)
+    r = client.post("/login", json={"email": "resend@example.com", "password": "password1"})
+    assert r.status_code == 429 and "Too many sign-in codes" in r.get_json()["error"] and len(mailbox) == n
+
+
+def test_opting_out_needs_the_password_and_is_off_limits_when_required(client, monkeypatch):
+    sent = []
+    _mail_env(monkeypatch, "auto")
+    monkeypatch.setattr(AUTH, "send_mail", lambda to, subject, body: sent.append((to, subject, body)) or "ok")
+    _account("optout@example.com")
+    client.post("/login", json={"email": "optout@example.com", "password": "password1"})
+    client.post("/login/verify", json={"code": _code(sent)})
+    assert client.get("/api/me").get_json()["two_factor"] is True
+    assert client.patch("/api/me", json={"two_factor": False}).status_code == 403             # session alone: no
+    assert client.patch("/api/me", json={"two_factor": False, "password": "nope"}).status_code == 403
+    r = client.patch("/api/me", json={"two_factor": False, "password": "password1"})
+    assert r.status_code == 200 and r.get_json()["two_factor"] is False
+    client.get("/logout")
+    n = len(sent)
     r = client.post("/login", json={"email": "optout@example.com", "password": "password1"})
-    assert r.status_code == 200 and len(mailbox) == n
+    assert r.status_code == 200 and len(sent) == n
+    # TWO_FACTOR=required: the opt-out no longer counts, and cannot be set
+    monkeypatch.setenv("TWO_FACTOR", "required")
+    assert client.patch("/api/me", json={"two_factor": False, "password": "password1"}).status_code == 400
+    client.get("/logout")
+    r = client.post("/login", json={"email": "optout@example.com", "password": "password1"})
+    assert r.status_code == 202 and len(sent) == n + 1
 
 
 def test_google_button_hidden_until_configured(client, monkeypatch):

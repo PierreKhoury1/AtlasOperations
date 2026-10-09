@@ -133,6 +133,7 @@ _MIGRATIONS = [
     ("runs", "case_id", "INTEGER DEFAULT 0"),
     ("users", "google_sub", "TEXT DEFAULT ''"),                   # Google account id when the owner signs in with Google
     ("users", "two_factor", "INTEGER DEFAULT 1"),                 # mailed code on password login (atlas/desk/auth.py)
+    ("users", "mfa", "TEXT DEFAULT ''"),                          # the live sign-in code challenge, JSON (store.mfa_*)
 ]
 
 STAGES = ("New", "Contacted", "Qualified", "Proposal", "Won", "Lost")
@@ -1201,6 +1202,42 @@ class Store:
         with self._lock:
             self._conn.execute("UPDATE users SET two_factor=? WHERE id=?", (1 if on else 0, uid))
             self._conn.commit()
+
+    # the sign-in code challenge lives here, not in the session cookie (atlas/desk/auth.py): {id, hash, exp, tries,
+    # sent, issued}. Attempts are counted with a compare-and-swap on the stored JSON, so two guesses sent at once
+    # both pay, whichever process or thread handles them.
+    def _mfa_raw(self, uid: int) -> str | None:
+        row = self._conn.execute("SELECT mfa FROM users WHERE id=?", (uid,)).fetchone()
+        return None if row is None else (row[0] or "")
+
+    def mfa_get(self, uid: int) -> dict[str, Any]:
+        return _json_load(self._mfa_raw(uid), {})
+
+    def mfa_put(self, uid: int, rec: dict[str, Any]) -> None:
+        with self._lock:
+            self._conn.execute("UPDATE users SET mfa=? WHERE id=?", (json.dumps(rec or {}), uid))
+            self._conn.commit()
+
+    def mfa_spend(self, uid: int, cid: str) -> tuple[dict[str, Any], int]:
+        """Count one guess at challenge `cid` BEFORE it is checked. Returns (the challenge, attempts used including
+        this one), or ({}, 0) when `cid` is not this user's live challenge (replaced, used or never issued)."""
+        for _ in range(16):
+            old = self._mfa_raw(uid)
+            rec = _json_load(old, {})
+            if old is None or not cid or rec.get("id") != cid:
+                return {}, 0
+            rec["tries"] = int(rec.get("tries") or 0) + 1
+            with self._lock:
+                cur = self._conn.execute("UPDATE users SET mfa=? WHERE id=? AND COALESCE(mfa,'')=?", (json.dumps(rec), uid, old))
+                self._conn.commit()
+            if cur.rowcount == 1:
+                return rec, rec["tries"]
+        return {}, 0
+
+    def mfa_clear(self, uid: int) -> None:
+        """The code was used: forget the challenge, keep the send times (the hourly cap still counts them)."""
+        rec = self.mfa_get(uid)
+        self.mfa_put(uid, {"issued": rec.get("issued") or []})
 
     def touch_login(self, uid: int) -> None:
         with self._lock:

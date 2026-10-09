@@ -392,7 +392,7 @@ function renderConnect() {
     const st = c.status === 'ok' ? 'ok' : (c.status === 'error' ? 'err' : '');
     let body = '';
     if (c.kind === 'webhook') {
-      body = `<div class="hint">${esc(c.hint)}</div><label>Desk hook URL</label><div class="row" style="margin-top:0"><input readonly value="${esc(P.hook_url)}" onclick="this.select()"><button class="btn sm" onclick="navigator.clipboard.writeText('${esc(P.hook_url)}');toast('Copied')">Copy</button></div>
+      body = `<div class="hint">${esc(c.hint)}</div><label>Desk hook URL</label><div class="row" style="margin-top:0"><input readonly value="${esc(P.hook_url)}" onclick="this.select()"><button class="btn sm" onclick="navigator.clipboard.writeText(${jsa(P.hook_url)});toast('Copied')">Copy</button></div>
         <div class="row"><button class="btn sm p" onclick="cnTestHook(${i})">Send a test lead</button><span class="hint" style="margin:0">Posts a sample enquiry to the URL — a run starts immediately.</span></div><div class="out" id="cn-out-${i}"></div>`;
     } else {
       body = `<div class="hint">${esc(c.hint)}</div>` + c.fields.map(f => `<label>${esc(f)}</label><input id="cn-${i}-${f}" type="${sec.some(s => f.includes(s)) ? 'password' : 'text'}" placeholder="${esc(cnPlaceholder(c.kind, f))}" autocomplete="off">`).join('') +

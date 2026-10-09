@@ -94,7 +94,7 @@ function loadAgentsFromConfig(list){
 /* ------------------------------------------------------------------ chat */
 function addMsg(role, text, cls){ const d = document.createElement('div'); d.className = 'm ' + role + (cls ? ' ' + cls : ''); d.dataset.who = role === 'u' ? 'You' : (role === 'a' ? 'Atlas' : ''); d.dataset.t = hhmmss(); if (role === 'a') { d.classList.add('md'); d.innerHTML = md(text); } else d.textContent = text; $('#msgs').appendChild(d); $('#msgs').scrollTop = 1e9; return d; }
 async function typeMsg(text){ return addMsg('a', text); }      // shown at once: no typing effect
-function setSugg(list){ $('#sugg').innerHTML = (list || []).map(s => `<button onclick="send(${JSON.stringify(s).replace(/"/g, '&quot;')})">${esc(s)}</button>`).join(''); }
+function setSugg(list){ $('#sugg').innerHTML = (list || []).map(s => `<button onclick="send(${esc(JSON.stringify(s))})">${esc(s)}</button>`).join(''); }
 function sayKey(ev){ if (ev.key === 'Enter' && !ev.shiftKey) { ev.preventDefault(); send(); } }
 
 async function send(text){
@@ -306,7 +306,7 @@ function inspect(id){
     ${(a.instructions || []).length ? `<h4>Standing orders</h4><ul>${a.instructions.map(x => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}
     <h4>Tools</h4><div class="chips">${(a.tools || []).map(t => `<span>${esc(t)}</span>`).join('') || '<span class="hint">none</span>'}</div>
     <h4>Engine · reports to</h4><div>${esc(a.engine || 'atlas')} · ${esc(a.reports_to === 'atlas' || !a.reports_to ? 'Atlas' : ((W.agents.get(a.reports_to) || {}).name || a.reports_to))}${(a.members || []).length ? ` · leads ${a.members.map(m => esc((W.agents.get(m) || {}).name || m)).join(', ')}` : ''}</div>
-    ${W.phase === 'design' && ask.length ? `<h4>Ask Atlas to…</h4><div class="ask">${ask.map(s => `<button onclick="closeInsp();send(${JSON.stringify(s).replace(/"/g, '&quot;')})">${esc(s)}</button>`).join('')}</div>` : ''}`;
+    ${W.phase === 'design' && ask.length ? `<h4>Ask Atlas to…</h4><div class="ask">${ask.map(s => `<button onclick="closeInsp();send(${esc(JSON.stringify(s))})">${esc(s)}</button>`).join('')}</div>` : ''}`;
   $('#insp').classList.add('on');
   document.querySelectorAll('.team tr.sel').forEach(r => r.classList.remove('sel')); const tr = document.getElementById('tr-' + id); if (tr) tr.classList.add('sel');
 }
@@ -870,7 +870,7 @@ function renderTeamTable(){
     const st = agentState(id); const lead = id === 'atlas' || (a.members || []).length > 0;
     const member = a.reports_to && a.reports_to !== 'atlas' && W.agents.has(a.reports_to) ? (W.agents.get(a.reports_to) || {}).name : '';
     const tools = a.tools || [];
-    rows.push(`<tr id="tr-${esc(id)}" class="${W.sel === id ? 'sel' : ''}" onclick="inspect(${JSON.stringify(id).replace(/"/g, '&quot;')})"><td><div class="obj ${id === 'atlas' ? 'lead' : ''}" style="--c:${esc(a.color || '')}"><span class="ic"><svg class="i i12"><use href="#${id === 'atlas' ? 'i-logo' : (lead ? 'i-team' : 'i-agent')}"/></svg></span><div><b>${esc(a.name)}</b><span>${esc(a.role || '')}${member ? ' · reports to ' + esc(member) : ''}</span></div></div></td>` +
+    rows.push(`<tr id="tr-${esc(id)}" class="${W.sel === id ? 'sel' : ''}" onclick="inspect(${esc(JSON.stringify(id))})"><td><div class="obj ${id === 'atlas' ? 'lead' : ''}" style="--c:${esc(a.color || '')}"><span class="ic"><svg class="i i12"><use href="#${id === 'atlas' ? 'i-logo' : (lead ? 'i-team' : 'i-agent')}"/></svg></span><div><b>${esc(a.name)}</b><span>${esc(a.role || '')}${member ? ' · reports to ' + esc(member) : ''}</span></div></div></td>` +
       `<td><span class="st ${st.cls}"><i class="dot ${st.dot}"></i>${esc(st.label)}</span></td><td class="t2">${esc(a.engine === 'hermes_agent' ? 'hermes_agent' : (a.engine || 'atlas'))}</td><td class="num">${st.turns || '<span class="t3">-</span>'}</td>` +
       `<td><div class="tools">${tools.slice(0, 4).map(t => `<code>${esc(t)}</code>`).join('')}${tools.length > 4 ? `<code>+${tools.length - 4}</code>` : ''}</div></td></tr>`);
   }
@@ -910,7 +910,7 @@ async function loadRuns(){
   const rows = await api('/runs'); if (!Array.isArray(rows)) return;
   $('#runs-meta').textContent = rows.length ? `${rows.length} run${rows.length === 1 ? '' : 's'}` : '';
   $('#runs-list').innerHTML = rows.length ? rows.slice(0, 40).map(r => { const dot = r.active ? 'd-run' : (r.status === 'done' ? 'd-ok' : (r.status === 'error' || r.status === 'failed' ? 'd-err' : 'd-q'));
-    return `<div class="rrow" onclick="openRun('${esc(r.id)}')"><i class="dot ${dot}"></i><span class="nm" title="${esc(r.task || '')}">${esc(r.task || '')}</span><span class="mono">${esc(r.active ? 'running' : (r.status || ''))}</span><span class="mono">${((r.tokens_in || 0) + (r.tokens_out || 0)).toLocaleString()} tok</span><span class="mono">${new Date((r.created || 0) * 1000).toISOString().slice(5, 16).replace('T', ' ')}</span></div>`; }).join('')
+    return `<div class="rrow" onclick="openRun(${esc(JSON.stringify(String(r.id)))})"><i class="dot ${dot}"></i><span class="nm" title="${esc(r.task || '')}">${esc(r.task || '')}</span><span class="mono">${esc(r.active ? 'running' : (r.status || ''))}</span><span class="mono">${((r.tokens_in || 0) + (r.tokens_out || 0)).toLocaleString()} tok</span><span class="mono">${new Date((r.created || 0) * 1000).toISOString().slice(5, 16).replace('T', ' ')}</span></div>`; }).join('')
     : '<div class="empty sm"><span>Runs appear here once the team has had a job.</span></div>';
 }
 async function openRun(id){
@@ -950,17 +950,17 @@ function renderExplorer(){
   const arows = []; let working = 0, errors = 0;
   for (const id of ids) { const a = id === 'atlas' ? {name: 'Atlas'} : W.agents.get(id); if (!a) continue; const st = agentState(id); if (st.cls === 'run') working++; if (st.cls === 'err') errors++;
     if (!match(a.name) || (f === 'active' && st.cls !== 'run') || (f === 'attention' && st.cls !== 'err')) continue;
-    arows.push(row(id === 'atlas' ? 'i-logo' : 'i-agent', a.name, st.label.toLowerCase(), st.cls === 'run' ? 'run' : (st.cls === 'err' ? 'warn' : ''), `inspect(${JSON.stringify(id).replace(/"/g, '&quot;')})`, W.sel === id, id === 'atlas' ? '<span class="chip">LEAD</span>' : '')); }
+    arows.push(row(id === 'atlas' ? 'i-logo' : 'i-agent', a.name, st.label.toLowerCase(), st.cls === 'run' ? 'run' : (st.cls === 'err' ? 'warn' : ''), `inspect(${esc(JSON.stringify(id))})`, W.sel === id, id === 'atlas' ? '<span class="chip">LEAD</span>' : '')); }
   grp('i-team', 'Agents', ids.length, working ? `${working} working` : (errors ? `${errors} error${errors === 1 ? '' : 's'}` : (W.phase === 'run' ? 'idle' : (ids.length ? 'draft' : ''))), arows);
   // cameras
   const crows = []; let liveN = 0, noSrc = 0;
   for (const [name, k] of W.cams) { const live = !!k.seenTs; if (live) liveN++; if (!k.source) noSrc++;
     if (!match(name) || (f === 'active' && !live) || (f === 'attention' && k.source)) continue;
     const counts = k.el && k.el.querySelector('.cnt') ? k.el.querySelector('.cnt').textContent : '';
-    crows.push(row('i-cam', name, live ? (counts || 'live') : (k.source ? camKind(k.source) : 'no source'), live ? 'ok' : (k.source ? '' : 'warn'), `camRow(${JSON.stringify(name).replace(/"/g, '&quot;')})`, false)); }
+    crows.push(row('i-cam', name, live ? (counts || 'live') : (k.source ? camKind(k.source) : 'no source'), live ? 'ok' : (k.source ? '' : 'warn'), `camRow(${esc(JSON.stringify(name))})`, false)); }
   grp('i-cam', 'Cameras', W.cams.size, liveN ? `${liveN} live` : (noSrc ? `${noSrc} need a source` : (W.cams.size ? 'journal on' : '')), crows);
   // workflows
-  if (f === 'all') { const wrows = (W.workflows || []).filter(w => match(w.name)).map(w => row('i-flow', w.name, 'run', '', `runWorkflow(${JSON.stringify(w.name).replace(/"/g, '&quot;')})`, false)); grp('i-flow', 'Workflows', (W.workflows || []).length, '', wrows); }
+  if (f === 'all') { const wrows = (W.workflows || []).filter(w => match(w.name)).map(w => row('i-flow', w.name, 'run', '', `runWorkflow(${esc(JSON.stringify(w.name))})`, false)); grp('i-flow', 'Workflows', (W.workflows || []).length, '', wrows); }
   // approvals
   if (W.apCount && f !== 'active' && match('approvals')) grp('i-inbox', 'Approvals', W.apCount, 'oldest ' + (W.apOldest || ''), [row('i-inbox', `${W.apCount} waiting for you`, '', 'warn', "showTab('approvals')", false)]);
   // desks

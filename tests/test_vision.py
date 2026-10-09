@@ -227,6 +227,8 @@ def cam_client(app_client, tmp_path, monkeypatch):
     monkeypatch.setattr(V, "DETECTOR", fake)
     monkeypatch.setattr(V, "SNAP_DIR", tmp_path / "snaps")
     S._last_frame.clear(); S._last_seen.clear()
+    import atlas.desk.app as A
+    monkeypatch.setattr(A, "CAMERA_LOCAL_FILES", True)                 # a file camera from tmp_path, like a single-user install
     src = _jpeg(tmp_path / "door.jpg", blob=(40, 30, 120, 220))
     conn = J(c.post("/api/connectors", json={"kind": "camera", "name": "front-door",
                                              "config": {"source": src, "watch_for": "person", "cooldown_min": "0",
@@ -558,7 +560,7 @@ def test_openvino_thread_limit_keeps_the_precision_ultralytics_chose(monkeypatch
             return "compiled"
 
     monkeypatch.setitem(sys.modules, "openvino", types.SimpleNamespace(Core=Core))
-    monkeypatch.setattr(V.platform, "machine", lambda: "x86_64")
+    monkeypatch.setattr(V, "_ov_f32_only", lambda: False)          # behave like x86 Linux on any test machine
     monkeypatch.setattr(V, "OV_THREADS", 1)
 
     class Compiled:
@@ -580,7 +582,15 @@ def test_openvino_thread_limit_keeps_the_precision_ultralytics_chose(monkeypatch
     V._limit_ov_threads(g, tmp_path / "m.xml")
     assert seen == {} and isinstance(g.model.backend.ov_compiled_model, Compiled)
     seen.clear()
-    monkeypatch.setattr(V.platform, "machine", lambda: "aarch64")       # ultralytics forces f32 on ARM: not recompiled
+    monkeypatch.setattr(V, "_ov_f32_only", lambda: True)               # ultralytics forces f32 on ARM / Windows: not recompiled
     a = predictor(["CPU"])
     V._limit_ov_threads(a, tmp_path / "m.xml")
     assert seen == {}
+
+
+def test_ov_f32_only_on_windows_and_arm(monkeypatch):
+    import os
+    monkeypatch.setattr(V.platform, "machine", lambda: "aarch64")
+    assert V._ov_f32_only()
+    monkeypatch.setattr(V.platform, "machine", lambda: "x86_64")
+    assert V._ov_f32_only() == (os.name == "nt")

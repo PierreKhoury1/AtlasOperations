@@ -163,7 +163,21 @@ def _grab_webcam(index: int) -> bytes:
         cap.release()
 
 
+def stream_reason(source: str) -> str | None:
+    """Why a network camera source is refused, or None. A camera may sit on the office LAN, but a stream address never
+    reaches loopback, link-local or the cloud metadata service - the rule snapshot URLs already follow (_grab_http).
+    ffmpeg and OpenCV open rtsp:// and http:// streams themselves, so this is checked before either is handed one."""
+    if source_kind(source) not in ("rtsp", "http"):
+        return None
+    from . import secure as SEC
+    why = SEC.internal_target_reason((source or "").strip())
+    return f"camera source refused: {why}" if why else None
+
+
 def _grab_rtsp(url: str) -> bytes:
+    why = stream_reason(url)
+    if why:
+        raise RuntimeError(why)
     ff = shutil.which("ffmpeg")
     if ff:
         cmd = [ff, "-nostdin", "-loglevel", "error", "-rtsp_transport", "tcp", "-i", url,
@@ -281,6 +295,11 @@ def motion(prev_jpeg: bytes | None, cur_jpeg: bytes) -> float:
 
 
 # ---------------------------------------------------------------------------- detection
+def _ov_f32_only() -> bool:
+    """Windows and ARM: ultralytics compiles OpenVINO in f32 there, and a recompile is left alone."""
+    return os.name == "nt" or platform.machine().lower() in ("arm64", "aarch64")
+
+
 def _limit_ov_threads(predictor, xml: Path) -> None:
     """Recompile an OpenVINO-backed predictor's model with OV_THREADS inference threads (once). Ultralytics compiles
     for latency on every core, so N cameras each fan out over the whole CPU and spend it on synchronisation."""
@@ -290,7 +309,7 @@ def _limit_ov_threads(predictor, xml: Path) -> None:
     if list(backend.ov_compiled_model.get_property("EXECUTION_DEVICES")) != ["CPU"]:
         return                                         # an Intel GPU / NPU picked by AUTO: leave it alone
     backend._atlas_threads = n = max(1, OV_THREADS)
-    if os.name == "nt" or platform.machine().lower() in ("arm64", "aarch64"):
+    if _ov_f32_only():
         return                                         # ultralytics forces f32 there to avoid reduced-precision kernel failures
     try:
         import openvino as ov

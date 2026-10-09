@@ -126,7 +126,8 @@ def test_names_api(app_client):
     import atlas.desk.app as A
     desk = A.store.desks_for(A.store.user_by_email("names@example.com")["id"])[-1]
     ds = A.store.for_desk(desk["id"])
-    oid = _sighting(ds, "door", emb=_emb(1.0))
+    seen_at = time.time() - 600                      # a real day: 1970-01-01 local midnight is pre-epoch east of UTC
+    oid = _sighting(ds, "door", t0=seen_at, emb=_emb(1.0))
     r = c.post(f"/api/objects/{oid}/name", json={"name": "  Marco  ", "kind": "person", "notes": "chef"}).get_json()
     assert r["ok"] and r["thing"]["name"] == "Marco" and r["object"]["name"] == "Marco" and r["object"]["name_by"] == "owner"
     assert c.post(f"/api/objects/{oid}/name", json={"name": ""}).status_code == 400
@@ -139,7 +140,7 @@ def test_names_api(app_client):
     assert [o["id"] for o in c.get(f"/api/objects?minutes=0&name={nid}").get_json()["objects"]] == [oid]
     r = c.patch(f"/api/names/{nid}", json={"name": "Marco R.", "notes": "head chef"}).get_json()
     assert r["thing"]["name"] == "Marco R." and r["thing"]["notes"] == "head chef"
-    today = time.strftime("%Y-%m-%d", time.localtime(1000.0))
+    today = time.strftime("%Y-%m-%d", time.localtime(seen_at))
     rep = c.get(f"/api/report/day?date={today}").get_json()
     assert rep["names"][0]["name"] == "Marco R." and rep["names"][0]["sightings"] == 1
     md = c.get(f"/api/report/day?date={today}&format=md")

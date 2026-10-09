@@ -196,9 +196,9 @@ def test_write_note_error_is_published(tmp_path, monkeypatch):
 
 
 # --------------------------------------------------------------------------- HTTP
-def _desk(app_client):
+def _desk(app_client, monkeypatch):
     import atlas.desk.app as A
-    A.OPEN = True
+    monkeypatch.setattr(A, "OPEN", True)             # for this test only (it used to stay on for every later file)
     c = app_client
     r = c.get("/api/desks").get_json()
     if not r.get("current"):
@@ -207,7 +207,7 @@ def _desk(app_client):
 
 
 def test_live_endpoints(app_client, clip, monkeypatch):
-    c = _desk(app_client)
+    c = _desk(app_client, monkeypatch)
     cam = c.post("/api/connectors", json={"kind": "camera", "name": "live cam", "config": {"source": clip, "journal": "1"}}).get_json()
     cid = cam["id"]
     st = c.get(f"/api/cameras/{cid}/live").get_json()
@@ -230,8 +230,8 @@ def test_live_endpoints(app_client, clip, monkeypatch):
     assert c.get("/api/cameras/9999/live.mjpg").status_code == 404
 
 
-def test_journal_sse_endpoint(app_client):
-    c = _desk(app_client)
+def test_journal_sse_endpoint(app_client, monkeypatch):
+    c = _desk(app_client, monkeypatch)
     desk_id = c.get("/api/desks").get_json()["current"]
     r = c.get("/api/vision/journal/stream?camera=till")
     assert r.status_code == 200 and r.mimetype == "text/event-stream"

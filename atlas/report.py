@@ -17,7 +17,10 @@ GAP_S = 90.0            # two sightings closer than this on one camera are one p
 
 
 def _day_bounds(date: str) -> tuple[float, float]:
-    t0 = time.mktime(time.strptime(date, "%Y-%m-%d"))
+    try:
+        t0 = time.mktime(time.strptime(date, "%Y-%m-%d"))
+    except (OverflowError, OSError) as exc:            # a day the platform clock cannot place (pre-1970 on Windows)
+        raise ValueError(f"date out of range: {date}") from exc
     return t0, t0 + 86400
 
 

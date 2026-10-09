@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import email
 import email.utils
+import hashlib
+import hmac
 import imaplib
 import json
 import re
@@ -50,10 +52,10 @@ KINDS = {
                 "hint": "POST JSON {name, email, phone, company, notes, source} to the desk's hook URL — web forms, Zapier, Make, Typeform."},
     "resend": {"label": "Email sending (Resend API)", "fields": ["api_key", "from_email", "from_name"],
                "hint": "resend.com — HTTPS email API, works where SMTP ports are blocked (Render, Fly). Verify your sending domain in Resend first; from_email must be on that domain."},
-    "whatsapp": {"label": "WhatsApp (Meta Cloud API)", "fields": ["phone_number_id", "access_token", "verify_token", "notes"],
-                 "hint": "Meta for Developers → WhatsApp → API setup: copy the Phone number ID and a permanent System User access token. Set the webhook URL shown below with your verify_token to receive replies. First message to a new contact must be a template unless they wrote first (24h window)."},
-    "instagram": {"label": "Instagram DMs (Meta Graph API)", "fields": ["page_id", "access_token", "verify_token", "notes"],
-                  "hint": "Meta for Developers → your app → Instagram → API setup with Instagram login OR Messenger → Instagram settings: the Facebook Page linked to the professional Instagram account (page_id) and a long-lived access token with instagram_manage_messages. Set the webhook URL shown below (field 'messages') with your verify_token to receive DMs. Like WhatsApp, you can reply to people who message you (within 24h), not cold-message."},
+    "whatsapp": {"label": "WhatsApp (Meta Cloud API)", "fields": ["phone_number_id", "access_token", "verify_token", "app_secret", "notes"],
+                 "hint": "Meta for Developers → WhatsApp → API setup: copy the Phone number ID and a permanent System User access token. Set the webhook URL shown below with your verify_token to receive replies, and paste the app's App secret (App settings → Basic) as app_secret: Meta signs every webhook with it and unsigned messages are refused. First message to a new contact must be a template unless they wrote first (24h window)."},
+    "instagram": {"label": "Instagram DMs (Meta Graph API)", "fields": ["page_id", "access_token", "verify_token", "app_secret", "notes"],
+                  "hint": "Meta for Developers → your app → Instagram → API setup with Instagram login OR Messenger → Instagram settings: the Facebook Page linked to the professional Instagram account (page_id) and a long-lived access token with instagram_manage_messages. Set the webhook URL shown below (field 'messages') with your verify_token to receive DMs, and paste the app's App secret (App settings → Basic) as app_secret: Meta signs every webhook with it and unsigned DMs are refused. Like WhatsApp, you can reply to people who message you (within 24h), not cold-message."},
     "twilio": {"label": "SMS + WhatsApp (Twilio)", "fields": ["account_sid", "auth_token", "from_number", "whatsapp_from"],
                "hint": "Twilio console → Account SID + Auth token. from_number = your Twilio number (+44…). whatsapp_from = your WhatsApp-enabled sender (or the sandbox +14155238886) if you want WhatsApp via Twilio. Point the number's inbound webhook at the SMS hook URL below."},
     "hubspot": {"label": "CRM sync (HubSpot)", "fields": ["access_token"],
@@ -303,10 +305,14 @@ def hermes_agent_headers(cfg: dict[str, Any], session_key: str = "") -> dict[str
 def test_hermes_agent(cfg: dict[str, Any]) -> str:
     """GET /health (unauthenticated) then /v1/capabilities (authenticated) on a Hermes Agent API server."""
     import httpx
+    from . import secure as SEC
     base = str(cfg.get("base_url") or "").strip().rstrip("/")
     if not re.match(r"^https?://", base):
         raise ValueError("base_url must start with http:// or https://")
-    with httpx.Client(timeout=15, transport=_TRANSPORT) as c:
+    # an instance the owner typed in: the LAN is fine, this server's loopback and the metadata service are not, and
+    # the connection goes to the address that was checked (the same rule the engine applies on every call)
+    SEC.vetted_ips(httpx.URL(base).host, "internal")
+    with httpx.Client(timeout=15, transport=_TRANSPORT or SEC.guarded_transport("internal")) as c:
         h = c.get(base + "/health")
         if h.status_code >= 400:
             raise RuntimeError(f"/health HTTP {h.status_code}")
@@ -505,11 +511,22 @@ _TRANSPORT = None
 
 
 def _http(method: str, url: str, *, headers: dict[str, str] | None = None, params: dict[str, Any] | None = None,
-          json_body: Any = None, data: dict[str, Any] | None = None, auth: tuple | None = None, timeout: float = 30) -> Any:
+          json_body: Any = None, data: dict[str, Any] | None = None, auth: tuple | None = None, timeout: float = 30,
+          guard=None) -> Any:
+    """guard: for a URL the owner typed in (e.g. a Slack webhook) - every hop is checked with it (secure.send_checked)
+    instead of redirects being followed blindly."""
     h = {"User-Agent": "Atlas/0.3 (+desk agent)"}
     h.update(headers or {})
-    with httpx.Client(timeout=timeout, transport=_TRANSPORT, follow_redirects=True) as c:
-        r = c.request(method, url, headers=h, params=params, json=json_body, data=data, auth=auth)
+    if guard is not None:
+        from . import secure as SEC
+        with httpx.Client(timeout=timeout, transport=_TRANSPORT, follow_redirects=False) as c:
+            try:
+                r = SEC.send_checked(c, method, url, guard=guard, headers=h, params=params, json=json_body, data=data, auth=auth)
+            except SEC.UnsafeTarget as exc:
+                raise RuntimeError(f"{method} {url.split('?')[0]} refused: {exc}") from None
+    else:
+        with httpx.Client(timeout=timeout, transport=_TRANSPORT, follow_redirects=True) as c:
+            r = c.request(method, url, headers=h, params=params, json=json_body, data=data, auth=auth)
     if r.status_code >= 400:
         raise RuntimeError(f"{method} {url.split('?')[0]} → HTTP {r.status_code}: {r.text[:300]}")
     if not r.content:
@@ -590,6 +607,15 @@ def test_instagram(cfg: dict[str, Any]) -> str:
     if not ig:
         return f"page {r.get('name', '?')} reachable, but no professional Instagram account is linked to it"
     return f"ok: page {r.get('name', '?')} → Instagram account {ig}"
+
+
+def meta_signature_ok(app_secret: str, body: bytes, header: str | None) -> bool:
+    """Meta signs every webhook POST: X-Hub-Signature-256 = "sha256=" + hex HMAC-SHA256 of the raw body, keyed by the
+    app secret. Only a request that carries it came from Meta."""
+    if not app_secret or not header or not header.startswith("sha256="):
+        return False
+    want = hmac.new(app_secret.encode(), body or b"", hashlib.sha256).hexdigest()
+    return hmac.compare_digest(want, header[7:].strip().lower())
 
 
 def parse_instagram_webhook(payload: dict[str, Any]) -> list[dict[str, str]]:
@@ -842,7 +868,8 @@ def slack_notify(cfg: dict[str, Any], text: str) -> str:
     body: dict[str, Any] = {"text": text}
     if cfg.get("channel"):
         body["channel"] = cfg["channel"]
-    _http("POST", cfg["webhook_url"].strip(), json_body=body, timeout=15)
+    from . import secure as SEC                     # an owner-typed URL: never this server's loopback / metadata
+    _http("POST", cfg["webhook_url"].strip(), json_body=body, timeout=15, guard=SEC.internal_target_reason)
     return "posted to Slack"
 
 

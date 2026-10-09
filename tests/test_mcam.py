@@ -35,6 +35,7 @@ def _toy(n=4):
 
 
 def test_detection_tracking_and_counts_scores():
+    pytest.importorskip("motmetrics")                 # evaluation-only dependency, not in requirements
     D = _toy()
     preds = [[[] for _ in M.CAMS] for _ in D["frames"]]
     for i in range(len(D["frames"])):

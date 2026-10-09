@@ -3,8 +3,11 @@
 Env:
   GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET   OAuth 2.0 web client (console.cloud.google.com). Redirect URI to register:
                                             <PUBLIC_URL>/auth/google/callback. Both unset = no Google button.
-  TWO_FACTOR=auto|required|off              auto (default): email codes whenever the portal can send mail;
-                                            required: refuse password logins when it cannot; off: never.
+  TWO_FACTOR=auto|required|off              auto (default): email codes whenever the portal can send mail, and an
+                                            account may opt out (with its password); required: every password
+                                            session needs a code - signup included, no opt-out - and a portal
+                                            that cannot send mail refuses password sign-ins and says so (boot
+                                            log, /api/health two_factor_ready); off: never.
   ATLAS_SMTP_HOST / ATLAS_SMTP_PORT / ATLAS_SMTP_USER / ATLAS_SMTP_PASSWORD / ATLAS_MAIL_FROM / ATLAS_MAIL_FROM_NAME
                                             the portal's own outbound mail (Gmail: smtp.gmail.com:587 + app password)
   ATLAS_RESEND_KEY + ATLAS_MAIL_FROM        ...or Resend instead of SMTP.
@@ -14,8 +17,11 @@ browser only follows two redirects. The id_token comes straight from Google's to
 are trusted without a JWKS signature check (Google's own guidance for this flow); issuer, audience, expiry and
 email_verified are still checked.
 
-The second factor is a 6-digit code mailed to the account address. Only a hash of it lives in the signed session
-cookie, with an expiry and an attempt counter; "trust this device" is a separate signed cookie good for 30 days.
+The second factor is a 6-digit code mailed to the account address. The challenge lives on the server, on the user's
+row (store.mfa_*): only a hash of the code, its expiry, the attempts spent and when codes were sent. The session holds
+just the challenge id, so replaying an older cookie cannot hand back spent attempts, and every guess is counted before
+it is checked. An account gets at most CODES_PER_HOUR codes, which bounds guessing even from many addresses. "Trust
+this device" is a separate signed cookie good for 30 days.
 """
 from __future__ import annotations
 
@@ -41,7 +47,12 @@ GOOGLE_ISSUERS = ("accounts.google.com", "https://accounts.google.com")
 CODE_TTL_S = 10 * 60          # a mailed code is good for ten minutes
 CODE_TRIES = 5                # ...and five guesses
 RESEND_GAP_S = 45             # one new code per 45 s
+CODES_PER_HOUR = 8            # per account, logins and resends together
 TRUST_DAYS = 30
+
+
+class TooManyCodes(RuntimeError):
+    """This account was sent CODES_PER_HOUR codes in the last hour."""
 
 
 # ---------------------------------------------------------------------------- mail
@@ -84,6 +95,15 @@ def two_factor_active() -> bool:
     return m == "required" or (m == "auto" and mail_ready())
 
 
+def two_factor_problem() -> str:
+    """A setup error to report (boot log, /api/health), or "": TWO_FACTOR=required on a portal that cannot send mail
+    refuses every password sign-in, so it must not look like a passing mail outage."""
+    if two_factor_mode() == "required" and not mail_ready():
+        return ("TWO_FACTOR=required but the portal has no mail sender (set ATLAS_SMTP_HOST + ATLAS_MAIL_FROM, or "
+                "ATLAS_RESEND_KEY + ATLAS_MAIL_FROM): every password sign-in is refused until it does")
+    return ""
+
+
 def new_code() -> str:
     return f"{secrets.randbelow(10**6):06d}"
 
@@ -92,33 +112,39 @@ def code_hash(code: str, secret: str) -> str:
     return hmac.new(secret.encode(), code.strip().encode(), hashlib.sha256).hexdigest()
 
 
-def challenge(uid: int, email: str, secret: str, nxt: str, sender=None) -> dict[str, Any]:
-    """Mail a fresh code and return the session record that remembers it (only the hash)."""
+def issue(email: str, secret: str, prev: dict[str, Any] | None = None, sender=None) -> dict[str, Any]:
+    """Mail a fresh code and return the server-side challenge to store on the user row (store.mfa_put): a random id,
+    only the code's hash, expiry, attempts spent, and the send times of the last hour (prev = the row's current
+    record). Raises TooManyCodes past CODES_PER_HOUR, or whatever the mailer raises."""
+    now = time.time()
+    issued = [float(t) for t in (prev or {}).get("issued") or [] if now - float(t) < 3600]
+    if len(issued) >= CODES_PER_HOUR:
+        raise TooManyCodes("too many sign-in codes for this account in the last hour")
     code = new_code()
     (sender or send_mail)(email, "Your Atlas Desks sign-in code",
            f"Your sign-in code is {code}\n\nIt is valid for {CODE_TTL_S // 60} minutes. If you did not try to log in to "
            f"Atlas Desks, change your password.\n\nMany thanks,\nAtlas Desks")
-    return {"uid": uid, "email": email, "hash": code_hash(code, secret), "exp": time.time() + CODE_TTL_S,
-            "tries": 0, "sent": time.time(), "next": nxt}
+    return {"id": secrets.token_urlsafe(18), "hash": code_hash(code, secret), "exp": now + CODE_TTL_S, "tries": 0,
+            "sent": now, "issued": issued + [now]}
 
 
-def check_code(rec: dict[str, Any] | None, code: str, secret: str) -> tuple[bool, str]:
-    """(ok, error). Mutates rec['tries'] on a wrong guess."""
-    if not rec:
+def check_code(rec: dict[str, Any] | None, code: str, secret: str, used: int) -> tuple[bool, str]:
+    """(ok, error) for one guess at the server-side challenge `rec`. `used` is the attempts spent on it INCLUDING this
+    guess: the caller counts it in the store first (store.mfa_spend), so parallel or replayed requests all pay."""
+    if not rec or not rec.get("id") or used < 1:
         return False, "Start again from the login page."
-    if time.time() > rec.get("exp", 0):
+    if time.time() > float(rec.get("exp") or 0):
         return False, "That code has expired - request a new one."
-    if rec.get("tries", 0) >= CODE_TRIES:
+    if used > CODE_TRIES:
         return False, "Too many wrong codes - request a new one."
-    if not hmac.compare_digest(code_hash(code, secret), rec.get("hash", "")):
-        rec["tries"] = rec.get("tries", 0) + 1
-        left = CODE_TRIES - rec["tries"]
+    if not hmac.compare_digest(code_hash(code, secret), str(rec.get("hash") or "")):
+        left = CODE_TRIES - used
         return False, f"Wrong code. {left} attempt{'s' if left != 1 else ''} left." if left else "Too many wrong codes - request a new one."
     return True, ""
 
 
 def can_resend(rec: dict[str, Any] | None) -> bool:
-    return bool(rec) and time.time() - rec.get("sent", 0) >= RESEND_GAP_S
+    return bool(rec) and time.time() - float(rec.get("sent") or 0) >= RESEND_GAP_S
 
 
 def _trust(secret: str) -> URLSafeTimedSerializer:
