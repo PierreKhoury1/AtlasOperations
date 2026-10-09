@@ -10,7 +10,8 @@ A step is plain data, validated here and rendered by the workspace as text (neve
   live       open the live view of `camera`
   approvals  open the approvals drawer
   ask        ask the camera journal `question` over the last `hours` (1..720)
-  paid       switch the design session to paid models (the click is the owner's consent), then resend the last message
+  paid       switch the design session to paid models, then resend the last message. The click is the owner's consent
+             to spend, so the step always reads SWITCH_TO_PAID / PAID_DETAIL, whoever wrote it
   open       go to `href`, a same-origin portal path (/desk...)
 
 Model-written steps (the designer's machine block) come first; the deterministic generators below fill the rest from
@@ -25,6 +26,8 @@ import time
 from typing import Any, Iterable
 
 SWITCH_TO_PAID = "Switch to the paid model"
+PAID_DETAIL = "About 3p a message; your last message is resent"
+APPROVE_BUILD = "Approve & build"                 # the legacy chip text studio.js builds on (/^approve/i, once ready)
 ACTIONS = ("say", "build", "job", "camera", "live", "approvals", "ask", "paid", "open")
 DESIGN = ("say", "build", "camera", "paid")                   # a design-conversation turn
 RUN = ("job", "camera", "live", "approvals", "ask", "open")    # run mode: typed text becomes a job, so never "say"
@@ -34,11 +37,24 @@ _ELL = "\u2026"
 _EMOJI = re.compile("[\u231a\u231b\u23e9-\u23fa\u2600-\u27bf\u2b00-\u2bff\u200d\u20e3\ufe0f"
                     "\U0001f000-\U0001faff\U000e0020-\U000e007f]")
 _DEPLOY = "runs only when you press Deploy"
+_PAID_KEY = SWITCH_TO_PAID.casefold()
+# never part of a step: control codes (the whitespace ones become a space instead), bidi marks, embeddings, overrides
+# and isolates (U+202E shows a label backwards), zero-width and other invisible format characters, tag characters.
+# ZWNJ / ZWJ (U+200C / U+200D) stay: real scripts are shaped with them.
+_HIDDEN = re.compile("[\x00-\x08\x0e-\x1b\x7f-\x84\x86-\x9f\xad\u061c\u200b\u200e\u200f\u202a-\u202e\u2060-\u2064"
+                     "\u2066-\u206f\ufeff\ufff9-\ufffb\U000e0000-\U000e007f]")
 
 
 # ---------------------------------------------------------------------------- the contract
 def _text(v: Any) -> str:
-    return re.sub(r"\s+", " ", v).strip() if isinstance(v, str) else ""
+    """Plain one-line text: hidden characters removed, whitespace runs folded to one space, ends stripped."""
+    return re.sub(r"\s+", " ", _HIDDEN.sub("", v)).strip() if isinstance(v, str) else ""
+
+
+def _reads_paid(t: str) -> bool:
+    """Text a workspace page acts on as the paid switch: both test /^switch to the paid model/i on the text a click
+    sends. casefold() matches at least every string that regex does."""
+    return t.casefold().startswith(_PAID_KEY)
 
 
 def _fit(s: str, n: int, mark: str = "") -> str:
@@ -52,7 +68,12 @@ def _fit(s: str, n: int, mark: str = "") -> str:
 
 
 def _key(s: str) -> str:
-    return re.sub(r"[\s.!?\u2026]+$", "", s).casefold()
+    """Comparison key: trailing whitespace and . ! ? \u2026 dropped, case folded. A scan from the end, linear in len(s): an
+    end-anchored regex backtracks quadratically on long runs such as ". . . . x"."""
+    end = len(s)
+    while end and (s[end - 1] in ".!?\u2026" or s[end - 1].isspace()):
+        end -= 1
+    return s[:end].casefold()
 
 
 def _hours(v: Any) -> int | float:
@@ -69,8 +90,12 @@ def _hours(v: Any) -> int | float:
 
 
 def clean(item: Any) -> dict[str, Any] | None:
-    """One step checked against the contract, or None. A plain string is a "say" step (SWITCH_TO_PAID becomes "paid").
-    Unknown keys go; text is whitespace-normalised and clamped, never escaped or stripped of characters."""
+    """One step checked against the contract, or None. A plain string is a "say" step. Unknown keys go; text is plain
+    data (never HTML-escaped): hidden characters removed, whitespace normalised, clamped.
+    The paid switch spends the owner's money on one click, so its words are never the writer's: a "paid" step always
+    reads SWITCH_TO_PAID / PAID_DETAIL. The pages switch on any sent text that starts like SWITCH_TO_PAID, so a say step
+    whose label or message reads that way IS the paid step, and a step of any other action that reads that way says one
+    thing and does another: dropped."""
     if isinstance(item, str):
         item = {"label": item}
     if not isinstance(item, dict):
@@ -79,8 +104,12 @@ def clean(item: Any) -> dict[str, Any] | None:
     if action not in ACTIONS:
         return None
     raw, say = _text(item.get("label")), _text(item.get("say"))
-    if action == "say" and _key(SWITCH_TO_PAID) in (_key(raw), _key(say)):
+    if _reads_paid(raw) or (action == "say" and _reads_paid(say)):
+        if action not in ("say", "paid"):
+            return None
         action = "paid"
+    if action == "paid":
+        return {"label": SWITCH_TO_PAID, "detail": PAID_DETAIL, "action": "paid"}
     label = _fit(raw.rstrip(" ." + _ELL), LIMITS["label"]).rstrip(" ." + _ELL)
     if len(label) < 2 or _EMOJI.search(label):
         return None
@@ -145,8 +174,15 @@ def normalise(items: Any, fallback: Iterable[Any] = (), allow: Iterable[str] = A
 
 
 def labels(steps: list[dict[str, Any]]) -> list[str]:
-    """Legacy chip strings (studio.js, old sessions): the text a chip sends."""
-    return [SWITCH_TO_PAID if s["action"] == "paid" else s.get("say") or s["label"] for s in steps]
+    """Legacy chip strings (studio.js, the current workspace page, old sessions): the text a chip shows and sends, at
+    most 60 characters as the chips always were. The pages act on two texts: APPROVE_BUILD builds in studio.js once the
+    sketch is ready, SWITCH_TO_PAID switches the tier. A say step's message when it fits, else its label."""
+    out = []
+    for s in steps:
+        say = s.get("say") or ""
+        out.append(SWITCH_TO_PAID if s["action"] == "paid" else APPROVE_BUILD if s["action"] == "build"
+                   else say if say and len(say) <= LIMITS["label"] else s["label"])
+    return out
 
 
 # ---------------------------------------------------------------------------- generators (each returns >= 3 candidates)
@@ -211,7 +247,7 @@ def greeting(has_samples: bool = False) -> list[dict[str, Any]]:
                 say="Our inbox needs triage every morning")
     return [_st("Answer enquiries faster", "A team that researches each lead and drafts the reply for your approval",
                 say="We get enquiries we answer too slowly"),
-            _st("Write proposals in hours, not days", "Research, pricing and a client-ready draft for your review",
+            _st("Speed up writing proposals", "Research, pricing and a client-ready draft for your review",
                 say="Proposals take us days to write"),
             *([sample, cams, inbox] if has_samples else [cams, inbox])]
 

@@ -149,7 +149,7 @@ SWITCH_TO_PAID = NS.SWITCH_TO_PAID
 # fixed steps for turns the model never answered (quota, error, empty reply)
 RETRY_STEP = {"label": "Try that again", "detail": "Asks Atlas to answer your last message again; the sketch so far is kept",
               "say": "Please try my last message again."}
-PAID_STEP = {"label": SWITCH_TO_PAID, "detail": "About 3p a message; your last message is resent", "action": "paid"}
+PAID_STEP = {"label": SWITCH_TO_PAID, "detail": NS.PAID_DETAIL, "action": "paid"}   # the only wording a paid step has
 BUILD_STEP = {"label": "Build the desk from this draft", "detail": "Uses the sketch as it stands; no model call needed", "action": "build"}
 PAID_VLM = os.environ.get("ATLAS_PAID_VLM", "google/gemini-2.5-flash-lite")   # cheap paid eyes for desks off the free tier
 
@@ -248,6 +248,7 @@ class DesignSession:
         self.turn = 0
         self.links: list[str] = []
         self.profile: dict[str, Any] | None = None       # company profile from the pre-study of their links
+        self.fixed_turn = False                          # never saved: the last turn's steps are the server's (no model answer)
         self.next = session_next(self, [], fallback=NS.greeting(bool(sample_clips())))
         self.suggestions: list[str] = NS.labels(self.next)   # legacy chips (studio.js, old sessions)
         self.lock = threading.Lock()
@@ -297,15 +298,19 @@ class DesignSession:
         items = ((profile["next"] if isinstance(profile.get("next"), list) else [])     # the opportunities, as the owner's reply
                  + [{"label": o["title"], "detail": (o.get("why") or "") if read else "", "say": o["title"]} for o in opps]
                  + (profile["suggestions"] if isinstance(profile.get("suggestions"), list) else []))
-        self.next = session_next(self, items, fallback=None if self.blueprint else NS.greeting(bool(sample_clips())))
+        self.next = session_next(self, items, fallback=None if self.blueprint else NS.greeting(bool(sample_clips())),
+                                 paid=False)             # a profile is model (or heuristic) output: never the paid switch
         self.suggestions = NS.labels(self.next)
 
 
-def session_next(session: DesignSession, items: Any, intent: str = "design", fallback: list | None = None) -> list[dict[str, Any]]:
+def session_next(session: DesignSession, items: Any, intent: str = "design", fallback: list | None = None,
+                 paid: bool = True) -> list[dict[str, Any]]:
     """The 3 steps under a designer turn: `items` (the model's, or a fixed set) first, then the sketch's fallback.
-    Build only once the blueprint has agents; the paid switch only on a live session still on free models."""
+    Build only once the blueprint has agents; the paid switch only on a live session still on free models, and only
+    when `paid`: the server offers it on a turn the model never answered, a model's own steps never add it (the
+    prompt never asks for it, so one there was not the owner's idea)."""
     drop = set() if session.blueprint and session.blueprint.get("agents") else {"build"}
-    if session.mode == "demo" or session.tier != "free":
+    if not paid or session.mode == "demo" or session.tier != "free":
         drop.add("paid")
     fb = fallback if fallback is not None else NS.design_fallback(session.blueprint, session.ready, intent)
     return NS.normalise(items, fb, allow=[a for a in NS.DESIGN if a not in drop])
@@ -632,6 +637,7 @@ def reply(session: DesignSession, user_text: str, on_token: Callable[[str], None
         session.turn += 1
         session.transcript.append({"role": "user", "text": user_text})
         session.messages.append({"role": "user", "content": user_text})
+        session.fixed_turn = False                       # _live_turn sets it when the model never answered
         if session.mode == "demo":
             raw = _demo_turn(session, user_text, on_token)
         else:
@@ -656,7 +662,8 @@ def reply(session: DesignSession, user_text: str, on_token: Callable[[str], None
                 session.blueprint = bp
             if isinstance(data.get("ready"), bool):
                 session.ready = data["ready"] and bool(session.blueprint and session.blueprint.get("agents"))
-        session.next = session_next(session, steps, intent)   # after the blueprint settles, so "build" is real
+        # after the blueprint settles, so "build" is real; the paid switch only from the server's own steps
+        session.next = session_next(session, steps, intent, paid=session.fixed_turn)
         session.suggestions = NS.labels(session.next)
         session.transcript.append({"role": "assistant", "text": prose})
         session.messages.append({"role": "assistant", "content": raw})
@@ -666,8 +673,10 @@ def reply(session: DesignSession, user_text: str, on_token: Callable[[str], None
                 "ready": session.ready, "turn": session.turn}
 
 
-def _fixed_block(*steps: dict[str, Any]) -> str:
-    """Machine block for a turn the model never answered. No "ready": the design state stays as it was."""
+def _fixed_block(session: DesignSession, *steps: dict[str, Any]) -> str:
+    """Machine block for a turn the model never answered, and the mark that its steps are the server's (only these
+    may offer the paid switch). No "ready": the design state stays as it was."""
+    session.fixed_turn = True
     return chr(10) + "<atlas-design>" + json.dumps({"next": list(steps), "blueprint": None}) + "</atlas-design>"
 
 
@@ -724,10 +733,10 @@ def _live_turn(session: DesignSession, providers_cfg: dict[str, Any] | None, mod
         if "free-models-per-day" in err or ("429" in err and ":free" in (model or "")):
             return ("Today's free model allowance on this account is used up (it resets at midnight UTC). You can switch "
                     "this conversation to the paid model, about 3p a message, or come back after the reset. The sketch so far is kept."
-                    + _fixed_block(PAID_STEP, BUILD_STEP, {**RETRY_STEP, "label": "Try the free model again",
-                                                           "detail": "Works again after the midnight UTC reset"}))
+                    + _fixed_block(session, PAID_STEP, BUILD_STEP, {**RETRY_STEP, "label": "Try the free model again",
+                                                                    "detail": "Works again after the midnight UTC reset"}))
         return (f"The model did not answer ({err}). Say that again in a moment — the sketch so far is kept."
-                + _fixed_block(RETRY_STEP, PAID_STEP, BUILD_STEP))
+                + _fixed_block(session, RETRY_STEP, PAID_STEP, BUILD_STEP))
     if not raw.strip():                                    # some free models return content="" - try the fallback model once
         fallback = (getattr(prov, "cfg", {}) or {}).get("fallback_model") or ""
         if fallback and fallback != model:
@@ -738,7 +747,7 @@ def _live_turn(session: DesignSession, providers_cfg: dict[str, Any] | None, mod
                 err = f"{type(exc).__name__}: {str(exc)[:160]}"
     if not raw.strip():
         return ("I did not get a reply from the model that time - nothing was lost. Say that again, or switch to the paid model."
-                + _fixed_block(RETRY_STEP, PAID_STEP, BUILD_STEP))
+                + _fixed_block(session, RETRY_STEP, PAID_STEP, BUILD_STEP))
     # repair pass: the prose came back without a usable machine block -> ask for the block alone (not streamed).
     # Only once the owner has actually said something about the business (a greeting or "what did you understand"
     # must not conjure a team).
@@ -866,7 +875,7 @@ def _demo_turn(session: DesignSession, text: str, on_token: Callable[[str], None
             f"Who are your customers, and how do enquiries usually arrive — web form, email, phone?",
             [{"label": "Wire up the website form", "detail": "Form enquiries become the desk's first trigger", "say": "Mostly through our website form."},
              {"label": "Watch one shared inbox", "detail": "Email enquiries land in one inbox the desk triages", "say": "By email to one inbox."},
-             {"label": "Cover phone and WhatsApp too", "detail": "Calls and chats are logged and answered from one queue",
+             {"label": "Cover WhatsApp and SMS too", "detail": "Those enquiries land in one queue; phone calls you note by hand",
               "say": "Phone and WhatsApp mostly."}]),
         2: ("Good. I have added a CRM keeper so every contact gets a stage and a dated next action, and wired the intake as the "
             "first trigger. What tone should the replies have, and is there anything the agents must never say or promise?",

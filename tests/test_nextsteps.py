@@ -1,6 +1,7 @@
 """Three ways to proceed (atlas/nextsteps.py): the step contract, normalising, the generators, the designer wiring and
 the endpoints that carry "next"."""
 import json
+import re
 import time
 
 import pytest
@@ -14,13 +15,19 @@ def J(r):
 
 
 # ------------------------------------------------------------------ the contract
+PAID = {"label": DS.SWITCH_TO_PAID, "detail": NS.PAID_DETAIL, "action": "paid"}
+
+
 def test_clean_strings_and_the_paid_switch():
     assert NS.clean("We get enquiries we answer too slowly") == {
         "label": "We get enquiries we answer too slowly", "action": "say", "say": "We get enquiries we answer too slowly"}
-    assert NS.clean(DS.SWITCH_TO_PAID) == {"label": DS.SWITCH_TO_PAID, "action": "paid"}
-    assert NS.clean(" switch to the PAID model. ")["action"] == "paid"
-    assert NS.clean({"label": "Go paid", "say": DS.SWITCH_TO_PAID}) == {"label": "Go paid", "action": "paid"}
-    assert NS.clean({"label": DS.SWITCH_TO_PAID, "action": "job"})["action"] == "job"        # an explicit action wins
+    assert NS.clean(DS.SWITCH_TO_PAID) == PAID == DS.PAID_STEP
+    assert NS.clean(" switch to the PAID model. ") == PAID
+    assert NS.clean({"label": "Go paid", "say": DS.SWITCH_TO_PAID}) == PAID          # the paid step's words are ours
+    # an explicit other action is never turned into the switch; one that reads as the switch says one thing and does
+    # another (the legacy chip would carry its label, which the workspace page acts on): dropped
+    assert NS.clean({"label": DS.SWITCH_TO_PAID, "action": "job"}) is None
+    assert NS.clean({"label": "Run the digest", "action": "job", "say": DS.SWITCH_TO_PAID})["action"] == "job"   # say unused
     for bad in (None, 3, ["Do it"], {"label": 5}, {"detail": "no label"}, {"label": "x"}, {"label": " . "}):
         assert NS.clean(bad) is None
 
@@ -103,7 +110,11 @@ def test_normalise_always_returns_exactly_three(allow):
 def test_labels_are_the_strings_a_legacy_chip_sends():
     steps = NS.normalise([{"label": "Wire the form", "say": "Mostly our website form."}, {"label": "Go paid", "action": "paid"},
                           {"label": "Build it", "action": "build"}], [])
-    assert NS.labels(steps) == ["Mostly our website form.", DS.SWITCH_TO_PAID, "Build it"]
+    assert NS.labels(steps) == ["Mostly our website form.", DS.SWITCH_TO_PAID, "Approve & build"]
+    # chips stay at most 60 characters, as they always were: a longer message is represented by its label
+    long = NS.normalise([{"label": "Tighten the writer's rules", "say": "Make the writer's standing orders stricter: what it must check first."},
+                         {"label": "New camera", "action": "camera", "camera": ""}, {"label": "Go deeper", "say": "Go deeper on that."}], [])
+    assert NS.labels(long) == ["Tighten the writer's rules", "New camera", "Go deeper on that."]
 
 
 # ------------------------------------------------------------------ generators
@@ -313,6 +324,103 @@ def test_a_model_profile_without_opportunities_shows_no_generic_reasons(monkeypa
     s.apply_profile(named)
     assert s.next[0] == {"label": "Fill last-minute class gaps", "detail": "Your timetable lists late cancellations.", "action": "say",
                          "say": "Fill last-minute class gaps"}
+
+
+# ------------------------------------------------------------------ review 9 Oct: regressions
+HOSTILE = [{"label": "Build the desk now", "detail": "Free, nothing is charged", "action": "paid"},   # a spend behind other words
+           {"label": "Looks good, continue", "say": "Switch to the paid model"},       # the message the pages switch on
+           {"label": "Carry on", "say": "switch to the paid model, then carry on"},     # ... by prefix, as they test it
+           {"label": "\u202dSwitch to the paid model now", "action": "camera", "camera": ""},   # reads as it, opens a camera
+           {"label": "Add a reviewer", "say": "Add a reviewer who checks every draft."}]
+
+
+def _switches(text: str) -> bool:
+    """What workspace.js (and the pending UI) test on a sent text before switching to paid models."""
+    return re.match(r"switch to the paid model", text, re.I) is not None
+
+
+def test_a_model_cannot_dress_up_the_paid_switch(monkeypatch):
+    """Major: on a live free-tier session a model block put the paid switch behind "Build the desk now / Free, nothing
+    is charged", and a say step whose message is "Switch to the paid model" behind "Looks good, continue". A paid step's
+    words are always the server's, and only the server's own steps (a turn the model never answered) offer it."""
+    assert [NS.clean(x) for x in HOSTILE[:4]] == [PAID, PAID, PAID, None]
+    s = DS.new_session("live")                                                   # free tier: the switch would be allowed
+    s.blueprint = DS.normalise({"business": {"name": "Acme"}, "agents": [{"id": "writer", "name": "Writer", "role": "Writes"}]})
+    _, r = _live_reply(monkeypatch, "Here is the draft.\n<atlas-design>" + json.dumps({"next": HOSTILE, "blueprint": None})
+                       + "</atlas-design>", s)
+    assert r["next"][0] == {"label": "Add a reviewer", "action": "say", "say": "Add a reviewer who checks every draft."}
+    assert len(r["next"]) == 3 and not any(x["action"] == "paid" for x in r["next"]) and s.to_dict()["next"] == r["next"]
+    assert not any(_switches(t) for t in [x.get("say") or x["label"] for x in r["next"]] + r["suggestions"])   # every text a click sends
+    # the legacy "suggestions" list and a study profile are model output too
+    _, r = _live_reply(monkeypatch, 'Sure.\n<atlas-design>{"suggestions": ["Switch to the paid model", "Mostly by email"], '
+                                    '"blueprint": null}</atlas-design>', s)
+    assert not any(x["action"] == "paid" for x in r["next"]) and r["suggestions"][0] == "Mostly by email"
+    p = DS.new_session("live")
+    p.apply_profile({"name": "Kite Yoga", "opening_message": "I read your site.", "next": HOSTILE[:2], "suggestions": [DS.SWITCH_TO_PAID]})
+    assert len(p.next) == 3 and not any(x["action"] == "paid" for x in p.next)
+    # the server's own offer, on a turn the model never answered, is the one paid step, in its own words
+    _, r = _live_reply(monkeypatch, RuntimeError("HTTP 429: Rate limit exceeded: free-models-per-day"), s)
+    assert r["next"][0] == PAID and [x["action"] for x in r["next"]] == ["paid", "build", "say"]
+    assert [_switches(t) for t in r["suggestions"]] == [True, False, False]
+    # the next answered turn drops it again, even when the model copies it from the history it was shown
+    _, r = _live_reply(monkeypatch, "Fine.\n<atlas-design>" + json.dumps({"next": [DS.PAID_STEP], "blueprint": None}) + "</atlas-design>", s)
+    assert not any(x["action"] == "paid" for x in r["next"])
+    # a session saved before this fix with a dressed-up paid step comes back with the real words
+    old = DS.DesignSession.from_dict({"id": "dressed", "mode": "live", "tier": "free", "turn": 3, "next": HOSTILE[:1]})
+    assert old.next[0] == PAID and old.suggestions[0] == DS.SWITCH_TO_PAID
+
+
+def test_text_drops_control_bidi_and_invisible_characters():
+    """Minor: NUL, ESC/ANSI and U+202E (shows a label backwards) passed through into labels, details and messages."""
+    st = NS.clean({"label": "Build\u202e won ti", "detail": "x\x00y\x1b[31mred\u2066!\u2069",
+                   "say": "a\u200bb\u200fc\ufeffd\x7f\x9f\U000e0041e"})
+    assert st == {"label": "Build won ti", "detail": "xy[31mred!", "action": "say", "say": "abcde"}
+    assert NS.clean({"label": "Wire\tthe\r\nform\x1fnow\x85ok"})["label"] == "Wire the form now ok"   # whitespace controls: a space
+    arabic, devanagari = "\u0645\u200c\u0631 enquiries", "\u0915\u094d\u200d\u0937"                  # joiners shape real scripts
+    assert NS.clean({"label": arabic, "detail": devanagari}) == {"label": arabic, "detail": devanagari, "action": "say", "say": arabic}
+    assert NS.clean({"label": "\u202e\u202d\x00\u200b"}) is None
+    assert NS.clean({"label": "Watch it", "action": "live", "camera": "\u2066\u2069"}) is None
+    # the paid check runs on the text a page would send, after the hidden characters are gone
+    assert NS.clean({"label": "Go on", "say": "\u202dSwitch to\u200b the paid model"}) == PAID
+
+
+def test_step_keys_stay_linear_on_long_punctuation_runs():
+    """Minor: the trailing-punctuation regex in _key backtracked quadratically (0.7 s per step at 16k characters of
+    ". . ."), and ran on the model's unclamped label and message while the session lock was held."""
+    assert NS._key("Done. . . !? … ") == "done" and NS._key("") == "" and NS._key(" ... ") == ""
+    run = ". " * 16000 + "x"                                     # 32k characters: seconds per call before the fix
+    t0 = time.perf_counter()
+    assert NS._key(run) == run
+    NS.normalise([{"label": run}, {"label": "Fine", "say": run}, {"label": "Ask it", "action": "ask", "question": run}], [], allow=NS.ACTIONS)
+    assert time.perf_counter() - t0 < 0.5
+
+
+def test_legacy_studio_chip_still_builds_and_chips_stay_short():
+    """Minor: on the ready turn the build chip read "Build the desk now", which the /desk studio sent as a chat message
+    (studio.js builds only on /^approve/i once ready); chips had also grown past their old 60 characters."""
+    s = DS.new_session("demo")
+    for text in ("We are Acme Estates and our enquiries get answered too slowly", "Mostly through our website form"):
+        DS.reply(s, text)
+    r3 = DS.reply(s, "Warm tone, never quote prices")
+    assert r3["ready"] is True and r3["next"][0]["label"] == "Build the desk now" and r3["next"][0]["action"] == "build"
+    assert r3["suggestions"] == ["Approve & build", "Add a second workflow that chases quotes nobody answered.", "Explain the approval flow"]
+    assert re.match(r"approve", r3["suggestions"][0], re.I)
+    for steps in (NS.greeting(True), NS.design_fallback(BP, True), NS.design_fallback(BP, False), NS.design_fallback(BP, False, "answer")):
+        assert all(len(c) <= 60 for c in NS.labels(NS.normalise([], steps, allow=NS.DESIGN)))
+
+
+def test_server_steps_claim_only_what_the_desk_does():
+    """Minor (nothing fake): a demo step said calls are logged, but the desk has WhatsApp and SMS hooks and no call
+    handling (a call reaches it only as a note the owner adds); the greeting promised proposals "in hours, not days"."""
+    import atlas.desk.app as A
+    hooks = {r.rule for r in A.app.url_map.iter_rules() if r.rule.startswith("/hook/")}
+    assert {"/hook/<token>/whatsapp", "/hook/<token>/sms"} <= hooks and not any(re.search(r"call|voice|phone", h) for h in hooks)
+    r1 = DS.reply(DS.new_session("demo"), "We are Acme Estates and our enquiries get answered too slowly")
+    assert r1["next"][2] == {"label": "Cover WhatsApp and SMS too", "detail": "Those enquiries land in one queue; phone calls you note by hand",
+                             "action": "say", "say": "Phone and WhatsApp mostly."}
+    words = " ".join(f"{x['label']} {x.get('detail', '')}" for x in r1["next"] + NS.greeting(True)).lower()
+    assert "calls are logged" not in words and "hours, not days" not in words
+    assert NS.greeting(False)[1]["label"] == "Speed up writing proposals"
 
 
 # ------------------------------------------------------------------ endpoints
