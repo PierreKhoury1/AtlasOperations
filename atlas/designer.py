@@ -19,6 +19,7 @@ import uuid
 from pathlib import Path
 from typing import Any, Callable
 
+from . import design_ops as OPS
 from . import design_state as DST
 from . import integrations as I
 from . import nextsteps as NS
@@ -280,7 +281,7 @@ class DesignSession:
                 "blueprint": self.blueprint, "next": self.next, "suggestions": self.suggestions, "ready": self.ready,
                 "desk_id": self.desk_id, "turn": self.turn, "links": self.links, "profile": self.profile,
                 "rev": self.bp_rev, "busy": since is not None, "busy_since": since,
-                "design": DST.public_view(self.design, self.blueprint)}
+                "design": DST.public_view(self.design, self.blueprint, OPS.public_facts(self.blueprint))}
 
     def to_dict(self) -> dict[str, Any]:
         """The saved row. Rollback-safe: the code before the design state restores a fixed key list, so it ignores

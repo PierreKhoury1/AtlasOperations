@@ -6,17 +6,25 @@ and the camera wiring rule.
 Step 2: the design state (atlas/design_state.py) - schema and clamps, the block's type table, the model's view (camera
 addresses redacted, the tag neutralised, the profile as data) and the Plan strip's, migration of stored rows, plan
 seeding, the session's new fields and the prose-only history with the owner's first message pinned.
+Step 3: the server ops (atlas/design_ops.py) - validation, the full-blueprint diff, apply onto the blueprint as it is
+with ids authoritative and the owner's edits winning, the camera source rule, consent and proposals (declined, expiry,
+re-validation, accept), the first draft's clone collapse, the cap and the queue, build_item, the plan, questions, the
+ledger, the decision and the sentence-1 check, build facts and cost.
 Numbers in the test names follow the spec's test table (designer_spec.md section 14)."""
 import json
+import re
 import time
 import types
+from pathlib import Path
 
 import pytest
 
+import atlas.design_ops as OPS
 import atlas.design_state as DST
 import atlas.designer as DS
 import atlas.integrations as I
 import atlas.nextsteps as NS
+import atlas.style as ST
 
 
 def _a(id_, name, role="Specialist", tools=("record_find",), **kw):
@@ -649,7 +657,8 @@ def test_5_2_the_company_profile_is_labelled_data():
 # ------------------------------------------------------------------ 9 the Plan strip's view, in public()
 def test_9_public_carries_the_plan_strip_view():
     s = DS.new_session("live")
-    s.blueprint = DS.normalise({"agents": [_a("enquiry_responder", "Enquiry Responder"), _a("bookings", "Bookings Manager")],
+    s.blueprint = DS.normalise({"agents": [_a("enquiry_responder", "Enquiry Responder", role="Answers enquiries"),
+                                           _a("bookings", "Bookings Manager", role="Books viewings")],
                                 "workflows": [{"id": "wa", "name": "WhatsApp enquiries", "trigger": {"kind": "webhook"},
                                                "steps": ["enquiry_responder"]}]})
     s.design = DST.load({"plan": [{"id": "p1", "title": "Answer WhatsApp enquiries", "status": "now",
@@ -713,7 +722,8 @@ OLD_ROW = {   # a prod row from before the design state: exactly these 13 keys (
     "id": "0ldr0w000001", "mode": "live", "tier": "free", "created": 1759900000.0, "turn": 2, "ready": False, "desk_id": None,
     "links": [], "profile": None, "suggestions": ["Mostly by email", "Phone"],
     "blueprint": DS.normalise({"business": {"name": "Bright Smile"},
-                               "agents": [_a("researcher", "Enquiry Researcher"), _a("writer", "Reply Writer"), _a("crm", "CRM Keeper")],
+                               "agents": [_a("researcher", "Enquiry Researcher", role="Researches each enquiry"),
+                                          _a("writer", "Reply Writer", role="Drafts replies"), _a("crm", "CRM Keeper", role="Keeps the CRM")],
                                "workflows": [{"id": "inbound", "name": "Inbound enquiries", "trigger": {"kind": "inbox"},
                                               "steps": ["researcher", "writer"]}]}),
     "transcript": [{"role": "assistant", "text": DS.GREETING, "ts": 1759900000.0},
@@ -785,7 +795,9 @@ def test_21_an_old_row_loads_with_an_empty_plan_and_prose_history():
     assert NS.labels(s.next)[:2] == ["Mostly by email", "Phone"]                                  # next still from the legacy chips
     p = s.public()
     assert (p["rev"], p["busy"], p["busy_since"], p["turn"]) == (0, False, None, 2)
-    assert p["design"] == {"plan": [], "question": None, "proposal": None, "assumptions": [], "decisions": [], "facts": [],
+    assert p["design"] == {"plan": [], "question": None, "proposal": None, "assumptions": [], "decisions": [],
+                           "facts": ["Inbound enquiries: checks the inbox every 2 minutes once an inbox is connected",
+                                     "Inbox workflows: at least 3 AI requests per new message (est.)"],
                            "counts": {"now": 0, "next": 0, "later": 0, "done": 0, "dropped": 0},
                            "summary": {"first_next": "", "question": ""}, "plan_full": False}
     row = s.to_dict()
@@ -877,3 +889,771 @@ def test_21_public_reads_busy_from_the_module_registry():
     finally:
         DS.BUSY.pop(s.id, None)
     assert s.public()["busy"] is False
+
+
+# ================================================================== step 3: the server ops (atlas/design_ops.py)
+def _apply(bp, block, text="", how="strict", design=None, **kw):
+    return OPS.apply_block(bp, design if design is not None else DST.empty(), block, owner_text=text, how=how, **kw)
+
+
+def _ids(t):
+    return [a["id"] for a in (t.blueprint or {}).get("agents") or []]
+
+
+def _kinds(t):
+    return [(e["kind"], e["name"]) for e in t.changes["applied"]]
+
+
+# ------------------------------------------------------------------ 2. types through the ops
+def test_2_a_block_is_applied_by_what_reads_and_the_rest_is_counted():
+    bp = DS.normalise({"agents": [_a("writer", "Writer")]})
+    before = _roundtrip(bp)
+    block = {"intent": "design",
+             "changes": [{"op": "update_agent", "id": "writer", "set": {"goal": "Warm replies"}, "why": "you asked for warmth"},
+                         "remove writer", {"op": "explode"}, {"op": "update_agent", "id": "writer", "set": {"layout": {}, "color": "#fff"}}],
+             "plan": {}, "assume": "text", "ready": "false", "ask": [], "propose": "remove the writer",
+             "answered": [{"q": "q9", "answer": "x"}]}
+    t = _apply(bp, block, "Make the writer warmer")
+    assert t.blueprint["agents"][0]["goal"] == "Warm replies" and t.ready is None and bp == before   # inputs untouched
+    # typed: a string entry, plan {}, assume text, ready "false", ask [], propose text (6); ops: unknown op, no field an
+    # update may set (2); an answer to no open question (1)
+    assert t.changes["skipped"] == 9
+    assert t.changes["applied"] == [{"kind": "update", "what": "agent", "name": "Writer", "fields": ["goal"], "why": "you asked for warmth"}]
+
+
+def test_2_model_text_stays_text_and_server_lines_carry_no_markup():
+    bp = DS.normalise({"agents": [_a("writer", "Writer"), _a("evil", "[x](https://evil.example) `code` **bold**")]})
+    t = _apply(bp, {"plan": [{"title": "<b>Bookings</b> & <script>x</script>", "status": "next", "why": "<i>why</i>"}],
+                    "changes": [{"op": "remove_agent", "id": "evil", "why": "**not** needed"}]}, "tidy up")
+    item = t.design["plan"][-1]
+    assert (item["title"], item["why"]) == ("<b>Bookings</b> & <script>x</script>", "<i>why</i>")       # never escaped
+    note = next(n for n in t.notes if n.startswith("_Waiting"))
+    assert "](" not in note and "`" not in note and "**" not in note and "[x] (https://evil.example)" in note
+    assert ST.plain_md("a `b` *c* [d](e)") == "a b c [d] (e)" and ST.plain_md(None) == ""
+    fixed = OPS.check_sentence1("Removed it.", t)
+    assert "**" not in fixed and "](" not in fixed and "`" not in fixed
+
+
+# ------------------------------------------------------------------ 3. ops
+def test_3_add_update_keep_and_exact_ids():
+    bp = DS.normalise({"agents": [_a("writer", "Writer"), _a("research", "Researcher")]})
+    t = _apply(bp, {"changes": [
+        {"op": "add_agent", "agent": {"name": "Quote Writer", "role": "Drafts quotes", "goal": "Quotes in a day", "tools": ["crm_lookup"]},
+         "why": "quotes take days (your words)"},
+        {"op": "update_agent", "id": "Researcher", "set": {"role": "Lead research"}, "why": "by its exact name"},
+        {"op": "update_agent", "id": "researcher_2", "set": {"role": "x"}},                 # unknown id: dropped
+        {"op": "update_agent", "id": "Reseacher", "set": {"role": "x"}},                    # a typo: never a fuzzy match
+        {"op": "update_agent", "id": "<agent id>", "set": {"role": "x"}},                   # the prompt's placeholder
+        {"op": "add_agent", "agent": {"id": "writer", "name": "writer ", "goal": "Short warm replies"}, "why": "same agent"},
+        {"op": "add_agent", "agent": {"id": "writer", "name": "Weekend Writer", "goal": "Weekend replies", "tools": ["crm_lookup"]}},
+        {"op": "keep", "id": "writer", "why": "still the step you approve"},
+        {"op": "keep", "id": "research"}, {"op": "keep", "id": "quote_writer"}]})       # a third keep is past the limit
+    assert _ids(t) == ["writer", "research", "quote_writer", "writer_2"]
+    by = {a["id"]: a for a in t.blueprint["agents"]}
+    assert by["writer"]["goal"] == "Short warm replies" and by["writer"]["name"] == "Writer"      # same id + same name: update
+    assert by["writer_2"]["name"] == "Weekend Writer" and by["research"]["role"] == "Lead research"
+    assert t.changes["skipped"] == 4
+    assert _kinds(t) == [("add", "Quote Writer"), ("update", "Researcher"), ("update", "Writer"), ("add", "Weekend Writer"),
+                         ("keep", "Writer"), ("keep", "Researcher")]
+    assert t.changes["applied"][0]["why"] == "quotes take days (your words)" and t.changed
+    # an atlas add is never an agent; a turn that changes nothing is no new revision
+    t = _apply(bp, {"changes": [{"op": "add_agent", "agent": {"id": "atlas", "name": "Atlas"}}, {"op": "keep", "id": "writer"}]})
+    assert t.blueprint is bp and not t.changed and t.changes["skipped"] == 1
+
+
+def test_3_a_24_character_id_and_its_suffix_stay_distinct_through_ops():
+    long_id = "enquiry_responder_weeken"
+    bp = DS.normalise({"agents": [_a(long_id, "Enquiry Responder")]})
+    t = _apply(bp, {"changes": [{"op": "add_agent", "agent": {"id": long_id, "name": "Weekend Enquiry Responder", "tools": ["crm_lookup"]}}]})
+    assert _ids(t) == [long_id, "enquiry_responder_week_2"] and DS.normalise(t.blueprint, t.blueprint) == t.blueprint
+
+
+def test_3_workflows_cameras_connectors_business_and_policy():
+    bp = DS.normalise({"agents": [_a("writer", "Writer"), _a("research", "Researcher")],
+                       "workflows": [{"id": "replies", "name": "Replies", "trigger": {"kind": "inbox"}, "steps": ["research"]}]})
+    t = _apply(bp, {"changes": [
+        {"op": "add_workflow", "workflow": {"name": "Daily chase", "trigger": {"kind": "cron", "detail": "every morning"},
+                                            "steps": ["Writer", "Bookings Clerk"]}, "why": "quiet leads go cold"},
+        {"op": "update_workflow", "id": "Replies", "set": {"steps": ["research", "writer"], "name": "Enquiry replies"}},
+        {"op": "add_agent", "agent": {"name": "Bookings Clerk", "role": "Books viewings", "goal": "Book", "tools": ["calendar_free_slots"]}},
+        {"op": "add_camera", "camera": {"name": "Front Door", "focus": "who comes in", "journal": "false"}},
+        {"op": "add_connector", "connector": "whatsapp", "why": "your customers use it"},
+        {"op": "add_connector", "connector": {"kind": "carrier_pigeon"}},
+        {"op": "set_business", "set": {"name": "Kite Lettings", "services": "Lettings, Sales", "currency": "GBP"}},
+        {"op": "set_policy", "set": {"max_words": "about 150", "banned_phrases": ["guaranteed"]}}]})
+    wf = {w["id"]: w for w in t.blueprint["workflows"]}
+    assert wf["daily_chase"]["steps"] == ["writer", "bookings_clerk"] and wf["daily_chase"]["trigger"]["kind"] == "schedule"
+    assert wf["replies"]["steps"] == ["research", "writer"] and wf["replies"]["name"] == "Enquiry replies"   # the id never changes
+    assert t.blueprint["cameras"] == [{"name": "front-door", "source": "", "notes": "", "focus": "who comes in", "journal": False,
+                                      "alerts": False, "watch_for": "person"}]
+    assert [(c["kind"], c["name"]) for c in t.blueprint["connectors"]] == [("whatsapp", I.KINDS["whatsapp"]["label"])]
+    assert t.blueprint["business"] == {"name": "Kite Lettings", "services": ["Lettings", "Sales"]}
+    assert t.blueprint["policy"]["max_words"] == 220 and t.blueprint["policy"]["banned_phrases"] == ["guaranteed"]
+    assert t.changes["skipped"] == 1                                                     # the unknown connector kind
+    upd = next(e for e in t.changes["applied"] if e["kind"] == "update" and e["what"] == "workflow")
+    assert upd["name"] == "Enquiry replies" and upd["fields"] == ["name", "steps"]
+
+
+def test_3_more_than_30_ops_and_full_sections():
+    bp = DS.normalise({"agents": [_a("writer", "Writer")]})
+    ops = [{"op": "keep", "id": "writer"}] * 2 + [{"op": "add_camera", "camera": {"name": f"cam-{i}"}} for i in range(13)] \
+        + [{"op": "add_connector", "connector": k} for k in ("smtp", "imap", "http", "mcp", "webhook", "resend", "whatsapp", "instagram", "slack")] \
+        + [{"op": "add_workflow", "workflow": {"name": f"Flow {i}", "steps": ["writer"]}} for i in range(5)] + [{"op": "keep", "id": "writer"}] * 3
+    t = _apply(bp, {"changes": ops})
+    assert len(ops) == 32 and len(t.blueprint["cameras"]) == 12 and len(t.blueprint["connectors"]) == 8
+    assert len(t.blueprint["workflows"]) == 4
+    # 2 ops past 30, the 13th camera, the 9th connector, the 5th workflow, the 3rd keep
+    assert t.changes["skipped"] == 6 and {d["name"] for d in t.changes["dropped"]} == {"cam-12", "Slack notifications", "Flow 4"}
+
+
+# ------------------------------------------------------------------ 4. ids are authoritative
+def _proposed(x):
+    return DST.load({"proposal": {"status": "pending", "dturn": 0, **x}})
+
+
+def test_4_merging_clones_stores_the_new_id_and_keeps_its_plan_link():
+    """review 2 F-M4 / probe_fit P2: a server merge re-normalised with fuzzy binding re-bound the new agent to cam1."""
+    bp = DS.normalise({"agents": [_cam_agent(f"cam{i}", f"Camera {i} Monitor") for i in range(1, 6)],
+                       "workflows": [{"id": "w", "name": "Watch", "trigger": {"kind": "manual"}, "steps": ["cam1", "cam2"]}]})
+    design = DST.load({"plan": [{"id": "p1", "title": "Watch the floor", "status": "now", "agents": ["cam1", "cam2"]}]})
+    into = {"name": "Camera Monitor", "role": "Reads every camera journal", "goal": "Answer from the journals",
+            "tools": ["camera_ask", "camera_events"]}
+    t = _apply(bp, {"propose": {"kind": "merge", "ids": [f"cam{i}" for i in range(1, 6)], "into": into, "reason": "they differ only by camera"}},
+               "can the camera side be simpler?", design=design)
+    assert t.blueprint is bp and t.design["proposal"]["kind"] == "merge" and t.design["proposal"]["ids"] == [f"cam{i}" for i in range(1, 6)]
+    acc = OPS.accept(t.blueprint, t.design)
+    out = acc["blueprint"]
+    assert [a["id"] for a in out["agents"]] == ["camera_monitor"] and out["agents"][0]["camera"] == ""
+    assert out["workflows"][0]["steps"] == ["camera_monitor"] and acc["design"]["plan"][0]["agents"] == ["camera_monitor"]
+    assert [c["name"] for c in out["cameras"]] == [c["name"] for c in bp["cameras"]]           # a merge keeps the cameras
+    assert acc["design"]["proposal"]["status"] == "accepted" and acc["changed"] and not acc["withdrawn"]
+    assert acc["ledger"] == [{"kind": "accept", "what": "proposal", "fields": [], "why": "they differ only by camera",
+                              "name": "merged Camera 1 Monitor, Camera 2 Monitor, Camera 3 Monitor, Camera 4 Monitor and Camera 5 Monitor "
+                                      "into Camera Monitor"}]
+    assert acc["design"]["decisions"][-1]["source"] == "owner" and acc["undo"]["blueprint"] == bp
+    assert DS.normalise(out, out) == out
+    # door + till into a Shop Watcher: its own fresh id, the cameras stay
+    bp2 = DS.normalise({"agents": [_cam_agent("door_watcher", "Door Watcher"), _cam_agent("till_watcher", "Till Watcher"),
+                                   _a("rep", "Shop Reporter", role="Daily camera report")], "cameras": _cams("door", "till")})
+    d2 = _proposed({"kind": "merge", "ids": ["door_watcher", "till_watcher"], "reason": "one reader covers both",
+                    "into": {"name": "Shop Watcher", "role": "Reads every camera journal", "tools": ["camera_ask"]}})
+    out2 = OPS.accept(bp2, d2)["blueprint"]
+    assert {a["id"]: a["camera"] for a in out2["agents"]} == {"shop_watcher": "", "rep": ""}
+    assert [c["name"] for c in out2["cameras"]] == ["door", "till"]
+    # a merge into a name an agent still present holds gets a suffix, never that agent's id
+    d3 = _proposed({"kind": "merge", "ids": ["door_watcher", "till_watcher"], "into": {"name": "Shop Reporter", "tools": ["camera_ask"]}})
+    assert sorted(a["id"] for a in OPS.accept(bp2, d3)["blueprint"]["agents"]) == ["rep", "shop_reporter"]
+    d4 = _proposed({"kind": "merge", "ids": ["door_watcher", "till_watcher"], "into": {"id": "rep", "name": "Rep", "tools": ["camera_ask"]}})
+    assert sorted(a["id"] for a in OPS.accept(bp2, d4)["blueprint"]["agents"]) == ["rep", "rep_2"]
+
+
+def test_4_accept_re_validates_and_removes_with_the_bound_cameras():
+    bp = DS.normalise({"agents": [_cam_agent("door_watcher", "Door Watcher"), _cam_agent("till_watcher", "Till Watcher"),
+                                  _a("bookings", "Bookings Manager")],
+                       "workflows": [{"id": "watch", "name": "Watch", "trigger": {"kind": "manual"}, "steps": ["door_watcher"]},
+                                     {"id": "book", "name": "Book", "trigger": {"kind": "inbox"}, "steps": ["bookings", "till_watcher"]}],
+                       "cameras": _cams("door", "till"), "layout": {"door_watcher": {"x": 1, "y": 2}, "bookings": {"x": 3, "y": 4}}})
+    design = DST.load({"plan": [{"id": "p1", "title": "Cameras", "status": "done", "agents": ["door_watcher", "till_watcher"]}],
+                       "proposal": {"id": "x1", "status": "pending", "kind": "remove", "ids": ["door_watcher", "till_watcher"],
+                                    "cameras": ["door", "till"], "reason": "you moved to bookings"}})
+    acc = OPS.accept(bp, design)
+    out = acc["blueprint"]
+    assert [a["id"] for a in out["agents"]] == ["bookings"] and out["cameras"] == []                 # no camera-N comes back
+    assert [(w["id"], w["steps"]) for w in out["workflows"]] == [("book", ["bookings"])]             # "watch" had no step left
+    assert out["layout"] == {"bookings": {"x": 3, "y": 4}} and acc["design"]["plan"][0]["agents"] == []
+    # re-validated: a merge whose agents went since is withdrawn, a removal keeps what is still there
+    gone = DST.load({"proposal": {"id": "x2", "status": "pending", "kind": "merge", "ids": ["door_watcher", "ghost"],
+                                  "into": {"name": "Floor Watcher", "tools": ["camera_ask"]}}})
+    w = OPS.accept(bp, gone)
+    assert w["withdrawn"] and w["blueprint"] is bp and w["design"]["proposal"] is None and not w["changed"]
+    part = DST.load({"proposal": {"id": "x3", "status": "pending", "kind": "remove", "ids": ["ghost", "till_watcher"]}})
+    acc = OPS.accept(bp, part)
+    assert sorted(a["id"] for a in acc["blueprint"]["agents"]) == ["bookings", "door_watcher"]
+    assert acc["design"]["proposal"]["ids"] == ["till_watcher"]
+    assert OPS.accept(bp, DST.empty()) is None and OPS.decline(bp, DST.empty()) is None
+
+
+# ------------------------------------------------------------------ 8. camera sources
+@pytest.fixture()
+def clips(monkeypatch):
+    monkeypatch.setattr(DS, "sample_clips", lambda: {"corner-store_ezymart": "x.mp4", "retail-store": "y.mp4"})
+
+
+def test_8_the_model_never_writes_an_address(clips):
+    bp = DS.normalise({"agents": [_cam_agent("door_watcher", "Door Watcher")],
+                       "cameras": [{"name": "door", "source": "rtsp://admin:pw@10.0.0.5/live"}, {"name": "till", "source": ""},
+                                   {"name": "yard", "source": "sample:retail-store"}]})
+    t = _apply(bp, {"changes": [
+        {"op": "update_camera", "name": "door", "set": {"source": "rtsp:// (set)", "focus": "who comes in"}},     # echo: ignored
+        {"op": "update_camera", "name": "till", "set": {"source": "sample:corner-store_ezymart"}},              # over "": allowed
+        {"op": "update_camera", "name": "yard", "set": {"source": ""}},                                         # over a sample: allowed
+        {"op": "update_camera", "name": "door", "set": {"source": "sample:corner-store_ezymart"}},              # over an address: never
+        {"op": "update_camera", "name": "till", "set": {"source": "rtsp://10.0.0.9/stream"}},                   # an address: never
+        {"op": "update_camera", "name": "yard", "set": {"source": "sample:no-such-clip"}},                      # an unknown clip
+        {"op": "add_camera", "camera": {"name": "gate", "source": "rtsp://user:pw@10.0.0.7/x"}},                # added, no address
+        {"op": "add_camera", "camera": {"name": "back", "source": "SAMPLE: retail-store"}}]})
+    cams = {c["name"]: c for c in t.blueprint["cameras"]}
+    assert {n: c["source"] for n, c in cams.items()} == {"door": "rtsp://admin:pw@10.0.0.5/live", "till": "sample:corner-store_ezymart",
+                                                         "yard": "", "gate": "", "back": "sample:retail-store"}
+    assert cams["door"]["focus"] == "who comes in" and t.changes["skipped"] == 3
+    assert (OPS.model_source("webcam (set)"), OPS.model_source(0), OPS.model_source(True), OPS.model_source("", "C:/clips/a.mp4")) == \
+        (None, None, None, None)
+
+
+def test_8_a_full_blueprint_is_diffed_against_the_view(clips):
+    """5.5: the model copies the redacted view back; the echo changes nothing, an edit applies, the address stays."""
+    bp = DS.normalise({"agents": [_cam_agent("door_watcher", "Door Watcher", rules=["Never guess faces"]), _a("rep", "Shop Reporter")],
+                       "workflows": [{"id": "daily", "name": "Daily report", "trigger": {"kind": "schedule"}, "steps": ["rep"]}],
+                       "connectors": ["whatsapp"], "cameras": [{"name": "door", "source": "rtsp://admin:pw@10.0.0.5/live"}],
+                       "business": {"name": "Corner Shop"}, "policy": {"banned_phrases": ["guaranteed"]}})
+    view = DST.view(bp, DST.empty())
+    echo = _roundtrip(view["team"])
+    t = _apply(bp, {"blueprint": echo}, "looks good", bp_view=view)
+    assert t.blueprint is bp and t.changes["applied"] == [] and t.design["proposal"] is None
+    edit = _roundtrip(view["team"])
+    edit["cameras"][0]["focus"] = "the till drawer"
+    edit["agents"][0]["goal"] = "Watch the door closely"
+    for ag in edit["agents"]:
+        ag.pop("instructions"), ag.pop("camera")                      # a lazy copy: fields it left out are no change
+    t = _apply(bp, {"blueprint": edit}, "watch the drawer", bp_view=view)
+    assert t.blueprint["cameras"][0]["source"] == "rtsp://admin:pw@10.0.0.5/live" and t.blueprint["cameras"][0]["focus"] == "the till drawer"
+    door = t.blueprint["agents"][0]
+    assert door["goal"] == "Watch the door closely" and door["instructions"][1:] == ["Never guess faces"] and door["camera"] == "door"
+    assert _kinds(t) == [("update", "Door Watcher"), ("update", "door")]
+    # without the view at hand, bp1's own view is the base
+    assert _apply(bp, {"blueprint": echo}, "ok").changes["applied"] == []
+
+
+# ------------------------------------------------------------------ 9. consent
+def _consent_bp():
+    return DS.normalise({"agents": [_a("writer", "Writer"), _a("qa", "Quality Reviewer")]
+                         + [_cam_agent(f"cam{i}", f"Camera {i} Monitor") for i in (1, 2, 3)],
+                         "workflows": [{"id": "replies", "name": "Replies", "trigger": {"kind": "inbox"}, "steps": ["writer", "qa"]}],
+                         "connectors": ["whatsapp", "smtp"], "policy": {"banned_phrases": ["guaranteed", "best price"]}})
+
+
+def _rm(*ids):
+    return {"changes": [{"op": "remove_agent", "id": i, "why": "not needed now"} for i in ids]}
+
+
+def test_9_a_removal_needs_the_owners_naming_a_removal_word_and_a_strict_parse():
+    bp = _consent_bp()
+    t = _apply(bp, _rm("qa"), "cut the team down")                         # a removal word, but the reviewer is not named
+    assert "qa" in _ids(t) and t.blueprint is bp
+    x = t.design["proposal"]
+    assert (x["kind"], x["ids"], x["reason"], x["status"], x["id"]) == ("remove", ["qa"], "not needed now", "pending", "x1")
+    assert t.changes["converted"] == ["Quality Reviewer"] and ("propose", "removing Quality Reviewer") in _kinds(t)
+    t = _apply(bp, _rm("qa"), "remove the quality reviewer")                  # named + removal word + strict: applied
+    assert "qa" not in _ids(t) and t.design["proposal"] is None and t.blueprint["workflows"][0]["steps"] == ["writer"]
+    assert ("remove", "Quality Reviewer") in _kinds(t)
+    for how, fin in (("loose", ""), ("fence", ""), ("misclosed", ""), ("repair", ""), ("strict", "length")):
+        t = _apply(bp, _rm("qa"), "remove the quality reviewer", how=how, finish_reason=fin)
+        assert "qa" in _ids(t) and t.design["proposal"]["ids"] == ["qa"], how
+    t = _apply(bp, _rm("qa"), "the reviewer is fine")                         # no removal word: a park, not a removal
+    assert t.design["proposal"]["kind"] == "park" and t.design["proposal"]["reason"] == "not needed now"
+    t = _apply(bp, {"changes": [{"op": "remove_agent", "id": "qa"}]}, "hmm")
+    assert t.design["proposal"]["reason"] == OPS.NOT_NAMED
+
+
+def test_9_camera_monitors_names_every_camera_n_monitor():
+    bp = _consent_bp()
+    t = _apply(bp, _rm("cam1", "cam2", "cam3"), "merge the camera monitors into one")
+    assert _ids(t) == ["writer", "qa"] and t.design["proposal"] is None
+    assert all(OPS.named(s, "agent", {"id": "cam2", "name": "Camera 2 Monitor"}) for s in
+               ("drop camera 2 monitor", "remove the camera monitors", "lose cam2", "Camera monitor can go"))
+    assert not OPS.named("remove the cameras", "agent", {"id": "cam2", "name": "Camera 2 Monitor"})
+    assert OPS.named("remove the door camera", "camera", {"name": "door"}) and not OPS.named("indoor", "camera", {"name": "door"})
+    assert OPS.named("no more whatsapp", "connector", {"kind": "whatsapp", "name": "Bookings line"})
+
+
+def test_9_workflows_connectors_and_omissions_follow_the_rule():
+    bp = _consent_bp()
+    t = _apply(bp, {"changes": [{"op": "remove_workflow", "id": "replies"}, {"op": "remove_connector", "name": "whatsapp"}]},
+               "drop the replies workflow")
+    assert t.blueprint["workflows"] == [] and [c["kind"] for c in t.blueprint["connectors"]] == ["whatsapp", "smtp"]
+    assert t.design["proposal"]["connectors"] == [I.KINDS["whatsapp"]["label"]] and t.design["proposal"]["kind"] == "remove"
+    # a full blueprint that leaves things out: a proposal on a strict parse, kept silently otherwise
+    full = {"agents": [_a("writer", "Writer"), _a("qa", "Quality Reviewer")], "workflows": [], "connectors": ["smtp"]}
+    t = _apply(bp, {"blueprint": full}, "add nothing")
+    x = t.design["proposal"]
+    assert t.blueprint is bp and x["kind"] == "park"
+    assert (x["ids"], x["workflows"], x["connectors"]) == (["cam1", "cam2", "cam3"], ["replies"], [I.KINDS["whatsapp"]["label"]])
+    assert x["cameras"] == ["camera-1", "camera-2", "camera-3"]                              # bound only to those agents
+    t = _apply(bp, {"blueprint": full}, "add nothing", how="loose")
+    assert t.blueprint is bp and t.design["proposal"] is None and t.changes["skipped"] == 0
+    # an owner who asked gets a proposal even from a cut-off reply
+    t = _apply(bp, {"blueprint": full}, "remove the camera monitors", how="loose")
+    assert t.design["proposal"]["ids"] == ["cam1", "cam2", "cam3"] and t.design["proposal"]["kind"] == "remove"
+    # "_omitted" is the diff's own mark: a model that writes it on its op gets a proposal like any other removal
+    t = _apply(bp, {"changes": [{"op": "remove_agent", "id": "qa", "_omitted": True}]}, "hmm", how="loose")
+    assert t.design["proposal"]["ids"] == ["qa"]
+
+
+def test_9_policy_loosening_needs_a_mention():
+    bp = _consent_bp()
+    loosen = {"changes": [{"op": "set_policy", "set": {"no_money_figures": False, "banned_phrases": ["guaranteed"], "max_words": 120}}]}
+    t = _apply(bp, loosen, "make the replies friendlier")
+    pol = t.blueprint["policy"]
+    assert pol["no_money_figures"] is True and pol["banned_phrases"] == ["guaranteed", "best price"] and pol["max_words"] == 120
+    assert "_Kept the rule: no money figures; you did not ask to change it._" in t.notes
+    assert '_Kept the rule: never write "best price"; you did not ask to change it._' in t.notes
+    t = _apply(bp, loosen, "you can quote prices now, and best price is fine")
+    assert t.blueprint["policy"]["no_money_figures"] is False and t.blueprint["policy"]["banned_phrases"] == ["guaranteed"]
+    assert not t.notes
+    t = _apply(bp, {"changes": [{"op": "set_policy", "set": {"banned_phrases": None, "no_money_figures": "false"}}]}, "hm")
+    assert t.blueprint is bp and not t.notes                                            # null and "false" change nothing
+
+
+# ------------------------------------------------------------------ 10 (the step 3 part). proposals: declined, expiry, one at a time
+def test_10_expiry_and_declined_entries():
+    bp = _consent_bp()
+    t1 = _apply(bp, _rm("qa"), "cut the team down")                       # dturn 1: proposed
+    assert t1.design["proposal"]["dturn"] == 1 and t1.design["dturn"] == 1
+    t2 = _apply(t1.blueprint, {"changes": []}, "what else?", design=t1.design)  # dturn 2: still waiting
+    assert t2.design["proposal"]["status"] == "pending"
+    t3 = _apply(t2.blueprint, _rm("qa"), "and the inbox?", design=t2.design)  # dturn 3: expired; the re-proposal (a park) is held
+    assert t3.design["proposal"]["status"] == "expired" and "qa" in _ids(t3)
+    assert t3.design["declined"] == [{"sig": "remove:qa", "by": "expiry", "dturn": 3}]        # park and remove: one signature
+    assert {"turn": 3, "text": "Kept Quality Reviewer: not confirmed", "why": "not needed now", "source": "default"} in t3.design["decisions"]
+    t = t3
+    for _ in range(3):                                                         # dturn 4, 5, 6: still held
+        t = _apply(t.blueprint, _rm("qa"), "cut the team down", design=t.design)
+        assert DST.pending_proposal(t.design) is None
+        assert t.changes["dropped"][0]["reason"] == "that change waited for your OK and expired"
+        assert "_Kept Quality Reviewer: that change waited for your OK and expired._" in t.notes
+    t = _apply(t.blueprint, _rm("qa"), "cut the team down", design=t.design)   # dturn 7 > 3 + 3: may be proposed again
+    assert t.design["proposal"]["status"] == "pending" and t.design["dturn"] == 7
+    # the owner's own request is never held: named + removal word, on a loose parse (so still a proposal)
+    t = _apply(t3.blueprint, _rm("qa"), "remove the quality reviewer", how="loose", design=t3.design)
+    assert DST.pending_proposal(t.design)["ids"] == ["qa"]
+    # declined by the owner: the model never proposes it again; the owner can still ask
+    dec = OPS.decline(t1.blueprint, t1.design)
+    assert dec["design"]["proposal"]["status"] == "declined" and dec["design"]["declined"] == [{"sig": "remove:qa", "by": "owner", "dturn": 1}]
+    assert dec["ledger"] == [{"kind": "decline", "what": "proposal", "name": "kept Quality Reviewer", "fields": [], "why": "not needed now"}]
+    assert dec["design"]["decisions"][-1]["source"] == "owner"
+    t = _apply(bp, _rm("qa"), "cut the team down", design=dec["design"])
+    assert DST.pending_proposal(t.design) is None and t.changes["dropped"][0]["reason"] == "you declined that change"
+    t = _apply(bp, _rm("qa"), "remove the quality reviewer", design=dec["design"])
+    assert "qa" not in _ids(t)
+
+
+def test_10_one_proposal_waits_and_a_new_one_must_cover_it():
+    bp = _consent_bp()
+    t = _apply(bp, _rm("qa"), "cut the team down")
+    t2 = _apply(t.blueprint, _rm("writer"), "smaller still", design=t.design)          # takes other ids: dropped, the first waits
+    assert DST.pending_proposal(t2.design)["ids"] == ["qa"] and t2.changes["dropped"][0]["reason"] == "another change already waits for your OK"
+    t3 = _apply(t.blueprint, _rm("qa", "writer"), "smaller still", design=t.design)    # covers it: replaces it
+    x = DST.pending_proposal(t3.design)
+    assert x["ids"] == ["qa", "writer"] and x["id"] == "x2"
+    # the same change proposed again: the one waiting stands, and its expiry clock keeps running
+    again = _apply(t.blueprint, _rm("qa"), "cut the team down", design=t.design)          # dturn 2
+    assert DST.pending_proposal(again.design)["id"] == "x1" and again.proposed is None and t.proposed["id"] == "x1"
+    assert "_Still waiting for your OK: remove Quality Reviewer._" in again.notes and again.changes["converted"] == ["Quality Reviewer"]
+    assert not any(e["kind"] == "propose" for e in again.changes["applied"])
+    later = _apply(again.blueprint, _rm("qa"), "cut the team down", design=again.design)  # dturn 3: expired, then held
+    assert later.design["proposal"]["status"] == "expired" and later.design["proposal"]["id"] == "x1"
+    # the model's own merge and the removals that make it: one proposal
+    merge = {"propose": {"kind": "merge", "ids": ["cam1", "cam2", "cam3"], "into": {"name": "Camera Monitor", "tools": ["camera_ask"]},
+                         "reason": "they differ only by camera"}, **_rm("cam1", "cam2", "cam3")}
+    t4 = _apply(bp, merge, "tidy the cameras")
+    assert DST.pending_proposal(t4.design)["kind"] == "merge" and not t4.changes["dropped"] and len(t4.changes["converted"]) == 4
+    bad = _apply(bp, {"propose": {"kind": "merge", "ids": ["cam1", "nobody"], "into": {"name": "X"}}}, "x")
+    assert bad.design["proposal"] is None and bad.changes["skipped"] == 1          # a merge of fewer than 2 agents
+
+
+# ------------------------------------------------------------------ 13. the cap (Continue itself is step 4)
+def test_13_a_first_draft_of_clones_collapses_into_one_reader():
+    lead = {"op": "add_agent", "agent": {"name": "Security Lead", "role": "Coordinates the watchers", "goal": "Brief the team",
+                                         "tools": ["record_find"]}, "why": "one person to brief"}
+    clones = [{"op": "add_agent", "agent": {"id": f"cam{i}", "name": f"Camera {i} Monitor", "role": f"Watches camera {i}",
+                                            "goal": f"Watch camera {i} for people", "tools": ["camera_ask", "camera_events"],
+                                            "camera": f"cam-{i}"}, "why": "one watcher per camera"} for i in range(1, 6)]
+    cams = [{"op": "add_camera", "camera": {"name": f"cam-{i}"}} for i in range(1, 6)]
+    wf = {"op": "add_workflow", "workflow": {"name": "Watch", "trigger": {"kind": "manual"}, "steps": ["cam1", "cam2", "Camera 3 Monitor"]}}
+    t = _apply(None, {"changes": [lead] + clones + cams + [wf]}, "Five cameras in the shop, watch them")
+    by = {a["id"]: a for a in t.blueprint["agents"]}
+    assert list(by) == ["security_lead", "camera_monitor"]
+    mon = by["camera_monitor"]
+    assert (mon["name"], mon["camera"], mon["role"]) == ("Camera Monitor", "", OPS.READER_ROLE)
+    assert [c["name"] for c in t.blueprint["cameras"]] == [f"cam-{i}" for i in range(1, 6)]      # every clone's camera stays
+    assert t.blueprint["workflows"][0]["steps"] == ["camera_monitor"]
+    assert t.notes == ['_Merged 5 look-alike camera agents into one Camera Monitor; say "one per camera" to split them._']
+    assert t.changes["queued"] == [] and [it["status"] for it in t.design["plan"]] == ["done", "done"]
+    # later turns never collapse: clones there go through a proposal
+    t2 = _apply(t.blueprint, {"changes": clones[:2]}, "one per camera please", design=t.design)
+    assert {"cam1", "cam2"} <= set(_ids(t2))
+    # names without a number lose their camera; agents without a goal are nobody's clones
+    assert OPS._collapsed_name("Door Watcher", ["door", "till"], True) == "Camera Watcher"
+    assert OPS.clone_groups([{"role": "r", "goal": ""}, {"role": "r", "goal": ""}], []) == []
+
+
+def test_13_six_adds_draw_three_leads_first_and_queue_the_rest():
+    bp = DS.normalise({"agents": [_a("writer", "Writer")]})
+    names = ["Stock Checker", "Review Writer", "Bookings Clerk", "Reminder Sender", "Bookings Lead", "Invoice Chaser"]
+    adds = [{"op": "add_agent", "agent": {"name": n, "role": f"{n.split()[0]} work", "goal": f"{n} goal", "tools": ["crm_lookup"],
+                                          **({"reports_to": "Bookings Lead"} if n in ("Review Writer", "Bookings Clerk") else {})},
+             "why": f"why {n}"} for n in names]
+    wf = {"op": "add_workflow", "workflow": {"name": "Reminders", "trigger": {"kind": "schedule"},
+                                             "steps": ["Reminder Sender", "Bookings Clerk", "review_writer"]}}
+    t = _apply(bp, {"changes": adds + [wf]}, "Add the whole bookings team")
+    # the lead first, then the agents the workflow names (in op order), then the rest wait
+    assert _ids(t) == ["writer", "review_writer", "bookings_clerk", "bookings_lead"]
+    assert t.blueprint["workflows"][0]["steps"] == ["bookings_clerk", "review_writer"]
+    item = t.design["plan"][-1]
+    assert (item["title"], item["status"], item["agents"]) == ("Add Stock Checker, Reminder Sender and Invoice Chaser", "next", [])
+    assert item["why"] == "Stock work; queued (3 new agents a turn)"
+    assert [(d["id"], d["workflows"]) for d in item["pending_agents"]] == [("stock_checker", []), ("reminder_sender", ["reminders"]),
+                                                                           ("invoice_chaser", [])]
+    assert t.changes["queued"] == ["Stock Checker", "Reminder Sender", "Invoice Chaser"]
+    assert [k for k, _n in _kinds(t)].count("queue") == 3 and t.notes[-1].startswith("_Queued in the plan:")
+    by = {a["id"]: a for a in t.blueprint["agents"]}
+    assert by["review_writer"]["reports_to"] == by["bookings_clerk"]["reports_to"] == "bookings_lead"
+    # build_item adds them within the cap, back into the workflow that listed them; the item is done once empty
+    t2 = _apply(t.blueprint, {"changes": [{"op": "build_item", "plan": item["id"]}, {"op": "build_item", "plan": "p99"}]}, "go on",
+                design=t.design)
+    assert _ids(t2)[4:] == ["stock_checker", "reminder_sender", "invoice_chaser"] and t2.changes["skipped"] == 1
+    assert t2.blueprint["workflows"][0]["steps"] == ["bookings_clerk", "review_writer", "reminder_sender"]
+    done = next(it for it in t2.design["plan"] if it["id"] == item["id"])
+    assert (done["status"], done["pending_agents"], done["agents"]) == ("done", [], ["stock_checker", "reminder_sender", "invoice_chaser"])
+    assert [k for k, _n in _kinds(t2)] == ["build"] * 3 and t2.changes["applied"][0]["why"].startswith("from the plan: Add Stock")
+
+
+def test_13_a_queued_agent_the_model_adds_itself_is_never_added_twice():
+    bp = DS.normalise({"agents": [_a("writer", "Writer")]})
+    adds = [{"op": "add_agent", "agent": {"name": n, "goal": f"{n} goal", "tools": ["crm_lookup"]}} for n in ("A One", "B Two", "C Three", "D Four")]
+    t = _apply(bp, {"changes": adds}, "add four")
+    item = t.design["plan"][-1]
+    assert [d["id"] for d in item["pending_agents"]] == ["d_four"]
+    # the next turn adds it with its own op: it leaves the queue, the item is done, and Continue has nothing to add
+    t2 = _apply(t.blueprint, {"changes": [adds[3]]}, "and D", design=t.design)
+    it2 = next(it for it in t2.design["plan"] if it["id"] == item["id"])
+    assert _ids(t2).count("d_four") == 1 and it2["pending_agents"] == [] and it2["status"] == "done" and it2["agents"] == ["d_four"]
+    assert OPS.apply_queued(t2.blueprint, t2.design, item["id"]) is None
+    # Continue on a queue whose agent is already there settles it instead of adding "d_four_2"
+    there = _roundtrip(t2.blueprint)
+    c = OPS.apply_queued(there, t.design, item["id"])
+    assert [a["id"] for a in c["blueprint"]["agents"]].count("d_four") == 1 and not c["changed"]
+    assert c["design"]["plan"][-1]["status"] == "done" and c["ledger"] == []
+
+
+def test_13_build_item_and_continue_stay_within_the_cap_and_the_team():
+    bp = DS.normalise({"agents": [_a(f"a{i}", f"Agent {i}") for i in range(4)]})
+    defs = [{"name": f"Queued {i}", "role": "Waits", "goal": f"Goal {i}", "tools": ["crm_lookup"]} for i in range(5)]
+    design = DST.load({"plan": [{"id": "p1", "title": "Add five", "status": "next", "pending_agents": defs}]})
+    t = _apply(bp, {"changes": [{"op": "add_agent", "agent": {"name": "Fresh", "goal": "New work", "tools": ["crm_lookup"]}},
+                                {"op": "build_item", "plan": "p1"}]}, "go", design=design)
+    assert _ids(t)[4:] == ["fresh", "queued_0", "queued_1"] and len(t.design["plan"][0]["pending_agents"]) == 3
+    assert t.design["plan"][0]["status"] == "next"
+    # Continue's core (apply_queued): no model, up to the cap and the 8-agent sketch; nothing advances
+    c = OPS.apply_queued(t.blueprint, t.design, "p1")
+    assert [a["id"] for a in c["blueprint"]["agents"]][7:] == ["queued_2"] and c["design"]["dturn"] == t.design["dturn"]
+    assert len(c["design"]["plan"][0]["pending_agents"]) == 2 and c["ledger"][0]["kind"] == "build"
+    assert OPS.apply_queued(t.blueprint, t.design, "p9") is None
+
+
+# ------------------------------------------------------------------ 14. the plan
+def test_14_plan_upserts_merge_by_id_title_or_agents_and_done_is_the_servers():
+    bp = DS.normalise({"agents": [_a("enquiry_responder", "Enquiry Responder"), _a("bookings", "Bookings Manager")]})
+    t = _apply(bp, {"plan": [{"title": "Answer WhatsApp enquiries", "status": "now", "why": "replies take hours (your words)",
+                              "agents": ["Enquiry Responder", "Stock Checker"]},
+                             {"title": "Weekly owner summary", "status": "later", "why": "you asked for one"},
+                             {"title": "answer whatsapp  enquiries", "why": "same item, again"},              # same title: one item
+                             {"id": "p77", "title": "Daily stock sweep", "status": "done"}]}, "plan it")  # an unknown id; done is not the model's
+    plan = t.design["plan"]
+    assert [(it["id"], it["title"], it["status"]) for it in plan] == [("p1", "answer whatsapp enquiries", "now"),
+                                                                       ("p2", "Weekly owner summary", "later"),
+                                                                       ("p3", "Daily stock sweep", "later")]
+    assert plan[0]["agents"] == ["enquiry_responder", "stock_checker"] and plan[0]["why"] == "same item, again"
+    assert t.changes["skipped"] == 1
+    # the planned agent arrives: every agent exists, so the server marks it done; a known id merges
+    t2 = _apply(t.blueprint, {"changes": [{"op": "add_agent", "agent": {"name": "Stock Checker", "tools": ["crm_lookup"]}}],
+                              "plan": [{"id": "p2", "status": "next", "agents": ["bookings"]},
+                                       {"title": "Something else", "agents": ["Bookings Manager"]}]}, "go", design=t.design)
+    st = {it["id"]: (it["status"], it["touched_dturn"]) for it in t2.design["plan"]}
+    assert st == {"p1": ("done", 2), "p2": ("done", 2), "p3": ("later", 1)}                # the same agents: merged into p2
+    assert [it["title"] for it in t2.design["plan"]] == ["answer whatsapp enquiries", "Something else", "Daily stock sweep"]
+    # a removed agent leaves its plan links; a dropped item takes no title match
+    t3 = _apply(t2.blueprint, {"changes": [{"op": "remove_agent", "id": "stock_checker"}],
+                               "plan": [{"id": "p3", "status": "dropped", "why": "you buy stock weekly"}, {"title": "Daily stock sweep"}]},
+                "remove the stock checker", design=t2.design)
+    assert t3.design["plan"][0]["agents"] == ["enquiry_responder"] and t3.design["plan"][2]["status"] == "dropped"
+    assert t3.design["plan"][3]["title"] == "Daily stock sweep" and t3.design["plan"][3]["status"] == "later"
+
+
+def test_14_a_first_draft_without_a_plan_is_seeded_and_the_team_is_untouched():
+    t = _apply(None, {"changes": [{"op": "add_agent", "agent": {"name": "Writer", "tools": ["crm_lookup"]}},
+                                  {"op": "add_workflow", "workflow": {"name": "Replies", "trigger": {"kind": "inbox"}, "steps": ["Writer"]}}]})
+    assert [(it["title"], it["status"], it["agents"], it["why"]) for it in t.design["plan"]] == [
+        ("Replies", "done", ["writer"], DST.FIRST_DRAFT_WHY)]
+    t = _apply(None, {"changes": [{"op": "add_agent", "agent": {"name": "Writer", "tools": ["crm_lookup"]}}],
+                      "plan": [{"title": "Reply to enquiries", "status": "now", "agents": ["Writer"]}]})
+    assert [(it["title"], it["status"]) for it in t.design["plan"]] == [("Reply to enquiries", "done")]
+
+
+def test_14_a_full_plan_prunes_done_then_dropped_then_later_then_refuses():
+    statuses = ["now", "next", "later", "done", "dropped", "later", "done", "now"]
+    design = DST.load({"plan": [{"title": f"Item {i}", "status": s, "added_dturn": 10 - i} for i, s in enumerate(statuses)], "dturn": 9})
+    bp = DS.normalise({"agents": [_a("w", "Writer")]})
+    t = _apply(bp, {"plan": [{"title": f"New {k}", "status": "next"} for k in range(6)]}, "plan", design=design)
+    titles = [it["title"] for it in t.design["plan"]]
+    # the oldest done (Item 6, added 4) goes first, then Item 3, then the dropped one, then the oldest later (5, then 2)
+    assert titles == ["Item 0", "Item 1", "Item 7", "New 0", "New 1", "New 2", "New 3", "New 4"]
+    assert OPS.full_note() in t.notes and t.notes.count(OPS.full_note()) == 1 and t.changes["skipped"] == 1
+    assert DST.plan_full(t.design) and DST.view(t.blueprint, t.design)["plan_full"] is True
+
+
+def test_14_a_next_item_goes_stale_after_three_design_turns():
+    bp = DS.normalise({"agents": [_a("w", "Writer")]})
+    t = _apply(bp, {"plan": [{"title": "Daily stock sweep", "status": "next"}]}, "plan")
+    for turn in range(3):
+        assert not DST.view(t.blueprint, t.design)["plan"][-1]["stale"], turn
+        t = _apply(t.blueprint, {"intent": "design"}, "and?", design=t.design)
+    assert DST.view(t.blueprint, t.design)["plan"][-1]["stale"] and t.design["dturn"] == 4
+    t = _apply(t.blueprint, {"intent": "answer"}, "how should I price it?", design=t.design)   # answer turns are no design turn
+    assert t.design["dturn"] == 4 and not t.design_turn and t.intent == "answer"
+
+
+# ------------------------------------------------------------------ 15. questions: validation and the default's forms
+def _ask(default=None, marks=(), n=2, **kw):
+    opts = [{"label": f"Option {i}", "detail": "what happens", "say": f"Use option {i}.", **({"default": True} if i in marks else {})}
+            for i in range(n)]
+    return {"text": "Alerts in real time, or one daily report?", "decides": "alert_mode", "options": opts,
+            **({"default": default} if default is not None else {}), **kw}
+
+
+@pytest.mark.parametrize("ask, want", [(_ask(marks=(1,)), 1), (_ask(default=0), 0), (_ask(default=2), 1), (_ask(default=3, n=3), 2),
+                                       (_ask(default=1), 0), (_ask(default=1, n=3), 0), (_ask(default=-1), 0), (_ask(default=True), 0),
+                                       (_ask(marks=(0, 1)), 0), (_ask(marks=(0, 1), default=2), 1), (_ask(), 0)])
+def test_15_the_default_is_marked_zero_the_count_or_the_first(ask, want):
+    t = _apply(None, {"ask": ask}, "We get enquiries all day")
+    q = DST.open_question(t.design)
+    assert q["default"] == want and q["asked_dturn"] == 1 and q["waited"] == 0 and t.asked == q and t.changes["skipped_q"] == 0
+    assert OPS.question_line(t.design) == f"Question: Alerts in real time, or one daily report? (if you skip: Option {want})"
+
+
+def test_15_an_ask_is_validated_and_at_most_one_is_open():
+    good = _ask()
+    bad = [{**good, "text": "Why?"}, {**good, "text": "Alerts in real time or daily"}, {**good, "text": "x" * 161 + "?"},
+           {**good, "decides": "!"}, _ask(n=1), _ask(n=4), {**good, "options": [*good["options"][:1], {"label": "Build it", "action": "build"}]},
+           {**good, "options": [good["options"][0], {**good["options"][0], "say": "Something else"}]},
+           {**good, "options": [good["options"][0], {"label": DS.SWITCH_TO_PAID}]}]
+    for b in bad:
+        t = _apply(None, {"ask": b}, "hi")
+        assert DST.open_question(t.design) is None and t.changes["skipped_q"] == 1, b
+    t = _apply(None, {"ask": "a string"}, "hi")
+    assert t.changes["skipped"] == 1 and t.changes["skipped_q"] == 0                       # a wrong type is a type skip
+    t = _apply(None, {"ask": good}, "hi")
+    t2 = _apply(None, {"ask": {**good, "text": "Which channel do customers use?", "decides": "channel"}}, "more", design=t.design)
+    assert t2.changes["skipped_q"] == 1 and DST.open_question(t2.design)["decides"] == "alert_mode"     # one open at a time
+    # answered this turn: the next question may take its place; the answer is a decision; never asked again
+    t3 = _apply(None, {"answered": [{"q": "q1", "answer": "One daily report"}],
+                       "ask": {**good, "text": "Which channel do customers use?", "decides": "channel"}}, "daily is fine", design=t.design)
+    qs = {q["decides"]: q for q in t3.design["questions"]}
+    assert qs["alert_mode"]["status"] == "answered" and qs["alert_mode"]["answer"] == "One daily report" and "options" not in qs["alert_mode"]
+    assert qs["channel"]["status"] == "open" and t3.design["decisions"][0]["text"] == "alert mode: One daily report"
+    assert ("answer", "One daily report") in _kinds(t3)
+    for again in ({**good, "decides": "alert_mode", "text": "Daily or live alerts for you?"},          # same decision
+                  {**good, "decides": "alert_cadence", "text": "Real-time alerts or one daily report?"}):  # same words
+        t4 = _apply(None, {"answered": [{"q": "q2", "answer": "WhatsApp"}], "ask": again}, "whatsapp", design=t3.design)
+        assert DST.open_question(t4.design) is None and t4.changes["skipped_q"] == 1
+    # no question while a change waits for the owner's OK
+    t5 = _apply(_consent_bp(), {**_rm("qa"), "ask": good}, "cut the team down")
+    assert t5.design["proposal"] and DST.open_question(t5.design) is None and t5.changes["skipped_q"] == 1
+
+
+def test_15_an_open_question_waits_then_its_default_is_used():
+    t = _apply(None, {"ask": _ask(marks=(1,))}, "We get enquiries all day")                   # dturn 1: asked
+    t = _apply(None, {"intent": "answer"}, "what is a journal?", design=t.design)             # an answer turn: no wait
+    assert DST.open_question(t.design)["waited"] == 0 and not t.notes
+    t = _apply(None, {"intent": "design"}, "we also do repairs", design=t.design)             # dturn 2: still open
+    assert DST.open_question(t.design)["waited"] == 1
+    assert t.notes == ["_Still open: Alerts in real time, or one daily report? I use Option 1 after your next message._"]
+    t = _apply(None, {"intent": "design"}, "and invoices", design=t.design)                   # dturn 3: the default is used
+    q = t.design["questions"][0]
+    assert (q["status"], q["answer"], q["resolved_dturn"]) == ("defaulted", "Option 1", 3) and DST.open_question(t.design) is None
+    assert t.notes == ['_No answer to "Alerts in real time, or one daily report?": I used Option 1. Say otherwise any time._']
+    assert t.design["assumptions"][-1]["text"] == "Assumed: Option 1 (question not answered)"
+    assert t.design["decisions"][0] == {"turn": 3, "text": "alert mode: Option 1", "why": "Alerts in real time, or one daily report?",
+                                        "source": "default"}
+    assert ("default", "Option 1") in _kinds(t)
+    # a pending proposal holds the wait
+    bp = _consent_bp()
+    t = _apply(bp, {"ask": _ask()}, "hi")
+    t = _apply(bp, _rm("qa"), "cut the team down", design=t.design)
+    assert DST.open_question(t.design)["waited"] == 0 and not any(n.startswith("_Still open") for n in t.notes)
+
+
+def test_15_a_re_asked_question_leaves_the_prose():
+    d = DST.load({"questions": [{"id": "q1", "text": "Alerts in real time, or one daily report?", "decides": "alert_mode",
+                                 "status": "answered", "answer": "Daily"}]})
+    prose = "Added the reporter. It writes once a day.\n\nShould alerts be real time or one daily report?"
+    assert OPS.drop_reask(prose, d) == "Added the reporter. It writes once a day."
+    assert OPS.drop_reask("Drafted X. Which channel do customers use most?", d, "Which channel do your customers use most?") == "Drafted X."
+    keep = "Drafted X. Do you also take bookings by phone?"
+    assert OPS.drop_reask(keep, d) == keep and OPS.drop_reask("No question here.", d) == "No question here."
+    assert OPS.drop_reask("**Real time or daily report?**", d) == ""
+
+
+# ------------------------------------------------------------------ 16. the ledger, the decision and sentence 1
+def test_16_the_ledger_is_what_was_applied_and_the_decision_is_built_from_it():
+    bp = DS.normalise({"agents": [_cam_agent("door_watcher", "Door Watcher"), _a("writer", "Writer")], "cameras": _cams("door")})
+    t = _apply(bp, {"changes": [
+        {"op": "add_agent", "agent": {"name": "Floor Watcher", "role": "Reads every camera journal", "tools": ["camera_ask"]},
+         "why": "one reader covers every journal"},
+        {"op": "update_agent", "id": "writer", "set": {"goal": "Warm replies", "tools": ["crm_lookup"]}, "why": "you want warmth"},
+        {"op": "remove_agent", "id": "door_watcher", "why": "the reader covers the door"},
+        {"op": "update_agent", "id": "ghost", "set": {"goal": "x"}, "why": "never applied"}]}, "add a reader for the cameras")
+    assert t.changes["applied"] == [
+        {"kind": "add", "what": "agent", "name": "Floor Watcher", "fields": [], "why": "one reader covers every journal"},
+        {"kind": "update", "what": "agent", "name": "Writer", "fields": ["goal", "tools"], "why": "you want warmth"},
+        {"kind": "propose", "what": "proposal", "name": "parking Door Watcher and camera door", "fields": [],
+         "why": "the reader covers the door"}]
+    sentence = "Added Floor Watcher; changed Writer (goal, tools); proposed parking Door Watcher and camera door (waiting for your OK)."
+    assert OPS.ledger_sentence(t.changes["applied"]) == sentence
+    assert t.decision == {"turn": 1, "text": DST.cut(sentence.rstrip("."), 120), "why": "one reader covers every journal",
+                          "source": "designer"}
+    assert t.design["decisions"][-1] == t.decision and len(t.decision["text"]) <= 120
+    # sentence 1 claimed a removal that became a proposal: rebuilt from the ledger, the rest kept
+    assert OPS.check_sentence1("Removed the Door Watcher, since the reader covers it. The writer is warmer now.", t) == \
+        sentence + " The writer is warmer now."
+    assert OPS.check_sentence1("**Removed** the watcher.\n\nNext: the inbox.", t) == sentence + "\n\nNext: the inbox."
+
+
+def test_16_sentence_1_is_kept_when_the_ledger_supports_it():
+    bp = DS.normalise({"agents": [_a("writer", "Writer")]})
+    add = _apply(bp, {"changes": [{"op": "add_agent", "agent": {"name": "Researcher", "tools": ["web_fetch"]}}]}, "add research")
+    for ok in ("Added a researcher because leads need context.", "Drafted the researcher.", "Kept the writer as it is.", "",
+               "A researcher now checks each lead."):
+        assert OPS.check_sentence1(ok, add) == ok
+    assert OPS.check_sentence1("Changed the writer's tone.", add) == "Added Researcher."
+    nothing = _apply(bp, {"intent": "design"}, "hmm")
+    assert OPS.check_sentence1("Added a reviewer. It checks drafts.", nothing) == "No change to the sketch. It checks drafts."
+    assert OPS.check_sentence1("Proposed merging them.", nothing) == "No change to the sketch."
+    prop = _apply(_consent_bp(), _rm("qa"), "cut the team down")
+    said = "Proposed removing the reviewer: you never use it."
+    assert OPS.check_sentence1(said, prop) == said                          # a removal it turned into a proposal, said so
+    assert OPS.check_sentence1("Removed the reviewer.", prop) == "Proposed removing Quality Reviewer (waiting for your OK)."
+    assert OPS.check_sentence1("Kept the writer.", prop) == "Proposed removing Quality Reviewer (waiting for your OK)."
+    # queued adds: "Added five agents" is not what happened
+    q = _apply(bp, {"changes": [{"op": "add_agent", "agent": {"name": f"Agent {i}", "goal": f"g{i}", "tools": ["crm_lookup"]}} for i in range(5)]},
+               "add five")
+    assert OPS.check_sentence1("Added five agents.", q) == "Added Agent 0, Agent 1 and Agent 2; queued Agent 3 and Agent 4 for the next step."
+    assert OPS.ledger_sentence([]) == "No change to the sketch." and OPS.decision_for([], 3) is None
+
+
+# ------------------------------------------------------------------ 17. build facts and cost
+def test_17_static_facts_follow_the_build_code(monkeypatch):
+    facts = OPS.static_facts()
+    assert facts[0] == "A schedule runs once a day; the first run is 24 h after the build; no set time of day."
+    assert facts[1] == "An inbox is checked every 2 minutes once it is connected."
+    assert facts[2] == ("A camera journal writes a note on each change (at most one every 8 s) and at least one every 30 s even "
+                        "when nothing changes; each note is 2 AI requests (note + check), plus a summary every 15 min.")
+    assert "WhatsApp and Instagram reply only within 24 h" in facts[3] and "approved template" in facts[3]
+    assert facts[4] == "Connectors other than the web form are connected after the build."
+    monkeypatch.setattr(DS, "JOURNAL_EVERY_S", 60)
+    monkeypatch.setattr(DS, "JOURNAL_MIN_GAP_S", 10)
+    assert "at most one every 10 s) and at least one every 60 s" in OPS.static_facts()[2]
+    assert OPS.journal_requests_day() == 2 * 1440 + 96
+    # the figures are the build's own: api_design_build schedules a task every 1,440 min starting 86,400 s after the
+    # build and checks an inbox every 2 min
+    app = (Path(DS.__file__).parent / "desk" / "app.py").read_text(encoding="utf-8")
+    assert re.search(r'add_job\(desk\["id"\], "task", jname, .*?, 1440, time\.time\(\) \+ 86400\)', app)
+    assert re.search(r'add_job\(desk\["id"\], "inbox_watch", jname, "", 2, time\.time\(\) \+ 120\)', app)
+    assert (OPS.SCHEDULE_EVERY_MIN, OPS.SCHEDULE_FIRST_S, OPS.INBOX_EVERY_MIN) == (1440, 86400, 2)
+
+
+def test_17_blueprint_facts_and_clones():
+    bp = DS.normalise({"agents": [_cam_agent(f"cam{i}", f"Camera {i} Monitor", role=f"Watches camera {i}") for i in (1, 2)]
+                       + [_a("res", "Researcher", engine="hermes_agent")],
+                       "workflows": [{"id": "d", "name": "Daily digest", "trigger": {"kind": "schedule"}, "steps": ["res"]},
+                                     {"id": "i", "name": "Inbox triage", "trigger": {"kind": "inbox"}, "steps": ["res"]},
+                                     {"id": "m", "name": "On demand", "trigger": {"kind": "manual"}, "steps": ["res"]}],
+                       "cameras": [{"name": "door", "source": ""}, {"name": "till", "source": "sample:corner-store_ezymart"}]})
+    assert OPS.clones(bp) == [["Camera 1 Monitor", "Camera 2 Monitor"]]
+    assert OPS.blueprint_facts(bp) == [
+        "Camera 1 Monitor and Camera 2 Monitor: identical apart from a number or a camera",
+        "Daily digest: runs once a day; first run 24 h after you build",
+        "Inbox triage: checks the inbox every 2 minutes once an inbox is connected",
+        "Researcher: runs on Hermes Agent; that runtime must be connected",
+        "door: needs a stream address or a recording before it can watch"]
+    many = DS.normalise({"cameras": [{"name": f"c{i}"} for i in range(12)]})
+    assert len(OPS.blueprint_facts(many)) == OPS.FACTS_MAX and all(len(f) <= OPS.FACT_CHARS for f in OPS.blueprint_facts(many))
+    v = DST.view(bp, DST.empty(), facts=OPS.facts(bp))
+    assert v["clones"] == [["Camera 1 Monitor", "Camera 2 Monitor"]] and v["cost"]["per_day"] == 2 * 5856 + 2
+    assert v["build_facts"] == OPS.blueprint_facts(bp)
+    s = DS.new_session("demo")
+    s.blueprint = bp
+    p = s.public()["design"]["facts"]                                      # public() carries them for the Plan strip
+    assert p == DST.public_view(DST.empty(), bp, OPS.public_facts(bp))["facts"] == OPS.public_facts(bp)
+    assert p[-4:] == ["2 cameras journaling: ~11,712 AI requests a day at full rate (est.)",
+                      "Scheduled workflows: at least 2 AI requests a day (est.)",
+                      "Inbox workflows: at least 2 AI requests per new message (est.)",
+                      "Over the shared allowance of 1,000 AI requests a day (est.)"]
+
+
+def test_17_cost_for_one_and_five_cameras_against_the_allowance(monkeypatch):
+    one = DS.normalise({"cameras": [{"name": "door"}, {"name": "quiet", "journal": False}]})
+    five = DS.normalise({"cameras": [{"name": f"c{i}"} for i in range(5)]})
+    c1, c5 = OPS.cost(one), OPS.cost(five)
+    assert (c1["cameras"], c1["journals_per_day"], c1["per_day"], c1["allowance"], c1["over"]) == (1, 5856, 5856, 1000, True)
+    assert (c5["journals_per_day"], c5["paced_every_min"], c5["estimate"]) == (29280, None, True)
+    # with the usage module's own-work allowance L2 the journal is paced (usage spec 1.5): 23 min for 1 camera, 120 for 5
+    assert (OPS.cost(one, l2=125)["paced_every_min"], OPS.cost(five, l2=125)["paced_every_min"]) == (23, 120)
+    assert OPS.cost(five, l2=8)["paced_every_min"] is None and OPS.cost(five, pool=40000)["over"] is False
+    assert "paced to one note per camera every ~23 min" in OPS.cost_lines(OPS.cost(one, l2=125))[0]
+    assert OPS.cost_lines(OPS.cost(one, l2=125))[-1] == "Over the 125 AI requests a day Atlas may make on its own (est.)"
+    small = DS.normalise({"agents": [_a("w", "Writer")], "workflows": [{"name": "Chase", "trigger": {"kind": "schedule"}, "steps": ["w"]},
+                                                                      {"name": "Inbox", "trigger": {"kind": "inbox"}, "steps": ["w"]}]})
+    cs = OPS.cost(small)
+    assert (cs["per_day"], cs["schedules_per_day"], cs["inbox_per_message"], cs["over"]) == (2, 2, 2, False)
+    assert OPS.cost_lines(cs) == ["Scheduled workflows: at least 2 AI requests a day (est.)",
+                                  "Inbox workflows: at least 2 AI requests per new message (est.)"]
+    monkeypatch.setenv("ATLAS_FREE_POOL_DAY", "50")
+    assert OPS.cost(small)["allowance"] == 50 and OPS.cost(DS.normalise({}))["over"] is False
+
+
+# ------------------------------------------------------------------ 6.5 owner edits, 6.12 ready
+def test_6_5_the_owners_edits_during_a_turn_win_over_the_models():
+    bp = DS.normalise({"agents": [_a("writer", "Writer")], "cameras": [{"name": "door", "source": ""}], "business": {"name": "Kite"}})
+    owner = _roundtrip(bp)
+    owner["agents"][0]["goal"] = "Owner's goal"
+    owner["business"]["name"] = "Kite Lettings"
+    bp1 = DS.normalise(owner, bp)
+    edits = {k: 5 for k in OPS.edits_between(bp, bp1)}
+    assert set(edits) == {("agent", "writer", "goal"), ("business", "", "name")}
+    t = _apply(bp1, {"changes": [{"op": "update_agent", "id": "writer", "set": {"goal": "Model goal", "role": "Replies"}},
+                                 {"op": "set_business", "set": {"name": "Kite Ltd", "tagline": "Homes"}}]},
+               "x", owner_edits=edits, rev0=4)
+    a = t.blueprint["agents"][0]
+    assert (a["goal"], a["role"]) == ("Owner's goal", "Replies") and t.blueprint["business"] == {"name": "Kite Lettings", "tagline": "Homes"}
+    assert t.changes["kept_edits"] == [{"kind": "agent", "id": "writer", "field": "goal"}, {"kind": "business", "id": "", "field": "name"}]
+    assert t.notes == ["_Kept your edits: Writer (goal) and the business details (name)._"]
+    # an edit from before the turn's snapshot is not newer: the model's value applies
+    t = _apply(bp1, {"changes": [{"op": "update_agent", "id": "writer", "set": {"goal": "Model goal"}}]}, "x", owner_edits=edits, rev0=5)
+    assert t.blueprint["agents"][0]["goal"] == "Model goal" and not t.changes["kept_edits"]
+    # the server's camera line is not the owner's rule
+    watch = DS.normalise({"agents": [_cam_agent("door_watcher", "Door Watcher")], "cameras": _cams("door")})
+    assert OPS.edits_between(watch, DS.normalise(watch, watch)) == set()
+
+
+def test_6_12_ready_needs_the_models_ready_a_team_no_question_and_no_proposal():
+    bp = DS.normalise({"agents": [_a("w", "Writer")]})
+    assert OPS.compute_ready(True, bp, DST.empty()) and not OPS.compute_ready("true", bp, DST.empty())
+    assert not OPS.compute_ready(True, DS.normalise({}), DST.empty()) and not OPS.compute_ready(True, None, DST.empty())
+    asked = _apply(bp, {"ask": _ask(), "ready": True}, "x")
+    assert asked.ready is True and not OPS.compute_ready(asked.ready, asked.blueprint, asked.design)
+    prop = _apply(_consent_bp(), _rm("qa"), "cut the team down")
+    assert not OPS.compute_ready(True, prop.blueprint, prop.design)
+
+
+def test_design_ops_reads_nothing_from_designer_at_import():
+    """designer.py imports design_ops at its top, inside the designer <-> design_state cycle: design_ops's module-level
+    code may not touch the names of designer or design_state, which may not exist yet while those are importing."""
+    import ast
+    tree = ast.parse(Path(OPS.__file__).read_text(encoding="utf-8"))
+    for node in tree.body:
+        if isinstance(node, (ast.FunctionDef, ast.ClassDef, ast.Import, ast.ImportFrom)):
+            continue
+        used = {n.value.id for n in ast.walk(node) if isinstance(n, ast.Attribute) and isinstance(n.value, ast.Name)}
+        assert not used & {"DS", "DST", "NS", "I"}, ast.dump(node)[:200]
+    assert OPS.BUSINESS_FIELDS == DS._BIZ_TEXT + ("services",)
