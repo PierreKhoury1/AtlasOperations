@@ -1,16 +1,21 @@
 """The usage ledger and the one check (usage spec §1-§4, §7): T1, T2, T7, T16, T27, T28, plus the step-2 helpers
 (refusal dedup, overrun, lanes and minute windows, auto actions, the reply window, SMS segments, storage, deferred
-starts, estimates). No model is called: provider responses are stubbed, the key endpoint goes through MockTransport."""
+starts, estimates). The text chokepoint in providers.py (§3.2, §4.4): T8, T9, T10, T14, T43, the provider side of T15
+and T21, the per-run cap across a pool, Hermes by mode and the BYO key test. No model is called: provider responses
+are stubbed (httpx.MockTransport), the key endpoint too."""
 import json
 import os
 import threading
+import time
 from datetime import datetime, timezone
 from pathlib import Path
+from types import SimpleNamespace
 
 import httpx
 import pytest
 
 from atlas import journal as JR
+from atlas import providers as P
 from atlas import usage
 
 PG = bool(os.environ.get("ATLAS_TEST_DATABASE_URL", "").strip())
@@ -126,7 +131,7 @@ def test_windows_reset_at_utc_midnight_and_month_start(U, store, monkeypatch):
     for key in ("o:5", "o:5:d1", "house"):
         assert U.counter(key, "req:free", "D", day9)[0] == 1, key
         assert U.counter(key, "req:free", "D", day10)[0] == 0, key
-    ev = _events(store, "kind='request'")
+    ev = _events(store, "kind='request' AND owner_id=5")
     assert len(ev) == 1 and ev[0]["ts"] == t and ev[0]["ts_end"] == t + 2 and ev[0]["cost_usd"] == 0
     assert ev[0]["cost_basis"] == "provider" and (ev[0]["tokens_in"], ev[0]["tokens_out"]) == (10, 2)
 
@@ -218,7 +223,7 @@ def test_provider_daily_quota_closes_the_pool_until_midnight(U, store, monkeypat
     with pytest.raises(U.UsageLimit) as e:                              # nothing more is sent today
         U.before(m, provider="openrouter", model=FREE)
     assert e.value.retry_at == _ts(2026, 10, 9)
-    minute, byo, day = _events(store, "kind='request'")
+    minute, byo, day = _events(store, "kind='request' AND owner_id=1")
     assert (minute["status"], minute["limit_id"]) == ("error", "")
     assert (byo["status"], byo["limit_id"], byo["key_kind"], byo["pool"]) == ("provider_limit", "", "byo", "byo")
     assert day["note"] == "HTTP 429: Rate limit exceeded: free-models-per-day. Add 10 credits"     # no upstream echo
@@ -249,8 +254,9 @@ def test_retention_prunes_events_but_keeps_counters(U, store, monkeypatch):
     U.action(m, "action", metric="runs")                                # 34 days old: kept
     clock["t"] = t
     out = U.prune()
-    assert out == {"events": 2, "counters": 1, "provider": 1, "deferred": 1}
-    assert [e["kind"] for e in _events(store)] == ["action"]
+    # a demo run on a background thread may write a request row of its own meanwhile (owner 0): only owner 9 is ours
+    assert out["events"] >= 2 and {k: out[k] for k in ("counters", "provider", "deferred")} == {"counters": 1, "provider": 1, "deferred": 1}
+    assert [e["kind"] for e in _events(store, "owner_id=9")] == ["action"]
     assert U.counter("o:9", "req:free", "D", old_day)[0] == 1          # D counters: 400 days
     assert U.counter("o:9", "usd:paid", "M", old_month)[0] == 10_000   # micro-USD; M rows forever
     assert U.counter("o:9", "req:free", "D", U.day_start(t - 401 * 86400))[0] == 0
@@ -272,7 +278,7 @@ def test_background_work_paces_pauses_and_logs_once_per_window(U, store, monkeyp
     for _ in range(2):
         U.after(U.before(door, provider="openrouter", model=FREE), http_status=200, usage={"cost": 0})
     assert [U.allow(door, stream="journal:Door", per_action=2) for _ in range(50)] == ["paused"] * 50
-    rows = _events(store, "kind='refusal'")
+    rows = _events(store, "kind='refusal' AND owner_id=11")
     assert len(rows) == 1 and rows[0]["units"] == 50 and rows[0]["limit_id"] == "ai_requests_auto_day"
     assert rows[0]["note"].startswith("AI requests Atlas made on its own: 2 of 2 used. Resets 00:00 UTC")
     assert U.counter("o:11:auto", "req:free")[1] == 50                 # refused, counted on the lane row
@@ -338,7 +344,7 @@ def test_paid_estimates_and_unreported_costs(U, store, monkeypatch):
         U.before(m, provider="anthropic", model="claude-sonnet-5")
     assert e.value.limit_id == "paid_unpriced" and "USAGE_PRICE_TABLE" in e.value.message
     U.after(U.before(m, provider="openrouter", model=PAID), http_status=200, usage={"prompt_tokens": 5, "completion_tokens": 1})
-    est, unreported = _events(store, "kind='request'")
+    est, unreported = _events(store, "kind='request' AND owner_id=30")
     assert est["cost_usd"] is None and est["est_usd"] == pytest.approx(0.0075)
     assert est["cost_basis"] == "estimate: operator price table, set 2026-10-09"
     assert unreported["cost_usd"] is None and unreported["est_usd"] is None and unreported["cost_basis"] == ""
@@ -476,3 +482,367 @@ def test_limit_bodies_and_last_real_vision_event(U, store, monkeypatch):
     assert store.last_vision_event(1, "door")["backend"] == "paced"
     assert store.last_vision_event(1, "door", exclude_backends=("paced", "paused", "usage"))["backend"] == "yolo"
     assert store.for_desk(1).last_vision_event("door", exclude_backends=("paced",))["backend"] == "yolo"
+
+
+# ---------------------------------------------------------------------------- the text chokepoint (providers.py)
+OR_URL = "https://openrouter.ai/api/v1"
+ANTHROPIC_MSG = {"id": "msg_test", "type": "message", "role": "assistant", "model": "claude-opus-5",
+                 "content": [{"type": "text", "text": "OK"}], "stop_reason": "end_turn", "stop_sequence": None,
+                 "usage": {"input_tokens": 1000, "output_tokens": 100, "cache_read_input_tokens": 0,
+                           "cache_creation_input_tokens": 0}}
+
+
+def _stub(p, handler):
+    """Send a house provider's HTTP to `handler` (nothing leaves the machine)."""
+    mt = httpx.MockTransport(handler)
+    p._httpx = SimpleNamespace(Client=lambda **kw: httpx.Client(**{**kw, "transport": mt}), URL=httpx.URL,
+                               InvalidURL=httpx.InvalidURL)
+    return p
+
+
+def _house(handler, meter=None, **pcfg):
+    """A house OpenRouter provider (the operator's key) whose requests go to `handler`."""
+    conf = {"type": "openai", "base_url": OR_URL, "api_key": "sk-or-test", "default_model": PAID, **pcfg}
+    return _stub(P.make_provider(conf, meter=meter), handler)
+
+
+def _body(text="OK", usage=None, model=PAID):
+    return {"choices": [{"message": {"role": "assistant", "content": text}, "finish_reason": "stop"}],
+            "usage": usage or {}, "model": model}
+
+
+def _sse(chunks):
+    return "".join(f"data: {json.dumps(c)}\n\n" for c in chunks) + "data: [DONE]\n\n"
+
+
+def _no_sleep(monkeypatch):
+    monkeypatch.setattr(P, "time", SimpleNamespace(sleep=lambda s: None, time=time.time))
+
+
+def _ask(p, **kw):
+    return p.chat("sys", [p.user_message("hi")], [], **kw)
+
+
+def test_every_model_request_lands_in_the_ledger_with_provider_cost(U, store):
+    """T8: provider-reported usage and cost, from the body and from the last SSE chunk."""
+    usage_block = {"prompt_tokens": 1200, "completion_tokens": 80, "cost": 0.0123,
+                   "prompt_tokens_details": {"cached_tokens": 200}}
+    seen = []
+
+    def handler(req):
+        body = json.loads(req.content)
+        seen.append(body)
+        assert req.headers["Authorization"] == "Bearer sk-or-test"
+        if body.get("stream"):
+            chunks = [{"choices": [{"delta": {"content": "O"}}], "model": PAID},
+                      {"choices": [{"delta": {"content": "K"}, "finish_reason": "stop"}], "model": PAID},
+                      {"choices": [], "usage": usage_block, "model": PAID}]
+            return httpx.Response(200, text=_sse(chunks), headers={"Content-Type": "text/event-stream"})
+        return httpx.Response(200, json=_body(usage=usage_block))
+    m = _meter(owner=50, desk=7)
+    p = _house(handler, meter=m)
+    assert (p.meter, p.key_kind, p.usage_provider) == (m, "house", "openrouter")
+    r = _ask(p)
+    assert r.text == "OK" and (r.input_tokens, r.output_tokens) == (1200, 80)
+    toks = []
+    assert _ask(p, on_token=lambda t, thinking=False: toks.append(t)).text == "OK" and "".join(toks) == "OK"
+    rows = _events(store, "kind='request' AND owner_id=50")
+    assert len(rows) == 2 and len(seen) == 2 and seen[1]["stream"] is True
+    for row in rows:
+        assert (row["cost_usd"], row["cost_basis"], row["status"], row["http_status"]) == (0.0123, "provider", "ok", 200)
+        assert (row["tokens_in"], row["tokens_out"], row["tokens_cached"]) == (1200, 80, 200)
+        assert (row["provider"], row["model"], row["pool"], row["key_kind"]) == ("openrouter", PAID, "paid", "house")
+        assert (row["surface"], row["desk_id"], row["action_id"], row["lane"]) == ("design.say", 7, m.action_id, "you")
+    assert U.counter("o:50", "req:paid")[0] == 2 and U.counter("o:50:d7", "req:paid")[0] == 2
+    assert U.counter("o:50", "usd:paid", "M")[0] == 24_600 and U.counter("house", "usd:paid", "M")[0] == 24_600
+    assert m.requests == 2
+
+
+def test_unreported_cost_stays_null(U, store):
+    """T9 (the provider side; the API's cost_unreported count comes with /api/usage)."""
+    p = _house(lambda req: httpx.Response(200, json=_body(usage={"prompt_tokens": 5, "completion_tokens": 1})),
+               meter=_meter(owner=51))
+    _ask(p)
+    row, = _events(store, "kind='request' AND owner_id=51")
+    assert (row["cost_usd"], row["est_usd"], row["cost_basis"], row["tokens_in"]) == (None, None, "", 5)
+    assert U.counter("o:51", "req:paid")[0] == 1 and U.counter("o:51", "usd:paid", "M")[0] == 0
+
+
+def test_retries_and_fallbacks_count_as_requests(U, store, monkeypatch):
+    """T10: a 502 then a 200 is two requests; so is a paid 429 that falls back to the free model."""
+    _no_sleep(monkeypatch)
+    replies = [httpx.Response(502, json={"error": {"message": "Upstream error"}}), httpx.Response(200, json=_body(model=FREE))]
+    p = _house(lambda req: replies.pop(0), meter=_meter(owner=52), default_model=FREE)
+    assert _ask(p).text == "OK" and replies == []
+    rows = _events(store, "kind='request' AND owner_id=52")
+    assert [(r["status"], r["http_status"], r["note"]) for r in rows] == [("error", 502, "HTTP 502: Upstream error"), ("ok", 200, "")]
+    assert U.counter("o:52", "req:free")[0] == 2
+    sent = []
+
+    def handler(req):
+        model = json.loads(req.content)["model"]
+        sent.append(model)
+        if model == PAID:
+            return httpx.Response(429, json={"error": {"message": "Rate limit exceeded: limit_rpm/anthropic"}})
+        return httpx.Response(200, json=_body(model=FREE))
+    q = _house(handler, meter=_meter(owner=53), fallback_model=FREE)
+    assert _ask(q).text == "OK" and sent == [PAID, FREE]
+    rows = _events(store, "kind='request' AND owner_id=53")
+    assert [(r["model"], r["pool"], r["status"], r["http_status"]) for r in rows] == [(PAID, "paid", "error", 429),
+                                                                                      (FREE, "free:openrouter", "ok", 200)]
+    assert U.counter("o:53", "req:paid")[0] == 1 and U.counter("o:53", "req:free")[0] == 1
+
+
+def test_provider_daily_quota_stops_requests_until_reset(U, store, monkeypatch):
+    """T14: the provider's free-models-per-day 429 closes the house pool until 00:00 UTC; nothing else is sent today,
+    and the chokepoint raises UsageLimit(pool_free_day) instead of falling back."""
+    t = _ts(2026, 10, 9, 17, 11)
+    clock = _clock(monkeypatch, t)
+    sent = []
+
+    def handler(req):
+        sent.append(json.loads(req.content)["model"])
+        if len(sent) == 1:
+            return httpx.Response(429, json={"error": {"code": 429, "message": "Rate limit exceeded: free-models-per-day. "
+                                                       "Add 10 credits to unlock 1000 free model requests per day"}})
+        return httpx.Response(200, json=_body(model=FREE))
+    p = _house(handler, meter=_meter(owner=54), default_model=FREE, fallback_model="openrouter/another-model:free")
+    with pytest.raises(U.UsageLimit) as e:
+        _ask(p)
+    assert e.value.limit_id == "pool_free_day" and e.value.retry_at == _ts(2026, 10, 10) and len(sent) == 1   # no fallback
+    assert U.snapshot()["exhausted_at"] == t and U.pool_exhausted()
+    row, = _events(store, "kind='request' AND owner_id=54")
+    assert (row["status"], row["limit_id"], row["http_status"]) == ("provider_limit", "pool_free_day", 429)
+    assert row["note"].startswith("HTTP 429: Rate limit exceeded: free-models-per-day.") and "[" not in row["note"]
+    q = _house(handler, meter=_meter(owner=55), default_model=FREE)
+    with pytest.raises(U.UsageLimit) as e:
+        _ask(q)
+    assert e.value.limit_id == "pool_free_day" and len(sent) == 1         # refused without any HTTP call
+    assert _ask(_house(handler, meter=_meter(owner=55))).text == "OK"     # paid models are another pool
+    clock["t"] = _ts(2026, 10, 10, 0, 0, 1)
+    assert _ask(q).text == "OK" and sent[-1] == FREE and len(sent) == 3   # after 00:00 UTC it is sent again
+
+
+def test_per_minute_429_is_not_reported_as_daily_allowance(U, store):
+    """T15, provider side: a 429 without "per-day" stays a transient RuntimeError and never closes the pool (the
+    designer's reply text for it is the designer track's part)."""
+    p = _house(lambda req: httpx.Response(429, json={"error": {"message": "Rate limit exceeded: limit_rpm/google/gemma-3-27b-it"}}),
+               meter=_meter(owner=56), default_model=FREE)
+    with pytest.raises(RuntimeError) as e:
+        _ask(p)
+    assert str(e.value).startswith("HTTP 429: Rate limit exceeded: limit_rpm")
+    assert not U.pool_exhausted() and U.snapshot()["exhausted_at"] is None
+    row, = _events(store, "kind='request' AND owner_id=56")
+    assert (row["status"], row["limit_id"], row["http_status"]) == ("error", "", 429)
+
+
+def test_errors_inside_a_200_are_recorded_as_errors(U, store):
+    """OpenRouter can answer 200 with an error body and no choices, or send an error chunk after the stream started:
+    the ledger row says error, and the daily-quota text still closes the pool."""
+    p = _house(lambda req: httpx.Response(200, json={"error": {"message": "Upstream timed out", "code": 502}}), meter=_meter(owner=63))
+    with pytest.raises(RuntimeError, match="HTTP 502: provider returned no choices"):
+        _ask(p)
+    chunks = [{"choices": [{"delta": {"content": "Hal"}}], "model": PAID},
+              {"error": {"code": "server_error", "message": "Provider disconnected unexpectedly"},
+               "choices": [{"delta": {"content": ""}, "finish_reason": "error"}]}]
+    q = _house(lambda req: httpx.Response(200, text=_sse(chunks), headers={"Content-Type": "text/event-stream"}), meter=_meter(owner=63))
+    assert _ask(q, on_token=lambda t, thinking=False: None).text == "Hal"
+    rows = _events(store, "kind='request' AND owner_id=63")
+    assert [(r["status"], r["http_status"], r["note"]) for r in rows] == [
+        ("error", 200, "provider returned no choices: Upstream timed out"),
+        ("error", 200, "stream error: Provider disconnected unexpectedly")]
+    quota = _house(lambda req: httpx.Response(200, json={"error": {"message": "Rate limit exceeded: free-models-per-day"}}),
+                   meter=_meter(owner=64), default_model=FREE)
+    with pytest.raises(U.UsageLimit) as e:
+        _ask(quota)
+    assert e.value.limit_id == "pool_free_day" and U.pool_exhausted()
+
+
+def test_anthropic_house_paid_without_price_is_refused(U, store, monkeypatch):
+    """T43: Anthropic reports no cost, so a house request needs an operator price (est_usd, labelled) or it is refused
+    before anything is sent; the SDK never retries on its own, the provider retries once and counts both."""
+    import anthropic
+    import httpx2                                     # the anthropic SDK's own HTTP client package
+    _no_sleep(monkeypatch)
+    m = _meter(owner=57)
+    p = P.make_provider({"type": "anthropic", "api_key": "sk-ant-test", "default_model": "claude-opus-5"}, meter=m)
+    assert p._client.max_retries == 0 and (p.key_kind, p.usage_provider, p.meter) == ("house", "anthropic", m)
+    sent, replies = [], []
+
+    def handler(req):
+        sent.append(req.url.path)
+        return replies.pop(0) if replies else httpx2.Response(200, json=ANTHROPIC_MSG)
+    p._client = anthropic.Anthropic(api_key="sk-ant-test", max_retries=p._client.max_retries,
+                                    http_client=httpx2.Client(transport=httpx2.MockTransport(handler)))
+    with pytest.raises(U.UsageLimit) as e:
+        _ask(p)
+    assert e.value.limit_id == "paid_unpriced" and "USAGE_PRICE_TABLE" in e.value.message and sent == []
+    monkeypatch.setattr(U.CFG, "price_table", U.parse_price_table("claude-opus-5=5:25@2026-10-09"))
+    assert _ask(p).text == "OK" and len(sent) == 1
+    replies.append(httpx2.Response(529, json={"type": "error", "error": {"type": "overloaded_error", "message": "Overloaded"}}))
+    assert _ask(p).text == "OK" and len(sent) == 3                       # 529, then the provider's one retry
+    rows = _events(store, "kind='request' AND owner_id=57")
+    assert [(r["status"], r["http_status"]) for r in rows] == [("ok", 200), ("error", 529), ("ok", 200)]
+    ok = rows[0]
+    assert (ok["cost_usd"], ok["provider"], ok["pool"], ok["tokens_in"], ok["tokens_out"]) == (None, "anthropic", "paid", 1000, 100)
+    assert ok["est_usd"] == pytest.approx(0.0075) and ok["cost_basis"] == "estimate: operator price table, set 2026-10-09"
+    assert U.counter("o:57", "usd:est", "M")[0] == 15_000 and U.counter("o:57", "req:paid")[0] == 3
+
+
+def test_demo_mode_exempts_only_scripted_requests(U, store, monkeypatch):
+    """T21, provider side: DemoProvider requests are metered as req:demo and never refused unless USAGE_DEMO=enforce;
+    a real house-key request is enforced in demo mode like anywhere else (the theatre part comes with vision)."""
+    assert os.environ.get("DESK_MODE") == "demo"
+    U.set_override(58, "ai_requests_day", 0)
+    m = _meter(owner=58, surface="run.you")
+    d = P.make_provider({"type": "demo", "delay": 0}, meter=m)
+    assert (d.key_kind, d.usage_provider) == ("demo", "demo")
+    for _ in range(3):
+        _ask(d)
+    rows = _events(store, "kind='request' AND owner_id=58")
+    assert [(r["pool"], r["key_kind"], r["provider"], r["status"], r["tokens_in"], r["cost_usd"]) for r in rows] == \
+        [("demo", "demo", "demo", "ok", 0, None)] * 3                     # no canned token figures in the ledger
+    assert U.counter("o:58", "req:demo")[0] == 3 and U.counter("o:58", "req:free")[0] == 0
+    monkeypatch.setattr(U.CFG, "demo", "enforce")
+    with pytest.raises(U.UsageLimit) as e:
+        _ask(d)
+    assert e.value.limit_id == "ai_requests_day" and len(_events(store, "kind='request' AND owner_id=58")) == 3
+    monkeypatch.setattr(U.CFG, "demo", "meter")
+    sent = []
+    h = _house(lambda req: sent.append(1) or httpx.Response(200, json=_body(model=FREE)), meter=m, default_model=FREE)
+    with pytest.raises(U.UsageLimit) as e:
+        _ask(h)
+    assert e.value.limit_id == "ai_requests_day" and sent == []
+    fault = P.make_provider({"type": "demo", "delay": 0, "fault_rate": 1.0, "fault_sleep": 0}, meter=_meter(owner=59))
+    for _ in range(4):                                                   # injected faults are recorded as errors
+        try:
+            _ask(fault)
+        except RuntimeError:
+            pass
+    rows = _events(store, "kind='request' AND owner_id=59")
+    assert len(rows) == 4 and {r["status"] for r in rows} <= {"ok", "error"}
+
+
+def test_one_meter_and_one_run_cap_across_house_and_byo_providers(U, store, monkeypatch):
+    """ProviderPool(meter=) hands every provider the run's meter; each pays with its own key kind, and the per-run cap
+    (L4) counts them all, BYO included, refusing before anything is sent."""
+    from atlas import secure as SEC
+    sent = []
+
+    def handler(req):
+        sent.append(req.url.host)
+        return httpx.Response(200, json=_body(usage={"prompt_tokens": 3, "completion_tokens": 1, "cost": 0.001}))
+    monkeypatch.setattr(SEC, "vetted_ips", lambda host, scope="public": ["93.184.216.34"])
+    monkeypatch.setattr(SEC, "guarded_transport", lambda scope="public", **kw: httpx.MockTransport(handler))
+    run = _meter(owner=60, desk=3, surface="run.you", run_cap=3)
+    pool = P.ProviderPool({"default_provider": "openrouter", "providers": {
+        "openrouter": {"type": "openai", "base_url": OR_URL, "api_key": "sk-or-test", "default_model": PAID},
+        "desk:openai": {"type": "openai", "base_url": "https://api.openai.com/v1", "api_key": "sk-own-1",
+                        "default_model": "gpt-5.4-mini", "url_guard": True, "env_key": False}}}, meter=run)
+    house, byo = _stub(pool.get(), handler), pool.get("desk:openai")
+    assert (house.meter, byo.meter) == (run, run) and (house.key_kind, byo.key_kind) == ("house", "byo")
+    for prov in (house, byo, house):
+        _ask(prov)
+    with pytest.raises(U.UsageLimit) as e:
+        _ask(byo)
+    assert e.value.limit_id == "run_requests" and e.value.retry_at is None and len(sent) == 3 and run.requests == 3
+    rows = _events(store, "kind='request' AND owner_id=60")
+    assert [(r["key_kind"], r["provider"], r["pool"]) for r in rows] == [("house", "openrouter", "paid"), ("byo", "openai", "byo"),
+                                                                         ("house", "openrouter", "paid")]
+    assert U.counter("o:60", "req:byo")[0] == 1 and U.counter("o:60", "usd:byo", "M")[0] == 1_000
+    assert U.counter("o:60", "req:paid")[0] == 2 and U.counter("o:60", "usd:paid", "M")[0] == 2_000
+
+
+def test_hermes_provider_is_metered_by_mode(U, store, monkeypatch, capsys):
+    """Spec §1.8: Atlas's own Hermes instance is off by default (nothing sent), one request when unmetered (no cost:
+    it stands for many inner calls), a delegation in proxy mode (pre-checked; the proxy meters the inner requests).
+    A desk's own instance is the owner's key: one BYO request, whatever the mode."""
+    from atlas import secure as SEC
+    sent, down = [], {"on": False}
+
+    def handler(req):
+        sent.append(json.loads(req.content)["model"])
+        if down["on"]:
+            return httpx.Response(401, json={"error": {"message": "Invalid API key"}})
+        return httpx.Response(200, json=_body(usage={"prompt_tokens": 40, "completion_tokens": 9, "cost": 0.5}, model="hermes-agent"))
+    m = _meter(owner=61, desk=4, surface="run.you", run_cap=10)
+    house = _stub(P.make_provider({"type": "hermes_agent", "base_url": "http://127.0.0.1:8642", "api_key": "hk",
+                                   "default_model": FREE, "session_key": "atlas:desk4:writer"}, meter=m), handler)
+    assert (house.key_kind, house.usage_provider, house.metering()) == ("house", "hermes", "off")
+    with pytest.raises(RuntimeError, match="off until its model use can be counted"):
+        _ask(house)
+    assert sent == [] and _events(store, "owner_id=61") == []
+    monkeypatch.setattr(U.CFG, "hermes_meter", "unmetered")
+    _ask(house)
+    row, = _events(store, "kind='request' AND owner_id=61")
+    assert (row["provider"], row["model"], row["pool"], row["key_kind"]) == ("hermes", FREE, "free:openrouter", "house")
+    assert (row["cost_usd"], row["cost_basis"], row["tokens_in"], row["note"]) == (None, "", 40, "inner calls not counted")
+    assert U.counter("o:61", "req:free")[0] == 1 and m.requests == 1
+    monkeypatch.setattr(U.CFG, "hermes_meter", "proxy")
+    capsys.readouterr()
+    _ask(house)
+    assert len(sent) == 2 and len(_events(store, "kind='request' AND owner_id=61")) == 1 and m.requests == 1
+    act, = _events(store, "kind='action' AND owner_id=61")
+    assert (act["surface"], act["provider"], act["model"], act["status"], act["key_kind"]) == ("hermes.call", "hermes", FREE, "ok", "house")
+    assert U.counter("o:61", "hermes:calls")[0] == 1 and U._hermes == {}
+    assert U.HERMES_SELF_CHECK in capsys.readouterr().out and U.hermes_warning()["message"] == U.HERMES_SELF_CHECK
+    down["on"], U._hermes_warn["logged"] = True, 0.0                     # a call that failed proves nothing either way
+    with pytest.raises(RuntimeError, match="HTTP 401"):
+        _ask(house)
+    assert [a["status"] for a in _events(store, "kind='action' AND owner_id=61")] == ["ok", "error"]
+    assert U.HERMES_SELF_CHECK not in capsys.readouterr().out and len(sent) == 3
+    down["on"] = False
+    U.mark_exhausted()                                                    # the delegation is pre-checked: refused unsent
+    with pytest.raises(U.UsageLimit) as e:
+        _ask(house)
+    assert e.value.limit_id == "pool_free_day" and len(sent) == 3 and U._hermes == {}
+    monkeypatch.setattr(U.CFG, "hermes_meter", "off")
+    monkeypatch.setattr(SEC, "vetted_ips", lambda host, scope="public": ["192.168.1.20"])
+    monkeypatch.setattr(SEC, "guarded_transport", lambda scope="public", **kw: httpx.MockTransport(handler))
+    own = P.make_provider({"type": "hermes_agent", "base_url": "http://hermes.owner.test:8642", "api_key": "",
+                           "url_guard": "internal", "env_key": False}, meter=m)
+    assert (own.key_kind, own.metering()) == ("byo", "byo")
+    _ask(own)
+    last = _events(store, "kind='request' AND owner_id=61")[-1]
+    assert (last["key_kind"], last["pool"], last["provider"], last["model"]) == ("byo", "byo", "hermes", "hermes-agent")
+    assert len(sent) == 4
+
+
+def test_unmetered_provider_requests_are_recorded_as_house(U, store, capsys):
+    """A provider nobody gave a meter falls back to the bound one, else house / unattributed (logged)."""
+    p = _house(lambda req: httpx.Response(200, json=_body(model=FREE)), default_model=FREE)
+    m = _meter(owner=62, surface="ask.cameras")
+    with U.bind(m):
+        _ask(p)
+    assert len(_events(store, "kind='request' AND owner_id=62 AND surface='ask.cameras'")) == 1
+    U._unattr_log[0] = 0.0
+    _ask(p)
+    rows = _events(store, "kind='request' AND surface='unattributed' AND pool='free:openrouter'")
+    assert len(rows) == 1 and (rows[0]["owner_id"], rows[0]["scope"]) == (0, "house")
+    assert "no meter" in capsys.readouterr().out
+
+
+def test_byo_key_test_is_metered_on_the_owners_key(app_client, monkeypatch):
+    """make_provider(meter=) for the desk's key test (spec §3.2): a BYO request for its owner, never limited."""
+    from atlas import secure as SEC
+    import atlas.desk.app as A
+    monkeypatch.setattr(A, "_RL_AUTH", SEC.RateLimiter(10000, 600))
+    monkeypatch.setattr(A, "OPEN", False)
+    monkeypatch.setattr(SEC, "vetted_ips", lambda host, scope="public": ["93.184.216.34"])
+    monkeypatch.setattr(SEC, "guarded_transport", lambda scope="public", **kw: httpx.MockTransport(
+        lambda req: httpx.Response(200, json=_body(usage={"prompt_tokens": 9, "completion_tokens": 1, "cost": 0.00002}))))
+    c = app_client
+    c.get("/logout")
+    c.post("/signup", json={"name": "K", "company": "K", "email": "usage-keytest@example.com", "password": "password1"})
+    did = c.post("/api/desks", json={"name": "Key test", "template": "sales_desk", "tier": "free"}).get_json()["id"]
+    owner = A.store.desk(did)["owner_id"]
+    assert c.post(f"/api/desks/{did}/providers", json={"preset": "openrouter", "api_key": "sk-or-own-0000-1111"}).status_code == 200
+    usage.set_override(owner, "ai_requests_day", 0)                      # Atlas's allowance is spent; the owner's key is not
+    try:
+        r = c.post(f"/api/desks/{did}/providers/openrouter/test", json={}).get_json()
+    finally:
+        usage.clear_override(owner, "ai_requests_day")
+    assert r["ok"], r
+    row, = _events(A.store, "kind='request' AND owner_id=? AND surface='byo.test'", (owner,))
+    assert (row["key_kind"], row["pool"], row["desk_id"], row["cost_usd"], row["ref"]) == ("byo", "byo", did, 0.00002, "key:openrouter")
+    assert "sk-or-own" not in json.dumps(row)

@@ -1208,8 +1208,10 @@ def api_desk_provider_test(did, name):
     pcfg["timeout"] = 45
     pcfg["url_guard"] = True                           # checked again now, not only when it was saved
     pcfg["env_key"] = False                            # no key of its own -> none is sent (never the house key)
+    meter = U.Meter(owner_id=int(d.get("owner_id") or 0), desk_id=int(d["id"]), scope="owner", lane="you",
+                    surface="byo.test", ref=f"key:{name}"[:60])   # on the owner's key: metered, never limited
     try:
-        note = make_provider(pcfg).test(e.get("default_model") or "")
+        note = make_provider(pcfg, meter=meter).test(e.get("default_model") or "")
         ok = True
     except Exception as exc:
         note, ok = f"{type(exc).__name__}: {str(exc)[:240]}", False

@@ -440,6 +440,8 @@ _refusals: dict[tuple, int] = {}
 _ov_cache: dict[int, tuple[float, dict[str, Any]]] = {}
 _email_cache: dict[int, tuple[float, str]] = {}
 _reserve_cache: dict[str, int] = {}
+_hermes: dict[str, dict[str, Any]] = {}      # Atlas->Hermes calls in flight (proxy mode): token -> meter, start, inner
+_hermes_warn: dict[str, Any] = {}
 _poller: dict[str, Any] = {"thread": None}
 _unattr_log = [0.0]
 LEAD_RUN: Callable[..., str] | None = None   # app._lead_case_run(desk, lead_id); deferred_tick starts runs through it
@@ -454,7 +456,7 @@ def _snap_empty() -> dict[str, Any]:
 
 
 def reset() -> None:
-    """Forget the in-memory state: pool snapshot, minute windows, streams, caches, the refusal map."""
+    """Forget the in-memory state: pool snapshot, minute windows, streams, caches, Hermes calls, the refusal map."""
     with _mem_lock:
         _snap.clear()
         _snap.update(_snap_empty())
@@ -465,6 +467,9 @@ def reset() -> None:
         _ov_cache.clear()
         _email_cache.clear()
         _reserve_cache.clear()
+        _hermes.clear()
+        _hermes_warn.clear()
+        _hermes_warn.update(ts=0.0, message="", logged=0.0)
     with _dedup_lock:
         _refusals.clear()
 
@@ -1069,10 +1074,16 @@ def _unattributed() -> Meter:
     return Meter(owner_id=0, desk_id=0, scope="house", lane="auto", surface="unattributed")
 
 
+def resolve(meter: Meter | None) -> Meter:
+    """The meter a request counts for: the one handed over, else the one bound to this context, else house /
+    unattributed (logged at most once a minute)."""
+    return meter if meter is not None else (current() or _unattributed())
+
+
 def before(meter: Meter | None = None, *, provider: str = "", model: str = "", key_kind: str | None = None) -> Ticket:
     """Classify one request, check its limits in order and take the limited counters (spec §4.1). Raises UsageLimit,
     and then nothing may be sent. `key_kind` overrides the meter's for this request (a run mixes house and BYO)."""
-    m = meter if meter is not None else (current() or _unattributed())
+    m = resolve(meter)
     kk = key_kind or m.key_kind or "house"
     now = _now()
     pool = classify(provider, model, kk)
@@ -1774,3 +1785,43 @@ def bound_lane() -> str:
 def cli_meter(module: str) -> Meter:
     """Command-line tools on the house key: scope house, surface cli:<module>."""
     return Meter(owner_id=0, desk_id=0, scope="house", lane="you", surface=f"cli:{module}")
+
+
+# ---------------------------------------------------------------------------- Hermes calls in flight (spec §1.8)
+HERMES_SELF_CHECK = "Hermes did not call the metering proxy; check ~/.hermes/config.yaml"
+
+
+def hermes_begin(meter: Meter | None, session_key: str = "") -> str:
+    """Register one Atlas->Hermes call before it is sent (USAGE_HERMES_METER=proxy). The registry holds the call's
+    meter - owner, desk, run, lane and run cap - so the metering proxy can charge Hermes's inner model requests to it.
+    Returns the token hermes_end() takes."""
+    token = secrets.token_hex(8)
+    with _mem_lock:
+        _hermes[token] = {"meter": resolve(meter), "session_key": str(session_key or "")[:120], "t0": _now(), "inner": 0}
+    return token
+
+
+def hermes_end(token: str, *, answered: bool = True) -> int:
+    """The Hermes call returned (or failed): forget it, and return how many inner requests the proxy saw for it. In
+    proxy mode a Hermes answer needs at least one model call, so an answer with none seen means Hermes bypassed the
+    proxy: logged at most every 10 minutes and kept for the operator view (hermes_warning()). A call that failed
+    proves nothing either way."""
+    with _mem_lock:
+        h = _hermes.pop(str(token or ""), None)
+    if not h:
+        return 0
+    inner = int(h.get("inner") or 0)
+    if answered and CFG.hermes_meter == "proxy" and not inner:
+        now = _now()
+        with _mem_lock:
+            log = not _hermes_warn.get("logged") or now - _hermes_warn["logged"] > 600
+            _hermes_warn.update(ts=now, message=HERMES_SELF_CHECK, **({"logged": now} if log else {}))
+        if log:
+            print("usage: " + HERMES_SELF_CHECK)
+    return inner
+
+
+def hermes_warning() -> dict[str, Any]:
+    """The last self-check warning ({ts, message}), or {} when there was none."""
+    with _mem_lock:
+        return {"ts": _hermes_warn["ts"], "message": _hermes_warn["message"]} if _hermes_warn.get("ts") else {}
