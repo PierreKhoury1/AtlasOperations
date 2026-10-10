@@ -28,7 +28,11 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("vision-eval", help="compare vision models on multi-camera restaurant feeds (see atlas/vision_eval.py --help)", add_help=False)
     sub.add_parser("mcam-eval", help="multi-camera accuracy vs human labels on WILDTRACK: detection, tracking, re-id, counts (see atlas/mcam_eval.py --help)", add_help=False)
     sub.add_parser("mcam-notes", help="are the camera agents' notes true? check them against the labels and the other cameras (see atlas/mcam_notes.py --help)", add_help=False)
+    sub.add_parser("usage", help="usage limits, for the operator: show an account's limits and use, set or clear an override, prune the ledger (see atlas/usage_cli.py --help)", add_help=False)
     args, rest = p.parse_known_args(argv)
+    if args.cmd == "usage":
+        from .usage_cli import main as usage_main
+        return usage_main(rest)
     if args.cmd == "mcam-notes":
         from .mcam_notes import main as mn_main
         return mn_main(rest)

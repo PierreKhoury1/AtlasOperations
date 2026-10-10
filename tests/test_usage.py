@@ -13,7 +13,9 @@ reconcile. Next steps (§5.5): T39's next-steps part, the steps of a run stopped
 Hermes metering proxy (§1.8, §8.2): T32, the attribution rules, a refusal ending the delegation, the operator view's
 Hermes block and setup.sh's wiring. The page's API (§5, §6.2): T20, events grouped by action and paged, today's
 table, what binds and the rail's brief, the 30-day history, the owner's own key read from the provider, keys, cameras
-and the reply window on the page, and the per-address limiters' shape. No model is called and nothing is sent:
+and the reply window on the page, and the per-address limiters' shape. The operator's command line (§7.2, §3.6):
+overrides set, shown and cleared, what would not take effect refused, the overview from what the server stored, the
+retention run once, and the module run with the service's env file. No model is called and nothing is sent:
 provider responses are stubbed (httpx.MockTransport), the key endpoint, the channel APIs and Hermes too."""
 import ast
 import io
@@ -3479,3 +3481,202 @@ def test_rate_limits_answer_in_the_limit_shape(app_client, monkeypatch):
     b = r.get_json()
     assert r.status_code == 429 and b["error"] == "rate_limited" and b["message"] and 1 <= b["retry_after_s"] <= 60
     assert r.headers["Retry-After"] == str(b["retry_after_s"])
+
+
+# ---------------------------------------------------------------------------- operator tools (spec §7.2, §3.6)
+def _cli(store, *argv) -> int:
+    from atlas import usage_cli
+    return usage_cli.main([str(a) for a in argv], store=store)
+
+
+def _key_snapshot(ts, **vals):
+    """A provider key snapshot as the server stores it after each read of GET /api/v1/key."""
+    data = {"free_used": None, "free_limit": None, "usage_daily": None, "usage_weekly": None, "usage_monthly": None,
+            "limit": None, "limit_remaining": None, "limit_reset": None, "is_free_tier": False, **vals}
+    with usage._tx() as c:
+        c.execute("INSERT INTO usage_provider(account, ts, data) VALUES('house', ?, ?)", (ts, json.dumps(data)))
+
+
+def test_operator_cli_sets_shows_and_clears_an_override(U, store, capsys, monkeypatch):
+    """Spec §7.2: `set` writes the override (value, note, who) and the limit in force follows at once, the derived L2
+    with it; `show` prints the account's limits with the override and the basis its Usage page gives, today's use,
+    the last days and the overrides, from the store alone; `none` is no Atlas limit (still counted); `clear` brings
+    the default back."""
+    t = _ts(2026, 10, 9, 17, 33)
+    _clock(monkeypatch, t)
+    o = store.add_user("pilot@example.com", "P", "Harbour Physio", "x")["id"]
+    desk = store.add_desk(o, "Harbour Physio", "clinic", "free", {"business": {"name": "Harbour Physio"}})
+    store.add_connector(desk["id"], "twilio", "sms", {"account_sid": "AC0", "auth_token": "t", "from_number": "+15550000000"})
+    _key_snapshot(t - 600, free_used=400, free_limit=1000, usage_monthly=1.5)
+    for lane in ("you", "you", "auto"):
+        U.after(U.before(_meter(owner=o, desk=desk["id"], lane=lane), provider="openrouter", model=FREE),
+                http_status=200, usage={"prompt_tokens": 100, "completion_tokens": 10, "cost": 0})
+    assert _cli(store, "set", "--email", "Pilot@Example.com", "--limit", "ai_requests_day", "--value", "500",
+                "--note", "pilot until 31 Oct") == 0
+    out = capsys.readouterr().out
+    assert f"Set ai_requests_day (AI requests today) for account #{o} pilot@example.com: 500 requests a UTC day" in out
+    assert "was 250 requests a UTC day (the default)" in out
+    assert "ai_requests_auto_day follows it: 250 requests a UTC day (was 125 requests a UTC day)" in out
+    assert 'Their Usage page says: "Set for your account by the operator: pilot until 31 Oct"' in out
+    assert "applies it within 30 s" in out
+    row, = U.overrides(o)
+    assert (row["limit_id"], row["value"], row["note"], row["updated"]) == ("ai_requests_day", 500.0, "pilot until 31 Oct", t)
+    assert row["set_by"].startswith("cli")
+    assert (U.limit_value(o, "ai_requests_day"), U.limit_value(o, "ai_requests_auto_day")) == (500, 250)
+    U.reset()                                                           # a fresh process: nothing in memory
+    assert _cli(store, "show", "--email", "pilot@example.com", "--json") == 0
+    rep = json.loads(capsys.readouterr().out)
+    L = {(x["id"], x.get("desk_id")): x for x in rep["limits"]}
+    l1, l2, l5 = L[("ai_requests_day", None)], L[("ai_requests_auto_day", None)], L[("runs_at_once", None)]
+    assert (l1["used"], l1["limit"], l1["override"]) == (3, 500, {"value": 500.0, "note": "pilot until 31 Oct"})
+    assert (l2["used"], l2["limit"]) == (1, 250)
+    assert (l5["used"], l5["limit"], l5["state"]) == (None, 3, "unknown")  # the runs going now: never printed as 0
+    assert L[("sms_segments_day", desk["id"])]["state"] == "ok" and ("disk_floor", None) not in L
+    assert (rep["pool"]["used_provider"], rep["pool"]["used"]) == (400, 403) and "error" not in rep["pool"]
+    assert rep["owner"] == {"id": o, "email": "pilot@example.com", "unlimited": False, "open_mode": False}
+    assert [r["limit_id"] for r in rep["overrides"]] == ["ai_requests_day"]
+    today, = rep["today"]
+    assert (today["label"], today["requests"], today["actions"]) == ("Design chat", 3, 3)
+    assert rep["history"][-1] == {"day": _ts(2026, 10, 9), "you": 2, "auto": 1, "limit": 500}   # today: the live limit
+    assert _cli(store, "show", "--owner", o) == 0
+    out = capsys.readouterr().out
+    assert "page says: Set for your account by the operator: pilot until 31 Oct" in out
+    assert "OpenRouter's figure for Atlas's key, read 17:23 UTC" in out
+    assert "runs going now: only the running server knows" in out
+    assert "500 requests a UTC day   set 2026-10-09 17:33 UTC by cli" in out
+    assert _cli(store, "set", "--owner", o, "--limit", "paid_usd_month", "--value", "none") == 0
+    assert "paid_usd_month (Paid models this month) for account" in capsys.readouterr().out
+    assert U.limit_value(o, "paid_usd_month") is None
+    assert U.basis(o, "paid_usd_month")["text"] == "No Atlas limit for your account (operator); still counted"
+    assert _cli(store, "clear", "--email", "pilot@example.com", "--limit", "all") == 0
+    out = capsys.readouterr().out
+    assert "Cleared ai_requests_day" in out and "Cleared paid_usd_month" in out
+    assert U.overrides(o) == [] and (U.limit_value(o, "ai_requests_day"), U.limit_value(o, "paid_usd_month")) == (250, 2.5)
+    assert _cli(store, "clear", "--email", "pilot@example.com", "--limit", "ai_requests_day") == 0
+    assert "nothing to clear" in capsys.readouterr().out
+
+
+def test_operator_cli_refuses_what_would_not_take_effect(U, store, capsys, monkeypatch):
+    """Spec §7.1-§7.3: an override takes only an account's own limits (the server-wide ones are env settings and the
+    message names them); a count is whole, a run needs at least one request, a note fits the ledger; an unknown
+    account or limit changes nothing; owner 0's AI allowances apply only in open test mode."""
+    from atlas import usage_cli
+    _clock(monkeypatch, _ts(2026, 10, 9, 12))
+    o = store.add_user("pilot@example.com", "P", "P", "x")["id"]
+    e = ("--email", "pilot@example.com")
+    bad = [(("--email", "nobody@example.com", "--limit", "ai_requests_day", "--value", 5), "no account with the email 'nobody@example.com'"),
+           (("--owner", 999, "--limit", "ai_requests_day", "--value", 5), "no account #999"),
+           (("--owner", -1, "--limit", "ai_requests_day", "--value", 5), "--owner takes an account id"),
+           ((*e, "--limit", "bogus", "--value", 5), "unknown limit 'bogus'"),
+           ((*e, "--limit", "house_paid_usd_month", "--value", 5), "USAGE_HOUSE_PAID_USD_MONTH"),
+           ((*e, "--limit", "public_requests_day", "--value", 5), "USAGE_PUBLIC_SHARE"),
+           ((*e, "--limit", "pool_free_day", "--value", 5), "OpenRouter's own daily limit"),
+           ((*e, "--limit", "ai_requests_day", "--value", 2.5), "counts whole requests"),
+           ((*e, "--limit", "ai_requests_day", "--value", -1), "give 0 or more"),
+           ((*e, "--limit", "ai_requests_day", "--value", "lots"), "is not a number"),
+           ((*e, "--limit", "run_requests", "--value", 0), "run_requests must be 1 or more"),      # run_cap: 0 = no cap
+           ((*e, "--limit", "ai_requests_day", "--value", 5, "--note", "x" * 201), "the ledger keeps 200"),
+           (("--owner", 0, "--limit", "ai_requests_day", "--value", 5), "count in the website's share")]
+    for args, msg in bad:
+        assert _cli(store, "set", *args) == 2, args
+        assert msg in capsys.readouterr().err, args
+    assert U.all_overrides() == []
+    assert _cli(store, "set", *e, "--limit", "storage_mb", "--value", 0.5) == 0               # MB and USD take decimals
+    assert U.limit_value(o, "storage_mb") == 0.5
+    monkeypatch.setattr(U, "OPEN_MODE", lambda: True)                   # open test mode: everything is owner 0's
+    assert _cli(store, "set", "--owner", 0, "--limit", "ai_requests_day", "--value", 5) == 0
+    assert "account #0 (open test mode)" in capsys.readouterr().out
+    assert [(r["owner_id"], r["limit_id"], r["value"]) for r in U.all_overrides()] == [(0, "ai_requests_day", 5.0),
+                                                                                       (o, "storage_mb", 0.5)]
+    # every limit is an account's own (an override changes it) or the server's, named with the setting that sets it
+    assert usage_cli._owner_limit_ids() == U.OWNER_LIMITS and set(U.OWNER_LIMITS) <= set(U.LIMITS)
+    assert set(U.LIMITS) == set(U.OWNER_LIMITS) | set(U.HOUSE_SETTINGS) and not set(U.OWNER_LIMITS) & set(U.HOUSE_SETTINGS)
+
+
+def test_operator_cli_overview_reads_what_the_server_stored(U, store, capsys, monkeypatch):
+    """A command-line process never polls the provider: P and the provider's counts come from the newest stored key
+    snapshot, this server's requests and cost since that read from the ledger, and the pool's closing from today's
+    free-models-per-day row. The overview lists the server-wide limits, each account with use today and every
+    override with its account's email."""
+    t = _ts(2026, 10, 9, 17, 33)
+    clock = _clock(monkeypatch, t)
+    o = store.add_user("pilot@example.com", "P", "P", "x")["id"]
+    _key_snapshot(t - 86400, free_used=10, free_limit=1000, usage_monthly=1.0)       # yesterday's read: superseded
+    _key_snapshot(t - 600, free_used=380, free_limit=400, usage_monthly=9.9)
+    U.after(U.before(_meter(owner=o), provider="openrouter", model=FREE), http_status=200, usage={"cost": 0})
+    U.after(U.before(_meter(owner=o), provider="openrouter", model=PAID), http_status=200, usage={"cost": 0.05})
+    U.set_override(o, "ai_requests_auto_day", 7, note="cameras only")
+    U.reset()                                                           # a fresh process: nothing in memory
+    assert U.pool_size() == 1000                                        # the fallback, until the stored read is restored
+    assert _cli(store, "show", "--json") == 0
+    rep = json.loads(capsys.readouterr().out)
+    assert (rep["snapshot"]["P"], rep["snapshot"]["usage_monthly"]) == (400, 9.9)
+    p = rep["pool"]
+    assert (p["limit"], p["used_provider"], p["used_here"], p["used"], p["elsewhere"], p["state"]) == (400, 380, 1, 381, 380, "ok")
+    L = {x["id"]: x for x in rep["limits"]}
+    assert L["public_requests_day"]["limit"] == 40                      # 10% of the provider's P, not of the fallback
+    assert L["house_paid_usd_month"]["used"] == 9.95                    # its usage_monthly at the read + the cost since
+    assert [(r["owner_id"], r["email"], r["limit_id"], r["note"]) for r in rep["overrides"]] == [
+        (o, "pilot@example.com", "ai_requests_auto_day", "cameras only")]
+    row, = rep["owners"]
+    assert (row["owner_id"], row["email"], row["ai_requests_day"], row["limits"]["ai_requests_day"]) == (o, "pilot@example.com", 1, 100)
+    tk = U.before(_meter(owner=o), provider="openrouter", model=FREE)   # the provider says the pool is spent
+    U.after(tk, http_status=429, error="HTTP 429: Rate limit exceeded: free-models-per-day")
+    U.reset()
+    assert _cli(store, "show") == 0
+    out = capsys.readouterr().out
+    assert "today: full" in out and "OpenRouter answered free-models-per-day at 17:33 UTC" in out
+    assert "OpenRouter's count at its last read (17:23 UTC): 380; elsewhere on the key: 380" in out
+    assert f"#{o}" in out and "note: cameras only" in out and "this server today: 1" in out
+    clock["t"] = t + 86400                                              # the next UTC day: the pool is open again
+    U.reset()
+    assert _cli(store, "show", "--json") == 0
+    p = json.loads(capsys.readouterr().out)["pool"]
+    assert p["state"] == "ok" and p["used_provider"] is None            # yesterday's read says nothing about today
+
+
+def test_operator_cli_prune_runs_the_retention_once(U, store, capsys, monkeypatch):
+    """Spec §3.6, §7.2: `prune` is the server's hourly retention, run once; it says what it removed and what it keeps,
+    with the settings in force."""
+    import re
+    t = _ts(2026, 10, 9, 12)
+    clock = _clock(monkeypatch, t - 40 * 86400)
+    U.action(_meter(owner=9), "action", metric="runs")                  # 40 days old
+    clock["t"] = t - 10 * 86400
+    U.action(_meter(owner=9), "action", metric="runs")                  # 10 days old
+    _key_snapshot(t - 36 * 86400, free_used=1, free_limit=1000)
+    clock["t"] = t
+    monkeypatch.setattr(U.CFG, "events_keep_days", 30)
+    assert _cli(store, "prune") == 0
+    out = capsys.readouterr().out
+    assert "Retention, run once (the server also runs it every hour)" in out
+    assert re.search(r"usage_events\s+[1-9]\d* removed\s+older than 30 days \(USAGE_EVENTS_KEEP_DAYS\)", out)
+    assert re.search(r"usage_provider\s+1 removed\s+key snapshots older than 35 days", out)
+    assert re.search(r"usage_overrides\s+kept\s+until cleared", out)
+    assert [e["ts"] for e in _events(store, "owner_id=9")] == [t - 10 * 86400]
+
+
+def test_operator_cli_runs_as_a_module_with_the_services_env_file(tmp_path):
+    """`python -m atlas usage --env-file <the service's env file>`: the file's values win over the shell's, so the
+    command sees what the service sees, and it opens the portal's own database: desk.db in that ATLAS_DATA_DIR
+    (atlas/desk/app.py DB_PATH). A file it cannot read stops it before anything is opened."""
+    import subprocess
+    import sys
+    root = Path(usage.__file__).resolve().parents[1]
+    data, elsewhere = tmp_path / "data", tmp_path / "elsewhere"
+    envf = tmp_path / "atlas.env"
+    envf.write_text(f"# the service's env\nATLAS_DATA_DIR={data}\nexport USAGE_PUBLIC_SHARE='0.2'\nDESK_MODE=\"demo\"\n"
+                    "not a setting\n", encoding="utf-8")
+    env = {k: v for k, v in os.environ.items() if k != "DATABASE_URL"}
+    env["ATLAS_DATA_DIR"] = str(elsewhere)
+    run = lambda *a: subprocess.run([sys.executable, "-m", "atlas", "usage", *a], cwd=root, env=env,
+                                    capture_output=True, text=True, encoding="utf-8", timeout=120)
+    r = run("show", "--json", "--env-file", str(envf))
+    assert r.returncode == 0, r.stderr
+    rep = json.loads(r.stdout)
+    assert rep["store"].startswith("sqlite ") and os.path.samefile(rep["store"][len("sqlite "):], data / "desk.db")
+    assert not elsewhere.exists()
+    assert {x["id"]: x["limit"] for x in rep["limits"]}["public_requests_day"] == 200
+    assert 'DB_PATH = cfg.DATA_DIR / "desk.db"' in (root / "atlas" / "desk" / "app.py").read_text(encoding="utf-8")
+    r = run("--env-file", str(tmp_path / "missing.env"), "show")
+    assert r.returncode == 2 and "cannot read" in r.stderr and not r.stdout

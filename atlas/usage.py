@@ -189,6 +189,19 @@ LIMITS: dict[str, dict[str, str]] = {
     "paid_unpriced": {"label": "Paid model with no reported cost", "unit": "usd", "window": "rule", "scope": "house"},
 }
 _UNLIMITED_IDS = ("ai_requests_day", "ai_requests_auto_day", "paid_usd_month", "runs_at_once")   # USAGE_UNLIMITED_EMAILS
+# The limits an operator override changes for one account (spec §7.2): each is read as limit_value(<owner>, id). The
+# others are the whole server's, set in the env (spec §7.1), or a provider's or a channel's own rule.
+OWNER_LIMITS = ("ai_requests_day", "ai_requests_auto_day", "paid_usd_month", "run_requests", "runs_at_once",
+                "sms_segments_day", "auto_sends_day", "storage_mb")
+HOUSE_SETTINGS = {
+    "pool_free_day": "OpenRouter's own daily limit for Atlas's key (USAGE_POOL_FREE_DAY only until it has been read)",
+    "pool_free_min": "USAGE_POOL_MIN_OPENROUTER and USAGE_POOL_MIN_GROQ (the providers' per-minute limits)",
+    "public_requests_day": "USAGE_PUBLIC_SHARE (a share of the shared pool)",
+    "house_paid_usd_month": "USAGE_HOUSE_PAID_USD_MONTH (else SPEND_CAP_USD)",
+    "disk_floor": "USAGE_DISK_FLOOR_PCT",
+    "paid_unpriced": "USAGE_PRICE_TABLE",
+    "reply_window": "Meta's 24-hour reply window (USAGE_WINDOW_MARGIN_S is its margin)",
+}
 _CHANNELS = ("email", "whatsapp", "sms", "instagram", "slack")
 # background surfaces never wait for a per-minute slot: they skip the tick instead (spec §1.3 L11)
 _BG_SURFACES = frozenset({"camera.detect", "camera.describe", "camera.note", "camera.rollup", "objects.follow", "embed"})
@@ -725,6 +738,16 @@ def overrides(owner_id: int) -> list[dict[str, Any]]:
     return [{"limit_id": r[0], "value": r[1], "note": r[2] or "", "set_by": r[3] or "", "updated": r[4]} for r in cur.fetchall()]
 
 
+def all_overrides() -> list[dict[str, Any]]:
+    """Every operator override on record, by owner then limit (the operator's overview)."""
+    if _store is None:
+        return []
+    cur = _store._conn.execute("SELECT owner_id, limit_id, value, note, set_by, updated FROM usage_overrides "
+                               "ORDER BY owner_id, limit_id")
+    return [{"owner_id": int(r[0] or 0), "limit_id": r[1], "value": r[2], "note": r[3] or "", "set_by": r[4] or "",
+             "updated": r[5]} for r in cur.fetchall()]
+
+
 def _owner_email(owner_id: int) -> str:
     t = time.monotonic()
     with _mem_lock:
@@ -923,6 +946,45 @@ def snapshot() -> dict[str, Any]:
         out["P"] = pool_size()
         out["exhausted_at"] = _pool["exhausted_at"] or None
     return out
+
+
+def restore_snapshot(now: float | None = None) -> dict[str, Any]:
+    """For a process that does not poll the provider (the operator's command line): what the server last stored. P
+    and the provider's counts come from the newest key snapshot; this server's free requests and provider-reported
+    cost since that read come from the ledger, as the server keeps them in memory; the shared pool is closed when a
+    request this UTC day got the provider's free-models-per-day. Reads the store only; nothing is sent."""
+    if _store is None:
+        return snapshot()
+    now = _now() if now is None else now
+    ds, ms = day_start(now), month_start(now)
+    c = _store._conn
+    r = c.execute("SELECT ts, data FROM usage_provider WHERE account='house' ORDER BY ts DESC LIMIT 1").fetchone()
+    vals: dict[str, Any] = {}
+    if r:
+        try:
+            data = json.loads(r[1] or "{}")
+        except ValueError:
+            data = {}
+        vals = {k: data.get(k) for k in _snap_empty() if k in data}
+    since_free, since_usd = 0, 0.0
+    if r:
+        st = float(r[0])
+        since_free = int(c.execute("SELECT COALESCE(SUM(units), 0) FROM usage_events WHERE kind='request' AND "
+                                   "pool='free:openrouter' AND status<>'provider_limit' AND ts>? AND ts>=?",
+                                   (st, ds)).fetchone()[0] or 0)
+        since_usd = float(c.execute("SELECT COALESCE(SUM(cost_usd), 0) FROM usage_events WHERE kind='request' AND "
+                                    "pool='paid' AND key_kind='house' AND provider IN ('openrouter','hermes') AND "
+                                    "ts>? AND ts>=?", (st, ms)).fetchone()[0] or 0.0)
+    x = c.execute("SELECT MAX(ts) FROM usage_events WHERE kind='request' AND status='provider_limit' AND "
+                  "limit_id='pool_free_day' AND ts>=?", (ds,)).fetchone()
+    with _mem_lock:
+        if r:
+            _snap.update(vals)
+            _snap.update(ts=float(r[0]), ok=True, error="")
+            _pool.update(since_free=since_free, since_day=ds, since_usd=since_usd, since_month=ms)
+        if x and x[0]:
+            _pool["exhausted_at"] = float(x[0])
+    return snapshot()
 
 
 def house_paid_used(now: float | None = None) -> float:
@@ -2090,9 +2152,13 @@ def deferred_tick(now: float | None = None, *, start: Callable[..., Any] | None 
 
 
 # ---------------------------------------------------------------------------- retention (spec §3.6)
+PROVIDER_KEEP_DAYS = 35          # provider key snapshots
+DEFERRED_KEEP_DAYS = 7           # deferred run starts once started or dropped
+
+
 def prune(now: float | None = None) -> dict[str, int]:
-    """Drop ledger rows past retention: events 35 days, D counters 400 days, provider snapshots 35 days, finished
-    deferred starts 7 days. M and T counter rows and overrides are kept."""
+    """Drop ledger rows past retention: events USAGE_EVENTS_KEEP_DAYS (35), D counters USAGE_COUNTERS_KEEP_DAYS (400),
+    provider snapshots 35 days, finished deferred starts 7 days. M and T counter rows and overrides are kept."""
     if _store is None:
         return {}
     now = _now() if now is None else now
@@ -2101,9 +2167,9 @@ def prune(now: float | None = None) -> dict[str, int]:
         out["events"] = c.execute("DELETE FROM usage_events WHERE ts < ?", (now - CFG.events_keep_days * DAY,)).rowcount
         out["counters"] = c.execute("DELETE FROM usage_counters WHERE period='D' AND window_start < ?",
                                     (day_start(now) - CFG.counters_keep_days * DAY,)).rowcount
-        out["provider"] = c.execute("DELETE FROM usage_provider WHERE ts < ?", (now - 35 * DAY,)).rowcount
+        out["provider"] = c.execute("DELETE FROM usage_provider WHERE ts < ?", (now - PROVIDER_KEEP_DAYS * DAY,)).rowcount
         out["deferred"] = c.execute("DELETE FROM usage_deferred WHERE status IN ('started','dropped') AND created < ?",
-                                    (now - 7 * DAY,)).rowcount
+                                    (now - DEFERRED_KEEP_DAYS * DAY,)).rowcount
     with _dedup_lock:
         for k in [k for k in _refusals if k[4] < now - 40 * DAY]:
             _refusals.pop(k, None)
@@ -2957,7 +3023,8 @@ def today_view(owner_id: int, *, desk_id: int | None = None, now: float | None =
 
 def history(owner_id: int, now: float | None = None, days: int = 30) -> list[dict[str, Any]]:
     """The last `days` UTC days of AI requests (free pool) from the D counters: yours and Atlas's own, with each
-    day's limit as it stood that day (the counter's `lim`); a day with no row has no limit on record."""
+    day's limit as it stood that day (the counter's `lim`); a day with no row has no limit on record. Today's is the
+    limit in force now: an operator override set since the last request shows at once."""
     now = _now() if now is None else now
     o, ds = int(owner_id or 0), day_start(now)
     since = ds - (days - 1) * DAY
@@ -2977,9 +3044,7 @@ def history(owner_id: int, now: float | None = None, days: int = 30) -> list[dic
     for i in range(days):
         d = since + i * DAY
         t, a = tot.get(d, 0), auto.get(d, 0)
-        lv = lim.get(d)
-        if lv is None and d == ds:
-            lv = limit_value(o, "ai_requests_day")
+        lv = limit_value(o, "ai_requests_day") if d == ds else lim.get(d)
         out.append({"day": d, "you": max(0, t - a), "auto": a, "limit": None if lv is None else int(lv)})
     return out
 

@@ -71,6 +71,29 @@ checks each one against the account's limits and forwards it to OpenRouter with 
   writes it); then `systemctl restart hermes caddy atlas` and run one job on a Hermes desk: the operator view should
   show its inner requests and no self-check warning.
 
+## Usage limits (operator)
+
+Each account's allowances are shares of Atlas's free-model pool and paid cap; `/desk/usage` shows them. The
+server-wide numbers are env settings in `/etc/atlas/atlas.env` (`USAGE_OWNER_SHARE`, `USAGE_AUTO_SHARE`,
+`USAGE_PUBLIC_SHARE`, `USAGE_HOUSE_PAID_USD_MONTH`, ...), then `systemctl restart atlas`. One account's limits change
+with the operator command, run as root on the box: the env file is root-only, and `--env-file` reads it the way
+systemd does, so the command opens the service's own database.
+
+```bash
+cd /srv/atlas/src
+U="/srv/atlas/venv/bin/python -m atlas usage --env-file /etc/atlas/atlas.env"
+$U show                                   # the pool, the website's share, the paid cap, accounts with use today, overrides
+$U show --email a@b.c                     # one account: limits, overrides, today's use, the last 7 days
+$U set --email a@b.c --limit ai_requests_day --value 500 --note "pilot until 31 Oct"
+$U clear --email a@b.c --limit ai_requests_day        # or --limit all
+$U prune                                  # the hourly retention, once
+```
+
+* Limits an override can change: `ai_requests_day`, `ai_requests_auto_day`, `paid_usd_month`, `run_requests`,
+  `runs_at_once`, `sms_segments_day`, `auto_sends_day`, `storage_mb`. `--value none` = no Atlas limit for that account
+  (still counted). The note is shown to the owner on their Usage page.
+* The service applies a change within 30 s. The command calls no provider and sends nothing.
+
 ## Moving data off Supabase / Render (if anything worth keeping is there)
 
 ```bash
