@@ -19,6 +19,7 @@ import uuid
 from pathlib import Path
 from typing import Any, Callable
 
+from . import design_state as DST
 from . import integrations as I
 from . import nextsteps as NS
 from . import templates as T
@@ -255,9 +256,12 @@ class DesignSession:
         self.mode = mode
         self.tier = tier
         self.created = time.time()
-        self.messages: list[dict[str, Any]] = []         # provider-neutral {"role","content"} history
-        self.transcript: list[dict[str, Any]] = [{"role": "assistant", "text": GREETING, "ts": round(self.created, 3)}]   # ts: the time a resumed draft shows
+        self.messages: list[dict[str, Any]] = []         # the model's history: {"role","content"}, prose only (DST.history)
+        # ts: the time a resumed draft shows; k on the reply to an owner message: "model" | "fixed" | "server"
+        self.transcript: list[dict[str, Any]] = [{"role": "assistant", "text": GREETING, "ts": round(self.created, 3)}]
         self.blueprint: dict[str, Any] | None = None
+        self.bp_rev = 0                                  # bumped by every write that changes the blueprint
+        self.design: dict[str, Any] = DST.empty()        # plan, question, proposal, assumptions, decisions (design_state)
         self.ready = False
         self.desk_id: int | None = None
         self.turn = 0
@@ -271,22 +275,32 @@ class DesignSession:
         self.lock = threading.Lock()
 
     def public(self) -> dict[str, Any]:
+        since = busy_since(self.id)
         return {"sid": self.id, "mode": self.mode, "tier": self.tier, "transcript": self.transcript,
                 "blueprint": self.blueprint, "next": self.next, "suggestions": self.suggestions, "ready": self.ready,
-                "desk_id": self.desk_id, "turn": self.turn, "links": self.links, "profile": self.profile}
+                "desk_id": self.desk_id, "turn": self.turn, "links": self.links, "profile": self.profile,
+                "rev": self.bp_rev, "busy": since is not None, "busy_since": since,
+                "design": DST.public_view(self.design, self.blueprint)}
 
     def to_dict(self) -> dict[str, Any]:
+        """The saved row. Rollback-safe: the code before the design state restores a fixed key list, so it ignores
+        `design` and `bp_rev`, and replays the prose-only `messages` as they are."""
         return {"id": self.id, "mode": self.mode, "tier": self.tier, "created": self.created, "messages": self.messages,
                 "transcript": self.transcript, "blueprint": self.blueprint, "next": self.next, "suggestions": self.suggestions,
                 "ready": self.ready, "desk_id": self.desk_id, "turn": self.turn, "links": self.links, "profile": self.profile,
-                "owner_id": self.owner_id}
+                "owner_id": self.owner_id, "design": self.design, "bp_rev": self.bp_rev}
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> "DesignSession":
         s = cls(d.get("mode", "demo"), d.get("tier", "free"))
-        for k in ("id", "created", "messages", "transcript", "blueprint", "ready", "desk_id", "turn", "links", "profile", "owner_id"):
+        for k in ("id", "created", "transcript", "blueprint", "ready", "desk_id", "turn", "links", "profile", "owner_id"):
             if k in d:
                 setattr(s, k, d[k])
+        # a row saved before the design state (no "design" key, including one an older build saved after a rollback)
+        # holds every raw reply, block and all: each is reduced to its prose, so no block is ever replayed
+        s.messages = DST.history(d.get("messages"), legacy="design" not in d)
+        s.design = DST.load(d.get("design"))
+        s.bp_rev = DST.whole(d.get("bp_rev"))
         # sessions saved before next steps carry only the legacy chips: derive the steps from them
         s.refresh_next(d["next"] if isinstance(d.get("next"), list) else d.get("suggestions") or [])
         return s
@@ -304,13 +318,17 @@ class DesignSession:
         self.profile = profile
         opening = profile.get("opening_message")
         opening = opening.strip() if isinstance(opening, str) and opening.strip() else GREETING   # model output: text or nothing
+        opening = DST.cut(opening, DST.TRANSCRIPT_CHARS)
         self.transcript = [{"role": "assistant", "text": opening, "ts": round(time.time(), 3)}]
         self.messages = [{"role": "assistant", "content": opening}]
         bp = normalise(profile.get("blueprint"), None) if isinstance(profile.get("blueprint"), dict) else None
         if bp and not bp["business"].get("name") and isinstance(profile.get("name"), str) and profile["name"].strip():
             bp["business"]["name"] = profile["name"]
-        if bp and bp.get("agents"):
+        if bp and bp.get("agents") and bp != self.blueprint:
             self.blueprint = bp
+            self.bp_rev += 1
+            if DST.seed(self.design, bp, DST.STUDY_WHY):     # the study's draft is a first draft with no plan
+                self.design = DST.clamp(self.design)
         opps_in = profile.get("opportunities")                          # model output: a number or true is not a list
         opps = [o for o in (opps_in if isinstance(opps_in, list) else []) if isinstance(o, dict) and isinstance(o.get("title"), str)]
         # a "why" is shown only when a model wrote it from their pages; the heuristic list's reasons are generic copy
@@ -338,6 +356,17 @@ def session_next(session: DesignSession, items: Any, intent: str = "design", fal
 
 SESSIONS: dict[str, DesignSession] = {}
 _SESSIONS_MAX = 200
+# sid -> (token, since): the request that holds a session's turn (spec 7.1). A module registry, not a session field, so
+# it outlives SESSIONS eviction and a reloaded copy of the session; never saved.
+BUSY: dict[str, tuple[str, float]] = {}
+_BUSY_LOCK = threading.Lock()
+
+
+def busy_since(sid: str) -> float | None:
+    """When the turn holding `sid` started, or None when no turn holds it."""
+    with _BUSY_LOCK:
+        held = BUSY.get(sid)
+    return held[1] if held else None
 
 
 def new_session(mode: str, tier: str = "free") -> DesignSession:
@@ -898,9 +927,12 @@ def reply(session: DesignSession, user_text: str, on_token: Callable[[str], None
     """Run one designer turn. Streams prose tokens through on_token (machine block is withheld)."""
     user_text = (user_text or "").strip()
     with session.lock:
+        # before the turn (Phase A): a session with a team and no plan gets its plan seeded, kept even if the turn fails
+        if DST.seed(session.design, session.blueprint):
+            session.design = DST.clamp(session.design)
         session.turn += 1
-        session.transcript.append({"role": "user", "text": user_text, "ts": round(time.time(), 3)})
-        session.messages.append({"role": "user", "content": user_text})
+        session.transcript.append({"role": "user", "text": DST.cut(user_text, DST.TRANSCRIPT_CHARS), "ts": round(time.time(), 3)})
+        session.messages = DST.history(session.messages + [{"role": "user", "content": user_text}])
         session.fixed_turn = False                       # _live_turn sets it when the model never answered
         session.finish_reason = ""                       # _live_turn sets it from the model's answer
         if session.mode == "demo":
@@ -924,16 +956,24 @@ def reply(session: DesignSession, user_text: str, on_token: Callable[[str], None
                 if carried:
                     names = [a["name"] for a in bp["agents"] if a["id"] in carried]
                     prose += "\n\n_Kept from the previous draft: " + ", ".join(names) + ". Say \"remove …\" to drop one._"
-                session.blueprint = bp
+                if bp != session.blueprint:              # an answer turn hands back the sketch as it was: no new revision
+                    session.blueprint = bp
+                    session.bp_rev += 1
+                if DST.seed(session.design, bp, DST.FIRST_DRAFT_WHY):   # a first draft whose block carried no plan
+                    session.design = DST.clamp(session.design)
             if isinstance(data.get("ready"), bool):
                 session.ready = data["ready"] and bool(session.blueprint and session.blueprint.get("agents"))
         # after the blueprint settles, so "build" is real; the paid switch only from the server's own steps
         session.next = session_next(session, steps, intent, paid=session.fixed_turn)
         session.suggestions = NS.labels(session.next)
-        session.transcript.append({"role": "assistant", "text": prose, "ts": round(time.time(), 3)})
-        session.messages.append({"role": "assistant", "content": raw})
-        if len(session.messages) > 24:                       # keep the context bounded; blueprint state is in the last reply
-            session.messages = session.messages[-16:]
+        prose = DST.cut(prose, DST.TRANSCRIPT_CHARS)
+        session.transcript.append({"role": "assistant", "text": prose, "ts": round(time.time(), 3),
+                                   "k": "fixed" if session.fixed_turn else "model"})
+        # the model's history holds prose only (the sketch reaches the model as state, not as old blocks), and a
+        # fixed reply (quota, error, no answer) never enters it: the owner's message stays for the next try
+        if not session.fixed_turn:
+            session.messages.append({"role": "assistant", "content": prose})
+        session.messages = DST.history(session.messages)
         return {"text": prose, "next": session.next, "suggestions": session.suggestions, "blueprint": session.blueprint,
                 "ready": session.ready, "turn": session.turn}
 
@@ -986,8 +1026,8 @@ def _live_turn(session: DesignSession, providers_cfg: dict[str, Any] | None, mod
     if session.blueprint:
         system += ("\n\nCurrent blueprint (update it, keep what still holds):\n"
                    + neutralise(json.dumps(session.blueprint, ensure_ascii=False)))
-    msgs = [prov.user_message(neutralise(m["content"])) if m["role"] == "user" else {"role": "assistant", "content": m["content"]}
-            for m in session.messages]
+    msgs = [prov.user_message(neutralise(m["content"])) if m["role"] == "user"
+            else {"role": "assistant", "content": neutralise(m["content"])} for m in session.messages]
     raw = ""
     err = ""
     for attempt in range(2):

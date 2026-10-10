@@ -1,7 +1,11 @@
-"""The designer's plan-and-consent rework (round 2 designer spec), step by step. Step 1: designer.py hardening with no
-contract change - the parser (last block wins, prose outside it, the mis-closed shape, fences, <think>), the tag
-neutraliser, normalise (two-pass id binding, the digit rule, the 22-character suffix base, plain clamped text, business
-clamps, a safe max_words, camera rules stripped before the clamp), the connector kinds and the camera wiring rule.
+"""The designer's plan-and-consent rework (round 2 designer spec), step by step.
+Step 1: designer.py hardening with no contract change - the parser (last block wins, prose outside it, the mis-closed
+shape, fences, <think>), the tag neutraliser, normalise (two-pass id binding, the digit rule, the 22-character suffix
+base, plain clamped text, business clamps, a safe max_words, camera rules stripped before the clamp), the connector kinds
+and the camera wiring rule.
+Step 2: the design state (atlas/design_state.py) - schema and clamps, the block's type table, the model's view (camera
+addresses redacted, the tag neutralised, the profile as data) and the Plan strip's, migration of stored rows, plan
+seeding, the session's new fields and the prose-only history with the owner's first message pinned.
 Numbers in the test names follow the spec's test table (designer_spec.md section 14)."""
 import json
 import time
@@ -9,8 +13,10 @@ import types
 
 import pytest
 
+import atlas.design_state as DST
 import atlas.designer as DS
 import atlas.integrations as I
+import atlas.nextsteps as NS
 
 
 def _a(id_, name, role="Specialist", tools=("record_find",), **kw):
@@ -23,12 +29,15 @@ def _cam_agent(id_, name, role="Watches one camera", rules=(), **kw):
 
 
 class _Model:
-    """A provider that answers every chat with `text` (and `stop_reason`), and keeps what it was sent."""
+    """A provider that answers every chat with `text` (and `stop_reason`), or raises it when it is an exception, and
+    keeps what it was sent."""
     def __init__(self, text, stop_reason="stop"):
         self.text, self.stop_reason, self.calls = text, stop_reason, []
 
     def chat(self, system, msgs, tools, model="", on_token=None):
         self.calls.append({"system": system, "msgs": msgs})
+        if isinstance(self.text, Exception):
+            raise self.text
         return types.SimpleNamespace(text=self.text, stop_reason=self.stop_reason)
 
     def user_message(self, t):
@@ -410,3 +419,461 @@ def test_connector_kinds_are_the_desks_own():
 
 def test_journal_cadence_constants():
     assert (DS.JOURNAL_EVERY_S, DS.JOURNAL_MIN_GAP_S, DS.JOURNAL_ROLLUP_MIN) == (30, 8, 15)
+
+
+# ================================================================== step 2: the design state
+QUOTA = RuntimeError("HTTP 429: Rate limit exceeded: free-models-per-day")
+OPTS = [{"label": f"Option {i}", "detail": "d " * 100, "say": f"Use option {i}."} for i in range(5)]
+
+
+def _roundtrip(d):
+    return json.loads(json.dumps(d))
+
+
+# ------------------------------------------------------------------ 4.1 / 4.2 schema and clamps
+def test_4_2_plan_items_are_clamped():
+    defs = [{"name": f"Queued {i}", "role": "Queued role", "tools": ["crm_lookup", "delegate"], "color": "#fff",
+             "workflows": ["inbox_sweep", "Bad Id", "inbox_sweep"]} for i in range(4)]
+    raw = {"plan": [{"id": "p1", "title": "  Answer   WhatsApp\u200b enquiries " + "word " * 20, "status": "now", "why": "w " * 80,
+                     "agents": [f"agent_{i}" for i in range(9)] + ["Not An Id", 5, "agent_0"], "pending_agents": defs + ["junk"],
+                     "added_dturn": -3, "touched_dturn": True}]
+                   + [{"id": "p1", "title": f"Item {i}", "status": "soon", "pending_agents": defs[:3]} for i in range(9)]
+                   + [{"title": "x"}, "nope", {"title": None}]}
+    plan = DST.load(raw)["plan"]
+    assert len(plan) == DST.PLAN_MAX == 8
+    first = plan[0]
+    assert first["title"].startswith("Answer WhatsApp enquiries word") and len(first["title"]) <= 60 and first["title"].endswith("word")
+    assert len(first["why"]) <= 100 and first["agents"] == [f"agent_{i}" for i in range(6)]
+    assert [p["name"] for p in first["pending_agents"]] == ["Queued 0", "Queued 1", "Queued 2", "Queued 3"]
+    q0 = first["pending_agents"][0]
+    assert q0["workflows"] == ["inbox_sweep"] and q0["tools"] == ["crm_lookup"] and "color" not in q0 and q0["id"] == "queued_0"
+    assert [len(it["pending_agents"]) for it in plan] == [4, 2, 0, 0, 0, 0, 0, 0]              # 6 across the whole plan
+    assert (first["added_dturn"], first["touched_dturn"]) == (0, 0)
+    assert [it["status"] for it in plan[1:]] == ["later"] * 7                                  # unreadable: never built by itself
+
+
+def test_4_2_one_open_question_and_five_resolved():
+    raw = {"questions": [{"id": f"q{i}", "text": f"Resolved {i}?", "decides": f"Thing {i}!", "status": "answered" if i % 2 else "defaulted",
+                          "answer": "a " * 50, "options": OPTS, "asked_dturn": i, "resolved_dturn": i + 1} for i in range(1, 9)]
+           + [{"id": "q20", "text": "First open?", "decides": "first", "status": "open", "options": OPTS},
+              {"id": "q21", "text": "Second open? " + "why " * 60, "decides": "Alert Mode", "status": "open", "default": 2, "waited": 1,
+               "options": OPTS + [{"label": "Option 0", "say": "Something else"}, {"label": DS.SWITCH_TO_PAID},
+                                  {"label": "Build it", "action": "build"}]},
+              {"id": "q22", "text": "One option only?", "decides": "lonely", "status": "open", "options": OPTS[:1]},
+              {"id": "q23", "text": "No decides?", "decides": "!", "status": "open", "options": OPTS},
+              {"id": "q24", "text": "Unknown status?", "decides": "x_y", "status": "asked", "options": OPTS}]}
+    qs = DST.load(raw)["questions"]
+    resolved = [q for q in qs if q["status"] != "open"]
+    assert [q["id"] for q in resolved] == ["q4", "q5", "q6", "q7", "q8"]
+    assert all(set(q) == {"id", "text", "decides", "status", "answer", "asked_dturn", "resolved_dturn"} for q in resolved)  # options go
+    assert resolved[0]["decides"] == "thing_4" and resolved[0]["status"] == "defaulted" and len(resolved[0]["answer"]) <= 60
+    op = qs[-1]
+    assert [q["id"] for q in qs if q["status"] == "open"] == ["q21"] and len(op["text"]) <= 160 and op["decides"] == "alert_mode"
+    assert [o["label"] for o in op["options"]] == ["Option 0", "Option 1", "Option 2"]              # say steps only, no repeats
+    assert all(o["action"] == "say" and len(o["detail"]) <= 110 for o in op["options"])
+    assert (op["default"], op["waited"]) == (2, 1)
+    for bad in (7, True, -1, "1", None):
+        q = DST.load({"questions": [{"id": "q1", "text": "Real time?", "decides": "mode", "status": "open", "options": OPTS[:2], "default": bad}]})
+        assert q["questions"][0]["default"] == 0, bad
+
+
+def test_4_2_assumptions_decisions_proposal_declined_and_offered():
+    raw = {"assumptions": [{"id": f"a{i}", "text": f"Assumption {i} " + "x " * 80, "turn": i} for i in range(1, 8)] + [{"text": ""}],
+           "decisions": [{"turn": i, "text": f"Decision {i} " + "y " * 80, "why": "z " * 80, "source": "model" if i == 8 else "owner"}
+                         for i in range(1, 9)],
+           "proposal": {"id": "x3", "dturn": 3, "kind": "merge", "status": "pending", "reason": "r " * 80,
+                        "ids": [f"cam{i}" for i in range(1, 11)] + ["Cam 1"], "cameras": [f"cam-{i}" for i in range(10)] + ["Bad Cam"],
+                        "workflows": ["watch", "Watch Flow"], "connectors": ["WhatsApp", "WhatsApp", 7],
+                        "into": {"name": "Floor Watcher", "role": "Reads every camera journal", "tools": ["camera_ask", "delegate"],
+                                 "color": "#fff", "members": ["x"]}},
+           "declined": [{"sig": f"merge:a{i},b{i}", "by": "owner", "dturn": i} for i in range(10)]
+           + [{"sig": "remove:x", "by": "model"}, {"sig": "", "by": "expiry"}],
+           "offered": [{"key": "  Yes:  merge   them!! ", "kind": "accept", "ref": "x3"}, {"key": "Q" * 400 + ".", "kind": "model", "ref": "p99999999"},
+                       {"key": "...", "kind": "skip", "ref": "q1"}, {"key": "b", "kind": "bogus"},
+                       {"key": "Use option 1.", "kind": "option", "ref": "q2"}, {"key": "c", "kind": "undo", "ref": "x3"}],
+           "dturn": 4.0}
+    d = DST.load(raw)
+    assert [a["id"] for a in d["assumptions"]] == ["a3", "a4", "a5", "a6", "a7"] and all(len(a["text"]) <= 120 for a in d["assumptions"])
+    assert [x["turn"] for x in d["decisions"]] == [3, 4, 5, 6, 7, 8] and d["decisions"][-1]["source"] == "designer"
+    assert all(len(x["text"]) <= 120 and len(x["why"]) <= 120 for x in d["decisions"])
+    x = d["proposal"]
+    assert x["ids"] == [f"cam{i}" for i in range(1, 9)] and x["cameras"] == [f"cam-{i}" for i in range(8)]
+    assert x["workflows"] == ["watch"] and x["connectors"] == ["WhatsApp"] and len(x["reason"]) <= 120
+    assert x["into"]["id"] == "floor_watcher" and x["into"]["tools"] == ["camera_ask"] and not {"color", "members"} & set(x["into"])
+    assert [y["sig"] for y in d["declined"]] == [f"merge:a{i},b{i}" for i in range(2, 10)]
+    assert d["offered"] == [{"key": "yes: merge them", "kind": "accept", "ref": "x3"}, {"key": "q" * 300, "kind": "model", "ref": ""},
+                            {"key": "use option 1", "kind": "option", "ref": "q2"}]
+    assert d["dturn"] == 4
+    # a proposal that cannot be carried out is no proposal
+    for bad in ({**raw["proposal"], "kind": "explode"}, {**raw["proposal"], "status": "maybe"}, {**raw["proposal"], "into": None},
+                {"kind": "remove", "status": "pending", "ids": ["Not Valid"]}):
+        assert DST.load({"proposal": bad})["proposal"] is None
+    park = DST.load({"proposal": {"kind": "park", "status": "pending", "ids": ["door_watcher"], "into": raw["proposal"]["into"]}})["proposal"]
+    assert park["into"] is None and park["id"] == "x1"
+
+
+def test_4_1_ids_come_from_seq_and_are_never_minted_twice():
+    d = DST.load({"plan": [{"id": "p4", "title": "Kept id"}, {"id": "p4", "title": "Duplicate"}, {"id": "x1", "title": "Wrong kind"},
+                           {"title": "No id"}], "seq": {"p": 2, "q": "7", "a": True, "x": -1}})
+    assert [it["id"] for it in d["plan"]] == ["p4", "p5", "p6", "p7"] and d["seq"] == {"p": 7, "q": 0, "a": 0, "x": 0}
+    assert DST.mint(d, "p") == "p8" and DST.mint(d, "q") == "q1" and DST.load(d) == d
+    assert DST.sig("merge", ["cam2", "cam1", "cam2"]) == "merge:cam1,cam2" and DST.sig("remove", None) == "remove:"
+
+
+def test_4_2_load_is_safe_and_idempotent():
+    """Absent, unreadable or partly wrong states load (unknown keys dropped, non-lists empty), and a clamped state is a
+    fixed point, through a JSON round trip too."""
+    for bad in (None, "x", [], 3, {"plan": "x", "questions": {}, "assumptions": 5, "seq": [], "dturn": "3", "junk": 1}):
+        assert DST.load(bad) == DST.empty(), bad
+    messy = {"v": 7, "junk": {"x": 1}, "plan": [{"id": "p2", "title": "Answer enquiries", "status": "next", "pending_agents": [{"name": "Q"}]}],
+             "questions": [{"id": "q9", "text": "Real time or daily?", "decides": "Mode", "status": "open", "options": OPTS}],
+             "assumptions": [{"text": "Stock in a sheet"}], "decisions": [{"text": "Drafted X", "source": "owner"}],
+             "proposal": {"kind": "remove", "status": "pending", "ids": ["a"], "cameras": ["door"]},
+             "declined": [{"sig": "remove:a", "by": "expiry", "dturn": 2}], "offered": [{"key": "Use option 1.", "kind": "option", "ref": "q9"}]}
+    once = DST.load(messy)
+    assert set(once) == set(DST.empty()) and once["v"] == 1
+    assert DST.load(_roundtrip(once)) == once and DST.clamp(once) == once
+    assert DST.key(" Yes:   Merge them…!? ") == "yes: merge them" and DST.key(DST.key("ÄBC.")) == DST.key("ÄBC.") == "äbc"
+
+
+def test_4_2_state_size_at_every_clamp_stays_bounded():
+    """Re-measured in step 2 with the real clamps (spec 4.2 estimated about 18 KB): a state filled past every clamp,
+    six queued agents included, stays under 24 KB; the step 2 script measured 21,963 B."""
+    agent = {"name": "n " * 40, "role": "r " * 50, "goal": "g " * 200, "instructions": ["i " * 100] * 5, "camera": "c" * 40,
+             "tools": list(DS.SPECIALIST_TOOLS), "strong": True, "engine": "hermes_agent", "workflows": [f"workflow_{k}" for k in range(9)]}
+    opt = {"label": "l " * 50, "detail": "d " * 100, "say": "s " * 200}
+    worst = {"plan": [{"title": "t " * 50, "status": "later", "why": "w " * 80, "agents": [f"agent_{k:02d}" + "z" * 15 for k in range(9)],
+                       "pending_agents": [{**agent, "name": f"Queued {i} {k} " + "n " * 30} for k in range(6)]} for i in range(9)],
+             "questions": [{"text": "q " * 100, "decides": "d" * 50, "status": "open", "options": [{**opt, "label": f"{k} " + opt["label"],
+                                                                                                   "say": f"{k} " + opt["say"]} for k in range(3)]}]
+             + [{"text": "q " * 100, "decides": f"{'d' * 38}{i}", "status": "answered", "answer": "a " * 50} for i in range(8)],
+             "assumptions": [{"text": "a " * 80}] * 8, "decisions": [{"text": "t " * 80, "why": "w " * 80}] * 9,
+             "proposal": {"kind": "merge", "status": "pending", "ids": [f"agent_{k:02d}" + "z" * 15 for k in range(9)],
+                          "cameras": [f"camera-{k}" + "c" * 23 for k in range(9)], "workflows": [f"workflow_{k}" + "w" * 14 for k in range(9)],
+                          "connectors": ["c " * 30] * 9, "reason": "r " * 80, "into": agent},
+             "declined": [{"sig": "merge:" + ",".join(f"agent_{k:02d}" + "z" * 15 for k in range(8)), "by": "owner"}] * 9,
+             "offered": [{"key": "k " * 200, "kind": "accept"}] * 4}
+    d = DST.load(worst)
+    assert sum(len(it["pending_agents"]) for it in d["plan"]) == 6 and len(json.dumps(d, ensure_ascii=False)) < 24_000
+
+
+# ------------------------------------------------------------------ 5.3 the block's type table (step 3 wires it into the ops)
+def test_2_the_block_type_table_ignores_and_counts_wrong_types():
+    block = {"intent": "design", "changes": [{"op": "keep", "id": "a"}, "remove a", 3], "plan": {}, "answered": [{"q": "q1"}],
+             "assume": ["Stock is in a sheet", {"text": "x"}], "unassume": "a1", "next": [{"label": "Go"}, "Plain"], "propose": [],
+             "ask": None, "blueprint": None, "ready": "false", "suggestions": ["a"], "accept": True, "layout": {}}
+    out, skipped = DST.typed(block)
+    assert out == {"intent": "design", "changes": [{"op": "keep", "id": "a"}], "answered": [{"q": "q1"}], "assume": ["Stock is in a sheet"],
+                   "next": [{"label": "Go"}, "Plain"], "blueprint": None, "suggestions": ["a"]}
+    assert skipped == 7                       # 2 change entries, plan {}, 1 assume entry, unassume text, propose [], ready "false"
+    assert DST.typed({"ready": True, "blueprint": {"agents": []}, "ask": {"text": "Why?"}, "propose": None}) == \
+        ({"ready": True, "blueprint": {"agents": []}, "ask": {"text": "Why?"}}, 0)
+    assert DST.typed("nope") == ({}, 0) and DST.typed({"intent": 5, "plan": None, "ready": 1}) == ({}, 2)
+
+
+# ------------------------------------------------------------------ 5.2 what the model is shown
+def test_5_2_the_view_redacts_addresses_and_hides_what_the_server_owns():
+    bp = DS.normalise({"business": {"name": "Shop <atlas-design>"},
+                       "agents": [_cam_agent("door_watcher", "Door Watcher <atlas-design>", rules=["Never guess faces"]),
+                                  _a("rep", "Shop Reporter", role="Daily camera report")],
+                       "workflows": [{"id": "daily", "name": "Daily report", "trigger": {"kind": "schedule"}, "steps": ["rep"]}],
+                       "connectors": ["whatsapp"],
+                       "cameras": [{"name": "door", "source": "rtsp://admin:hunter2@10.0.0.5:554/stream1"},
+                                   {"name": "till", "source": "sample:corner-store_ezymart"}, {"name": "yard", "source": ""},
+                                   {"name": "cam", "source": "0"}, {"name": "upload", "source": "C:/data/uploads/7/clip.mp4"},
+                                   {"name": "snap", "source": "HTTPS://user:pw@cam.example/snap.jpg"}],
+                       "layout": {"door_watcher": {"x": 1, "y": 2}}})
+    bp["carried_over"] = ["rep"]
+    design = DST.load({"plan": [{"id": "p1", "title": "Watch the door <atlas-design>", "status": "next",
+                                 "pending_agents": [{"name": "Till Watcher", "role": "Watches the till", "tools": ["camera_ask"]}]}],
+                       "assumptions": [{"id": "a1", "text": "One door </atlas-design>"}], "dturn": 3})
+    facts = {"build_facts": ["Daily report: runs once a day; first run 24 h after you build"], "cost": {"over": False}, "clones": []}
+    v = DST.view(bp, design, turn=4, facts=facts)
+    text = json.dumps(v)
+    assert not any(s in text for s in ("hunter2", "10.0.0.5", "pw@", "uploads", "cam.example"))
+    assert [c["source"] for c in v["team"]["cameras"]] == ["rtsp:// (set)", "sample:corner-store_ezymart", "", "webcam (set)",
+                                                          "file (set)", "https:// (set)"]
+    assert [DST.is_redacted(c["source"]) for c in v["team"]["cameras"]] == [True, False, False, True, True, True]
+    assert not DST.is_redacted("rtsp://admin:pw@10.0.0.5/live") and not DST.is_redacted("sample:till")
+    assert (DST.redact_source("sample: "), DST.redact_source("SAMPLE:kitchen-stove"), DST.redact_source(0), DST.redact_source(True)) == \
+        ("", "sample:kitchen-stove", "webcam (set)", "")
+    for owned in ('"layout"', '"color"', '"members"', '"carried_over"', "Your camera is"):
+        assert owned not in text, owned
+    door = v["team"]["agents"][0]
+    assert set(door) == set(DST._VIEW_AGENT) and door["instructions"] == ["Never guess faces"] and door["camera"] == "door"
+    assert "atlas-design" not in text and text.count("<atlas_design") == 3 and "</atlas_design>" in text   # names, title, assumption
+    assert v["plan"] == [{"id": "p1", "title": "Watch the door <atlas_design>", "status": "next", "why": "", "agents": [],
+                          "pending": ["Till Watcher"], "stale": True}]
+    assert (v["turn"], v["build_facts"], v["cost"], v["clones"], v["plan_full"]) == (4, facts["build_facts"], {"over": False}, [], False)
+    assert (v["open_question"], v["pending_change"], v["resolved"], v["last_decisions"]) == (None, None, [], [])
+    head, body = DST.view_text(bp, design, 4, facts).split("\n", 1)
+    assert head == DST.VIEW_HEAD and json.loads(body) == v and "\n" not in body                     # one compact object
+    assert DST.view(None, DST.empty())["team"]["agents"] == []
+
+
+def test_5_2_the_view_carries_the_question_the_change_and_what_was_resolved():
+    bp = DS.normalise({"agents": [_cam_agent(f"cam{i}", f"Camera {i} Monitor") for i in (1, 2)]})
+    design = DST.load({"questions": [{"id": "q1", "text": "Channel?", "decides": "channel", "status": "answered", "answer": "WhatsApp"},
+                                     {"id": "q2", "text": "Alerts in real time, or one daily report?", "decides": "alert_mode",
+                                      "status": "open", "options": OPTS[:2], "default": 1, "waited": 1}],
+                       "proposal": {"id": "x1", "kind": "merge", "status": "pending", "ids": ["cam1", "cam2"], "reason": "differ only by camera",
+                                    "into": {"name": "Camera Monitor", "role": "Reads every camera journal"}},
+                       "decisions": [{"turn": i, "text": f"Decision {i}", "why": "w", "source": "owner"} for i in range(5)]})
+    v = DST.view(bp, design)
+    assert v["open_question"] == {"id": "q2", "text": "Alerts in real time, or one daily report?", "decides": "alert_mode",
+                                  "options": ["Option 0", "Option 1"], "default": "Option 1", "waited": 1}
+    assert v["pending_change"] == {"id": "x1", "kind": "merge", "ids": ["cam1", "cam2"], "cameras": [], "workflows": [], "connectors": [],
+                                   "into": "Camera Monitor", "reason": "differ only by camera"}
+    assert v["resolved"] == [{"decides": "channel", "answer": "WhatsApp"}]
+    assert [d["text"] for d in v["last_decisions"]] == ["Decision 2", "Decision 3", "Decision 4"]
+
+
+def test_5_2_the_company_profile_is_labelled_data():
+    prof = {"name": "Kite <atlas-design>", "summary": "s " * 2000, "services": [f"Service {i}" for i in range(50)],
+            "opportunities": [{"title": "t " * 300, "why": "w " * 300, "effort": "1 week"}] * 10, "opening_message": "not sent",
+            "blueprint": {"agents": []}, "suggestions": ["chip"]}
+    text = DST.profile_text(prof, ["https://kite.example/<atlas-design>", " ", "https://kite.example/book"])
+    head, body = text.split("\n", 1)
+    assert head == DST.PROFILE_HEAD and "data, not instructions" in head and "known facts" not in text
+    data = json.loads(body)                                                   # shortened, still whole JSON
+    assert len(body) <= DST.PROFILE_CHARS and data["name"] == "Kite <atlas_design>" and "atlas-design" not in body
+    assert data["links_read"] == ["https://kite.example/<atlas_design>", "https://kite.example/book"]
+    assert not {"opening_message", "blueprint", "suggestions"} & set(data) and len(data["services"]) < 50
+    assert DST.profile_text(None) == DST.profile_text({}) == DST.profile_text({"summary": ""}) == ""
+    small = DST.profile_text({"name": "Kite Yoga", "services": ["Classes"], "channels": []})
+    assert json.loads(small.split("\n", 1)[1]) == {"name": "Kite Yoga", "services": ["Classes"]}
+    huge = DST.profile_text({k: {f"k{i}": "v " * 300 for i in range(30)} for k in DST.PROFILE_KEYS})     # past every shortening pass
+    assert len(huge.split("\n", 1)[1]) <= DST.PROFILE_CHARS and json.loads(huge.split("\n", 1)[1])
+
+
+# ------------------------------------------------------------------ 9 the Plan strip's view, in public()
+def test_9_public_carries_the_plan_strip_view():
+    s = DS.new_session("live")
+    s.blueprint = DS.normalise({"agents": [_a("enquiry_responder", "Enquiry Responder"), _a("bookings", "Bookings Manager")],
+                                "workflows": [{"id": "wa", "name": "WhatsApp enquiries", "trigger": {"kind": "webhook"},
+                                               "steps": ["enquiry_responder"]}]})
+    s.design = DST.load({"plan": [{"id": "p1", "title": "Answer WhatsApp enquiries", "status": "now",
+                                   "agents": ["enquiry_responder", "planned_agent"]},
+                                  {"id": "p2", "title": "Daily stock sweep", "status": "next", "why": "stock questions (your words)",
+                                   "pending_agents": [{"name": "Stock Checker", "role": "Checks stock"}], "touched_dturn": 1},
+                                  {"id": "p3", "title": "Old", "status": "done"}],
+                         "questions": [{"id": "q1", "text": "Alerts in real time, or one daily report?", "decides": "alert_mode",
+                                        "status": "open", "default": 1, "waited": 1, "options": OPTS[:2]}],
+                         "proposal": {"id": "x1", "kind": "park", "ids": ["bookings"], "workflows": ["wa"], "reason": "not named yet",
+                                      "status": "pending"},
+                         "assumptions": [{"text": "Bookings live in a spreadsheet"}],
+                         "decisions": [{"turn": i, "text": f"D{i}"} for i in range(5)], "dturn": 4})
+    v = s.public()["design"]
+    assert v["plan"][0]["agents"] == ["Enquiry Responder", "planned agent"]
+    assert v["plan"][1]["pending"] == ["Stock Checker"] and v["plan"][1]["stale"] and not v["plan"][0]["stale"]
+    assert v["question"] == {"id": "q1", "text": "Alerts in real time, or one daily report?", "decides": "alert_mode",
+                             "options": ["Option 0", "Option 1"], "default": "Option 1", "waited": 1}
+    assert v["proposal"] == {"id": "x1", "kind": "park", "names": ["Bookings Manager"], "cameras": [], "workflows": ["WhatsApp enquiries"],
+                             "connectors": [], "into": "", "reason": "not named yet"}
+    assert v["assumptions"] == [{"id": "a1", "text": "Bookings live in a spreadsheet"}]
+    assert [d["text"] for d in v["decisions"]] == ["D2", "D3", "D4"]
+    assert v["counts"] == {"now": 1, "next": 1, "later": 0, "done": 1, "dropped": 0}
+    assert v["summary"] == {"first_next": "Daily stock sweep", "question": "Alerts in real time, or one daily report?"}
+    assert v["facts"] == [] and v["plan_full"] is False
+    s.design["proposal"]["status"] = "accepted"                               # kept for undo, no longer shown as waiting
+    assert s.public()["design"]["proposal"] is None
+    full = DST.load({"plan": [{"title": f"Item {i}", "status": "now"} for i in range(8)]})
+    assert DST.plan_full(full) and DST.public_view(full)["plan_full"] and DST.view(None, full)["plan_full"]
+    full["plan"][3]["status"] = "later"                                       # one can be pruned: not full
+    assert not DST.plan_full(full)
+
+
+# ------------------------------------------------------------------ 14 plan seeding
+def _seed_bp():
+    return DS.normalise({"agents": [_a("research", "Researcher"), _a("writer", "Reply writer"), _a("crm", "CRM keeper"), _a("qa", "Reviewer")],
+                         "workflows": [{"id": "inbound", "name": "Inbound lead", "trigger": {"kind": "webhook"},
+                                        "steps": ["research", "writer", "writer"]},
+                                       {"id": "chase", "name": "Follow-up chaser", "trigger": {"kind": "schedule"}, "steps": ["writer"]}]})
+
+
+def test_14_seeding_makes_done_items_and_never_touches_the_team():
+    bp = _seed_bp()
+    before = _roundtrip(bp)
+    d = DST.empty()
+    assert DST.seed(d, bp) is True and bp == before
+    assert [(it["title"], it["status"], it["agents"], it["why"]) for it in d["plan"]] == [
+        ("Inbound lead", "done", ["research", "writer"], DST.SEED_WHY), ("Follow-up chaser", "done", ["writer"], DST.SEED_WHY),
+        ("Other agents", "done", ["crm", "qa"], DST.SEED_WHY)]
+    assert [it["id"] for it in d["plan"]] == ["p1", "p2", "p3"] and d["seq"]["p"] == 3 and DST.clamp(d) == d
+    assert DST.seed(d, bp) is False and len(d["plan"]) == 3                   # a plan is never seeded twice
+    for nothing in (None, {}, DS.normalise({"business": {"name": "Only a name"}})):
+        e = DST.empty()
+        assert DST.seed(e, nothing) is False and e == DST.empty()
+    solo = DST.empty()
+    DST.seed(solo, DS.normalise({"agents": [_a("w", "Writer")]}))
+    assert [(it["title"], it["agents"]) for it in solo["plan"]] == [("The team so far", ["w"])]
+
+
+OLD_ROW = {   # a prod row from before the design state: exactly these 13 keys (no next, no owner_id, no design)
+    "id": "0ldr0w000001", "mode": "live", "tier": "free", "created": 1759900000.0, "turn": 2, "ready": False, "desk_id": None,
+    "links": [], "profile": None, "suggestions": ["Mostly by email", "Phone"],
+    "blueprint": DS.normalise({"business": {"name": "Bright Smile"},
+                               "agents": [_a("researcher", "Enquiry Researcher"), _a("writer", "Reply Writer"), _a("crm", "CRM Keeper")],
+                               "workflows": [{"id": "inbound", "name": "Inbound enquiries", "trigger": {"kind": "inbox"},
+                                              "steps": ["researcher", "writer"]}]}),
+    "transcript": [{"role": "assistant", "text": DS.GREETING, "ts": 1759900000.0},
+                   {"role": "user", "text": "We run a dental clinic and answer enquiries too slowly", "ts": 1759900010.0},
+                   {"role": "assistant", "text": "Drafted a researcher.", "ts": 1759900020.0}],
+    "messages": [{"role": "user", "content": "We run a dental clinic and answer enquiries too slowly"},
+                 {"role": "assistant", "content": "<think>the owner wants speed</think>Drafted a researcher.\n"
+                                                  + _block({"next": ["a"], "blueprint": {"agents": [{"id": "researcher"}]}})},
+                 {"role": "user", "content": "Mostly by email"},
+                 {"role": "assistant", "content": 'Added an inbox.\n```json\n{"next": ["b"], "blueprint": null}\n```'}],
+}
+
+
+def test_14_an_old_row_is_seeded_before_its_next_turn_even_one_that_fails(monkeypatch):
+    s = DS.DesignSession.from_dict(_roundtrip(OLD_ROW))
+    team = _roundtrip(s.blueprint)
+    _live(monkeypatch, _Model(QUOTA), "Add a reviewer", s)
+    assert s.blueprint == team and s.bp_rev == 0
+    assert [(it["title"], it["status"], it["agents"], it["why"]) for it in s.design["plan"]] == [
+        ("Inbound enquiries", "done", ["researcher", "writer"], DST.SEED_WHY), ("Other agents", "done", ["crm"], DST.SEED_WHY)]
+    again = DS.DesignSession.from_dict(_roundtrip(s.to_dict()))               # saved with the failed turn
+    assert again.design == s.design and again.public()["design"]["counts"]["done"] == 2
+
+
+def test_14_a_first_draft_without_a_plan_is_seeded_after_it_is_applied(monkeypatch):
+    def bp(role="Writes replies"):
+        return {"agents": [_a("w", "Writer", role=role), _a("r", "Researcher")],
+                "workflows": [{"id": "wf", "name": "Enquiry replies", "trigger": {"kind": "inbox"}, "steps": ["r", "w"]}]}
+    brief = "We are a lettings agency and reply to enquiries far too slowly every day"
+    s, _ = _live(monkeypatch, _Model("Drafted a researcher and a writer.\n" + _block({"intent": "design", "blueprint": bp()})), brief)
+    assert [(it["title"], it["agents"], it["status"], it["why"]) for it in s.design["plan"]] == [
+        ("Enquiry replies", ["r", "w"], "done", DST.FIRST_DRAFT_WHY)]
+    assert s.public()["design"]["plan"][0]["agents"] == ["Researcher", "Writer"] and s.bp_rev == s.public()["rev"] == 1
+    # an answer turn hands the sketch back as it was: no new revision, nothing re-seeded
+    _live(monkeypatch, _Model("Price on value.\n" + _block({"intent": "answer", "blueprint": None})), "How should I price this?", s)
+    assert s.bp_rev == 1 and len(s.design["plan"]) == 1
+    # the same sketch again is no new revision either; a changed one is
+    _live(monkeypatch, _Model("Kept both.\n" + _block({"intent": "design", "blueprint": bp()})), "Looks good", s)
+    assert s.bp_rev == 1
+    _live(monkeypatch, _Model("Changed the writer.\n" + _block({"intent": "design", "blueprint": bp("Writes warm replies")})), "Warmer", s)
+    assert s.bp_rev == 2 and len(s.design["plan"]) == 1
+
+
+def test_14_a_draft_from_the_links_study_is_seeded_as_drafted_from_their_pages():
+    prof = {"name": "Kite Yoga", "opening_message": "I read your site.", "source": "model",
+            "blueprint": {"agents": [_a("booker", "Class Booker")],
+                          "workflows": [{"id": "b", "name": "Class bookings", "trigger": {"kind": "inbox"}, "steps": ["booker"]}]}}
+    s = DS.new_session("demo")
+    s.apply_profile(prof)
+    assert [(it["title"], it["agents"], it["why"], it["status"]) for it in s.design["plan"]] == [
+        ("Class bookings", ["booker"], DST.STUDY_WHY, "done")] and s.bp_rev == 1
+    s.apply_profile(prof)                                                     # the same draft again: no new revision, no second seed
+    assert s.bp_rev == 1 and len(s.design["plan"]) == 1
+    DS.reply(s, "We also want reminders sent the day before each class")      # the next turn does not re-seed it either
+    assert [it["why"] for it in s.design["plan"]] == [DST.STUDY_WHY]
+    s.apply_profile({**prof, "opening_message": "word " * 3000})               # a model-written opening is a capped entry too
+    assert len(s.transcript[0]["text"]) <= DST.TRANSCRIPT_CHARS
+
+
+# ------------------------------------------------------------------ 21 migration and the prose-only history
+def test_21_an_old_row_loads_with_an_empty_plan_and_prose_history():
+    assert set(OLD_ROW) == {"blueprint", "created", "desk_id", "id", "links", "messages", "mode", "profile", "ready", "suggestions",
+                            "tier", "transcript", "turn"}
+    s = DS.DesignSession.from_dict(_roundtrip(OLD_ROW))
+    assert s.design == DST.empty() and s.bp_rev == 0 and s.blueprint == OLD_ROW["blueprint"] and s.turn == 2
+    assert s.messages == [{"role": "user", "content": "We run a dental clinic and answer enquiries too slowly"},
+                          {"role": "assistant", "content": "Drafted a researcher."}, {"role": "user", "content": "Mostly by email"},
+                          {"role": "assistant", "content": "Added an inbox."}]                    # blocks, fences and think text gone
+    assert NS.labels(s.next)[:2] == ["Mostly by email", "Phone"]                                  # next still from the legacy chips
+    p = s.public()
+    assert (p["rev"], p["busy"], p["busy_since"], p["turn"]) == (0, False, None, 2)
+    assert p["design"] == {"plan": [], "question": None, "proposal": None, "assumptions": [], "decisions": [], "facts": [],
+                           "counts": {"now": 0, "next": 0, "later": 0, "done": 0, "dropped": 0},
+                           "summary": {"first_next": "", "question": ""}, "plan_full": False}
+    row = s.to_dict()
+    assert set(row) == set(OLD_ROW) | {"next", "owner_id", "design", "bp_rev"}
+    again = DS.DesignSession.from_dict(_roundtrip(row))
+    assert (again.design, again.bp_rev, again.messages, again.next) == (s.design, s.bp_rev, s.messages, s.next)
+    # never saved: the busy registry is the module's, not the row's
+    assert not {"busy", "busy_since", "owner_edits", "undo", "fixed_turn", "finish_reason"} & set(row)
+
+
+def test_21_only_rows_from_before_the_state_have_fenced_prose_reduced():
+    """A row saved with the design state already holds prose: JSON the model showed the owner in a fence stays. A row
+    without it (from before, or saved by an older build after a rollback) is reduced, fenced blocks included."""
+    shown = 'Send this to the hook:\n```json\n{"next": ["x"], "name": "Jane"}\n```'
+    row = {**_roundtrip(OLD_ROW), "messages": [{"role": "assistant", "content": shown}]}
+    assert DS.DesignSession.from_dict(row).messages == [{"role": "assistant", "content": "Send this to the hook:"}]   # legacy
+    new = {**row, "design": DST.empty(), "bp_rev": 3}
+    loaded = DS.DesignSession.from_dict(new)
+    assert loaded.messages == [{"role": "assistant", "content": shown}] and loaded.bp_rev == 3
+    tagged = {**new, "messages": [{"role": "assistant", "content": "Drafted.\n" + _block({"next": []})}]}
+    assert DS.DesignSession.from_dict(tagged).messages == [{"role": "assistant", "content": "Drafted."}]   # a block never replays
+    for bad in ("x", -2, True, 2.5):
+        assert DS.DesignSession.from_dict({**new, "bp_rev": bad}).bp_rev == 0
+
+
+def test_21_the_history_keeps_the_owners_first_message_and_the_last_24_in_prose():
+    msgs = [{"role": "user", "content": "BRIEF " + "b " * 2500}]
+    for i in range(30):
+        msgs += [{"role": "assistant", "content": f"Reply {i}. " + "r " * 1000 + _block({"next": [f"n{i}"], "blueprint": {"agents": []}})},
+                 {"role": "user", "content": f"Message {i} " + "m " * 1000}]
+    msgs += [{"role": "system", "content": "x"}, {"role": "user", "content": ["not", "text"]}, {"role": "assistant", "content": _block({})},
+             {"role": "user", "content": "   "}, "junk"]
+    h = DST.history(msgs)
+    assert len(h) == 1 + DST.HISTORY_KEEP == 25
+    assert h[0]["role"] == "user" and h[0]["content"].startswith("BRIEF") and 1500 < len(h[0]["content"]) <= DST.OWNER_CHARS
+    assert h[1]["content"].startswith("Reply 18.") and h[-1]["content"].startswith("Message 29")
+    assert len(h[-1]["content"]) == len(msgs[-6]["content"])                                      # the newest owner message: whole
+    assert all(len(m["content"]) <= DST.HISTORY_CHARS for m in h[1:-1]) and h[1]["content"].endswith("…")
+    assert not any("atlas-design" in m["content"] for m in h)
+    assert DST.history(h) == h                                                                    # a fixed point
+    short = [{"role": "user", "content": "Hi"}, {"role": "assistant", "content": "Hello."}]
+    assert DST.history(short) == short and DST.history(None) == [] and DST.history("x") == []
+
+
+def test_21_turns_send_the_model_prose_the_pinned_brief_and_the_whole_new_message(monkeypatch):
+    model = _Model("Kept the writer.\n" + _block({"intent": "answer", "blueprint": None}))      # one call a turn: no repair
+    s = DS.new_session("live")
+    brief ="We are a lettings agency in Clapham and we reply to enquiries far too slowly. " * 3
+    _live(monkeypatch, model, brief, s)
+    for i in range(15):
+        _live(monkeypatch, model, f"Change number {i}", s)
+    long = "Here is our whole policy. " + "p " * 1500
+    _live(monkeypatch, model, long, s)
+    sent = model.calls[-1]["msgs"]
+    assert len(sent) == 25 and sent[0] == {"role": "user", "content": brief.strip()} and sent[-1] == {"role": "user", "content": long.strip()}
+    assert all(m["content"] == "Kept the writer." for m in sent if m["role"] == "assistant")      # prose, never a block
+    assert len(s.messages) == 25 and s.messages[0]["content"] == brief.strip()
+    assert s.messages[-2]["content"].startswith("Here is our whole policy.") and len(s.messages[-2]["content"]) <= DST.HISTORY_CHARS
+    assert s.messages[-1] == {"role": "assistant", "content": "Kept the writer."}
+
+
+def test_21_a_fixed_reply_is_marked_and_stays_out_of_the_models_history(monkeypatch):
+    brief = "We are a lettings agency and reply to enquiries far too slowly every day"
+    s, r = _live(monkeypatch, _Model(QUOTA), brief)
+    assert s.transcript[-1]["k"] == "fixed" and "k" not in s.transcript[-2] and "k" not in s.transcript[0]
+    assert s.messages == [{"role": "user", "content": brief}]
+    model = _Model("Drafted a writer.\n" + _block({"intent": "design", "blueprint": {"agents": [_a("w", "Writer")]}}))
+    _live(monkeypatch, model, "Please try my last message again.", s)
+    assert [m["content"] for m in model.calls[0]["msgs"]] == [brief, "Please try my last message again."]
+    assert s.transcript[-1]["k"] == "model" and s.messages[-1] == {"role": "assistant", "content": "Drafted a writer."}
+    d = DS.new_session("demo")
+    DS.reply(d, "We are Acme Estates and our enquiries get answered too slowly")
+    assert d.transcript[-1]["k"] == "model" and d.bp_rev == 1 and d.design["plan"]
+
+
+def test_21_transcript_entries_are_capped(monkeypatch):
+    s, r = _live(monkeypatch, _Model("word " * 3000 + "\n" + _block({"intent": "answer", "blueprint": None})), "x " * 5000)
+    assert len(s.transcript[-1]["text"]) <= DST.TRANSCRIPT_CHARS and r["text"] == s.transcript[-1]["text"]
+    assert len(s.transcript[-2]["text"]) <= DST.TRANSCRIPT_CHARS
+    assert len(s.messages[-1]["content"]) <= DST.HISTORY_CHARS and len(s.messages[0]["content"]) <= DST.OWNER_CHARS
+
+
+def test_21_public_reads_busy_from_the_module_registry():
+    s = DS.new_session("demo")
+    DS.BUSY[s.id] = ("token", 1760000000.0)
+    try:
+        p = s.public()
+        assert (p["busy"], p["busy_since"]) == (True, 1760000000.0) and "busy" not in s.to_dict()
+    finally:
+        DS.BUSY.pop(s.id, None)
+    assert s.public()["busy"] is False
