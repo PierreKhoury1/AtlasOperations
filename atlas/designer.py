@@ -29,7 +29,7 @@ from . import integrations as I
 from . import nextsteps as NS
 from . import templates as T
 from . import tools as TL
-from .style import head_settled, strip_opener
+from .style import head_settled, plain_md, strip_opener
 
 TAG_OPEN, TAG_CLOSE = "<atlas-design>", "</atlas-design>"
 _FENCE = re.compile(r"```(?:[Jj][Ss][Oo][Nn])?\s*(\{.*?\})\s*```", re.S)
@@ -198,6 +198,16 @@ DESIGNER_SYSTEM = _unwrap("\n\n".join((
 GREETING = ("Describe the business and the work to take off your plate: enquiries, proposals, invoices, an inbox, cameras. "
             "The team is drafted in the Team panel as you go, and nothing is sent without your approval. "
             "You can also ask a question directly.")
+_NOT_A_COMPANY = ("me", "test", "n/a")
+
+
+def greeting(company: Any = "") -> str:
+    """The opening line, naming the account's company when it reads like one (spec 8.2): at least 3 characters and not
+    "me", "test" or "n/a" (prod showed "Describe me and the work..."). The name is one line of plain text."""
+    name = plain_md(_txt(company, 80)).strip()
+    if len(name) < 3 or name.casefold() in _NOT_A_COMPANY:
+        return GREETING
+    return GREETING.replace("Describe the business", f"Describe {name}", 1)
 
 # the camera part of the prompt (5.1), after the journal's cadence line (camera_guide writes it from the build's own
 # numbers). Measured in the tests: the text without the clip list <= 1,800 characters
@@ -360,8 +370,12 @@ class DesignSession:
         return {"sid": self.id, "mode": self.mode, "tier": self.tier, "transcript": self.transcript,
                 "blueprint": self.blueprint, "next": self.next, "suggestions": self.suggestions, "ready": self.ready,
                 "desk_id": self.desk_id, "turn": self.turn, "links": self.links, "profile": self.profile,
-                "rev": self.bp_rev, "busy": since is not None, "busy_since": since,
-                "design": DST.public_view(self.design, self.blueprint, OPS.public_facts(self.blueprint))}
+                "rev": self.bp_rev, "busy": since is not None, "busy_since": since, "design": self.plan_view()}
+
+    def plan_view(self) -> dict[str, Any]:
+        """The Plan strip's data (design_state.public_view) with the sketch's build facts and cost: in public(), in a
+        turn's done event and in the design routes' answers."""
+        return DST.public_view(self.design, self.blueprint, OPS.public_facts(self.blueprint))
 
     def to_dict(self) -> dict[str, Any]:
         """The saved row. Rollback-safe: the code before the design state restores a fixed key list, so it ignores
@@ -950,6 +964,49 @@ def normalise(bp: dict[str, Any] | None, prev: dict[str, Any] | None = None, kee
     return out
 
 
+# ---------------------------------------------------------------------------- the owner's canvas writes (spec 6.5, 7.1)
+LAYOUT_LIMIT = 1_000_000                                # a card position, in canvas pixels either way
+
+
+def camera_slug(v: Any) -> str:
+    """A camera name as the sketch and the desk key it: lower-case letters, digits and hyphens, at most 32."""
+    return _cam_slug(v)
+
+
+def canvas_layout(positions: Any, bp: Any) -> dict[str, dict[str, int]]:
+    """Where the owner dragged the cards (POST /api/design/<sid>/layout), as the sketch stores them: whole-number x and
+    y within LAYOUT_LIMIT, for the sketch's agents and Atlas only. Written straight into the sketch, so the team is never
+    re-normalised by a drag (spec 6.5)."""
+    ids = {a["id"] for a in _listed(bp.get("agents") if isinstance(bp, dict) else None)
+           if isinstance(a, dict) and isinstance(a.get("id"), str)} | {"atlas"}
+    out: dict[str, dict[str, int]] = {}
+    for k, v in (positions.items() if isinstance(positions, dict) else ()):
+        if str(k) not in ids or not isinstance(v, dict):
+            continue
+        xy = (v.get("x"), v.get("y"))
+        if all(isinstance(n, (int, float)) and not isinstance(n, bool) and math.isfinite(n) for n in xy):
+            out[str(k)] = {c: int(max(-LAYOUT_LIMIT, min(LAYOUT_LIMIT, n))) for c, n in zip(("x", "y"), xy)}
+    return out
+
+
+def with_camera(bp: Any, name: str, source: str) -> dict[str, Any] | None:
+    """The sketch with camera `name` (a camera_slug) pointed at `source`: the owner's attach while the desk is drafted
+    (POST /api/design/<sid>/camera). A camera of that name keeps its notes, focus, journal and alerts and takes the new
+    source; a new one is added with its journal on, as the build adds one; with no sketch yet, a shell holds it. Ids
+    stay as they are (remap=False). None when a new camera would pass the cameras a sketch holds."""
+    base = copy.deepcopy(bp) if isinstance(bp, dict) else {"agents": []}
+    cams = [c for c in _listed(base.get("cameras")) if isinstance(c, dict)]
+    hit = next((c for c in cams if c.get("name") == name), None)
+    if hit is None:
+        if len(cams) >= OPS.CAMERAS_MAX:
+            return None
+        cams.append({"name": name, "source": source, "journal": True})
+    else:
+        hit["source"] = source
+    base["cameras"] = cams
+    return normalise(base, bp if isinstance(bp, dict) else None, remap=False)
+
+
 _CAM_TOOLS = ("camera_ask", "camera_events", "camera_look")
 # "log" as a word (log, logs, logged, logger, logging, logbook), never inside catalog, blog, dialog or login
 _CAM_READER = re.compile(r"summar|digest|report|document|\blog(?:s|ged|ger|ging|book)?\b|record|overview|incident|safety|security"
@@ -1303,8 +1360,7 @@ def _result(session: DesignSession, changes: dict[str, Any], meta: dict[str, Any
     """The done event's body (12.5): the next-steps contract's keys, plus design (the Plan strip's view), changes (the
     ledger), meta (telemetry, not saved) and rev; `limit` when a usage limit refused the turn."""
     out = {"text": session.transcript[-1]["text"], "next": session.next, "suggestions": session.suggestions,
-           "blueprint": session.blueprint, "ready": session.ready, "turn": session.turn,
-           "design": DST.public_view(session.design, session.blueprint, OPS.public_facts(session.blueprint)),
+           "blueprint": session.blueprint, "ready": session.ready, "turn": session.turn, "design": session.plan_view(),
            "changes": changes, "meta": meta, "rev": session.bp_rev}
     if limit is not None:
         out["limit"] = limit
@@ -1551,6 +1607,21 @@ def _limit_body(exc: BaseException) -> dict[str, Any] | None:
     except Exception:
         out = None
     return out if isinstance(out, dict) else {}
+
+
+def usage_limit(exc: BaseException) -> dict[str, Any] | None:
+    """The body of the usage limit that refused a design turn (the usage module's UsageLimit), else None."""
+    return _limit_body(exc)
+
+
+def limit_steps(session: DesignSession, limit: Any = None) -> list[dict[str, Any]]:
+    """The 3 steps under a model turn a usage limit refused before it started (usage spec 4.7 path 1, with this spec's
+    12.3 amendment): accept and decline first while a proposal waits (they are server-only, so they work at the
+    limit), then the quota reply's steps; never a question's options. Nothing is recorded: the turn never happened.
+    `limit` is the refusal's body. Lock held."""
+    steps, _offered = _compose_next(session, session.blueprint, session.design, session.ready, "design", "fixed",
+                                    fixed=list(QUOTA_STEPS))
+    return steps
 
 
 def _quota(exc: BaseException) -> bool:

@@ -17,11 +17,18 @@ Step 5: the prompt and the copy - DESIGNER_SYSTEM within its budget (the v2 bloc
 kinds with their purposes), the camera guide (the reader rule, the journal line, no address questions), the build facts,
 the profile as data and the Current state view in every turn's prompt, the repair prompt, STUDY_PROMPT, the demo
 designer's v2 block, its turn-1 question and its copy, the free-tier note.
+Step 6: the HTTP routes (atlas/desk/app.py) - /say claims the turn (409 with a message), decides in Phase A (server-only
+turns unmetered), then the usage pre-check (a refusal keeps Phase A's answer) and the streamed turn; /study and /build
+hold the turn; /blueprint, /layout, /camera and /tier write under the session lock during a turn (owner edits recorded,
+a drag never one, base_rev and the ready gate); one session object per sid; saves in order; /mine; the greeting guard;
+the build's journal cadence from the designer's constants.
 Numbers in the test names follow the spec's test table (designer_spec.md section 14)."""
 import json
 import re
+import threading
 import time
 import types
+import uuid
 from pathlib import Path
 
 import pytest
@@ -2396,3 +2403,389 @@ def test_26_the_free_tier_note_names_no_withdrawn_model():
     import atlas.templates as T
     assert T.TIERS["free"]["note"] == "Free models on Atlas's shared daily allowance; slower, and limited each day."
     assert not any("MiniMax" in t["note"] for t in T.TIERS.values())
+
+
+# ================================================================== step 6: the HTTP routes
+def _signup(c, A, company="Kite Co"):
+    """A fresh owner signed in on the shared test client; returns their id."""
+    c.get("/logout")
+    email = f"r2-{uuid.uuid4().hex[:12]}@example.com"
+    assert c.post("/signup", json={"name": "Owner", "company": company, "email": email, "password": "password1"}).status_code == 200
+    return A.store.user_by_email(email)["id"]
+
+
+@pytest.fixture()
+def web(app_client, monkeypatch):
+    """The app's test client with accounts on and the per-IP sign-in and model limits out of the way, signed in as a
+    fresh owner: (client, the app module, the owner's id). Every live turn here is scripted: no model is called."""
+    import atlas.desk.app as A
+    from atlas import secure as SEC
+    monkeypatch.setattr(A, "OPEN", False)
+    monkeypatch.setattr(A, "_RL_AUTH", SEC.RateLimiter(10000, 600))
+    monkeypatch.setattr(A, "_RL_MODEL", SEC.RateLimiter(10000, 60))
+    uid = _signup(app_client, A)
+    yield app_client, A, uid
+    app_client.get("/logout")
+
+
+def _owned(A, uid, bp=None):
+    """A live draft of the signed-in owner, saved as /start saves one; with `bp`, that sketch at rev 1."""
+    s = DS.new_session("live")
+    s.owner_id = uid
+    if bp is not None:
+        s.blueprint, s.bp_rev = bp, 1
+    A._save_design(s)
+    return s
+
+
+def _events(r):
+    return [json.loads(ln[6:]) for ln in r.get_data(as_text=True).splitlines() if ln.startswith("data: ")]
+
+
+RTSP = "rtsp://admin:hunter2@192.168.1.20:554/stream1"
+
+
+class UsageLimit(Exception):
+    """Stands in for the usage module's refusal: designer.usage_limit knows it by its name and its body()."""
+    http_status = 429
+
+    def body(self):
+        return {"error": "usage_limit", "limit_id": "ai_requests_day", "limit": 250, "used": 250, "unit": "requests",
+                "retry_after_s": 600, "message": "AI requests today: 250 of 250 used. Resets 00:00 UTC (in 10 min)."}
+
+
+def _refuse(_s):
+    raise UsageLimit("AI requests today: 250 of 250 used.")
+
+
+# ------------------------------------------------------------------ 22 busy: one turn at a time
+def test_22_one_turn_at_a_time_and_a_reload_waits_for_the_reply(web, monkeypatch):
+    c, A, uid = web
+    gate, entered = threading.Event(), threading.Event()
+
+    def slow(system, msgs):
+        entered.set()
+        gate.wait(10)
+        return UPDATE
+    prov = SC.install(monkeypatch, SC.Scripted(slow))
+    s = _owned(A, uid, _cams5().blueprint)
+    together, got = threading.Barrier(2), []
+
+    def say(text):
+        together.wait(5)
+        got.append(c.post(f"/api/design/{s.id}/say", json={"text": text}))
+    ts = [threading.Thread(target=say, args=(t,)) for t in ("watch the lobby door more closely", "watch the gym too")]
+    for t in ts:
+        t.start()
+    for t in ts:
+        t.join(10)
+    try:
+        assert entered.wait(5) and sorted(r.status_code for r in got) == [200, 409]       # two at once: exactly one 409
+        busy = next(r for r in got if r.status_code == 409).get_json()
+        assert busy == {"error": "busy", "message": DS.BUSY_MESSAGE, "busy_since": DS.busy_since(s.id)}
+        assert c.post(f"/api/design/{s.id}/build", json={}).get_json()["error"] == "busy"
+        assert c.post(f"/api/design/{s.id}/study", json={"links": ["https://example.com"]}).status_code == 409
+        lay = c.post(f"/api/design/{s.id}/layout", json={"positions": {"cam1": {"x": 7, "y": 9}}})
+        assert lay.status_code == 200 and lay.get_json() == {"layout": {"cam1": {"x": 7, "y": 9}}, "rev": 2}
+        mid = c.get(f"/api/design/{s.id}").get_json()                              # a reload while Atlas answers
+        assert mid["busy"] is True and mid["busy_since"] == busy["busy_since"] and mid["turn"] == 0
+        assert mid["transcript"][-1]["role"] == "user"
+    finally:
+        gate.set()
+    evs = _events(next(r for r in got if r.status_code == 200))
+    assert evs[0] == {"t": "status", "d": "planning"} and evs[-1]["t"] == "done"
+    back = c.get(f"/api/design/{s.id}").get_json()                                 # ... then the reply
+    assert back["busy"] is False and back["busy_since"] is None and back["transcript"][-1]["text"] == evs[-1]["text"]
+    assert back["blueprint"]["layout"] == {"cam1": {"x": 7, "y": 9}} and back["rev"] == evs[-1]["rev"] == 3
+    assert next(a for a in back["blueprint"]["agents"] if a["id"] == "cam1")["goal"] == "Watch the lobby door"
+    assert len(prov.calls) == 1 and back["turn"] == 1
+
+
+def test_22_the_links_study_holds_the_turn_for_its_whole_run(web, monkeypatch):
+    c, A, uid = web
+    import atlas.study as STU
+    gate, entered = threading.Event(), threading.Event()
+
+    def study(links, **k):
+        entered.set()
+        gate.wait(10)
+        return {"name": "Kite Yoga", "opening_message": "Took on your enquiries first.", "suggestions": ["Something else"]}
+    monkeypatch.setattr(STU, "study", study)
+    sid = c.post("/api/design/start", json={}).get_json()["sid"]
+    r = c.post(f"/api/design/{sid}/study", json={"links": ["https://example.com"]})
+    try:
+        assert r.status_code == 200 and entered.wait(5)
+        assert c.post(f"/api/design/{sid}/say", json={"text": "We run a yoga studio"}).get_json()["error"] == "busy"
+        assert c.post(f"/api/design/{sid}/study", json={"links": ["https://example.com"]}).status_code == 409
+        assert c.get(f"/api/design/{sid}").get_json()["busy"] is True
+    finally:
+        gate.set()
+    done = _events(r)[-1]
+    assert done["t"] == "done" and done["transcript"][0]["text"] == "Took on your enquiries first." and DS.busy_since(sid) is None
+    assert (done["rev"], done["design"]["plan"]) == (0, [])
+    nxt = _events(c.post(f"/api/design/{sid}/say", json={"text": "We run a yoga studio and answer enquiries too slowly"}))
+    assert nxt[-1]["t"] == "done" and nxt[-1]["turn"] == 1
+
+
+def test_22_a_turn_that_fails_still_frees_the_session(web, monkeypatch):
+    c, A, uid = web
+    s = _owned(A, uid, _cams5().blueprint)
+    monkeypatch.setattr(DS, "run_turn", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom")))
+    evs = _events(c.post(f"/api/design/{s.id}/say", json={"text": "watch the lobby door more closely"}))
+    assert evs == [{"t": "error", "error": "RuntimeError: boom"}] and DS.busy_since(s.id) is None
+    monkeypatch.setattr(DS, "run_turn", lambda *a, **k: _refuse(None))
+    evs = _events(c.post(f"/api/design/{s.id}/say", json={"text": "watch the lobby door more closely"}))
+    assert (evs[0]["t"], evs[0]["error"], evs[0]["limit_id"]) == ("error", "usage_limit", "ai_requests_day")
+    monkeypatch.setattr(DS, "decide", lambda *a: (_ for _ in ()).throw(RuntimeError("phase a")))
+    with pytest.raises(RuntimeError):
+        c.post(f"/api/design/{s.id}/say", json={"text": "watch the lobby door more closely"})
+    assert DS.busy_since(s.id) is None
+
+
+def test_22_a_session_is_loaded_once_and_a_busy_one_is_never_evicted(web, monkeypatch):
+    c, A, uid = web
+    s = DS.new_session("demo")                                  # no owner: any request may load it
+    s.created = 0                                               # the oldest: first in line for eviction
+    A._save_design(s)
+    DS.SESSIONS.pop(s.id)
+    load = A.store.load_design_session
+    monkeypatch.setattr(A.store, "load_design_session", lambda sid: (time.sleep(0.2), load(sid))[1])
+    got = []
+
+    def fetch():
+        with A.app.test_request_context():
+            got.append(A._design_session(s.id))
+    ts = [threading.Thread(target=fetch) for _ in range(3)]
+    for t in ts:
+        t.start()
+    for t in ts:
+        t.join(5)
+    assert len(got) == 3 and got[0] is got[1] is got[2] is DS.SESSIONS[s.id]       # three requests, one object
+    monkeypatch.setattr(DS, "SESSIONS", {s.id: got[0]})
+    monkeypatch.setattr(DS, "_SESSIONS_MAX", 4)
+    token = DS.claim(s.id)
+    try:
+        for _ in range(8):
+            DS.new_session("demo")
+        with A.app.test_request_context():
+            assert A._design_session(s.id) is got[0]                              # never evicted, so never loaded twice
+    finally:
+        DS.release(s.id, token)
+
+
+# ------------------------------------------------------------------ 6 a drag during a turn is no owner edit (a canvas edit is)
+def test_6_a_drag_during_a_turn_is_no_owner_edit_and_a_canvas_edit_is(web, monkeypatch):
+    c, A, uid = web
+    s = _owned(A, uid, _cams5().blueprint)
+
+    def drag(system, msgs):                                      # the owner drags a card while the model answers
+        assert c.post(f"/api/design/{s.id}/layout", json={"positions": {"cam1": {"x": 40.6, "y": -5}}}).status_code == 200
+        return UPDATE
+    SC.install(monkeypatch, SC.Scripted(drag))
+    done = _events(c.post(f"/api/design/{s.id}/say", json={"text": "watch the lobby door more closely"}))[-1]
+    cam1 = next(a for a in s.blueprint["agents"] if a["id"] == "cam1")
+    assert cam1["goal"] == "Watch the lobby door" and done["changes"]["kept_edits"] == [] and s.owner_edits == {}
+    assert s.blueprint["layout"] == done["blueprint"]["layout"] == {"cam1": {"x": 40, "y": -5}} and done["rev"] == s.bp_rev == 3
+
+    def edit(system, msgs):                                      # ... and edits the same agent's goal on the canvas
+        bp = c.get(f"/api/design/{s.id}").get_json()["blueprint"]
+        next(a for a in bp["agents"] if a["id"] == "cam1")["goal"] = "Count who comes in"
+        assert c.post(f"/api/design/{s.id}/blueprint", json={"blueprint": bp, "base_rev": 3}).get_json()["rev"] == 4
+        return UPDATE.replace("Watch the lobby door", "Watch the door only")
+    SC.install(monkeypatch, SC.Scripted(edit))
+    done = _events(c.post(f"/api/design/{s.id}/say", json={"text": "the door is what matters"}))[-1]
+    cam1 = next(a for a in s.blueprint["agents"] if a["id"] == "cam1")
+    assert cam1["goal"] == "Count who comes in"                                # the owner's value, not the model's
+    assert done["changes"]["kept_edits"] == [{"kind": "agent", "id": "cam1", "field": "goal"}]
+    assert "_Kept your edits: Camera 1 Monitor (goal)._" in done["text"] and s.owner_edits == {}
+
+
+# ------------------------------------------------------------------ 23 the HTTP writes
+def test_23_layout_writes_only_the_layout(web):
+    c, A, uid = web
+    s = _owned(A, uid, _cams5().blueprint)
+    agents = _roundtrip(s.blueprint["agents"])
+    pos = {"cam1": {"x": 1.9, "y": 2}, "atlas": {"x": 0, "y": 0}, "ghost": {"x": 5, "y": 5}, "cam2": {"x": "1", "y": 2},
+           "cam3": {"x": True, "y": 1}, "cam4": {"x": 1e12, "y": -1e12}, "cam5": [1, 2]}
+    want = {"cam1": {"x": 1, "y": 2}, "atlas": {"x": 0, "y": 0}, "cam4": {"x": DS.LAYOUT_LIMIT, "y": -DS.LAYOUT_LIMIT}}
+    assert c.post(f"/api/design/{s.id}/layout", json={"positions": pos}).get_json() == {"layout": want, "rev": 2}
+    assert s.blueprint["layout"] == want and s.blueprint["agents"] == agents and s.owner_edits == {}
+    assert c.post(f"/api/design/{s.id}/layout", json={"positions": pos}).get_json()["rev"] == 2    # the same again: no revision
+    assert c.post(f"/api/design/{s.id}/layout", json={"positions": "x"}).get_json() == {"layout": {}, "rev": 3}
+    DS.SESSIONS.pop(s.id)
+    assert c.get(f"/api/design/{s.id}").get_json()["blueprint"]["layout"] == {}                    # saved
+    blank = _owned(A, uid)
+    assert c.post(f"/api/design/{blank.id}/layout", json={"positions": pos}).get_json() == {"layout": {}, "rev": 0}
+
+
+def test_23_a_camera_attached_while_drafting_is_stored_and_redacted(web):
+    c, A, uid = web
+    sid = c.post("/api/design/start", json={}).get_json()["sid"]                   # no sketch yet: a shell holds it
+    s = DS.SESSIONS[sid]
+    r = c.post(f"/api/design/{sid}/camera", json={"name": "Front Door", "source": RTSP}).get_json()
+    assert r["ok"] and r["camera"] == {"name": "front-door", "source_kind": "rtsp"} and r["rev"] == s.bp_rev == 1
+    assert r["blueprint"]["agents"] == [] and r["blueprint"]["cameras"] == [
+        {"name": "front-door", "source": RTSP, "notes": "", "focus": "", "journal": True, "alerts": False, "watch_for": "person"}]
+    assert s.owner_edits == {("camera", "front-door", "source"): 1} and r["design"] == s.plan_view()
+    view = DST.view(s.blueprint, s.design)
+    assert view["team"]["cameras"][0]["source"] == "rtsp:// (set)" and "hunter2" not in json.dumps(view)
+    with s.lock:
+        s.blueprint = DS.normalise({**s.blueprint, "cameras": [{**s.blueprint["cameras"][0], "focus": "who comes in"}]}, s.blueprint)
+    r = c.post(f"/api/design/{sid}/camera", json={"name": "front-door", "source": "rtsp://192.168.1.21/s"}).get_json()
+    cam = r["blueprint"]["cameras"][0]                                         # the new source; its focus is kept
+    assert (cam["source"], cam["focus"], r["rev"]) == ("rtsp://192.168.1.21/s", "who comes in", 2)
+    for body, why in (({"name": " ", "source": RTSP}, "name the camera"), ({"name": "x", "source": ""}, "give a stream address"),
+                      ({"name": "x", "source": "rtsp://127.0.0.1:554/s"}, "camera source refused"),
+                      ({"name": "x", "source": "sample:no-such-clip"}, "give a stream address"),
+                      ({"name": "x", "source": "rtsp://192.168.1.20/" + "a" * 400}, "that address is longer than 400")):
+        bad = c.post(f"/api/design/{sid}/camera", json=body)
+        assert bad.status_code == 400 and bad.get_json()["error"].startswith(why), body
+    assert s.bp_rev == 2 and [x["name"] for x in s.blueprint["cameras"]] == ["front-door"]
+    DS.SESSIONS.pop(sid)
+    assert c.get(f"/api/design/{sid}").get_json()["blueprint"]["cameras"][0]["source"] == "rtsp://192.168.1.21/s"   # saved
+
+
+def test_23_a_camera_parked_by_an_accepted_proposal_never_comes_back(web, monkeypatch):
+    c, A, uid = web
+    s = _owned(A, uid, DS.normalise({"agents": [_cam_agent("door_watcher", "Door Watcher"), _cam_agent("till_watcher", "Till Watcher")],
+                                     "cameras": [{"name": "door"}, {"name": "till"}]}))
+    assert c.post(f"/api/design/{s.id}/camera", json={"name": "door", "source": RTSP}).get_json()["rev"] == 2
+    blk = {"intent": "design", "changes": [
+        {"op": "remove_agent", "id": "door_watcher", "why": "you want bookings first"}, {"op": "remove_agent", "id": "till_watcher"},
+        {"op": "remove_camera", "name": "door"}, {"op": "remove_camera", "name": "till"},
+        {"op": "add_agent", "agent": {"name": "Booking Agent", "role": "Answers WhatsApp bookings", "goal": "Book each request",
+                                      "tools": ["calendar_free_slots", "record_save"]}, "why": "you want WhatsApp bookings"}]}
+    prov = SC.install(monkeypatch, SC.Scripted("Added a Booking Agent and removed the camera watchers.\n" + SC.block(blk), NOTHING))
+    _events(c.post(f"/api/design/{s.id}/say", json={"text": "forget the cameras, focus on WhatsApp bookings"}))
+    assert (s.design["proposal"]["kind"], s.design["proposal"]["cameras"]) == ("park", ["door", "till"])
+    acc = _events(c.post(f"/api/design/{s.id}/say", json={"text": "yes"}))
+    assert [e["t"] for e in acc] == ["done"] and s.blueprint["cameras"] == [] and len(prov.calls) == 1
+    _events(c.post(f"/api/design/{s.id}/say", json={"text": "add a daily summary for me"}))
+    assert s.blueprint["cameras"] == [] and len(prov.calls) == 2
+    built = c.post(f"/api/design/{s.id}/build", json={"base_rev": s.bp_rev}).get_json()
+    assert (built["cameras"], built["cameras_missing"]) == ([], [])
+    assert not [x for x in A.store.connectors(built["desk"]["id"]) if x["kind"] == "camera"]
+
+
+def test_23_a_stale_base_rev_is_refused_and_an_older_client_is_not(web):
+    c, A, uid = web
+    s = _owned(A, uid, DS.normalise({"agents": [_a("writer", "Writer")]}))
+    bp = _roundtrip(s.blueprint)
+    bp["agents"][0]["goal"] = "Answer each enquiry within the hour"
+    st = c.post(f"/api/design/{s.id}/blueprint", json={"blueprint": bp, "base_rev": 0})
+    assert st.status_code == 409 and st.get_json() == {"error": "stale", "blueprint": s.blueprint, "rev": 1}
+    assert s.blueprint["agents"][0]["goal"] == "do the thing" and s.owner_edits == {}
+    ok = c.post(f"/api/design/{s.id}/blueprint", json={"blueprint": bp, "base_rev": 1}).get_json()
+    assert (ok["rev"], ok["blueprint"]["agents"][0]["goal"]) == (2, "Answer each enquiry within the hour")
+    assert s.owner_edits == {("agent", "writer", "goal"): 2} and ok["design"] == s.plan_view()
+    st = c.post(f"/api/design/{s.id}/build", json={"blueprint": bp, "base_rev": 1})
+    assert st.status_code == 409 and st.get_json()["rev"] == 2 and s.desk_id is None and DS.busy_since(s.id) is None
+    for old in ({}, {"base_rev": True}, {"base_rev": "0"}):                    # an older client, or no revision it can mean
+        assert c.post(f"/api/design/{s.id}/blueprint", json={"blueprint": bp, **old}).status_code == 200
+    built = c.post(f"/api/design/{s.id}/build", json={"base_rev": 2}).get_json()
+    assert built["desk"]["id"] == s.desk_id and built["rev"] == s.bp_rev == 2 and DS.busy_since(s.id) is None
+
+
+def test_23_blueprint_ready_passes_the_gate(web, monkeypatch):
+    c, A, uid = web
+    s, prov, r = _asked(monkeypatch)                                           # a question is open
+    s.owner_id, s.model_ready = uid, True
+    assert c.post(f"/api/design/{s.id}/blueprint", json={"blueprint": s.blueprint}).get_json()["ready"] is False
+    SC.say(s, r["next"][2]["say"])                                             # skipped: nothing waits on the owner now
+    assert c.post(f"/api/design/{s.id}/blueprint", json={"blueprint": s.blueprint}).get_json()["ready"] is True
+    assert c.post(f"/api/design/{s.id}/blueprint", json={"blueprint": {**s.blueprint, "agents": []}}).get_json()["ready"] is False
+    blank = _owned(A, uid)
+    drawn = c.post(f"/api/design/{blank.id}/blueprint", json={"blueprint": {"agents": [_a("w", "Writer")]}}).get_json()
+    assert drawn["blueprint"]["agents"] and drawn["ready"] is False             # drawn by hand: Atlas never said ready
+    assert blank.owner_edits == {}                                             # a first sketch's defaults are no edits
+
+
+def test_23_at_the_limit_a_click_still_accepts_and_an_answer_is_kept(web, monkeypatch):
+    c, A, uid = web
+    s = _owned(A, uid, _cams5().blueprint)
+    prov = SC.install(monkeypatch, SC.Scripted(MERGE_REPLY))
+    first = _events(c.post(f"/api/design/{s.id}/say", json={"text": "i have 5 camera"}))[-1]
+    monkeypatch.setattr(A, "_design_precheck", _refuse)
+    no = c.post(f"/api/design/{s.id}/say", json={"text": "make the watcher stricter"})
+    body = no.get_json()
+    assert no.status_code == 429 and no.headers["Retry-After"] == "600" and body["error"] == "usage_limit"
+    assert body["design"]["proposal"]["kind"] == "merge" and body["rev"] == s.bp_rev
+    assert body["suggestions"] == NS.labels(body["next"])
+    assert [x["label"] for x in body["next"]] == ["Merge 5 agents into Floor Watcher", "Keep the team as it is", DS.SWITCH_TO_PAID]
+    assert (s.turn, len(prov.calls), s.transcript[-1]["k"]) == (1, 1, "model") and DS.busy_since(s.id) is None
+    acc = _events(c.post(f"/api/design/{s.id}/say", json={"text": first["next"][0]["say"]}))   # server-only: no check
+    assert [e["t"] for e in acc] == ["done"] and acc[0]["meta"]["requests"] == 0 and len(prov.calls) == 1
+    assert [a["id"] for a in s.blueprint["agents"]] == ["floor_watcher"]
+    # an option click is the owner's answer, recorded before the check: it stays (saved) and the 429 carries it
+    monkeypatch.setattr(A, "_design_precheck", lambda _s: None)
+    t = _owned(A, uid)
+    SC.install(monkeypatch, SC.Scripted(ASK_REPLY))
+    asked = _events(c.post(f"/api/design/{t.id}/say", json={"text": BRIEF}))[-1]
+    monkeypatch.setattr(A, "_design_precheck", _refuse)
+    no = c.post(f"/api/design/{t.id}/say", json={"text": asked["next"][1]["say"]})
+    body = no.get_json()
+    assert no.status_code == 429 and body["design"]["question"] is None
+    assert body["design"]["decisions"][-1]["text"] == "alert mode: One daily report"
+    assert (t.turn, t.transcript[-1]["k"], t.transcript[-2]["text"]) == (1, "model", BRIEF)    # no turn was recorded
+    DS.SESSIONS.pop(t.id)
+    back = c.get(f"/api/design/{t.id}").get_json()["design"]
+    assert back["question"] is None and back["decisions"][-1]["text"] == "alert mode: One daily report"
+
+
+# ------------------------------------------------------------------ 21 /mine, 6.14 saves in order, 8.2 the greeting, 6.10 the build
+def test_21_mine_resumes_a_brief_whose_only_turn_hit_the_allowance(web, monkeypatch):
+    c, A, uid = web
+    SC.install(monkeypatch, SC.Scripted(QUOTA_EXC))
+    s = _owned(A, uid)
+    assert c.get("/api/design/mine").get_json() == {}                          # a greeting alone is not a draft
+    done = _events(c.post(f"/api/design/{s.id}/say", json={"text": BRIEF}))[-1]
+    assert done["text"] == DS.QUOTA_TEXT and s.turn == 0 and s.transcript[-1]["k"] == "fixed"
+    DS.SESSIONS.pop(s.id)
+    mine = c.get("/api/design/mine").get_json()
+    assert (mine["sid"], mine["turn"], mine["transcript"][-2]["role"], mine["transcript"][-2]["text"]) == (s.id, 0, "user", BRIEF)
+    assert A._resumable({"turn": 2}) and not A._resumable({"turn": "3"}) and not A._resumable({"turn": 0, "transcript": "user"})
+
+
+def test_6_14_a_save_taken_before_a_turn_never_lands_after_it(web):
+    c, A, uid = web
+    s = _owned(A, uid)
+    with s.lock:
+        early = A._design_snapshot(s)                                          # e.g. a canvas write's row, taken first
+    s.turn = 7
+    A._save_design(s)                                                          # the turn's own save lands...
+    A._save_design(s, early)                                                   # ... then the older row: dropped
+    assert A.store.load_design_session(s.id)["turn"] == 7
+
+
+def test_8_2_the_greeting_names_the_company_only_when_it_reads_like_one(web):
+    c, A, uid = web
+    assert DS.greeting("Bright Smile").startswith("Describe Bright Smile and the work to take off your plate")
+    for junk in ("me", " Me ", "test", "N/A", "ab", "", None, 5):
+        assert DS.greeting(junk) == DS.GREETING, junk
+    assert DS.greeting("Kite *Yoga* [site](https://x.example)").startswith("Describe Kite Yoga [site] (https://x.example) and")
+    assert c.post("/api/design/start", json={}).get_json()["transcript"][0]["text"].startswith("Describe Kite Co and the work")
+    _signup(c, A, company="me")
+    assert c.post("/api/design/start", json={}).get_json()["transcript"][0]["text"] == DS.GREETING
+
+
+def test_17_the_build_writes_the_journal_cadence_the_facts_describe(web, monkeypatch, tmp_path):
+    c, A, uid = web
+    clips_dir = tmp_path / "samples"
+    clips_dir.mkdir()
+    (clips_dir / "retail-store.mp4").write_bytes(b"not really a video")
+    monkeypatch.setenv("ATLAS_SAMPLE_VIDEOS", str(clips_dir))
+    for k, v in (("JOURNAL_EVERY_S", 45), ("JOURNAL_MIN_GAP_S", 6), ("JOURNAL_ROLLUP_MIN", 20)):
+        monkeypatch.setattr(DS, k, v)
+    s = _owned(A, uid, DS.normalise({"agents": [_cam_agent("reader", "Floor Reader", role="Reads every camera journal")],
+                                      "cameras": [{"name": "shop-floor", "source": "sample:retail-store"}]}))
+    b = c.post(f"/api/design/{s.id}/build", json={}).get_json()
+    jobs = [j for j in A.store.jobs(b["desk"]["id"]) if j["kind"] == "camera_watch"]
+    try:
+        conf = A.store.connector(b["cameras"][0]["id"])["config"]
+        assert [conf[k] for k in ("journal_every_s", "journal_min_gap_s", "journal_rollup_min")] == ["45", "6", "20"]
+        assert [json.loads(j["task"])["every_s"] for j in jobs] == [6]
+        assert any("(at most one every 6 s) and at least one every 45 s" in f and "a summary every 20 min" in f
+                   for f in OPS.static_facts())
+    finally:
+        for j in jobs:                                                         # the scheduler never tries the stand-in clip
+            A.store.delete_job(j["id"])

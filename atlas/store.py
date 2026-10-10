@@ -967,10 +967,11 @@ class Store:
         v = self._conn.execute(q, args).fetchone()[0]
         return float(v) if v else None
 
-    def save_design_session(self, sid: str, data: dict[str, Any]) -> None:
+    def save_design_session(self, sid: str, data: dict[str, Any] | str) -> None:
+        """`data`: the session's row, or that row already serialised (the designer takes it under the session's lock)."""
         with self._lock:
             self._conn.execute("INSERT OR REPLACE INTO design_sessions(sid,data,updated) VALUES(?,?,?)",
-                               (sid, json.dumps(data, ensure_ascii=False), time.time()))
+                               (sid, data if isinstance(data, str) else json.dumps(data, ensure_ascii=False), time.time()))
             self._conn.execute("DELETE FROM design_sessions WHERE updated < ?", (time.time() - 30 * 86400,))
             self._conn.commit()
 
