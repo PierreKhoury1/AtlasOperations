@@ -161,6 +161,7 @@ tr.click{cursor:pointer}tr.click:hover{background:var(--panel2)}
 .choice small{color:var(--muted);font-size:12px;display:block;line-height:1.4}
 .choice ul{margin:8px 0 0;padding-left:16px;color:var(--muted);font-size:12px}
 .hint{color:var(--faint);font-size:12px;margin-top:4px}
+.not-sent{color:var(--warn);font-size:12px;margin-top:6px;line-height:1.45}
 /* ---------- start page */
 .start{max-width:1280px}
 .start .choices{grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
@@ -1139,6 +1140,7 @@ async function homeDecide(id, status){
   const a = HM.actions.find(x => x.id === id); if (!a) return;
   document.querySelectorAll(`[data-act="${id}"] button`).forEach(b => b.disabled = true);
   const r = await api(`/actions/${id}/decide`, {method: 'POST', body: {status, subject: a.subject, body: a.body, note: ''}});
+  if (heldSend(r)) { document.querySelectorAll(`[data-act="${id}"] button`).forEach(b => b.disabled = false); return notSent(document.querySelector(`[data-act="${id}"] .t`), r); }
   if (!r || r.error) return toast(r?.error || 'failed');
   toast(status === 'rejected' ? 'Rejected' : r.status === 'failed' ? `Could not send: ${r.note || ''}` : `Sent to ${r.to}`);
   HM.t = 0; HM.nkey = ''; refresh();
@@ -1304,8 +1306,19 @@ async function loadApprovals(){
     ${a.status==='pending' ? `<div class="row" style="margin-top:10px"><button class="btn ok" onclick="decide(${a.id},'approved')">✔ Approve &amp; send</button><button class="btn d" onclick="decide(${a.id},'rejected')">✖ Reject</button><input id="n${a.id}" placeholder="note (optional — used to tune the agents)" style="flex:1"></div>` : `<div class="meta" style="margin-top:8px">decided ${a.decided_at?when(a.decided_at):''} by ${esc(a.decided_by||'')} ${a.note?'— '+esc(a.note):''}</div>`}
   </div>`).join('') : `<div class="empty">Nothing ${af||''} — seed demo leads from the dashboard</div>`;
 }
+// a send the channel's own rule or a usage limit held (409 outside_window, 429 usage_limit): nothing went out, the
+// action stays pending and Approve stays on; the reason shows on the row itself
+const heldSend = r => !!r && (r.error === 'outside_window' || r.error === 'usage_limit');
+function notSent(box, r){
+  const text = 'Not sent: ' + (r.message || r.error);
+  if (!box) return toast(text);
+  let el = box.querySelector('.not-sent');
+  if (!el) { el = document.createElement('div'); el.className = 'not-sent'; box.appendChild(el); }
+  el.textContent = text;
+}
 async function decide(id, status){
   const r = await api(`/actions/${id}/decide`, {method:'POST', body:{status, subject:$(`#s${id}`).value, body:$(`#b${id}`).value, note:$(`#n${id}`)?.value||''}});
+  if (heldSend(r)) return notSent($(`#a${id}`), r);
   toast(status==='approved' ? `Sent (simulated) to ${r.to}` : 'Rejected'); refresh();
 }
 
@@ -1411,7 +1424,7 @@ async function msgSend(){
   $('#mc-send').disabled = true;
   const r = await api('/messages/send', {method: 'POST', body: {channel: ch, to, subject: $('#mc-subj').value.trim(), body}});
   $('#mc-send').disabled = false;
-  if (!r || r.error) return toast(r?.error || 'failed');
+  if (!r || r.error) return toast(heldSend(r) ? 'Not sent: ' + (r.message || r.error) : (r?.error || 'failed'));
   $('#mc-body').value = ''; $('#mc-subj').value = ''; toast('Sent'); MSG.t = 0; msgRender();
 }
 async function loadCrm(){

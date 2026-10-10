@@ -159,7 +159,8 @@ def queue(store, desk: dict[str, Any], kind: str, to: str, subject: str, body: s
           dispatch=None) -> dict[str, Any]:
     """One outbound action. Pending for approval, or sent at once when `auto` and a dispatcher is given (S52): it
     takes one of the desk's sends without approval today first (L8); over that cap, or held by the channel's own
-    rule while sending (the reply window, SMS segments), it stays pending with the note instead."""
+    rule while sending (the reply window, SMS segments), it stays pending with the note instead. The dispatcher runs
+    in this thread with the alert's meter bound (usage.bind), so the send counts under this alert (app._dispatch)."""
     ds = store.for_desk(desk["id"])
     aid = ds.add_action("", "cameras", kind, to, subject, body, reason)
     row = ds.action(aid)
@@ -170,7 +171,8 @@ def queue(store, desk: dict[str, Any], kind: str, to: str, subject: str, body: s
             note = U.paused_note(held)
             return {**(ds.hold_action(aid, note) or row), "held": note}
         try:
-            result = dispatch(desk, row)
+            with U.bind(meter), U.bind_lane("auto"):     # the send counts under this alert (app._dispatch reads it)
+                result = dispatch(desk, row)
             row = ds.decide_action(aid, "sent", by="auto", note=result)
         except U.UsageLimit as exc:                      # the channel's rule held it: nothing went out
             U.auto_undo(meter, kind)

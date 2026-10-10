@@ -1808,11 +1808,20 @@ def api_decide(aid):
         return jsonify({"error": "status must be approved|rejected"}), 400
     u = current_user()
     by = (u["name"] if u else d.get("by", "owner"))
-    row = dstore.decide_action(aid, status, by=by, note=d.get("note", ""), body=d.get("body"), subject=d.get("subject"))
+    meter = U.desk_meter(desk, _action_surface(row), lane="you", ref=f"action:{aid}")
+    # S14: the channel's own rules come before the decision: outside WhatsApp's or Instagram's 24-hour reply window
+    # -> 409, the desk's SMS segments for today used -> 429. The action stays pending and nothing is sent.
+    res = _send_reserve(desk, row, meter) if status == "approved" else None
+    try:
+        row = dstore.decide_action(aid, status, by=by, note=d.get("note", ""), body=d.get("body"), subject=d.get("subject"))
+    except BaseException:
+        if res is not None:
+            res.release()
+        raise
     if status == "approved":
         note = d.get("note", "")
         try:
-            result = _dispatch(desk, row)
+            result = _dispatch(desk, row, res=res, meter=meter)
             row = dstore.decide_action(aid, "sent", by=by, note=(note + " " + result).strip())
             dstore.add_event(row["run_id"], "sent", "owner", f"{row['kind']} → {row['to']} — {row['subject']} ({result})")
             if row["kind"] in ("email", "whatsapp", "sms", "instagram") and row["to"]:
@@ -1823,6 +1832,11 @@ def api_decide(aid):
                 for m in (I.crm_sync(dstore.connectors(), contact) if contact else []):
                     dstore.add_event(row["run_id"], "tool", "owner", f"crm sync → {m}")
             I.notify(dstore.connectors(), f":outbox_tray: *Sent* — {row['kind']} → {row['to']}: {row['subject'] or (row['body'] or '')[:80]} {result}")
+        except U.UsageLimit:                     # S14: refused while sending, so nothing went out: pending again, 409/429
+            if res is not None:
+                res.release()
+            dstore.decide_action(aid, "pending", by="", note=note)
+            raise
         except Exception as exc:
             err = f"{type(exc).__name__}: {str(exc)[:300]}"
             row = dstore.decide_action(aid, "failed", by=by, note=(note + " send failed: " + err).strip())
@@ -1926,8 +1940,14 @@ def api_message_send():
     conn = I.outbound_connector(ds.connectors(), kind)
     if not conn:
         return jsonify({"error": f"no {kind} connector yet — add one under Integrations"}), 400
+    addr = to.replace("ig:", "") if kind == "instagram" else to
+    # S15: outside WhatsApp's or Instagram's reply window -> 409, the desk's SMS segments for today -> 429; then nothing
+    # is sent and nothing is stored on the thread
+    res = U.channel_send(desk, kind, addr, meter=U.desk_meter(desk, f"send.{kind}", lane="you"))
     try:
-        result, ok = I.deliver(conn, kind, to.replace("ig:", "") if kind == "instagram" else to, subject, body), True
+        result, ok = _deliver_metered(desk, conn, kind, addr, subject, body, res=res), True
+    except U.UsageLimit:
+        raise
     except Exception as exc:
         result, ok = f"{type(exc).__name__}: {str(exc)[:200]}", False
     mid = ds.add_message(kind, "out", ("ig:" + to) if kind == "instagram" and not to.startswith("ig:") else to,
@@ -2094,16 +2114,63 @@ def _spend_blocked() -> str:
 
 
 _last_prune = [0.0]
+_last_reconcile = [0.0]
+
+
+def _folder_bytes(root: Path) -> int:
+    total = 0
+    for base, _dirs, files in os.walk(root):
+        for name in files:
+            try:
+                total += os.path.getsize(os.path.join(base, name))
+            except OSError:
+                continue
+    return total
+
+
+def _storage_walk() -> dict[int, int]:
+    """What each owner's uploads take on disk (usage spec §1.3 L9 step 3), under ATLAS_DATA_DIR: camera recordings
+    (uploads/cameras/u<owner>; open mode's shared folder is owner 0), watched videos (videos/desk<id>) and saved cyber
+    recordings (cyber/recordings/<desk id>), each desk's folder counted for its owner. Cyber log uploads are deleted
+    once parsed; the folder of a deleted desk belongs to nobody."""
+    sizes: dict[int, int] = {}
+    owners: dict[int, int | None] = {}
+
+    def add(oid: int | None, folder: Path) -> None:
+        if oid is not None:
+            sizes[oid] = sizes.get(oid, 0) + _folder_bytes(folder)
+
+    def desk_owner(did: int) -> int | None:
+        if did not in owners:
+            d = store.desk(did)
+            owners[did] = int(d.get("owner_id") or 0) if d else None
+        return owners[did]
+
+    for base, pattern, by_desk in ((CAMERA_UPLOAD_DIR, r"u(\d+)|open", False), (VIDEO_DIR, r"desk(\d+)", True),
+                                   (cfg.DATA_DIR / "cyber" / "recordings", r"(\d+)", True)):
+        if not base.is_dir():
+            continue
+        for folder in base.iterdir():
+            m = re.fullmatch(pattern, folder.name)
+            if not (m and folder.is_dir()):
+                continue
+            num = int(m.group(1)) if m.group(1) else 0
+            add(desk_owner(num) if by_desk else num, folder)
+    return sizes
 
 
 def _watchdog_loop() -> None:
-    """Every 15s: kill runs past RUN_MAX_S, mark orphaned DB rows failed, push critical alerts. Hourly: usage retention."""
+    """Every 15s: kill runs past RUN_MAX_S, mark orphaned DB rows failed, push critical alerts. Hourly: usage retention.
+    At boot and then daily: each owner's stored uploads measured on disk (the L9 reconcile)."""
     while True:
         try:
             now = time.time()
             if now - _last_prune[0] > 3600:
                 _last_prune[0] = now
                 U.prune(now)
+            if now - _last_reconcile[0] > 86400:
+                _last_reconcile[0] = now
+                U.reconcile_storage(_storage_walk())
             with _runs_lock:
                 holders = list(_runs.items())
             for rid, h in holders:
@@ -2243,10 +2310,73 @@ def api_reset():
     return jsonify({"ok": True})
 
 
-def _dispatch(desk: dict[str, Any], row: dict[str, Any]) -> str:
-    """Perform an approved action for real when a connector exists; otherwise simulate and say so."""
+_MESSAGE_KINDS = ("email", "whatsapp", "sms", "instagram", "slack")    # sends (usage spec §1.4 send.*); booking is an action
+
+
+def _action_surface(row: dict[str, Any]) -> str:
+    """The ledger surface of an approved action (usage spec §1.4): send.<channel> for a message, else action.<what>."""
+    kind = row["kind"]
+    if kind in _MESSAGE_KINDS:
+        return "send." + kind
+    return {"booking": "action.calendar", "browser_action": "action.browser", "api_call": "action.http",
+            "containment": "action.containment"}.get(kind, "action." + str(kind or "other")[:30])
+
+
+def _send_reserve(desk: dict[str, Any], row: dict[str, Any], meter: U.Meter) -> U.Reservation | None:
+    """The channel's own rules for one approved message, before anything is decided or sent (S14): outside WhatsApp's
+    or Instagram's 24-hour reply window raises ChannelWindow (409), the desk's SMS segments for today UsageLimit (429).
+    None when it is not a message or no connector carries it: then nothing really goes out (a simulated send)."""
+    kind = row["kind"]
+    if kind not in _MESSAGE_KINDS or not I.outbound_connector(store.connectors(desk["id"]), kind):
+        return None
+    return U.channel_send(desk, kind, row["to"] or "", meter=meter)
+
+
+def _deliver_metered(desk: dict[str, Any], conn: dict[str, Any], kind: str, to: str, subject: str, body: str, *,
+                     res: U.Reservation | None = None, meter: U.Meter | None = None) -> str:
+    """One message out through the owner's connector, metered (usage spec §1.3 W1 and L7, §4.2): the reply-window read
+    and the SMS segment reservation first (unless the caller holds them already), and nothing is sent when they refuse;
+    the send itself outside the store lock; then the segments and price Twilio reported are confirmed, or the
+    reservation goes back when nothing went out (the ledger keeps the error's type and HTTP status, never its text)."""
+    res = res or U.channel_send(desk, kind, to, meter=meter)
+    meta: dict[str, Any] = {}
+    try:
+        out = I.deliver(conn, kind, to, subject, body, meta=meta)
+    except BaseException as exc:
+        res.release(error=U.send_error_note(exc), provider=str(meta.get("provider") or ""))
+        raise
+    res.confirm(meta.get("segments"), provider=str(meta.get("provider") or ""), cost_usd=meta.get("cost_usd"),
+                note=str(meta.get("price_note") or ""))
+    return out
+
+
+def _counted(meter: U.Meter, surface: str, fn) -> Any:
+    """An approved action that really runs: one ledger row, counted and never limited here (L8 is checked before an
+    unattended one acts); a failure is recorded with the error's type and re-raised."""
+    try:
+        out = fn()
+    except Exception as exc:
+        U.action(meter, "action", surface=surface, status="error", note=U.send_error_note(exc))
+        raise
+    U.action(meter, "action", surface=surface, note="approved")
+    return out
+
+
+def _dispatch(desk: dict[str, Any], row: dict[str, Any], *, res: U.Reservation | None = None,
+              meter: U.Meter | None = None) -> str:
+    """Perform an approved action for real when a connector exists; otherwise simulate and say so. A message goes out
+    through _deliver_metered (`res`: the reply window and SMS segment the caller already reserved); anything else that
+    really runs is counted on the ledger. `meter`: who it counts for; else the meter the caller bound in this thread
+    for this desk (alerts.queue: the auto alert's), else the desk's owner in the bound lane."""
     dstore = store.for_desk(desk["id"])
     kind = row["kind"]
+    bound = U.current()
+    if meter is None and bound is not None and int(bound.desk_id or 0) == int(desk["id"]):
+        meter = bound
+    meter = meter or U.desk_meter(desk, _action_surface(row), lane=U.bound_lane() or "you", ref=f"action:{row['id']}")
+    if res is not None and kind not in _MESSAGE_KINDS:
+        res.release()
+        res = None
     if kind == "containment":
         from .. import cyber as CY
         from .. import policy as P
@@ -2277,12 +2407,14 @@ def _dispatch(desk: dict[str, Any], row: dict[str, Any]) -> str:
             body = {"action": t["action"], "kind": t["kind"], "value": t["value"], "evidence": spec["evidence"],
                     "approval_id": row["id"]}
             try:
-                res = I.http_call(conn["config"], "POST", path, None, body, timeout=15)
-                results.append(f"{t['action']} {t['value']} → HTTP {res['status']}")
-                failed = failed or res["status"] >= 400
+                hit = I.http_call(conn["config"], "POST", path, None, body, timeout=15)
+                results.append(f"{t['action']} {t['value']} → HTTP {hit['status']}")
+                failed = failed or hit["status"] >= 400
             except Exception as exc:
                 results.append(f"{t['action']} {t['value']} → {type(exc).__name__}: {str(exc)[:80]}")
                 failed = True
+        U.action(meter, "action", surface="action.containment", status="error" if failed else "ok",
+                 note=f"{len(spec['targets'])} target(s)")
         summary = f"containment via {conn['name']}: " + "; ".join(results)
         if failed:
             raise RuntimeError(summary)          # api_decide marks the action "failed" with this note
@@ -2290,31 +2422,41 @@ def _dispatch(desk: dict[str, Any], row: dict[str, Any]) -> str:
     if kind in I.CHANNELS:
         conn = I.outbound_connector(dstore.connectors(), kind)
         if not conn:
+            if res is not None:                  # nothing goes out: the reserved segment goes back
+                res.release()
             return f"[simulated {kind} — no {' / '.join(I.CHANNELS[kind])} connector; add one under Integrations]"
-        return "[" + I.deliver(conn, kind, row["to"], row["subject"] or "", row["body"] or "") + "]"
+        args = (conn, kind, row["to"], row["subject"] or "", row["body"] or "")
+        if kind == "booking":                    # a calendar booking is an action, not a message
+            return "[" + _counted(meter, "action.calendar", lambda: I.deliver(*args)) + "]"
+        return "[" + _deliver_metered(desk, *args, res=res, meter=meter) + "]"
     if kind == "browser_action":
         from .. import browser as BR
         try:
             spec = json.loads(row["body"] or "{}")
-            return "[" + BR.perform_pending(spec.get("pending") or {}, spec.get("profile") or f"desk{desk['id']}") + "]"
+            out = "[" + BR.perform_pending(spec.get("pending") or {}, spec.get("profile") or f"desk{desk['id']}") + "]"
         except Exception as exc:
+            U.action(meter, "action", surface="action.browser", status="error", note=U.send_error_note(exc))
             return f"[browser action failed - {type(exc).__name__}: {str(exc)[:160]}]"
+        U.action(meter, "action", surface="action.browser", note="approved")
+        return out
     if kind == "api_call":
         conn = dstore.connector_by_name(row["to"])
         if not conn:
             return "[failed — connector missing]"
         spec = json.loads(row["body"] or "{}")
         if conn["kind"] == "higgsfield" or "media" in spec:
-            res = I.higgsfield_generate(conn["config"], spec.get("media", "image"), spec.get("prompt", ""), spec.get("image_url") or "",
-                                        spec.get("duration"), spec.get("aspect_ratio") or "16:9")
-            urls = ", ".join(res["outputs"]) or "no output URL returned"
-            return f"[Higgsfield {res['model']} {res['status']}: {urls}]"
+            gen = _counted(meter, "action.higgsfield", lambda: I.higgsfield_generate(
+                conn["config"], spec.get("media", "image"), spec.get("prompt", ""), spec.get("image_url") or "",
+                spec.get("duration"), spec.get("aspect_ratio") or "16:9"))
+            urls = ", ".join(gen["outputs"]) or "no output URL returned"
+            return f"[Higgsfield {gen['model']} {gen['status']}: {urls}]"
         if conn["kind"] == "mcp" or "mcp_tool" in spec:
             from .. import mcp_client as M
-            out = M.REGISTRY.get(conn).call(spec["mcp_tool"], spec.get("arguments") or {})
+            out = _counted(meter, "action.mcp", lambda: M.REGISTRY.get(conn).call(spec["mcp_tool"], spec.get("arguments") or {}))
             return f"[MCP {spec['mcp_tool']}: {out[:160]}]"
-        res = I.http_call(conn["config"], spec.get("method", "POST"), spec.get("path", ""), spec.get("params"), spec.get("body"))
-        return f"[HTTP {res['status']} {res['url']}]"
+        hit = _counted(meter, "action.http", lambda: I.http_call(conn["config"], spec.get("method", "POST"),
+                                                                 spec.get("path", ""), spec.get("params"), spec.get("body")))
+        return f"[HTTP {hit['status']} {hit['url']}]"
     return f"[simulated {kind} — no connector for this channel yet]"
 
 
@@ -2689,6 +2831,22 @@ def _upload_dir(uid: Any) -> Path:
     return CAMERA_UPLOAD_DIR / (f"u{int(uid)}" if uid else "open")
 
 
+def _upload_meter(owner: int, desk: dict[str, Any] | None, surface: str) -> U.Meter:
+    """Who an upload counts for (usage spec §1.3 L9): the owner's files, on the desk when there is one."""
+    return U.Meter(owner_id=int(owner or 0), desk_id=int((desk or {}).get("id") or 0), scope=U.desk_scope(int(owner or 0)),
+                   lane="you", surface=surface)
+
+
+def _charge_upload(owner: int, path: Path, size: int, meter: U.Meter, *, charge: int | None = None) -> None:
+    """Charge a saved upload to the owner's files (L9) and check the disk floor, after the write: over either, the
+    file is deleted and the 429 raised, so a body sent without a Content-Length cannot get past the limit."""
+    try:
+        U.take_storage(owner, size, meter=meter, surface=meter.surface, charge=charge)
+    except U.UsageLimit:
+        Path(path).unlink(missing_ok=True)
+        raise
+
+
 def _camera_source_reason(src: str, uid: Any) -> str | None:
     """Why `uid` may not point a camera at `src`, or None. Streams may sit on the LAN (cameras do) but never on
     loopback, link-local or the metadata service; files must be this owner's uploads or the sample footage."""
@@ -2725,6 +2883,11 @@ def api_camera_upload():
     _signed_in()
     if (request.content_length or 0) > CAMERA_UPLOAD_MAX:     # before the body is parsed, not after
         return jsonify({"error": f"file is larger than {CAMERA_UPLOAD_MAX // (1024 * 1024)} MB"}), 413
+    u = current_user()
+    owner = int(u["id"]) if u else 0
+    um = _upload_meter(owner, None, "upload.camera")
+    if request.content_length:                               # L9 and the disk floor before the body is read (429)
+        U.check_storage(owner, request.content_length, meter=um)
     request.max_content_length = CAMERA_UPLOAD_MAX           # also bounds a body sent without a Content-Length
     f = request.files.get("file")
     if not f or not f.filename:
@@ -2732,13 +2895,14 @@ def api_camera_upload():
     ext = Path(f.filename).suffix.lower()
     if ext not in CAMERA_UPLOAD_EXT:
         return jsonify({"error": f"{ext or 'that file type'} is not supported; use " + ", ".join(sorted(CAMERA_UPLOAD_EXT))}), 400
-    u = current_user()
     folder = _upload_dir(u["id"] if u else None)
     folder.mkdir(parents=True, exist_ok=True)
     stem = re.sub(r"[^a-zA-Z0-9_-]+", "-", Path(f.filename).stem).strip("-")[:40] or "camera"
     dest = folder / f"{stem}-{secrets.token_hex(8)}{ext}"
     f.save(dest)
-    return jsonify({"source": str(dest), "name": f.filename, "kind": V.source_kind(str(dest)), "bytes": dest.stat().st_size})
+    size = dest.stat().st_size
+    _charge_upload(owner, dest, size, um)
+    return jsonify({"source": str(dest), "name": f.filename, "kind": V.source_kind(str(dest)), "bytes": size})
 
 
 @app.post("/api/cameras/probe")
@@ -3298,6 +3462,9 @@ def api_camera_watch(cid):
 
 
 VIDEO_UPLOAD_MAX = 300 * 1024 * 1024
+# Watched videos live under ATLAS_DATA_DIR (they used to go to a data/videos folder relative to the working directory,
+# outside the backups and the storage reconcile): one folder per desk.
+VIDEO_DIR = cfg.DATA_DIR / "videos"
 
 
 @app.post("/api/vision/video")
@@ -3310,6 +3477,10 @@ def api_vision_video():
         return jsonify({"error": f"video too large (max {VIDEO_UPLOAD_MAX // (1024 * 1024)} MB)"}), 413
     meter = U.desk_meter(desk, "video.describe", lane="you", overrun=1)
     V.vlm_precheck(meter)                                      # S1: refused as JSON before the upload is read or saved
+    owner = int(desk.get("owner_id") or 0)
+    um = _upload_meter(owner, desk, "upload.video")
+    if request.content_length and request.mimetype == "multipart/form-data":
+        U.check_storage(owner, request.content_length, meter=um)   # L9 and the disk floor before an upload is read (429)
     request.max_content_length = VIDEO_UPLOAD_MAX              # before the form is parsed
     question = (request.form.get("question") or (request.json or {}).get("question", "") if not request.files else request.form.get("question", "")) or ""
     try:
@@ -3317,16 +3488,18 @@ def api_vision_video():
     except ValueError:
         frames = 6
     f = request.files.get("video")
-    saved = ""
+    saved, size = "", 0
     if f and f.filename:
-        vdir = Path("data") / "videos" / f"desk{desk['id']}"
+        vdir = VIDEO_DIR / f"desk{desk['id']}"
         vdir.mkdir(parents=True, exist_ok=True)
         name = re.sub(r"[^\w.\- ]+", "_", f.filename)[-80:] or "clip.mp4"
         src = vdir / f"{int(time.time())}_{name}"
         f.save(str(src))
-        if src.stat().st_size > VIDEO_UPLOAD_MAX:
+        size = src.stat().st_size
+        if size > VIDEO_UPLOAD_MAX:
             src.unlink(missing_ok=True)
             return jsonify({"error": "video too large (max 300 MB)"}), 413
+        _charge_upload(owner, src, size, um)
         label = name
         src = saved = str(src)
     else:
@@ -3344,6 +3517,7 @@ def api_vision_video():
     except U.UsageLimit:                                       # S1: refused after the check: nothing is kept
         if saved:
             Path(saved).unlink(missing_ok=True)
+            U.release_storage(owner, size)
         raise
     except Exception as exc:
         return jsonify({"error": f"{type(exc).__name__}: {exc}"}), 502
@@ -4149,6 +4323,10 @@ def api_cyber_upload():
     cap = _upload_max_bytes()
     if (request.content_length or 0) > cap:
         return _cy_err(f"file too large: at most {cap / 1048576:g} MB (CYBER_UPLOAD_MAX_MB)", 413)
+    owner = int(desk.get("owner_id") or 0)
+    um = _upload_meter(owner, desk, "upload.cyber")
+    if request.content_length:                     # L9 and the disk floor before the body is read (429)
+        U.check_storage(owner, request.content_length, meter=um)
     request.max_content_length = cap
     f = request.files.get("file")
     if not f or not f.filename:
@@ -4173,8 +4351,14 @@ def api_cyber_upload():
     st: dict[str, Any] = {}
     tot: dict[str, Any] = {"inserted": 0, "first_ts": None, "last_ts": None, "sensor": ""}
     it = None
+    charged = 0
     try:
         f.save(str(tmp))
+        size = tmp.stat().st_size
+        # L9 counts the log while it is on disk: it is parsed into events and its file deleted below, which gives the
+        # bytes back (the ledger keeps the upload); over the limit or the disk floor -> 429, nothing parsed
+        U.take_storage(owner, size, meter=um, surface=um.surface)
+        charged = size
         it = _upload_lines(tmp, info)
         head: list[str] = []
         try:
@@ -4219,6 +4403,8 @@ def api_cyber_upload():
             tmp.unlink()
         except OSError:
             pass
+        if charged:
+            U.release_storage(owner, charged)
     det = scheduler.cyber_detect(store, desk, _start_run, trigger=o["trigger"], trigger_min=o["trigger_min"],
                                  mode=o["mode"], force=True)
     out = {"ok": True, "file": name, "fmt": fmt, "sensor": o["sensor"] or tot["sensor"], "lines": st.get("lines", 0),
@@ -4643,12 +4829,21 @@ def api_cyber_recording_save():
     if not isinstance(bundle, dict) or bundle.get("kind") != "atlas-cyber-recording":
         return _cy_err("bundle.kind must be 'atlas-cyber-recording'")
     folder = _rec_dir(desk["id"])
-    folder.mkdir(parents=True, exist_ok=True)
     p = folder / f"{name}.json"
+    old = p.stat().st_size if p.is_file() else 0          # a recording saved under its own name replaces it
+    owner = int(desk.get("owner_id") or 0)
+    um = _upload_meter(owner, desk, "upload.recording")
+    if request.content_length:                            # L9 and the disk floor before anything is written (429)
+        U.check_storage(owner, max(0, request.content_length - old), meter=um)
+    folder.mkdir(parents=True, exist_ok=True)
     tmp = folder / f".{name}.{secrets.token_hex(4)}.tmp"
     tmp.write_text(json.dumps(bundle, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
+    size = tmp.stat().st_size
+    _charge_upload(owner, tmp, size, um, charge=size - old)
     os.replace(tmp, p)
-    return jsonify({"ok": True, "name": name, "size": p.stat().st_size})
+    if old > size:
+        U.release_storage(owner, old - size)
+    return jsonify({"ok": True, "name": name, "size": size})
 
 
 @app.get("/desk/cyber")

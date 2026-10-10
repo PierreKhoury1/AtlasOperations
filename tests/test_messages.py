@@ -57,14 +57,14 @@ def test_owner_reply_sends_through_the_connector(app_client, monkeypatch):
     assert r.status_code == 400 and "connector" in J2(r)["error"]
     A.store.add_connector(did, "smtp", "mail", {"host": "smtp.example.com", "user": "u", "password": "p", "from": "bistro@example.com"}, False)
     sent = {}
-    monkeypatch.setattr(A.I, "deliver", lambda conn, kind, to, subject, body: sent.update(kind=kind, to=to, body=body) or "sent via test")
+    monkeypatch.setattr(A.I, "deliver", lambda conn, kind, to, subject, body, meta=None: sent.update(kind=kind, to=to, body=body) or "sent via test")
     out = J(c.post("/api/messages/send", json={"channel": "email", "to": "Guest@Example.com", "subject": "Re: table", "body": "See you at 8."}))
     assert out["ok"] and sent == {"kind": "email", "to": "Guest@Example.com", "body": "See you at 8."}
     th = J(c.get("/api/messages/threads"))
     assert th["channels"]["email"] is True and th["threads"][0]["key"] == "guest@example.com"
     assert th["threads"][0]["last"]["actor"] == "M"                        # sent in the owner's name
     # failure is recorded, not hidden
-    monkeypatch.setattr(A.I, "deliver", lambda *a: (_ for _ in ()).throw(RuntimeError("SMTP down")))
+    monkeypatch.setattr(A.I, "deliver", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("SMTP down")))
     bad = c.post("/api/messages/send", json={"channel": "email", "to": "guest@example.com", "body": "again"})
     assert bad.status_code == 502 and "SMTP down" in J2(bad)["error"]
     msgs = J(c.get("/api/messages?contact=guest@example.com"))["messages"]
@@ -147,7 +147,7 @@ def test_instagram_dms_thread_and_reply(app_client, monkeypatch):
     assert ig["channels"] == ["instagram"]
     # the owner replies straight from the thread
     sent = {}
-    monkeypatch.setattr(A.I, "deliver", lambda conn, kind, to, subject, body: sent.update(kind=kind, to=to) or "sent via test")
+    monkeypatch.setattr(A.I, "deliver", lambda conn, kind, to, subject, body, meta=None: sent.update(kind=kind, to=to) or "sent via test")
     out = J(c.post("/api/messages/send", json={"channel": "instagram", "to": "ig:778899", "body": "Yes, before 7pm!"}))
     assert out["ok"] and sent == {"kind": "instagram", "to": "778899"}
     msgs = J(c.get("/api/messages?contact=ig%3A778899"))["messages"]

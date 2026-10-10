@@ -18,6 +18,9 @@ os.environ.pop("DESK_OPEN", None)
 os.environ["DESK_SECRET"] = "test-secret"
 os.environ["VISION_EMBED"] = "hash"          # no CLIP / API in the suite: deterministic hashed vectors
 os.environ["VISION_INDEX_SYNC"] = "1"        # embed inline so retrieval tests see the index immediately
+# The uploads' disk floor (usage spec §1.3 L9) reads this machine's real free space: a nearly full dev disk would refuse
+# every upload test. The floor's own tests (test_usage.py T19) set it back and fake the disk.
+os.environ["USAGE_DISK_FLOOR_PCT"] = "0"
 
 
 def _prune_stale(prefix: str, max_age_s: float = 6 * 3600) -> None:

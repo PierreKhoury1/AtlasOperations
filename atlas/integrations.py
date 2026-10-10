@@ -666,7 +666,30 @@ def parse_whatsapp_webhook(payload: dict[str, Any]) -> list[dict[str, str]]:
 TWILIO = "https://api.twilio.com/2010-04-01"
 
 
-def send_twilio(cfg: dict[str, Any], to: str, body: str, channel: str = "sms") -> str:
+def twilio_meta(r: dict[str, Any], meta: dict[str, Any] | None) -> None:
+    """What Twilio's Message resource says about one send, for the usage ledger: `segments` (num_segments: 0 for a
+    Messaging Service, then the ledger counts the message as 1) and `cost_usd` (the absolute `price`, only when
+    price_unit is USD; Twilio may not have priced it yet, then None). Never a figure Atlas made up."""
+    if meta is None:
+        return
+    meta["provider"] = "twilio"
+    seg = r.get("num_segments")
+    try:
+        meta["segments"] = max(0, int(str(seg).strip())) if seg not in (None, "") else None
+    except (TypeError, ValueError):
+        meta["segments"] = None
+    price, unit = r.get("price"), str(r.get("price_unit") or "").strip().upper()
+    try:
+        cost = abs(float(price)) if price not in (None, "") else None   # Twilio reports a charge as a negative amount
+    except (TypeError, ValueError):
+        cost = None
+    meta["cost_usd"] = cost if cost is not None and unit == "USD" else None
+    if cost is not None and unit and unit != "USD":
+        meta["price_note"] = f"Twilio price {cost:g} {unit[:3]}"
+
+
+def send_twilio(cfg: dict[str, Any], to: str, body: str, channel: str = "sms", meta: dict[str, Any] | None = None) -> str:
+    """meta (optional): filled with what Twilio reported about the send (twilio_meta)."""
     _need(cfg, "Twilio", "account_sid", "auth_token")
     sid, tok = cfg["account_sid"].strip(), cfg["auth_token"].strip()
     if channel == "whatsapp":
@@ -681,6 +704,7 @@ def send_twilio(cfg: dict[str, Any], to: str, body: str, channel: str = "sms") -
             raise RuntimeError("Twilio connector has no from_number")
         to_ = "+" + _digits(to)
     r = _http("POST", f"{TWILIO}/Accounts/{sid}/Messages.json", data={"To": to_, "From": frm, "Body": body}, auth=(sid, tok))
+    twilio_meta(r if isinstance(r, dict) else {}, meta)
     return f"sent via Twilio {channel} from {frm} (sid {r.get('sid', '?')})"
 
 
@@ -938,16 +962,24 @@ def outbound_connector(connectors: list[dict[str, Any]], kind: str) -> dict[str,
     return None
 
 
-def deliver(conn: dict[str, Any], kind: str, to: str, subject: str, body: str) -> str:
+_SENDERS = {"smtp": "smtp", "resend": "resend", "whatsapp": "meta", "instagram": "meta", "twilio": "twilio",
+            "slack": "slack", "gcal": "google"}
+
+
+def deliver(conn: dict[str, Any], kind: str, to: str, subject: str, body: str, meta: dict[str, Any] | None = None) -> str:
+    """Send one approved message or booking through the owner's connector. meta (optional): filled with the sending
+    provider and, for Twilio, the segments and price it reported (the usage ledger reads them)."""
     cfg = conn.get("config") or {}
     k = conn.get("kind")
+    if meta is not None:
+        meta["provider"] = _SENDERS.get(str(k), str(k or ""))
     if kind == "email":
         return send_email(cfg, to, subject, body) if k == "smtp" else send_resend(cfg, to, subject, body)
     if kind == "whatsapp":
         text = (subject + "\n\n" + body).strip() if subject and subject not in body else body
-        return send_whatsapp(cfg, to, text) if k == "whatsapp" else send_twilio(cfg, to, text, "whatsapp")
+        return send_whatsapp(cfg, to, text) if k == "whatsapp" else send_twilio(cfg, to, text, "whatsapp", meta)
     if kind == "sms":
-        return send_twilio(cfg, to, body, "sms")
+        return send_twilio(cfg, to, body, "sms", meta)
     if kind == "instagram":
         text = (subject + "\n\n" + body).strip() if subject and subject not in body else body
         return send_instagram(cfg, to, text)

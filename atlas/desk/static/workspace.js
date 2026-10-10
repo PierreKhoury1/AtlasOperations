@@ -959,9 +959,19 @@ function apEdit(id){ const el = document.getElementById('ap-' + id); if (!el) re
 async function decide(id, status){
   const v = q => { const e = document.getElementById(q); return e ? e.value : ''; };
   const r = await api(`/actions/${id}/decide`, {method: 'POST', body: {status, note: v(`ap-n-${id}`), body: v(`ap-b-${id}`), subject: v(`ap-s-${id}`)}});
+  if (r && (r.error === 'outside_window' || r.error === 'usage_limit')) return apNotSent(id, r);
   if (!r || r.error) return toast((r && r.error) || 'failed');
   toast(status === 'approved' ? (W.mode === 'demo' ? 'Approved (simulated send in demo mode)' : 'Approved and sent') : 'Rejected: the agents see your note next run');
   loadApprovals(); shellRefresh();
+}
+// the channel's own rule or a usage limit held the send (409 / 429): nothing went out, the card stays pending with
+// the reason above its buttons, and Approve works again once the customer writes or the limit resets
+function apNotSent(id, r){
+  const card = document.getElementById('ap-' + id), text = r.message || r.error;
+  if (!card) return toast('Not sent: ' + text);
+  let el = card.querySelector('.hold.not-sent');
+  if (!el) { el = document.createElement('div'); el.className = 'hold not-sent'; el.append(Object.assign(document.createElement('b'), {textContent: 'Not sent'}), ' ', document.createElement('span')); card.querySelector('.ap-acts').before(el); }
+  el.querySelector('span').textContent = text;
 }
 function toggleApprovals(){ loadApprovals(); showTab('approvals'); }
 

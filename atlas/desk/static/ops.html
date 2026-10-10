@@ -546,7 +546,7 @@ function bindApprovals(c){
   $('#insp').querySelectorAll('.appr').forEach(el => {
     const aid = +el.dataset.aid;
     el.querySelector('[data-ok]').onclick = async () => { el.querySelectorAll('button').forEach(b => b.disabled = true);
-      try { const r = await api(`/actions/${aid}/decide`, {body:{status:'approved'}}); toast(r.status === 'sent' ? 'Sent ' + (r.note || '') : 'Send failed: ' + (r.note || '')); } catch (e) { toast(e.message); } refresh(false); openSel(); };
+      try { const r = await api(`/actions/${aid}/decide`, {body:{status:'approved'}}); toast(r.status === 'sent' ? 'Sent ' + (r.note || '') : 'Send failed: ' + (r.note || '')); } catch (e) { toast(e.data && e.data.message ? 'Not sent: ' + e.data.message : e.message); } refresh(false); openSel(); };
     el.querySelector('[data-no]').onclick = async () => { const note = el.querySelector('[data-note]').value.trim();
       if (!note) { el.querySelector('[data-note]').focus(); el.querySelector('[data-note]').placeholder = 'Say why - Atlas redrafts from your note'; return; }
       el.querySelectorAll('button').forEach(b => b.disabled = true);

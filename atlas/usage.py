@@ -22,6 +22,7 @@ import hmac
 import json
 import math
 import os
+import re
 import secrets
 import shutil
 import sqlite3
@@ -271,7 +272,8 @@ class UsageLimit(Exception):
         super().__init__(self.message)
 
     def _default_message(self) -> str:
-        text = f"{self.label}: {_fmt(self.used, self.unit)} of {_fmt(self.limit, self.unit)} used."
+        mb = " MB" if self.unit == "MB" else ""          # "Files you uploaded: 0.9 of 1 MB used."
+        text = f"{self.label}: {_fmt(self.used, self.unit)} of {_fmt(self.limit, self.unit)}{mb} used."
         return text + (" " + reset_phrase(self.resets_at, self.now) if self.resets_at else "")
 
     def _shown(self, v: Any) -> Any:
@@ -1551,13 +1553,24 @@ def send_held_note(exc: UsageLimit) -> str:
     return f"auto-send paused: {brief(exc)}" + (f"; resets {until}" if until else "")
 
 
-def _contact_key(kind: str, to: str) -> str:
-    """The `messages.contact_key` of a recipient: ig:<id> for Instagram, else store.message_key."""
+def _contact_keys(kind: str, to: str) -> tuple[str, ...]:
+    """The `messages.contact_key`s a recipient may be stored under, the canonical one first: ig:<id> for Instagram;
+    for a phone, + and the number the sender actually dials (integrations._digits: 0044... and UK 07... become 44...,
+    as the hooks store inbound numbers), then store.message_key's plain digits; else the lowercased address."""
     if kind == "instagram":
         a = str(to or "").strip().lower()
-        return a if a.startswith("ig:") else "ig:" + "".join(ch for ch in a if ch.isdigit())
+        return (a if a.startswith("ig:") else "ig:" + "".join(ch for ch in a if ch.isdigit()),)
     from .store import Store
-    return Store.message_key(to)
+    plain = Store.message_key(to)
+    if "@" in str(to or "") or kind == "email":
+        return (plain,)
+    from . import integrations as I
+    dialled = "+" + I._digits(str(to or "").replace("whatsapp:", ""))
+    return (dialled, plain) if dialled != "+" and dialled != plain else (plain,)
+
+
+def _contact_key(kind: str, to: str) -> str:
+    return _contact_keys(kind, to)[0]
 
 
 def recipient_ref(kind: str, to: str) -> str:
@@ -1570,9 +1583,17 @@ def last_inbound(desk_id: int, kind: str, to: str) -> float | None:
     """When this recipient last wrote to the desk on this channel (one indexed lookup in `messages`)."""
     if _store is None:
         return None
-    r = _store._conn.execute("SELECT MAX(ts) FROM messages WHERE desk_id=? AND contact_key=? AND channel=? AND dir='in'",
-                             (int(desk_id), _contact_key(kind, to), kind)).fetchone()
+    keys = _contact_keys(kind, to)
+    r = _store._conn.execute(f"SELECT MAX(ts) FROM messages WHERE desk_id=? AND contact_key IN ({','.join('?' * len(keys))}) "
+                             "AND channel=? AND dir='in'", (int(desk_id), *keys, kind)).fetchone()
     return float(r[0]) if r and r[0] is not None else None
+
+
+def send_error_note(exc: BaseException) -> str:
+    """A failed send as the ledger may keep it: the error's type and the provider's HTTP status, never its text
+    (provider errors echo the recipient's number, account ids and message content; spec §3.7)."""
+    m = re.search(r"\bHTTP (\d{3})\b", str(exc))
+    return type(exc).__name__ + (f": HTTP {m.group(1)}" if m else "")
 
 
 @dataclass
@@ -1609,8 +1630,9 @@ class Reservation:
         except Exception as exc:
             print(f"usage: send not recorded: {type(exc).__name__}: {str(exc)[:120]}")
 
-    def release(self, *, error: str = "") -> None:
-        """Nothing was sent: give the reserved segment back (and record the failed attempt when `error`)."""
+    def release(self, *, error: str = "", provider: str = "") -> None:
+        """Nothing was sent: give the reserved segment back (and record the failed attempt when `error`: system text
+        only, see send_error_note)."""
         if self.done:
             return
         self.done = True
@@ -1619,7 +1641,8 @@ class Reservation:
                 _untake(self.taken)
             if error:
                 _write({**_meter_fields(self.meter), "ts": _now(), "kind": "send", "units": 0, "surface": f"send.{self.kind}",
-                        "ref": self.ref, "key_kind": "channel", "status": "not_sent", "note": error}, [])
+                        "ref": self.ref, "key_kind": "channel", "provider": provider, "status": "not_sent",
+                        "note": error}, [])
         except Exception as exc:
             print(f"usage: release not recorded: {type(exc).__name__}: {str(exc)[:120]}")
 
@@ -1631,8 +1654,8 @@ def channel_send(desk: dict[str, Any], kind: str, to: str, *, meter: Meter | Non
     now = _now()
     did, oid = int(desk["id"]), int(desk.get("owner_id") or 0)
     ref = recipient_ref(kind, to)
-    m = meter or Meter(owner_id=oid, desk_id=did, scope="owner", lane=bound_lane() or "you", surface=f"send.{kind}",
-                       key_kind="channel", ref=ref)
+    m = meter or Meter(owner_id=oid, desk_id=did, scope=desk_scope(oid), lane=bound_lane() or "you",
+                       surface=f"send.{kind}", key_kind="channel", ref=ref)
     if kind in ("whatsapp", "instagram"):
         last = last_inbound(did, kind, to)
         if last is None or now - last > DAY - CFG.window_margin_s:
@@ -1681,32 +1704,53 @@ def _storage_row(owner_id: int) -> Row:
     return Row(f"o:{int(owner_id or 0)}", "storage", None if lim is None else int(lim * MB), "storage_mb", "T", 0)
 
 
-def check_storage(owner_id: int, nbytes: int) -> None:
-    """The pre-check with a Content-Length, before anything is written (L9 and the disk floor)."""
+def check_storage(owner_id: int, nbytes: int, *, meter: Meter | None = None) -> None:
+    """The pre-check with a Content-Length, before anything is written (L9 and the disk floor). A refusal is on the
+    ledger like any other (the meter's surface: upload.camera, upload.video, ...); nothing is taken."""
     now = _now()
     nbytes = max(0, int(nbytes or 0))
-    _floor_check(nbytes, False, now)
-    r = _storage_row(owner_id)
-    if CFG.enforce and r.limit is not None:
-        n = counter_n(r.scope_key, r.metric, "T", 0)
-        if n + nbytes > r.limit:
-            used, lim = _row_limit(r, n)
-            raise _limit("storage_mb", used=used, limit=lim, now=now)
+    m = meter or Meter(owner_id=int(owner_id or 0), desk_id=0, scope=desk_scope(int(owner_id or 0)), lane="you",
+                       surface="upload.file")
+    try:
+        _floor_check(nbytes, False, now)
+        r = _storage_row(owner_id)
+        if CFG.enforce and r.limit is not None:
+            n = counter_n(r.scope_key, r.metric, "T", 0)
+            if n + nbytes > r.limit:
+                _bump_refused(r, now)
+                used, lim = _row_limit(r, n)
+                raise _sized(_limit("storage_mb", used=used, limit=lim, now=now), nbytes)
+    except UsageLimit as exc:
+        _refuse_quietly(m, exc, surface=m.surface)
+        raise
+
+
+def _sized(exc: UsageLimit, nbytes: int) -> UsageLimit:
+    """An L9 refusal says how big the refused file is: the numbers alone ("0.9 of 1 MB used") do not."""
+    if exc.limit_id == "storage_mb" and nbytes:
+        exc.message += f" This file is {_fmt(round(nbytes / MB, 1), 'MB')} MB."
+        exc.args = (exc.message,)
+    return exc
 
 
 def take_storage(owner_id: int, nbytes: int, *, written: bool = True, meter: Meter | None = None,
-                 surface: str = "upload.file") -> None:
+                 surface: str = "upload.file", charge: int | None = None) -> None:
     """Charge an upload's saved size (os.path.getsize after the write). Raises UsageLimit over L9 or the disk floor;
-    the caller then deletes the file. A body without a Content-Length is charged here all the same."""
+    the caller then deletes the file. A body without a Content-Length is charged here all the same. `charge`: what
+    the running total grows by when that is not the saved size (a file replacing one of the owner's own: the net
+    growth); 0 or less checks and takes nothing, and the upload row still records the saved size."""
     now = _now()
     nbytes = max(0, int(nbytes or 0))
-    m = meter or Meter(owner_id=int(owner_id or 0), desk_id=0, scope="owner", lane="you", surface=surface)
-    try:
-        _floor_check(nbytes, written, now)
-        take([_storage_row(owner_id)], units=nbytes, force=not CFG.enforce, now=now)
-    except UsageLimit as exc:
-        _refuse_quietly(m, exc, surface=surface)
-        raise
+    grow = nbytes if charge is None else int(charge)
+    m = meter or Meter(owner_id=int(owner_id or 0), desk_id=0, scope=desk_scope(int(owner_id or 0)), lane="you",
+                       surface=surface)
+    if grow > 0:
+        try:
+            _floor_check(grow, written, now)
+            take([_storage_row(owner_id)], units=grow, force=not CFG.enforce, now=now)
+        except UsageLimit as exc:
+            _refuse_quietly(m, _sized(exc, nbytes), surface=surface)
+            raise
     action(m, "upload", nbytes, surface=surface, note=f"{nbytes / MB:.1f} MB")
 
 
@@ -1729,6 +1773,24 @@ def set_storage(owner_id: int, nbytes: int) -> None:
         c.execute("INSERT INTO usage_counters(scope_key,metric,period,window_start,n,refused,lim,updated) VALUES(?,?,?,?,?,0,?,?) "
                   "ON CONFLICT(scope_key,metric,period,window_start) DO UPDATE SET n = excluded.n, lim = excluded.lim, "
                   "updated = excluded.updated", (f"o:{int(owner_id or 0)}", "storage", "T", 0, max(0, int(nbytes)), lim, _now()))
+
+
+def reconcile_storage(sizes: dict[int, int]) -> dict[int, int]:
+    """The daily reconcile (spec §1.3 L9 step 3): each owner's running total becomes what the caller's walk of their
+    upload folders measured on disk; an owner with a total but no files left goes to 0. Returns {owner: bytes} set."""
+    if _store is None:
+        return {}
+    known: set[int] = set()
+    for (sk,) in _store._conn.execute("SELECT scope_key FROM usage_counters WHERE metric='storage' AND period='T'").fetchall():
+        try:
+            known.add(int(str(sk).split(":", 1)[1]))
+        except (IndexError, ValueError):
+            continue
+    out: dict[int, int] = {}
+    for oid in sorted(known | {int(o) for o in sizes}):
+        out[oid] = max(0, int(sizes.get(oid, 0) or 0))
+        set_storage(oid, out[oid])
+    return out
 
 
 # ---------------------------------------------------------------------------- runs (spec §1.3 L1 headroom, L2, L3, L5)

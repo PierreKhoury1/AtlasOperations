@@ -7,9 +7,12 @@ pauses, and Ask's text-only fallback. Runs and the engine's catch sites (§1.3 L
 S1-S9, S16, S20-S27, S53): T11 (run side), T13, T22, T24, T31, T33, T37, T41, T42, the typed LIMIT tool result, the
 seed, the browser's limit stop and the site's live run. Background work (§1.6, S12, S13, S44-S52): T5, T18, T25, T26,
 T36, T39's case part, a camera alert's refused run, the watch job and a detection's run at a limit, the sensor hook,
-the scheduler's deferred starts and the Leads list's note. No model is called: provider responses are stubbed
-(httpx.MockTransport), the key endpoint too."""
+the scheduler's deferred starts and the Leads list's note. Channels and uploads (§1.3 W1, L7, L9, §3.4, §4.6
+S14-S15): T19, T38, Twilio's segments and price, the approved actions _dispatch counts and the storage
+reconcile. No model is called and nothing is sent: provider responses are stubbed (httpx.MockTransport), the key
+endpoint and the channel APIs too."""
 import ast
+import io
 import json
 import os
 import threading
@@ -1754,13 +1757,11 @@ CATCH_NAMES = frozenset({"chat", "describe", "vlm_detect", "chat_images", "chat_
                          "verify_note", "maybe_rollup", "follow", "study", "_hermes_browse", "reply", "run_agent",
                          "_run_agent", "_execute_tools", "run_task", "camera_tick", "_start_run", "start_run",
                          "START_RUN", "LEAD_RUN", "_lead_case_run", "_design_team_for", "design_team", "_sample_leads",
-                         "deliver", "_dispatch"})
+                         "deliver", "_dispatch", "_deliver_metered"})
 CATCH_ALLOWED = {
     ("orchestrator.py", "Orchestrator._record_tool"): "records.describe: a business-record lookup, not a model call",
 }
 CATCH_PENDING = {
-    ("desk/app.py", "api_decide"): "S14, step 7: W1 and L7 before the decision",
-    ("desk/app.py", "api_message_send"): "S15, step 7: W1 and L7 before the send",
     ("desk/app.py", "api_design_say.work"): "S10, merge: the designer track's turn and the limit turn (spec §4.7)",
     ("desk/app.py", "api_design_study.work"): "S11, merge: the study's done event carries the limit",
     ("study.py", "study"): "S35, merge: model_error is the limit message",
@@ -2406,3 +2407,300 @@ def test_scheduler_starts_deferred_leads_for_its_own_ledger_only(U, store, monke
     assert S.deferred_pass(object(), t + 120) == 0 and calls == []
     assert S.deferred_pass(store, t + 120) == 1 and calls == [lid, lid2]
     assert U.deferred(97) == [] and [r["ref_id"] for r in U.deferred(97, "dropped")] == [lid2]
+
+
+# ---------------------------------------------------------------------------- channels and uploads (step 7)
+def test_recipients_match_their_inbound_thread_and_errors_stay_out_of_the_ledger(U):
+    """W1's lookup (spec §1.3 W1, §3.7): a number is matched the way the sender dials it (UK national and 00 forms
+    become +44..., as the hooks store inbound numbers), then by its plain digits; Instagram ids keep their ig: key. A
+    failed send keeps only the error's type and HTTP status: provider errors echo numbers and account ids."""
+    assert U._contact_keys("whatsapp", "07700 900123") == ("+447700900123", "+07700900123")
+    assert U._contact_keys("sms", "0044 7700 900123") == ("+447700900123", "+00447700900123")
+    assert U._contact_keys("whatsapp", "whatsapp:+44 7700 900123") == ("+447700900123",)
+    assert U._contact_keys("instagram", "778899") == U._contact_keys("instagram", "ig:778899") == ("ig:778899",)
+    assert U._contact_keys("email", "Guest@Example.com") == ("guest@example.com",)
+    assert U.recipient_ref("whatsapp", "07700 900123") == U.recipient_ref("sms", "+447700900123")
+    err = RuntimeError("POST https://api.twilio.com/2010-04-01/Accounts/AC1/Messages.json → HTTP 400: The 'To' number "
+                       "+447700900123 is not a valid phone number.")
+    assert U.send_error_note(err) == "RuntimeError: HTTP 400" and U.send_error_note(TimeoutError()) == "TimeoutError"
+
+
+def test_twilio_reports_segments_and_price():
+    """Spec §3.4 (Twilio row): deliver's meta carries num_segments and the price Twilio reported, as an absolute
+    amount and only in USD; a price in another currency is kept as a note, never converted; no price yet is None."""
+    from atlas import integrations as I
+    meta = {}
+    I.twilio_meta({"sid": "SM1", "num_segments": "3", "price": "-0.0237", "price_unit": "USD"}, meta)
+    assert meta == {"provider": "twilio", "segments": 3, "cost_usd": 0.0237}
+    meta = {}
+    I.twilio_meta({"num_segments": "0", "price": None, "price_unit": "USD"}, meta)    # a Messaging Service
+    assert (meta["segments"], meta["cost_usd"]) == (0, None)
+    meta = {}
+    I.twilio_meta({"num_segments": "1", "price": "-0.04", "price_unit": "GBP"}, meta)
+    assert meta["cost_usd"] is None and meta["price_note"] == "Twilio price 0.04 GBP"
+    I.twilio_meta({}, None)                                                           # no meta asked for: nothing
+
+
+def _send_stubs(monkeypatch):
+    """Meta (WhatsApp, Instagram) and Twilio answer from a stub the way their APIs do; every send is recorded and
+    nothing leaves the machine. Twilio refuses +15550009999 (HTTP 400, its error echoing the number)."""
+    from atlas import integrations as I
+    sent = []
+
+    def handler(req):
+        url, body = str(req.url), req.content.decode("utf-8", "replace")
+        if "api.twilio.com" in url and "15550009999" in body:
+            return httpx.Response(400, json={"message": "The 'To' number +15550009999 is not a valid phone number."})
+        sent.append(url)
+        if "api.twilio.com" in url:
+            return httpx.Response(201, json={"sid": "SM38", "num_segments": "2", "price": "-0.0158", "price_unit": "USD"})
+        if "graph.facebook.com" in url:
+            return httpx.Response(200, json={"messages": [{"id": "wamid.T38"}], "message_id": "mid.T38"})
+        return httpx.Response(500, json={"error": "test: unexpected host"})
+    monkeypatch.setattr(I, "_TRANSPORT", httpx.MockTransport(handler))
+    return sent
+
+
+def _decide(c, did, aid, status="approved"):
+    return c.post(f"/api/actions/{aid}/decide", json={"status": status}, headers={"X-Desk": str(did)})
+
+
+def test_reply_window_holds_whatsapp_and_instagram(app_client, monkeypatch):
+    """T38 (spec §1.3 W1 and L7, §4.5, §4.6 S14-S15): approving a WhatsApp message to a number that has not written in
+    24 h answers 409 outside_window, sends nothing and leaves the action pending; once the customer wrote 2 h ago (the
+    action in UK national form, the inbound as the hook stores it) it goes out. The same for Instagram (ig: keys), a
+    Twilio WhatsApp sender and the owner's direct reply (nothing stored on the thread). SMS is not gated: Twilio's
+    segments and price are on the ledger, the day's segments refuse the next approval with 429, and a send Twilio
+    rejects gives its segment back. An auto alert through the real dispatcher stays pending with the W1 copy. The
+    ledger keeps hashed recipients only."""
+    from atlas import alerts as AL
+    A, did, owner = _signed_in(app_client, monkeypatch, "usage-t38@example.com")
+    hdr = {"X-Desk": str(did)}
+    sent = _send_stubs(monkeypatch)
+    A.store.add_connector(did, "whatsapp", "wa", {"phone_number_id": "1066", "access_token": "tok"}, False)
+    A.store.add_connector(did, "instagram", "ig", {"page_id": "4242", "access_token": "tok"}, False)
+    ds = A.store.for_desk(did)
+    wa = ds.add_action("r-t38", "host", "whatsapp", "07700 900123", "", "Your table is ready.", "")
+    r = _decide(app_client, did, wa)
+    b = r.get_json()
+    assert r.status_code == 409 and "Retry-After" not in r.headers, b
+    assert (b["error"], b["limit_id"], b["channel"], b["retry_at"], b["usage_url"]) == (
+        "outside_window", "reply_window", "whatsapp", None, "/desk/usage")
+    assert b["message"] == ("Outside WhatsApp's 24-hour reply window: a template message is needed, which Atlas "
+                            "can't send yet.")
+    assert ds.action(wa)["status"] == "pending" and not ds.action(wa)["decided_by"] and sent == []
+    ds.add_message("whatsapp", "in", "+447700900123", "Table for two at 8?", ts=time.time() - 2 * 3600)
+    row = _decide(app_client, did, wa).get_json()
+    assert row["status"] == "sent" and "wamid.T38" in row["note"] and len(sent) == 1
+    ig = ds.add_action("r-t38", "host", "instagram", "778899", "", "Yes, walk-ins are welcome.", "")
+    r = _decide(app_client, did, ig)
+    assert r.status_code == 409 and r.get_json()["channel"] == "instagram" and r.get_json()["message"].startswith(
+        "Outside Instagram's 24-hour reply window: Instagram allows replies only within 24 hours")
+    ds.add_message("instagram", "in", "ig:778899", "Do you take walk-ins?", ts=time.time() - 3600)
+    assert _decide(app_client, did, ig).get_json()["status"] == "sent" and len(sent) == 2
+    # the owner's own reply (S15): outside the window nothing is sent or stored; inside it goes out
+    msg = {"channel": "whatsapp", "to": "+15550002222", "body": "Hello"}
+    r = app_client.post("/api/messages/send", json=msg, headers=hdr)
+    assert r.status_code == 409 and r.get_json()["error"] == "outside_window" and len(sent) == 2
+    assert ds.messages("+15550002222") == []
+    ds.add_message("whatsapp", "in", "+15550002222", "Hi, are you open?", ts=time.time() - 600)
+    assert app_client.post("/api/messages/send", json=msg, headers=hdr).get_json()["ok"] and len(sent) == 3
+    # a Twilio WhatsApp sender on a second desk: the same rule
+    did2 = app_client.post("/api/desks", json={"name": "T38 Twilio", "template": "sales_desk", "tier": "free"}).get_json()["id"]
+    A.store.add_connector(did2, "twilio", "tw", {"account_sid": "AC38", "auth_token": "t", "from_number": "+15550000000",
+                                                  "whatsapp_from": "+14155238886"}, False)
+    ds2 = A.store.for_desk(did2)
+    tw = ds2.add_action("r-t38", "host", "whatsapp", "+447700900456", "", "Booked for Friday.", "")
+    assert _decide(app_client, did2, tw).status_code == 409 and len(sent) == 3
+    ds2.add_message("whatsapp", "in", "+447700900456", "Can I book Friday?", ts=time.time() - 3600)
+    assert _decide(app_client, did2, tw).get_json()["status"] == "sent" and "api.twilio.com" in sent[-1]
+    # SMS: no reply window; Twilio's segments count in L7 and its price is the row's cost
+    sms = ds2.add_action("r-t38", "host", "sms", "+15550001111", "", "Reminder: your table is at 8pm.", "")
+    assert _decide(app_client, did2, sms).get_json()["status"] == "sent" and len(sent) == 5
+    assert usage.counter(f"d{did2}", "seg:sms")[0] == 2
+    bad = ds2.add_action("r-t38", "host", "sms", "+15550009999", "", "Reminder.", "")
+    row = _decide(app_client, did2, bad).get_json()
+    assert row["status"] == "failed" and usage.counter(f"d{did2}", "seg:sms")[0] == 2      # its segment came back
+    usage.set_override(owner, "sms_segments_day", 2)
+    try:
+        sms2 = ds2.add_action("r-t38", "host", "sms", "+15550001111", "", "See you soon.", "")
+        b = _is_limit(_decide(app_client, did2, sms2), "sms_segments_day")
+        assert b["message"].startswith("SMS sent today: 2 of 2 used. Resets 00:00 UTC")
+        assert ds2.action(sms2)["status"] == "pending" and len(sent) == 5
+    finally:
+        usage.clear_override(owner, "sms_segments_day")
+    # an auto camera alert through the real dispatcher: held by the window, pending with the rule's words
+    alert = AL.queue(A.store, A.store.desk(did2), "whatsapp", "+447700900999", "door: person", "Camera door: 1 person.",
+                     "camera alert on door: person", True, A._dispatch)
+    assert alert["status"] == "pending" and alert["held"].startswith("Outside WhatsApp's 24-hour reply window")
+    sends = _events(A.store, "kind='send' AND owner_id=?", (owner,))
+    assert [(s["surface"], s["provider"], s["status"], s["units"], s["lane"]) for s in sends] == [
+        ("send.whatsapp", "meta", "ok", 1, "you"), ("send.instagram", "meta", "ok", 1, "you"),
+        ("send.whatsapp", "meta", "ok", 1, "you"), ("send.whatsapp", "twilio", "ok", 1, "you"),
+        ("send.sms", "twilio", "ok", 2, "you"), ("send.sms", "twilio", "not_sent", 0, "you")]
+    assert sends[4]["cost_usd"] == pytest.approx(0.0158) and sends[4]["cost_basis"] == "provider"
+    assert sends[5]["note"] == "RuntimeError: HTTP 400" and sends[0]["ref"] == usage.recipient_ref("whatsapp", "+447700900123")
+    held = _events(A.store, "kind='refusal' AND owner_id=? AND limit_id='reply_window'", (owner,))
+    assert sorted((h["surface"], h["status"], h["lane"]) for h in held) == [
+        ("send.instagram", "held", "you"), ("send.whatsapp", "held", "auto"), ("send.whatsapp", "held", "you"),
+        ("send.whatsapp", "held", "you"), ("send.whatsapp", "held", "you")]
+    auto_held = next(h for h in held if h["lane"] == "auto")
+    l8, = _events(A.store, "kind='action' AND owner_id=? AND surface='send.whatsapp'", (owner,))
+    assert l8["status"] == "not_sent" and l8["action_id"] == auto_held["action_id"]      # one alert, one action id
+    assert usage.counter(f"o:{owner}", "held:window")[0] == 5 and usage.counter(f"o:{owner}", "send:whatsapp")[0] == 3
+    ledger = json.dumps(sends + held)
+    assert "447700900" not in ledger and "15550001111" not in ledger and "+15550009999" not in ledger
+
+
+def test_approved_actions_are_counted_and_simulated_sends_are_not(app_client, monkeypatch):
+    """Spec §3.2 (action hooks), §1.4 action.*: app._dispatch counts every approved action that really runs (an HTTP
+    call, a calendar booking) under the approver's lane and the action's id; a failed one is counted as an error with
+    its type and HTTP status only; a message with no connector is simulated and is no send."""
+    A, did, owner = _signed_in(app_client, monkeypatch, "usage-dispatch@example.com")
+    ds = A.store.for_desk(did)
+    A.store.add_connector(did, "http", "crm", {"base_url": "https://crm.example.com", "auth_type": "none"}, False)
+    A.store.add_connector(did, "gcal", "cal", {"client_id": "c", "client_secret": "s", "refresh_token": "r"}, False)
+
+    def http_call(cfg, method, path, params=None, body=None, **kw):
+        if path == "/fail":
+            raise RuntimeError("POST https://crm.example.com/fail → HTTP 503: {\"to\": \"+447700900123\"}")
+        return {"status": 201, "url": "https://crm.example.com" + path}
+    monkeypatch.setattr(A.I, "http_call", http_call)
+    monkeypatch.setattr(A.I, "gcal_create_event", lambda cfg, title, start, end, attendee="", desc="": "booked (evt1)")
+    ok = ds.add_action("r-d", "ops", "api_call", "crm", "POST /x", json.dumps({"method": "POST", "path": "/x", "body": {}}), "")
+    bad = ds.add_action("r-d", "ops", "api_call", "crm", "POST /fail", json.dumps({"method": "POST", "path": "/fail"}), "")
+    book = ds.add_action("r-d", "ops", "booking", "hannah@x.com", "Consultation",
+                         json.dumps({"title": "Consultation", "start": "2030-01-07T11:00", "end": "2030-01-07T11:30"}), "")
+    mail = ds.add_action("r-d", "closer", "email", "buyer@example.com", "Quote", "Here it is.", "")
+    assert _decide(app_client, did, ok).get_json()["status"] == "sent"
+    assert _decide(app_client, did, bad).get_json()["status"] == "failed"
+    assert "evt1" in _decide(app_client, did, book).get_json()["note"]
+    assert "simulated" in _decide(app_client, did, mail).get_json()["note"]
+    acts = _events(A.store, "kind='action' AND owner_id=?", (owner,))
+    assert [(a["surface"], a["status"], a["lane"], a["ref"]) for a in acts] == [
+        ("action.http", "ok", "you", f"action:{ok}"), ("action.http", "error", "you", f"action:{bad}"),
+        ("action.calendar", "ok", "you", f"action:{book}")]
+    assert acts[1]["note"] == "RuntimeError: HTTP 503" and "447700900123" not in json.dumps(acts)
+    assert _events(A.store, "kind IN ('send', 'refusal') AND owner_id=?", (owner,)) == []
+
+
+def _multipart(field, filename, data):
+    b = "t19-boundary"
+    head = (f"--{b}\r\nContent-Disposition: form-data; name=\"{field}\"; filename=\"{filename}\"\r\n"
+            f"Content-Type: application/octet-stream\r\n\r\n").encode()
+    return head + data + f"\r\n--{b}--\r\n".encode(), f"multipart/form-data; boundary={b}"
+
+
+_NO_LENGTH = {"wsgi.input_terminated": True, "CONTENT_LENGTH": ""}     # a chunked body: the route sees no length
+
+
+def _refused(r, limit_id):
+    b = r.get_json()
+    assert r.status_code == 429 and b["error"] == "usage_limit" and b["limit_id"] == limit_id, (r.status_code, b)
+    assert b["retry_at"] is None and "Retry-After" not in r.headers and b["usage_url"] == "/desk/usage"
+    return b
+
+
+def test_upload_refused_over_quota_and_disk_floor(app_client, monkeypatch):
+    """T19 (spec §1.3 L9, §4.2), at 1/8 of the spec's sizes: with L9 = 0.125 MB, a 0.25 MB camera recording is refused
+    with 429 storage_mb and no file is left, both when its Content-Length is checked before the body is read and for
+    a chunked body with no length, which is charged after the write and deleted. The same for a watched video, a
+    saved cyber recording and a cyber log. A file that fits is charged; a log is given back once parsed; a recording
+    saved again under its name is charged its growth. With the disk at 5% free, uploads get 429 disk_floor."""
+    A, did, owner = _signed_in(app_client, monkeypatch, "usage-t19@example.com", template="site_watch")
+    hdr = {"X-Desk": str(did)}
+    gb = 1 << 30
+    disk = {"free_pct": 50}
+    monkeypatch.setattr(usage, "_disk_usage", lambda p: (100 * gb, (100 - disk["free_pct"]) * gb, disk["free_pct"] * gb))
+    monkeypatch.setattr(usage.CFG, "disk_floor_pct", 10.0)
+    _guard_models(monkeypatch)
+    cams, vids, recs = A._upload_dir(owner), A.VIDEO_DIR / f"desk{did}", A._rec_dir(did)
+    logs = A.cfg.DATA_DIR / "cyber" / "uploads"
+
+    def files(d):
+        return sorted(p.name for p in d.iterdir()) if d.is_dir() else []
+
+    def stored():
+        return usage.counter(f"o:{owner}", "storage", "T", 0)[0]
+
+    def post(url, field, name, data, chunked=False):
+        if chunked:
+            body, ctype = _multipart(field, name, data)
+            return app_client.post(url, input_stream=io.BytesIO(body), content_type=ctype, headers=hdr,
+                                   environ_overrides=_NO_LENGTH)
+        return app_client.post(url, data={field: (io.BytesIO(data), name)}, content_type="multipart/form-data", headers=hdr)
+    big = b"\0" * (usage.MB // 4)
+    line = b"Dec  6 08:23:28 ip-172-31-27-153 sshd[6239]: Invalid user zhangyan from 61.197.203.243\n"
+    big_log = line * (usage.MB // 4 // len(line) + 1)
+    logs0 = files(logs)
+    assert A.VIDEO_DIR == A.cfg.DATA_DIR / "videos"                    # watched videos are under ATLAS_DATA_DIR now
+    usage.set_override(owner, "storage_mb", 0.125)
+    try:
+        for chunked in (False, True):
+            b = _refused(post("/api/cameras/upload", "file", "yard.png", big, chunked), "storage_mb")
+            assert b["unit"] == "MB" and b["message"].startswith("Files you uploaded: 0 of 0.1 MB used. This file is")
+            _refused(post("/api/vision/video", "video", "clip.mp4", big, chunked), "storage_mb")
+            _refused(post("/api/cyber/upload", "file", "auth.log", big_log, chunked), "storage_mb")
+        rec = {"kind": "atlas-cyber-recording", "version": 1, "pad": "x" * (usage.MB // 4)}
+        _refused(app_client.post("/api/cyber/recordings", json={"name": "big", "bundle": rec}, headers=hdr), "storage_mb")
+        raw = json.dumps({"name": "big", "bundle": rec}).encode()
+        _refused(app_client.post("/api/cyber/recordings", input_stream=io.BytesIO(raw), content_type="application/json",
+                                 headers=hdr, environ_overrides=_NO_LENGTH), "storage_mb")
+        assert files(cams) == files(vids) == files(recs) == [] and files(logs) == logs0 and stored() == 0
+        # a file that fits is charged; a log is charged while it is parsed and given back with its file
+        usage.set_override(owner, "storage_mb", 1)
+        door = b"\x89PNG" + b"\0" * 1000
+        up = post("/api/cameras/upload", "file", "door.png", door)
+        assert up.status_code == 200 and stored() == len(door)
+        three = (b"Dec  6 08:23:28 ip-172-31-27-153 sshd[6239]: Invalid user zhangyan from 61.197.203.243\n"  # SecRepo
+                 b"Dec  6 08:23:30 ip-172-31-27-153 sshd[6241]: Invalid user dff from 61.197.203.243\n"  # auth.log,
+                 b"Dec  6 08:24:27 ip-172-31-27-153 sshd[6309]: Invalid user oracle from 61.197.203.243\n")  # CC BY 4.0
+        lg = app_client.post("/api/cyber/upload", data={"file": (io.BytesIO(three), "auth.log"), "fmt": "sshd",
+                                                        "trigger": "0"}, content_type="multipart/form-data", headers=hdr)
+        assert lg.status_code == 200 and lg.get_json()["inserted"] == 3 and stored() == len(door)
+        small = {"kind": "atlas-cyber-recording", "version": 1}
+        r1 = app_client.post("/api/cyber/recordings", json={"name": "a", "bundle": small}, headers=hdr).get_json()
+        assert stored() == len(door) + r1["size"]
+        r2 = app_client.post("/api/cyber/recordings", json={"name": "a", "bundle": {**small, "pad": "y" * 100}},
+                             headers=hdr).get_json()
+        assert r2["size"] > r1["size"] and stored() == len(door) + r2["size"]
+        r3 = app_client.post("/api/cyber/recordings", json={"name": "a", "bundle": small}, headers=hdr).get_json()
+        assert stored() == len(door) + r3["size"] and A._storage_walk()[owner] == stored()
+        # the disk floor: 5% free refuses before the body is read and after the write
+        disk["free_pct"] = 5
+        for chunked in (False, True):
+            b = _refused(post("/api/cameras/upload", "file", "gate.png", b"\0" * 100, chunked), "disk_floor")
+            assert b["message"].startswith("Atlas's disk is nearly full: an upload must leave 10% of it free")
+        assert len(files(cams)) == 1 and stored() == len(door) + r3["size"]
+    finally:
+        usage.clear_override(owner, "storage_mb")
+    ups = _events(A.store, "kind='upload' AND owner_id=?", (owner,))
+    assert [(u["surface"], u["units"], u["lane"]) for u in ups] == [
+        ("upload.camera", len(door), "you"), ("upload.cyber", len(three), "you"), ("upload.recording", r1["size"], "you"),
+        ("upload.recording", r2["size"], "you"), ("upload.recording", r3["size"], "you")]
+    refusals = {(x["surface"], x["limit_id"], x["units"]) for x in _events(A.store, "kind='refusal' AND owner_id=?", (owner,))}
+    assert refusals == {("upload.camera", "storage_mb", 2), ("upload.video", "storage_mb", 2),
+                        ("upload.cyber", "storage_mb", 2), ("upload.recording", "storage_mb", 2),
+                        ("upload.camera", "disk_floor", 2)}
+
+
+def test_storage_reconcile_measures_the_owners_files(app_client, monkeypatch):
+    """L9 step 3 (spec §1.3): the daily reconcile sets each owner's total to what their upload folders hold on disk
+    (camera uploads by account, watched videos and saved recordings by desk), whatever the counter had drifted to;
+    an owner whose files are gone goes back to 0."""
+    A, did, owner = _signed_in(app_client, monkeypatch, "usage-reconcile@example.com", template="site_watch")
+    made = []
+    for folder, name, n in ((A._upload_dir(owner), "a.png", 300), (A.VIDEO_DIR / f"desk{did}", "1_clip.mp4", 500),
+                            (A._rec_dir(did), "r.json", 70)):
+        folder.mkdir(parents=True, exist_ok=True)
+        (folder / name).write_bytes(b"\0" * n)
+        made.append(folder / name)
+    usage.set_storage(owner, 5)                                         # a total that drifted
+    sizes = A._storage_walk()
+    assert sizes[owner] == 870
+    assert usage.reconcile_storage(sizes)[owner] == 870 and usage.counter(f"o:{owner}", "storage", "T", 0)[0] == 870
+    for p in made:
+        p.unlink()
+    assert A._storage_walk().get(owner, 0) == 0
+    usage.reconcile_storage(A._storage_walk())
+    assert usage.counter(f"o:{owner}", "storage", "T", 0)[0] == 0
