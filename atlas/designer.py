@@ -374,8 +374,10 @@ class DesignSession:
 
     def plan_view(self) -> dict[str, Any]:
         """The Plan strip's data (design_state.public_view) with the sketch's build facts and cost: in public(), in a
-        turn's done event and in the design routes' answers."""
-        return DST.public_view(self.design, self.blueprint, OPS.public_facts(self.blueprint))
+        turn's done event and in the design routes' answers. The cost lines are passed again on their own, so the strip
+        labels them apart from the build facts."""
+        return DST.public_view(self.design, self.blueprint, OPS.public_facts(self.blueprint),
+                               OPS.cost_lines(OPS.cost(self.blueprint)))
 
     def to_dict(self) -> dict[str, Any]:
         """The saved row. Rollback-safe: the code before the design state restores a fixed key list, so it ignores
@@ -1987,7 +1989,8 @@ def _demo_ops(prev: dict[str, Any] | None, bp: dict[str, Any], label: str) -> li
     prev = prev or {}
     had = {sec: {x.get("id") or x.get("name") for x in prev.get(sec) or []} for sec in ("agents", "workflows", "connectors", "cameras")}
     new = [a for a in bp["agents"] if a["id"] not in had["agents"]]
-    ops: list[dict[str, Any]] = [{"op": "add_agent", "agent": a, "why": a["goal"]} for a in new]
+    # the why is the goal's first sentence: whole words that fit the why's 90 characters, never a goal cut mid-sentence
+    ops: list[dict[str, Any]] = [{"op": "add_agent", "agent": a, "why": a["goal"].split(". ")[0].rstrip(".") + "."} for a in new]
     for w in bp["workflows"]:
         joins = [a["name"] for a in new if a["id"] in w["steps"]]
         if w["id"] not in had["workflows"]:

@@ -708,6 +708,21 @@ def test_9_public_carries_the_plan_strip_view():
     assert not DST.plan_full(full)
 
 
+def test_11_the_strip_view_labels_the_cost_lines_and_counts_idle_turns():
+    """Step 7: the Plan strip shows the build facts and the cost estimate apart (`cost` is the estimate's lines among
+    `facts`) and says how many design turns a stale item has waited."""
+    s = DS.new_session("demo")
+    s.blueprint = DS.normalise({"agents": [_a("w", "Writer")], "cameras": [{"name": "door", "source": ""}],
+                                "workflows": [{"name": "Chase", "trigger": {"kind": "schedule"}, "steps": ["w"]}]})
+    s.design = DST.load({"plan": [{"id": "p1", "title": "Daily stock sweep", "status": "next", "touched_dturn": 1},
+                                  {"id": "p2", "title": "Answer enquiries", "status": "now", "touched_dturn": 5}], "dturn": 5})
+    v = s.public()["design"]
+    assert v["cost"] == OPS.cost_lines(OPS.cost(s.blueprint)) and len(v["cost"]) == 3 and set(v["cost"]) <= set(v["facts"])
+    assert [f for f in v["facts"] if f not in v["cost"]] == OPS.blueprint_facts(s.blueprint)
+    assert [(it["idle"], it["stale"]) for it in v["plan"]] == [(4, True), (0, False)]
+    assert DST.public_view(DST.empty())["cost"] == [] and s.plan_view() == v
+
+
 # ------------------------------------------------------------------ 14 plan seeding
 def _seed_bp():
     return DS.normalise({"agents": [_a("research", "Researcher"), _a("writer", "Reply writer"), _a("crm", "CRM keeper"), _a("qa", "Reviewer")],
@@ -814,6 +829,7 @@ def test_21_an_old_row_loads_with_an_empty_plan_and_prose_history():
     assert p["design"] == {"plan": [], "question": None, "proposal": None, "assumptions": [], "decisions": [],
                            "facts": ["Inbound enquiries: checks the inbox every 2 minutes once an inbox is connected",
                                      "Inbox workflows: at least 3 AI requests per new message (est.)"],
+                           "cost": ["Inbox workflows: at least 3 AI requests per new message (est.)"],
                            "counts": {"now": 0, "next": 0, "later": 0, "done": 0, "dropped": 0},
                            "summary": {"first_next": "", "question": ""}, "plan_full": False}
     row = s.to_dict()

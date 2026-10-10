@@ -1682,8 +1682,9 @@ async function startMore(){
   const bp = d && d.sid && !d.desk_id ? (d.blueprint || {}) : null;
   $('#st-draft').classList.toggle('hide', !bp);
   if (bp) {
-    const n = (bp.agents || []).length, first = ((d.transcript || []).find(m => m.role === 'user') || {}).text || '';
-    $('#st-draft-b').innerHTML = `<div><b>${esc((bp.business || {}).name || 'Unnamed draft')} · Atlas + ${n} specialist${n === 1 ? '' : 's'}${(bp.cameras || []).length ? ' · ' + bp.cameras.length + ' camera' + (bp.cameras.length === 1 ? '' : 's') : ''}</b><small>${esc(d.turn + ' message' + (d.turn === 1 ? '' : 's') + ' with Atlas' + (first ? ' · first: “' + first.slice(0, 140) + '”' : ''))}</small></div><button class="btn p" onclick="location.href='/desk/workspace'">Continue in the workspace →</button>`;
+    // the owner's own messages in the transcript (a turn the allowance refused still counts: it is their brief)
+    const n = (bp.agents || []).length, said = (d.transcript || []).filter(m => m && m.role === 'user'), first = (said[0] || {}).text || '';
+    $('#st-draft-b').innerHTML = `<div><b>${esc((bp.business || {}).name || 'Unnamed draft')} · Atlas + ${n} specialist${n === 1 ? '' : 's'}${(bp.cameras || []).length ? ' · ' + bp.cameras.length + ' camera' + (bp.cameras.length === 1 ? '' : 's') : ''}</b><small>${esc(said.length + ' message' + (said.length === 1 ? '' : 's') + ' with Atlas' + (first ? ' · first: “' + first.slice(0, 140) + '”' : ''))}</small></div><button class="btn p" onclick="location.href='/desk/workspace'">Continue in the workspace →</button>`;
   }
 }
 function startTemplate(id){ OB.template = id; showOnboardingForm(); }
@@ -2272,7 +2273,7 @@ async function openWall(){
   closeLive(true); if (!CAMS.length) return toast('add a camera first');
   WALL.on = true; WALL.ids = CAMS.map(c => c.id); WALL.buf = {};
   $('#wall-btn').textContent = '▦ Close wall';
-  $('#cam-live').innerHTML = `<div class="wall" id="wall"><div class="wh"><h3><span class="dot live"></span>All cameras <span class="tag" id="wall-fps"></span></h3><span class="hint" style="margin:0" id="wall-why">journal: listening…</span><button class="btn sm" onclick="closeWall()">Close</button></div>
+  $('#cam-live').innerHTML = `<div class="wall" id="wall"><div class="wh"><h3><span class="dot live"></span>All cameras <span class="tag" id="wall-fps"></span></h3><span class="hint" style="margin:0" id="wall-why">journal: waiting for the first note</span><button class="btn sm" onclick="closeWall()">Close</button></div>
     <div class="wbody"><div class="wgrid">${CAMS.map(c => `<div class="wtile" id="wt-${c.id}" onclick="closeWall();openLive(${c.id})" title="open ${esc(c.name)} with its journal"><img id="wimg-${c.id}" alt="" src="/api/cameras/${c.id}/live.mjpg?fps=4&t=${Date.now()}" onload="this.classList.add('on')"><span class="wcount" id="wc-${c.id}">…</span><div class="wnote" id="wn-${c.id}"></div><span class="wname"><span class="dot live"></span>${esc(c.name)}</span></div>`).join('')}</div>
     <div class="wticker"><div class="wt-in" id="wall-ticker"><div class="hint">Notes from every camera appear here as they are written, with what the audit removed.</div></div></div></div></div>`;
   WALL.es = new EventSource('/api/vision/journal/stream');

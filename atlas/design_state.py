@@ -497,11 +497,14 @@ def profile_text(profile: Any, links: Any = ()) -> str:
     return PROFILE_HEAD + "\n" + text if data and text != "{}" else ""
 
 
-def public_view(design: dict[str, Any], bp: Any = None, facts: list[Any] | None = None) -> dict[str, Any]:
+def public_view(design: dict[str, Any], bp: Any = None, facts: list[Any] | None = None,
+                cost: list[Any] | None = None) -> dict[str, Any]:
     """The Plan strip's data (spec 9, 11), in public() and a turn's done event: the plan items with their status
-    (done included), staleness and agent names (queued agents by name), the open question with its default's label
-    and how long it has waited, the pending proposal with names, the assumptions, the last 3 decisions, the build facts
-    and cost (`facts`, design_ops), counts per status and the collapsed row's summary. Shown as text only."""
+    (done included), staleness, the design turns since a step last touched them (`idle`) and agent names (queued
+    agents by name), the open question with its default's label and how long it has waited, the pending proposal with
+    names, the assumptions, the last 3 decisions, the build facts and cost (`facts`, design_ops), the cost lines among
+    them (`cost`, so the strip can label them), counts per status and the collapsed row's summary. Shown as text
+    only."""
     names = {a["id"]: DS._txt(a.get("name"), 40) or a["id"] for a in _agents(bp)}
     wf_names = {w.get("id"): DS._txt(w.get("name"), 60) for w in _list(bp.get("workflows") if isinstance(bp, dict) else None)
                 if isinstance(w, dict)}
@@ -513,6 +516,7 @@ def public_view(design: dict[str, Any], bp: Any = None, facts: list[Any] | None 
     q, x = open_question(design), pending_proposal(design)
     nxt = next((it for it in design["plan"] if it["status"] == "next"), None)
     return {"plan": [{"id": it["id"], "title": it["title"], "status": it["status"], "why": it["why"], "stale": stale(it, dturn),
+                      "idle": max(0, dturn - it["touched_dturn"]),
                       "agents": [name(i) for i in it["agents"]], "pending": [p["name"] for p in it["pending_agents"]]}
                      for it in design["plan"]],
             "question": {"id": q["id"], "text": q["text"], "decides": q["decides"], "options": [o["label"] for o in q["options"]],
@@ -523,6 +527,7 @@ def public_view(design: dict[str, Any], bp: Any = None, facts: list[Any] | None 
             "assumptions": [{"id": a["id"], "text": a["text"]} for a in design["assumptions"]],
             "decisions": [dict(d) for d in design["decisions"][-3:]],
             "facts": list(facts or []),
+            "cost": list(cost or []),
             "counts": {s: sum(1 for it in design["plan"] if it["status"] == s) for s in PLAN_STATUS},
             "summary": {"first_next": nxt["title"] if nxt else "", "question": q["text"] if q else ""},
             "plan_full": plan_full(design)}
