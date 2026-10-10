@@ -397,8 +397,8 @@ def test_site_demo_ask_retrieves_and_streams(app_client, monkeypatch):
     assert r.status_code == 400 and b"no events" in r.data
     seen = {}
 
-    def fake_stream(base, headers, payload, model, first=None):
-        seen.update(payload=payload, model=model, first=first)
+    def fake_stream(base, headers, payload, model, first=None, *, meter=None):
+        seen.update(payload=payload, model=model, first=first, meter=meter)
         yield A._sse(first)
         yield A._sse({"t": "Two people [#2].", "model": "m"})
         yield A._sse({"done": True, "model": "m"})
@@ -415,6 +415,7 @@ def test_site_demo_ask_retrieves_and_streams(app_client, monkeypatch):
     assert "[#2] 10:00:07 | 2 person | analyst: Stock room: two people moving boxes" in sysmsg
     assert seen["payload"]["messages"][1]["content"] == "who was in the stock room?"
     assert seen["payload"]["stream"] is True
+    assert (seen["meter"].scope, seen["meter"].surface) == ("public", "site.ask")   # the website's share (usage L12)
 
 
 # ----------------------------------------------------------------------------- live detector runtime

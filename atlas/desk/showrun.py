@@ -7,6 +7,11 @@ and is never blocked by the spend cap. Every orchestrator event - agent spawn, e
 approval, done - is normalised to {i, t, k, a, inst, x, d} with t = seconds since the run started, and the
 client animates them at their real timing. No key / demo mode => live=false and the client falls back to a
 recorded real run, labelled as a replay. Nothing here is scripted.
+
+Usage (usage spec §1.3 L12, §4.6 S53). The runs count in the website's own share of the free pool, not in any
+account's: a public meter (lane auto, the per-run cap) goes to the Orchestrator, Hermes inner requests included. No
+run starts with fewer than 2 requests left in that share or in the shared pool (Atlas plus one specialist); the feed
+then says so and shows the recorded run until the reset. A run that reaches the share mid-way ends with status limit.
 """
 from __future__ import annotations
 
@@ -15,6 +20,7 @@ import threading
 import time
 from typing import Any, Callable
 
+from .. import usage as U
 from ..orchestrator import Event, Orchestrator
 
 FREE_MODEL = os.environ.get("SHOW_MODEL", os.environ.get("ATLAS_FREE_MODEL", "nvidia/nemotron-3-super-120b-a12b:free"))
@@ -23,6 +29,8 @@ MAX_RUN_S = float(os.environ.get("SHOW_MAX_RUN_S", "180"))      # hard stop per 
 VIEWER_TTL = 40.0                                                # a poll counts as "watching" for this long
 MAX_PER_HOUR = int(os.environ.get("SHOW_MAX_PER_HOUR", "18"))   # free-tier request budget guard
 KEEP_KINDS = {"agent_start", "agent_end", "token", "tool", "approval", "policy", "error", "done", "sent"}
+MIN_REQUESTS = 2                                                 # Atlas plus one specialist (usage spec §1.3 L12)
+RECHECK_S = 60.0                                                 # while the share is used up, look again at most this often
 
 TASKS = [
     "New lead via the website form: Priya Nair, priya.n@example.com, 07700 900123. \"Looking to sell my 2-bed flat in "
@@ -50,6 +58,8 @@ class ShowRunner:
         self.task_i = 0
         self.desk_id: int | None = None
         self.starts: list[float] = []
+        # the website's share (L12) or the shared pool cannot carry a run: {"until", "reason", "limit", "checked"}
+        self.limited: dict[str, Any] | None = None
 
     # ------------------------------------------------------------------ desk
     def _desk(self) -> dict[str, Any]:
@@ -69,12 +79,21 @@ class ShowRunner:
         return d
 
     # ------------------------------------------------------------------ lifecycle
-    def offline_reason(self) -> str:
+    def _no_key(self) -> str:
         if self.ctx["mode"]() == "demo":
             return "no model key on the server - showing a recorded real run"
         blocked = self.ctx.get("blocked")
         if blocked and blocked():
             return "no model key on the server - showing a recorded real run"
+        return ""
+
+    def offline_reason(self) -> str:
+        reason = self._no_key()
+        if reason:
+            return reason
+        lim = self.limited
+        if lim and time.time() < lim["until"]:
+            return lim["reason"]
         return ""
 
     def touch(self) -> None:
@@ -86,16 +105,35 @@ class ShowRunner:
             now = time.time()
             if self.run and not self.run["done"]:
                 return
-            if now - self.last_end < IDLE_GAP or self.offline_reason():
+            if now - self.last_end < IDLE_GAP or self._no_key():
+                return
+            lim = self.limited
+            if lim and now < lim["until"] and now - lim["checked"] < RECHECK_S:
                 return
             self.starts = [s for s in self.starts if now - s < 3600]
             if len(self.starts) >= MAX_PER_HOUR:
                 return
-            self.starts.append(now)
-            self._start_locked()
+            if self._start_locked():
+                self.starts.append(now)
 
-    def _start_locked(self) -> None:
+    def meter(self, desk: dict[str, Any]) -> U.Meter:
+        """The website's meter for one live run: the public share (L12), lane auto (it never takes the per-minute
+        slots kept for owners), the per-run cap (L4)."""
+        return U.Meter(owner_id=0, desk_id=int(desk["id"]), scope="public", lane="auto", surface="show.run",
+                       run_cap=U.run_cap(0))
+
+    def _start_locked(self) -> bool:
+        """Start the next run, unless the website's share cannot carry one (S53). True when a run started."""
         desk = self._desk()
+        meter = self.meter(desk)
+        try:
+            U.run_begin(meter, house=False, free=True, need=MIN_REQUESTS, surface="show.run")
+        except U.UsageLimit as exc:
+            until = exc.retry_at or exc.resets_at or (time.time() + 3600)
+            self.limited = {"until": float(until), "checked": time.time(), "limit": exc.body(),
+                            "reason": f"The live run has used today's share; next one after {U.until_text(exc) or 'the reset'}."}
+            return False
+        self.limited = None
         d = dict(desk)
         d["tier"] = "free"
         configs = self.ctx["desk_configs"](d)
@@ -132,7 +170,7 @@ class ShowRunner:
                 self.last_end = time.time()
 
         store = self.ctx["store"].for_desk(desk["id"])
-        orch = Orchestrator(configs, store, emit)
+        orch = Orchestrator(configs, store, emit, meter=meter)
         holder["orch"] = orch
 
         def work() -> None:
@@ -160,6 +198,7 @@ class ShowRunner:
                 break
             time.sleep(0.02)
         run["id"] = orch.run_id or f"show-{int(run['t0'])}"
+        return True
 
     # ------------------------------------------------------------------ snapshot for the client
     def snapshot(self, since: int = 0, run_id: str = "") -> dict[str, Any]:

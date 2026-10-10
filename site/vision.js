@@ -191,7 +191,7 @@
       if (!r.ok || !r.body) { let msg = "HTTP " + r.status; try { const j = JSON.parse((await r.text()).replace(/^data:\s*/m, "").trim().split("\n")[0]); if (j.error) msg = j.error; } catch (e) {} throw new Error(msg); }
       await readSSE(r, (ev) => {
         if (ev.t) { text += ev.t; cur.textContent = text; streamEl.scrollTop = streamEl.scrollHeight; setLlm("streaming · " + ev.model, "busy"); const bd = $("visModelBadge"); if (bd && ev.model) bd.textContent = ev.model + " · streaming"; }
-        if (ev.error) throw new Error(ev.error);
+        if (ev.error) throw new Error(ev.error === "usage_limit" ? (ev.message || ev.error) : ev.error);
         if (ev.done) { ok = true; setLlm((ev.model || "model") + " · " + Math.round((performance.now() - t0) / 100) / 10 + " s", "ok"); }
       });
       if (!ok && !text) throw new Error("empty answer");
@@ -221,7 +221,7 @@
       await readSSE(r, (ev) => {
         if (ev.used) { usedEl.textContent = "retrieved " + ev.used.length + " of " + ev.of + " events: " + ev.used.map((n) => "#" + n).join(" "); ev.used.forEach((n) => { const li = logEl.querySelector("li[data-n='" + n + "']"); if (li) li.classList.add("used"); }); setAsk("answering…", "busy"); }
         if (ev.t) { text += ev.t; body.textContent = text; }
-        if (ev.error) throw new Error(ev.error);
+        if (ev.error) throw new Error(ev.error === "usage_limit" ? (ev.message || ev.error) : ev.error);
         if (ev.done) { ok = true; setAsk((ev.model || "model") + " · " + Math.round((performance.now() - t0) / 100) / 10 + " s", "ok"); }
       });
       if (!ok && !text) throw new Error("empty answer");

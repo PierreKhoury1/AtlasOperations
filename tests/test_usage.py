@@ -3,8 +3,10 @@
 starts, estimates). The text chokepoint in providers.py (§3.2, §4.4): T8, T9, T10, T14, T43, the provider side of T15
 and T21, the per-run cap across a pool, Hermes by mode and the BYO key test. Vision, RAG, journal and objects (§1.5-
 §1.7, §3.6, S30-S33, S40-S43, S51): T6, T23, T40, the vision chokepoint, the AI-detection gate, journal and object
-pauses, and Ask's text-only fallback. No model is called: provider responses are stubbed (httpx.MockTransport), the
-key endpoint too."""
+pauses, and Ask's text-only fallback. Runs and the engine's catch sites (§1.3 L1 headroom, L4, L5, L8, §4.5, §4.6
+S1-S9, S16, S20-S27, S53): T11 (run side), T13, T22, T24, T31, T33, T37, T41, T42, the typed LIMIT tool result, the
+seed, the browser's limit stop and the site's live run. No model is called: provider responses are stubbed
+(httpx.MockTransport), the key endpoint too."""
 import ast
 import json
 import os
@@ -1220,8 +1222,8 @@ def test_embeddings_are_aggregated_and_degrade_at_l13(U, store, monkeypatch):
 
 
 # T23: the AST audit of every model path (spec §8.1). The metered functions of §3.2 (plus rag.backfill, which indexes)
-# must get `meter=` at every call, never a literal None; ProviderPool / make_provider calls too; every raw model POST
-# sits in one of the chokepoints.
+# must get `meter=` at every call, never a literal None; ProviderPool / make_provider / Orchestrator calls too; every
+# raw model POST sits in one of the chokepoints.
 METERED = {"vision": {"describe", "vlm_detect", "chat_images", "chat_images_stream", "describe_video", "describe_stream",
                       "analyse"},
            "rag": {"ask", "retrieve", "index_events", "backfill"},
@@ -1232,9 +1234,6 @@ POST_SITES = {"providers.py": "", "vision.py": "_vlm_post", "rag.py": "ApiEmbedd
 # ProviderPool / make_provider calls still built without a meter, each with the step that hands one over. The list is
 # exact: a site that gets its meter must leave it, and a new unmetered call fails.
 POOL_PENDING = {
-    ("browser.py", "run_task"): "step 5: the browse step gets the run's meter",
-    ("desk/app.py", "_design_team_for"): "step 5: team design (S7, S8)",
-    ("desk/app.py", "_sample_leads"): "step 5: sample leads (S9)",
     ("desk/app.py", "api_design_study.work"): "merge: the study meter (step 8's design-route part)",
     ("designer.py", "_provider_for"): "merge: the designer track rewrites designer.py",
     ("designer.py", "_live_turn"): "merge: the designer track rewrites designer.py",
@@ -1291,7 +1290,7 @@ def _model_paths() -> dict[str, list]:
             if target and unmetered:
                 found["meter"].append((rel, where.get(id(n), ""), n.lineno, target))
             name = getattr(f, "id", None) or getattr(f, "attr", None)
-            if name in ("ProviderPool", "make_provider") and unmetered:
+            if name in ("ProviderPool", "make_provider", "Orchestrator") and unmetered:
                 found["pool"].add((rel, where.get(id(n), "")))
     return found
 
@@ -1312,3 +1311,707 @@ def test_every_model_path_takes_a_meter():
             prm = inspect.signature(getattr({"vision": vision, "rag": rag, "journal": journal, "objects": objects}[mod], fn)).parameters["meter"]
             assert prm.kind is inspect.Parameter.KEYWORD_ONLY and prm.default is inspect.Parameter.empty, (mod, fn)
     assert inspect.signature(rag.ApiEmbedder.embed_texts).parameters["meter"].default is inspect.Parameter.empty
+
+
+# ---------------------------------------------------------------------------- runs and engine catch sites (step 5)
+class _Script(P.Provider):
+    """A model that plays a script, metered like any request on Atlas's key (the free pool). Each step is
+    ("tool", name, args) or ("text", reply); `forever` is played once the script is used up."""
+    usage_provider = "openrouter"
+
+    def __init__(self, steps, forever=None):
+        super().__init__({"type": "openai", "default_model": FREE})
+        self.steps, self.forever, self.calls, self.seen = list(steps), forever, 0, []
+
+    def chat(self, system, messages, tools, model="", on_token=None):
+        tk = usage.before(self.meter, provider="openrouter", model=FREE, key_kind=self.key_kind)
+        usage.after(tk, http_status=200, usage={"prompt_tokens": 10, "completion_tokens": 2})
+        self.calls += 1
+        self.seen.append(messages[-1] if messages else None)
+        step = self.steps.pop(0) if self.steps else (self.forever or ("text", "Done."))
+        if step[0] == "tool":
+            call = P.ToolCall(id=f"c{self.calls}", name=step[1], args=dict(step[2]))
+            return P.LLMResponse(text="", tool_calls=[call], assistant_message={"role": "assistant", "content": ""},
+                                 input_tokens=10, output_tokens=2, model=FREE)
+        return P.LLMResponse(text=step[1], tool_calls=[], assistant_message={"role": "assistant", "content": step[1]},
+                             input_tokens=10, output_tokens=2, model=FREE)
+
+    def tool_results(self, results):
+        return [{"role": "tool", "tool_call_id": cid, "name": n, "content": ("ERROR: " + out) if err else out}
+                for cid, n, out, err in results]
+
+
+def _orch(meter, tools=("list_agents",), store=None, emit=None, script=None, **orch_cfg):
+    """A desk of one (Atlas, no team, so it may finish without delegating) whose model is `script`."""
+    from atlas.orchestrator import Orchestrator
+    configs = {"providers": {"default_provider": "stub", "providers": {"stub": {"type": "openai", "base_url": OR_URL,
+                                                                                 "default_model": FREE}}},
+               "orchestration": {"max_iterations": 24, "specialist_max_iterations": 4, "max_delegation_depth": 2, **orch_cfg},
+               "business": {"name": "Usage test desk"}, "workflows": [], "ui": {},
+               "agents": [{"id": "atlas", "name": "Atlas", "role": "lead", "system_prompt": "You run the desk.",
+                           "tools": list(tools), "provider": "stub", "model": FREE}]}
+    o = Orchestrator(configs, store, emit or (lambda ev: None), meter=meter)
+    if script is not None:
+        o.pool._cache["stub"] = script
+    return o
+
+
+def test_run_stops_at_run_request_cap(U, store, monkeypatch):
+    """T22 (spec §1.3 L4, §4.6 S20, S26): a run whose model keeps calling a tool stops at the per-run cap: status
+    `limit`, a summary naming the limit, RunResult.limit and the done event carry the 429 body, nothing is sent past
+    the cap, every request of the run carries its id, and the refusal is on the ledger once."""
+    monkeypatch.setattr(U.CFG, "run_max_requests", 5)
+    desk = store.add_desk(81, "Cap desk", "blank", "free", {})
+    m = U.run_meter(desk, "you")
+    assert (m.run_cap, m.surface, m.lane, m.scope, m.desk_id) == (5, "run.step", "you", "owner", desk["id"])
+    events = []
+    script = _Script([], forever=("tool", "list_agents", {}))
+    res = _orch(m, emit=events.append, script=script).run("Keep listing the team")
+    assert (res.status, script.calls) == ("limit", 5)
+    assert res.summary.startswith("Stopped: This run made 5 AI requests (per-run cap 5). Stopped; nothing retries it")
+    assert res.limit["limit_id"] == "run_requests" and res.limit["retry_at"] is None and res.limit["used"] == 5
+    done = [e for e in events if e.kind == "done"][-1]
+    assert done.data["status"] == "limit" and done.data["limit"]["limit_id"] == "run_requests"
+    assert [e.text for e in events if e.kind == "agent_end"][-1].startswith("Atlas stopped at a usage limit: This run made 5")
+    assert not [e for e in events if e.kind == "error"]                  # a limit is not an error
+    rows = _events(store, "kind='request' AND owner_id=81")
+    assert len(rows) == 5 and {(r["ref"], r["surface"], r["lane"]) for r in rows} == {(res.run_id, "run.step", "you")}
+    ref, = _events(store, "kind='refusal' AND owner_id=81")
+    assert (ref["limit_id"], ref["units"], ref["surface"]) == ("run_requests", 1, "run.step")
+
+
+def test_a_tool_refused_at_a_limit_is_out_for_the_run(U, store, monkeypatch):
+    """S22-S24 (spec §4.6): a tool whose request is refused returns a typed LIMIT result (an error result the model
+    reads), is recorded on the run's meter and is not tried again in that run; the run carries on while its own
+    model has room, and finishes."""
+    from atlas import vision as V
+    desk = store.add_desk(82, "Look desk", "blank", "free", {})
+    store.add_connector(desk["id"], "camera", "door", {"source": "door.jpg"}, False)
+    tried = []
+
+    def refused(*a, **k):
+        tried.append(k.get("meter"))
+        raise U._limit("ai_requests_day", used=250, limit=250, now=U._now())
+    monkeypatch.setattr(V, "analyse", refused)
+    m = U.run_meter(desk, "auto")
+    look = ("tool", "camera_look", {"camera": "door", "question": "Anyone there?"})
+    script = _Script([look, look, ("text", "Checked what I could.")])
+    res = _orch(m, tools=("camera_look",), store=store.for_desk(desk["id"]), script=script).run("Look at the door twice")
+    assert res.status == "done" and len(tried) == 1 and tried[0] is m
+    want = ("ERROR: LIMIT: AI requests today 250/250, resets 00:00 UTC. camera_look is unavailable for the rest of "
+            "this run; do not call it again.")
+    assert [s["content"] for s in script.seen[1:]] == [want, want]
+    assert m.limited["camera_look"]["limit_id"] == "ai_requests_day"
+    held = {"limit_id": "ai_requests_day", "label": "AI requests today", "used": 1, "limit": 1, "unit": "requests",
+            "resets_at": None, "retry_at": None}
+    orch = _orch(U.run_meter(desk, "you"), tools=("delegate",))
+    orch._held_tools()["delegate:writer"] = held                      # a delegation is out for that one agent only
+    out = orch._execute_tools(orch.agents["atlas"], [P.ToolCall("d1", "delegate", {"agent_id": "writer", "task": "x"})], 0)
+    assert out[0][2] == ("LIMIT: AI requests today 1/1. delegate to writer is unavailable for the rest of this run; "
+                         "do not call it again.") and out[0][3] is True
+
+
+class _SlowOrch:
+    """Stands in for the Orchestrator in route tests: a run that holds its slot until `gate` opens, and makes no
+    model request at all."""
+    gate = threading.Event()
+
+    def __init__(self, configs, store, emit, meter=None):
+        self.meter, self.run_id, self.case_id, self.tokens_in, self.tokens_out = meter, "", None, 0, 0
+
+    def run(self, task, mode="auto"):
+        import secrets
+        from atlas.orchestrator import RunResult
+        self.run_id = "slow-" + secrets.token_hex(4)
+        _SlowOrch.gate.wait(20)
+        return RunResult(self.run_id, "done", "ok", [], 0, 0, Path("."))
+
+    def cancel(self):
+        pass
+
+
+def _signed_in(c, monkeypatch, email, template="sales_desk"):
+    """A fresh account with one desk, signed in on the shared test client: (app module, desk id, owner id)."""
+    from atlas import secure as SEC
+    import atlas.desk.app as A
+    monkeypatch.setattr(A, "_RL_AUTH", SEC.RateLimiter(10000, 600))
+    monkeypatch.setattr(A, "OPEN", False)
+    c.get("/logout")
+    c.post("/signup", json={"name": "U", "company": "U", "email": email, "password": "password1"})
+    did = c.post("/api/desks", json={"name": "Usage " + email.split("@")[0], "template": template, "tier": "free"}).get_json()["id"]
+    return A, did, int(A.store.desk(did)["owner_id"])
+
+
+def _wait_runs(A, did, timeout=30):
+    t0 = time.time()
+    while time.time() - t0 < timeout:
+        with A._runs_lock:
+            alive = [h for h in A._runs.values() if h["desk_id"] == did and h["thread"].is_alive()]
+        if not alive:
+            return True
+        time.sleep(0.05)
+    return False
+
+
+def _guard_models(monkeypatch, handler=None):
+    """Nothing leaves the machine: the env's model keys are hidden, the vision chain is one fake OpenRouter entry
+    (on the model asked for), and every httpx client answers from `handler`; the default refuses and records the
+    request, so a test can assert none was sent."""
+    from atlas import vision as V
+    for k in ("GROQ_API_KEY", "GEMINI_API_KEY", "OPENROUTER_API_KEY", "ANTHROPIC_API_KEY", "VISION_DEMO_KEY"):
+        monkeypatch.delenv(k, raising=False)
+    monkeypatch.setattr(V, "vlm_chain", lambda model="": [{"name": "openrouter", "base": OR_URL, "key": "sk-or-test",
+                                                           "model": model or FREE}])
+    sent = []
+
+    def record(req):
+        sent.append(str(req.url))
+        return (handler or (lambda r: httpx.Response(500, json={"error": {"message": "test: nothing may be sent"}})))(req)
+    mt = httpx.MockTransport(record)
+    real = httpx.Client                                  # a client given its own (stub) transport keeps it
+    monkeypatch.setattr(httpx, "Client", lambda *a, **kw: real(*a, **{**kw, "transport": kw.get("transport") or mt}))
+    return sent
+
+
+def _is_limit(r, limit_id):
+    b = r.get_json()
+    assert r.status_code == 429 and b["error"] == "usage_limit" and b["limit_id"] == limit_id, (r.status_code, b)
+    assert b["message"] and b["usage_url"] == "/desk/usage" and abs(int(r.headers["Retry-After"]) - b["retry_after_s"]) <= 1
+    return b
+
+
+def test_runs_at_once_cap_is_atomic(app_client, monkeypatch):
+    """T24 (spec §1.3 L5, §4.2): with 3 runs allowed at once, 6 concurrent POST /api/runs start exactly 3 and refuse
+    3 with 429 runs_at_once, retry_at about now + 60 s; a finished run gives its slot back. Each start is on the
+    ledger under its run id, the refusals once (x3)."""
+    A, did, owner = _signed_in(app_client, monkeypatch, "usage-l5@example.com")
+    monkeypatch.setattr(usage.CFG, "demo", "enforce")                   # the scripted desk counts like a house one
+    monkeypatch.setattr(usage.CFG, "runs_at_once", 3)
+    monkeypatch.setattr(A, "Orchestrator", _SlowOrch)
+    uid = A.store.user_by_email("usage-l5@example.com")["id"]
+    out, barrier = [], threading.Barrier(6)
+    hdr = {"X-Desk": str(did)}
+
+    def go():
+        cl = A.app.test_client()
+        with cl.session_transaction() as s:
+            s["uid"], s["desk"] = uid, did
+        barrier.wait()
+        r = cl.post("/api/runs", json={"task": "Check the books"}, headers=hdr)
+        out.append((r.status_code, r.get_json(), r.headers.get("Retry-After")))
+    _SlowOrch.gate.clear()
+    t0 = time.time()
+    try:
+        _threads(6, go)
+        ok = [b for st, b, _ra in out if st == 200]
+        busy = [(b, ra) for st, b, ra in out if st == 429]
+        assert len(ok) == 3 and len(busy) == 3, out
+        for b, ra in busy:
+            assert (b["limit_id"], b["used"], b["limit"], b["unit"]) == ("runs_at_once", 3, 3, "runs")
+            assert abs(b["retry_at"] - (t0 + 60)) <= 5 and 55 <= int(ra) <= 61 and b["resets_at"] is None
+            assert b["message"] == "3 runs are going (limit 3). Start this when one finishes."
+        assert usage.runs_going(owner) == 3
+    finally:
+        _SlowOrch.gate.set()
+    assert _wait_runs(A, did) and usage.runs_going(owner) == 0
+    assert app_client.post("/api/runs", json={"task": "Again"}, headers=hdr).status_code == 200
+    assert _wait_runs(A, did)
+    starts = _events(A.store, "kind='action' AND surface='run.you' AND desk_id=?", (did,))
+    assert len(starts) == 4 and all(s["ref"].startswith("slow-") for s in starts)
+    assert usage.counter(f"o:{owner}", "runs")[0] == 4
+    ref, = _events(A.store, "kind='refusal' AND owner_id=?", (owner,))
+    assert (ref["limit_id"], ref["units"], ref["surface"]) == ("runs_at_once", 3, "run.you")
+
+
+def test_run_start_needs_headroom(app_client, monkeypatch):
+    """T41 (spec §1.3 L1): a run on the free pool starts only with max(2, the desk's 7-day median requests per run)
+    left today; the refusal names the median. A desk with no measured run needs 2."""
+    A, did, owner = _signed_in(app_client, monkeypatch, "usage-headroom@example.com")
+    monkeypatch.setattr(usage.CFG, "demo", "enforce")
+    monkeypatch.setattr(A, "Orchestrator", _SlowOrch)
+    _SlowOrch.gate.set()
+    hdr = {"X-Desk": str(did)}
+    now = time.time()
+    with usage._tx() as cn:                                              # three earlier runs: 13, 14 and 30 requests
+        for i, n in enumerate((13, 14, 30)):
+            aid = f"hist{i}"
+            usage._insert_event(cn, {"ts": now - 86400 - 60, "owner_id": owner, "desk_id": did, "surface": "run.you",
+                                     "kind": "action", "action_id": aid, "key_kind": "none"})
+            for k in range(n):
+                usage._insert_event(cn, {"ts": now - 86400 + k, "owner_id": owner, "desk_id": did, "surface": "run.step",
+                                         "kind": "request", "action_id": aid, "key_kind": "house", "pool": "free:openrouter"})
+            usage._insert_event(cn, {"ts": now - 86400, "owner_id": owner, "desk_id": did, "surface": "embed",
+                                     "kind": "request", "action_id": aid, "units": 40})   # embeddings are not AI requests
+    assert usage.run_headroom(did) == (14, 14)
+    usage.set_override(owner, "ai_requests_day", 10)
+    try:
+        b = _is_limit(app_client.post("/api/runs", json={"task": "Weekly summary"}, headers=hdr), "ai_requests_day")
+        assert (b["used"], b["limit"]) == (0, 10) and b["message"].startswith(
+            "AI requests today: 0 of 10 used. A run on this desk usually needs about 14 (median of the last 7 days). "
+            "Resets 00:00 UTC")
+        did2 = app_client.post("/api/desks", json={"name": "Usage headroom 2", "template": "sales_desk", "tier": "free"}).get_json()["id"]
+        assert app_client.post("/api/runs", json={"task": "First job"}, headers={"X-Desk": str(did2)}).status_code == 200
+        usage.set_override(owner, "ai_requests_day", 1)
+        b = _is_limit(app_client.post("/api/runs", json={"task": "Second job"}, headers={"X-Desk": str(did2)}), "ai_requests_day")
+        assert "A run needs at least 2 (Atlas and one specialist)." in b["message"]
+    finally:
+        usage.clear_override(owner, "ai_requests_day")
+    assert _wait_runs(A, did2)
+
+
+def test_run_now_counts_in_lane_you(app_client, monkeypatch):
+    """T42 (spec §3.2): a job's "Run now" is the owner's click, so its run counts in lane you; the same job on its own
+    schedule runs in lane auto. Every request of a run carries the run's lane."""
+    import atlas.desk.scheduler as S
+    A, did, owner = _signed_in(app_client, monkeypatch, "usage-runnow@example.com")
+    job = A.store.add_job(did, "task", "Nightly", "Summarise the day for the owner", 60, time.time() + 3600)
+    assert app_client.post(f"/api/jobs/{job['id']}/run", headers={"X-Desk": str(did)}).get_json()["ok"]
+    assert S.RUN_NOW[job["id"]] == owner
+    S._finish_job(A.store, A.store.job(job["id"]), A._start_run, A.store.desk)
+    assert job["id"] not in S.RUN_NOW and _wait_runs(A, did)
+    S._finish_job(A.store, A.store.job(job["id"]), A._start_run, A.store.desk)       # the schedule's own pass
+    assert _wait_runs(A, did)
+    starts = _events(A.store, "kind='action' AND desk_id=? AND surface IN ('run.you', 'run.auto')", (did,))
+    assert [(s["surface"], s["lane"]) for s in starts] == [("run.you", "you"), ("run.auto", "auto")]
+    for s in starts:
+        lanes = {r[0] for r in A.store._conn.execute("SELECT DISTINCT lane FROM usage_events WHERE kind='request' "
+                                                     "AND action_id=?", (s["action_id"],)).fetchall()}
+        assert lanes == {s["lane"]}
+    assert usage.counter(f"o:{owner}", "runs:auto")[0] == 1 and usage.counter(f"o:{owner}", "runs")[0] == 2
+
+
+def test_byo_desk_runs_with_atlas_allowance_spent(app_client, monkeypatch):
+    """T11, run side (spec §2): a desk on the owner's own key starts runs with Atlas's allowance and runs-at-once at
+    0; its requests are BYO rows with the provider's cost, never limited by Atlas."""
+    from atlas import secure as SEC
+    A, did, owner = _signed_in(app_client, monkeypatch, "usage-byo-run@example.com")
+    _guard_models(monkeypatch)
+    sent = []
+    u = {"prompt_tokens": 50, "completion_tokens": 5, "cost": 0.0004}
+
+    def handler(req):
+        sent.append(req.url.host)
+        if json.loads(req.content).get("stream"):
+            return httpx.Response(200, text=_sse([{"choices": [{"delta": {"content": "Nothing needed today."}}]},
+                                                  {"choices": [{"delta": {}, "finish_reason": "stop"}], "usage": u}]),
+                                  headers={"Content-Type": "text/event-stream"})
+        return httpx.Response(200, json=_body("Nothing needed today.", usage=u))
+    monkeypatch.setattr(SEC, "vetted_ips", lambda host, scope="public": ["93.184.216.34"])
+    monkeypatch.setattr(SEC, "guarded_transport", lambda scope="public", **kw: httpx.MockTransport(handler))
+    assert app_client.post(f"/api/desks/{did}/providers", json={"preset": "openrouter", "api_key": "sk-or-own-2222-3333"}).status_code == 200
+    for k in ("DESK_DEFAULT_ENGINE", "DESK_LEAD_ENGINE", "HERMES_AGENT_URL", "DESK_PROVIDER"):
+        monkeypatch.delenv(k, raising=False)
+    monkeypatch.setenv("DESK_MODE", "live")
+    usage.set_override(owner, "ai_requests_day", 0)
+    usage.set_override(owner, "runs_at_once", 0)
+    try:
+        r = app_client.post("/api/runs", json={"task": "Anything new?"}, headers={"X-Desk": str(did)})
+        assert r.status_code == 200, r.get_json()
+        assert _wait_runs(A, did)
+    finally:
+        usage.clear_override(owner, "ai_requests_day")
+        usage.clear_override(owner, "runs_at_once")
+        monkeypatch.setenv("DESK_MODE", "demo")
+    rows = _events(A.store, "kind='request' AND owner_id=?", (owner,))
+    assert rows and sent and {(x["key_kind"], x["pool"], x["provider"]) for x in rows} == {("byo", "byo", "openrouter")}
+    assert rows[0]["cost_usd"] == 0.0004 and A.store.run(r.get_json()["run_id"])["status"] == "done"
+    assert not _events(A.store, "kind='refusal' AND owner_id=?", (owner,))
+
+
+def test_seed_keeps_its_leads_when_a_run_is_refused(app_client, monkeypatch):
+    """S9 (spec §4.6, §5.5): the sample leads are saved even when their runs are refused; a refused one carries
+    `limited` in a 200 (one refusal no longer fails the seed). A model refusal falls back to the stock samples,
+    flagged."""
+    A, did, owner = _signed_in(app_client, monkeypatch, "usage-seed@example.com")
+    conf = A.store.desk(did).get("config") or {}
+    conf.setdefault("ops", {})["cases"] = False                          # plain runs, so the refusal reaches the seed
+    A.store.update_desk(did, config=conf)
+    monkeypatch.setattr(usage.CFG, "demo", "enforce")
+    monkeypatch.setattr(usage.CFG, "runs_at_once", 1)
+    monkeypatch.setattr(A, "Orchestrator", _SlowOrch)
+    _SlowOrch.gate.clear()
+    try:
+        r = app_client.post("/api/demo/seed", headers={"X-Desk": str(did)})
+        items = r.get_json()
+        assert r.status_code == 200 and len(items) == 3, items
+        assert items[0]["run_id"].startswith("slow-") and "limited" not in items[0]
+        assert [i["run_id"] for i in items[1:]] == ["", ""]
+        assert all(i["limited"] == "1 run is going (limit 1). Start this when one finishes." for i in items[1:])
+    finally:
+        _SlowOrch.gate.set()
+    assert _wait_runs(A, did) and len(A.store.for_desk(did).leads()) == 3
+    # a customised business asks the model for its samples: refused at the limit, nothing is sent, stock stands in
+    _guard_models(monkeypatch)
+    conf = A.store.desk(did).get("config") or {}
+    conf.setdefault("business", {})["name"] = "Usage Seed Plumbing"
+    A.store.update_desk(did, config=conf)
+    monkeypatch.setenv("DESK_MODE", "live")
+    monkeypatch.setenv("DESK_PROVIDER", "openrouter")
+    usage.set_override(owner, "ai_requests_day", 0)
+    flags = {}
+    try:
+        rows = A._sample_leads(A.store.desk(did), flags)
+    finally:
+        usage.clear_override(owner, "ai_requests_day")
+        monkeypatch.setenv("DESK_MODE", "demo")
+    from atlas import templates
+    assert rows == templates.SAMPLE_LEADS["sales_desk"] and flags == {"samples": "stock (limit)"}
+    ref, = _events(A.store, "kind='refusal' AND owner_id=? AND surface='seed.leads'", (owner,))
+    assert ref["limit_id"] == "ai_requests_day"
+
+
+def test_limit_is_a_run_status_of_its_own(app_client, monkeypatch):
+    """Spec §5.5: a run stopped at a limit reads status `limit` from the runs API; the health panel counts it as
+    finished and `limited`, never as a failure."""
+    A, did, owner = _signed_in(app_client, monkeypatch, "usage-status@example.com")
+    ds = A.store.for_desk(did)
+    ds.create_run("lim-1", "Weekly summary", "auto", "")
+    ds.finish_run("lim-1", "limit", "Stopped: AI requests today: 250 of 250 used.", 0, 0)
+    ds.create_run("ok-1", "Daily check", "auto", "")
+    ds.finish_run("ok-1", "done", "All good.", 0, 0)
+    assert app_client.get("/api/runs/lim-1", headers={"X-Desk": str(did)}).get_json()["status"] == "limit"
+    h = A._health(did)
+    assert h["runs"]["limited"] == 1 and h["runs"]["failure_rate"] == 0.0 and h["runs"]["by_status"]["limit"] == 1
+    assert not [a for a in h["alerts"] if a["key"] in ("failures", "failure_rate")]
+
+
+def test_paid_model_on_house_key_needs_paid_allowance(app_client, monkeypatch, tmp_path):
+    """T13 and T31's theatre part (spec §1.3 L3, L13, §4.1, §4.6 S2): the live view on a paid model needs the
+    owner's paid allowance and Atlas's monthly cap, in demo mode too, refused as JSON before the stream; a :free
+    model passes and streams, metered for the viewer."""
+    import base64
+    from test_vision import _jpeg
+    A, did, owner = _signed_in(app_client, monkeypatch, "usage-t13@example.com")
+    sse = _sse([{"choices": [{"delta": {"content": "A van at the gate."}}]},
+                {"choices": [], "usage": {"prompt_tokens": 800, "completion_tokens": 9, "cost": 0}}])
+    sent = _guard_models(monkeypatch, lambda req: httpx.Response(200, text=sse, headers={"Content-Type": "text/event-stream"}))
+    frame = base64.b64encode(Path(_jpeg(tmp_path / "gate.jpg")).read_bytes()).decode()
+    hdr = {"X-Desk": str(did)}
+
+    def live(model):
+        return app_client.post("/api/vision/live", json={"image": frame, "model": model, "camera": "gate"}, headers=hdr)
+    monkeypatch.setattr(usage.CFG, "owner_paid_usd_month", 0.0)
+    b = _is_limit(live("google/gemini-2.5-flash"), "paid_usd_month")
+    assert b["unit"] == "usd" and sent == []
+    monkeypatch.setattr(usage.CFG, "owner_paid_usd_month", None)
+    monkeypatch.setattr(usage.CFG, "house_paid_usd_month", 0.0)
+    _is_limit(live("google/gemini-2.5-flash"), "house_paid_usd_month")
+    assert sent == []
+    r = live(FREE)
+    assert r.status_code == 200 and "A van at the gate." in r.get_data(as_text=True) and len(sent) == 1
+    row, = _events(A.store, "kind='request' AND owner_id=?", (owner,))
+    assert (row["surface"], row["pool"], row["lane"], row["ref"]) == ("theatre.narrate", "free:openrouter", "you", "live:gate")
+    # refused between the check and the request (the pool closed meanwhile): a meta line the page reads, no event
+    monkeypatch.setattr(A.V, "vlm_precheck", lambda meter, model="": None)
+    monkeypatch.setitem(usage._pool, "exhausted_at", time.time())
+    body = live(FREE).get_data(as_text=True)
+    meta = json.loads(body.splitlines()[0][1:])
+    assert body.startswith("\x01") and meta["error"] == "usage_limit" and meta["limit_id"] == "pool_free_day"
+    assert len(sent) == 1 and [e["question"] for e in A.store.vision_events(did, "live:gate", 0)] == ["live frame"]
+
+
+def test_site_demo_stops_at_the_public_share(app_client, monkeypatch, tmp_path):
+    """T31 (spec §1.3 L12, §4.6 S16): the website's demo counts in the public share, in demo mode too; at the share
+    the stream answers {"error": "usage_limit", message, resets_at} and sends nothing; under it the one request is
+    metered as public, lane auto."""
+    import base64
+    from atlas import secure as SEC
+    from test_vision import _jpeg
+    import atlas.desk.app as A
+    sse = _sse([{"choices": [{"delta": {"content": "One person at the counter."}}]},
+                {"choices": [], "usage": {"prompt_tokens": 500, "completion_tokens": 7, "cost": 0}}])
+    sent = _guard_models(monkeypatch, lambda req: httpx.Response(200, text=sse, headers={"Content-Type": "text/event-stream"}))
+    monkeypatch.setenv("VISION_DEMO_KEY", "sk-or-demo-test")
+    monkeypatch.setattr(A, "_RL_VISION", SEC.RateLimiter(10000, 60))
+    frame = base64.b64encode(Path(_jpeg(tmp_path / "counter.jpg")).read_bytes()).decode()
+
+    def demo():
+        r = app_client.post("/api/vision/demo", json={"image": frame, "counts": {"person": 1}})
+        return [json.loads(x[5:]) for x in r.get_data(as_text=True).splitlines() if x.startswith("data:")]
+    before = len(_events(A.store, "kind='request' AND scope='public' AND surface='site.demo'"))
+    usage.set_override(0, "public_requests_day", 0)
+    try:
+        evs = demo()
+    finally:
+        usage.clear_override(0, "public_requests_day")
+    assert len(evs) == 1 and evs[0]["error"] == "usage_limit" and evs[0]["message"].startswith("Website demos today: 0 of 0 used.")
+    assert evs[0]["resets_at"] and sent == []
+    evs = demo()
+    assert evs[-1].get("done") and "".join(e.get("t", "") for e in evs) == "One person at the counter." and len(sent) == 1
+    rows = _events(A.store, "kind='request' AND scope='public' AND surface='site.demo'")
+    assert len(rows) == before + 1 and (rows[-1]["lane"], rows[-1]["pool"], rows[-1]["tokens_in"]) == ("auto", "free:openrouter", 500)
+
+
+# T33: every catch site knows UsageLimit (spec §4.6, §8.1). A try whose body calls a metered name and that has a broad
+# handler needs an `except UsageLimit` first (or a broad handler that only re-raises). The rest is listed: allowed with
+# its reason, or pending with the site id and the step that decides it. The lists are exact.
+CATCH_MODULES = ("desk/app.py", "orchestrator.py", "browser.py", "vision.py", "journal.py", "objects.py",
+                 "desk/scheduler.py", "study.py", "rag.py", "designer.py", "cases.py", "desk/showrun.py", "alerts.py")
+CATCH_NAMES = frozenset({"chat", "describe", "vlm_detect", "chat_images", "chat_images_stream", "describe_video",
+                         "describe_stream", "analyse", "embed_texts", "index_events", "retrieve", "ask", "write_note",
+                         "verify_note", "maybe_rollup", "follow", "study", "_hermes_browse", "reply", "run_agent",
+                         "_run_agent", "_execute_tools", "run_task", "camera_tick", "_start_run", "start_run",
+                         "START_RUN", "LEAD_RUN", "_lead_case_run", "_design_team_for", "design_team", "_sample_leads",
+                         "deliver", "_dispatch"})
+CATCH_ALLOWED = {
+    ("orchestrator.py", "Orchestrator._record_tool"): "records.describe: a business-record lookup, not a model call",
+}
+CATCH_PENDING = {
+    ("desk/app.py", "api_decide"): "S14, step 7: W1 and L7 before the decision",
+    ("desk/app.py", "api_message_send"): "S15, step 7: W1 and L7 before the send",
+    ("desk/app.py", "api_design_say.work"): "S10, merge: the designer track's turn and the limit turn (spec §4.7)",
+    ("desk/app.py", "api_design_study.work"): "S11, merge: the study's done event carries the limit",
+    ("desk/scheduler.py", "camera_tick"): "S44, step 6: a refused alert run updates its event",
+    ("desk/scheduler.py", "_cy_trigger"): "S48, step 6: held until retry_at",
+    ("desk/scheduler.py", "_run_job"): "S45, step 6: a deduplicated refusal, no 'grab failed' event",
+    ("cases.py", "kick"): "S49, step 6: run_starts after success, wake at retry_at",
+    ("study.py", "study"): "S35, merge: model_error is the limit message",
+    ("designer.py", "_live_turn"): "S36, merge: the fixed limit turn, no retry",
+}
+
+
+def _handler_names(h) -> list[str]:
+    t = h.type
+    if t is None:
+        return []
+    return [getattr(x, "id", None) or getattr(x, "attr", None) or "" for x in (t.elts if isinstance(t, ast.Tuple) else [t])]
+
+
+def _broad_catches() -> set[tuple[str, str]]:
+    atlas_dir = Path(usage.__file__).parent
+    found: set[tuple[str, str]] = set()
+
+    def metered(stmts) -> bool:
+        hit = []
+
+        def visit(n):
+            for ch in ast.iter_child_nodes(n):
+                if isinstance(ch, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda, ast.ClassDef)):
+                    continue                          # defined here, called elsewhere
+                if isinstance(ch, ast.Try) and any("UsageLimit" in _handler_names(h) for h in ch.handlers):
+                    continue                          # a nested try that knows the limit covers its own calls
+                if isinstance(ch, ast.Call):
+                    f = ch.func
+                    name = f.id if isinstance(f, ast.Name) else f.attr if isinstance(f, ast.Attribute) else ""
+                    if name in CATCH_NAMES or (name == "call" and getattr(getattr(f, "value", None), "id", "") == "OBJ"):
+                        hit.append(name)
+                visit(ch)
+        for s in stmts:
+            visit(ast.Module(body=[s], type_ignores=[]))
+        return bool(hit)
+
+    for rel in CATCH_MODULES:
+        tree = ast.parse((atlas_dir / rel).read_text(encoding="utf-8"))
+
+        def walk(node, stack):
+            for ch in ast.iter_child_nodes(node):
+                sub = stack + [ch.name] if isinstance(ch, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) else stack
+                if isinstance(ch, ast.Try):
+                    names = [_handler_names(h) for h in ch.handlers]
+                    broad = next((i for i, h in enumerate(ch.handlers)
+                                  if h.type is None or {"Exception", "BaseException"} & set(names[i])), None)
+                    if broad is not None and metered(ch.body):
+                        typed = any("UsageLimit" in names[i] for i in range(broad))
+                        last = ch.handlers[broad].body[-1] if ch.handlers[broad].body else None
+                        reraise = isinstance(last, ast.Raise) and last.exc is None
+                        if not (typed or reraise):
+                            found.add((rel, ".".join(stack)))
+                walk(ch, sub)
+        walk(tree, [])
+    return found
+
+
+def test_catch_sites_know_usage_limit(app_client, monkeypatch, tmp_path):
+    """T33 (spec §4.6, §8.1): the audit, then the routes. With the owner's allowance full, a video, an Ask, a camera
+    look with a question and an object's call and question each answer 429 with the limit body before any request is
+    sent; a look refused inside the tick leaves the camera connector's status alone; an object call leaves no
+    'vision model unavailable' note and does not turn watching on."""
+    found = _broad_catches()
+    want = set(CATCH_ALLOWED) | set(CATCH_PENDING)
+    assert found == want, "update CATCH_ALLOWED / CATCH_PENDING: " + repr(sorted(found ^ want))
+    from test_names import _sighting
+    from test_vision import _jpeg
+    A, did, owner = _signed_in(app_client, monkeypatch, "usage-t33@example.com", template="site_watch")
+    sent = _guard_models(monkeypatch)
+    hdr = {"X-Desk": str(did)}
+    cam = A.store.add_connector(did, "camera", "door", {"source": _jpeg(tmp_path / "door.jpg")}, False)
+    status0 = A.store.connector(cam["id"]).get("status")
+    oid = _sighting(A.store.for_desk(did), "door")
+    usage.set_override(owner, "ai_requests_day", 0)
+    try:
+        _is_limit(app_client.post("/api/vision/video", json={"url": "https://videos.example.com/a.mp4", "question": "?"},
+                                  headers=hdr), "ai_requests_day")
+        _is_limit(app_client.post(f"/api/objects/{oid}/call", json={"on": True}, headers=hdr), "ai_requests_day")
+        _is_limit(app_client.post(f"/api/objects/{oid}/ask", json={"question": "What is it?"}, headers=hdr), "ai_requests_day")
+        monkeypatch.setenv("DESK_MODE", "live")              # the Ask's re-look and a look's question are live-only
+        monkeypatch.setenv("DESK_PROVIDER", "openrouter")
+        _is_limit(app_client.post("/api/vision/ask", json={"question": "Who came in?"}, headers=hdr), "ai_requests_day")
+        _is_limit(app_client.post(f"/api/cameras/{cam['id']}/look", json={"question": "Who is at the door?"}, headers=hdr),
+                  "ai_requests_day")
+        monkeypatch.setenv("DESK_MODE", "demo")
+
+        def refused(*a, **k):                              # refused inside the tick, after the route's check
+            raise usage._limit("ai_requests_day", used=0, limit=0, now=time.time())
+        monkeypatch.setattr(A.scheduler, "camera_tick", refused)
+        _is_limit(app_client.post(f"/api/cameras/{cam['id']}/look", json={}, headers=hdr), "ai_requests_day")
+    finally:
+        usage.clear_override(owner, "ai_requests_day")
+        monkeypatch.setenv("DESK_MODE", "demo")
+    assert sent == [] and _events(A.store, "kind='request' AND owner_id=?", (owner,)) == []
+    assert A.store.connector(cam["id"]).get("status") == status0
+    ds = A.store.for_desk(did)
+    assert ds.object_notes(oid, 60) == [] and not ds.vision_object(oid).get("watch")
+    refusals = {(r["surface"], r["limit_id"]) for r in _events(A.store, "kind='refusal' AND owner_id=?", (owner,))}
+    assert refusals >= {("video.describe", "ai_requests_day"), ("objects.call", "ai_requests_day"),
+                        ("objects.ask", "ai_requests_day"), ("ask.cameras", "ai_requests_day"),
+                        ("camera.look", "ai_requests_day")}
+
+
+def test_auto_actions_inside_tools_respect_l8(U, store, monkeypatch):
+    """T37 (spec §1.3 L8, §4.6 S27): at the cap on actions sent without approval, an auto calendar booking, an auto
+    MCP write, an auto HTTP POST, an auto Higgsfield generation and a pre-approved browser submit each wait for
+    approval with the note, and nothing goes out; MCP reads and HTTP GETs still run. Under the cap the action runs
+    and counts once."""
+    from atlas import browser as BR
+    from atlas import integrations as I
+    from atlas import mcp_client as M
+    desk = store.add_desk(90, "Auto desk", "blank", "free", {})
+    did = desk["id"]
+    ds = store.for_desk(did)
+    for kind, name in (("gcal", "cal"), ("http", "crm"), ("higgsfield", "hf")):
+        store.add_connector(did, kind, name, {"base_url": "https://crm.example.com"}, True)
+    mcp = store.add_connector(did, "mcp", "notes", {}, True)
+    direct = []
+    monkeypatch.setattr(I, "gcal_create_event", lambda *a, **k: direct.append("gcal") or "booked")
+    monkeypatch.setattr(I, "http_call", lambda cfg, method, path, params=None, body=None: direct.append(f"http {method}")
+                        or {"status": 200, "json": {"ok": True}})
+    monkeypatch.setattr(I, "higgsfield_generate", lambda *a, **k: direct.append("hf") or {"status": "done", "outputs": [], "model": "m"})
+    monkeypatch.setattr(M.REGISTRY, "get", lambda conn: SimpleNamespace(call=lambda tool, args: direct.append(f"mcp {tool}") or "ok"))
+    m = U.run_meter(desk, "auto")
+    orch = _orch(m, tools=("calendar_book", "http_request", "generate_media", "mcp", "browse"), store=ds,
+                 browser_allow_submit=True)
+    orch.run_id = "r-auto"
+    orch._mcp_index = {"mcp__notes__create_note": (mcp, "create_note"), "mcp__notes__echo": (mcp, "echo")}
+    agent = orch.agents["atlas"]
+
+    def tool(name, args):
+        return orch._tool(agent, P.ToolCall("c", name, args), 0)
+    U.set_override(90, "auto_sends_day", 0)
+    outs = [tool("calendar_book", {"title": "Valuation", "start": "2026-10-12T10:00"}),
+            tool("mcp__notes__create_note", {"text": "x"}),
+            tool("http_request", {"connector": "crm", "method": "POST", "path": "/leads"}),
+            tool("generate_media", {"prompt": "a poster"})]
+    note = "auto-send paused: Sent without approval today 0/0; approve to send"
+    assert direct == [] and all("queued for approval" in o and o.endswith(note + ".") for o in outs), outs
+    pend = ds.actions("pending")
+    assert len(pend) == 4 and {p["reason"] for p in pend} == {note}
+    assert tool("mcp__notes__echo", {"text": "hi"}) == "ok"
+    assert '"ok": true' in tool("http_request", {"connector": "crm", "method": "GET", "path": "/leads"})
+    assert direct == ["mcp echo", "http GET"]
+    # the browser: a pre-approved submit asks the gate first; held, it stops for approval with the note
+    hand = SimpleNamespace(allow_submit=True, submit_gate=orch._submit_gate)
+    with pytest.raises(BR.SubmitBlocked) as e:
+        BR.BrowserHand._guard_submit(hand, 'click button "Book" on https://shop.example.com', {"action": "click"})
+    assert e.value.note == note
+    seen = {}
+
+    def run_task(*a, **k):
+        seen.update(k)
+        return BR.Result(status="needs_approval", answer="Ready to submit", pending={
+            "description": "click Book", "action": {"action": "click"}, "url": "https://shop.example.com/book", "note": note})
+    monkeypatch.setattr(BR, "run_task", run_task)
+    out = tool("browse", {"task": "Book the slot", "url": "https://shop.example.com"})
+    assert "Queued for owner approval" in out and seen["submit_gate"] == orch._submit_gate and seen["meter"] is m
+    assert next(a for a in ds.actions("pending") if a["kind"] == "browser_action")["reason"] == note
+    refusals = _events(store, "kind='refusal' AND owner_id=90")
+    assert {(r["surface"], r["limit_id"], r["units"]) for r in refusals} == {
+        (f"action.{k}", "auto_sends_day", 1) for k in ("calendar", "mcp", "http", "higgsfield", "browser")}
+    U.clear_override(90, "auto_sends_day")
+    assert tool("calendar_book", {"title": "Valuation", "start": "2026-10-12T10:00"}) == "booked"
+    assert U.counter(f"d{did}", "send:auto")[0] == 1
+    BR.BrowserHand._guard_submit(hand, "click Book", {"action": "click"})   # room again: the submit goes ahead
+    assert U.counter(f"d{did}", "send:auto")[0] == 2
+
+
+def test_browser_steps_count_for_the_run_and_stop_at_a_limit(U, store, monkeypatch):
+    """S25 (spec §4.6): a browser task whose next model step is refused stops with status limit, not a 'model error'
+    the run carries on from; its steps are the run's requests, labelled browse.step. In a run, the browse tool then
+    answers with the typed LIMIT result and is not started again."""
+    from atlas import browser as BR
+
+    class Hand:                                            # the page side of the browser hand, without Chromium
+        allow_submit, submit_gate, macro_steps = False, None, []
+        page = SimpleNamespace(url="https://shop.example.com/")
+
+        def observe(self):
+            return SimpleNamespace(render=lambda: "[1] link \"Prices\"", digest=lambda: "same", text="Prices", url=self.page.url)
+    desk = store.add_desk(91, "Browse desk", "blank", "free", {})
+    m = U.run_meter(desk, "you")
+    m.run_cap = 1
+    prov = _Script([("tool", "extract", {"note": "price"})])
+    prov.meter = m
+    with U.step_surface("browse.step"):
+        res = BR.run_task("Find the boiler price", "", prov, FREE, hand=Hand())
+    assert res.status == "limit" and res.limit.limit_id == "run_requests" and prov.calls == 1
+    assert res.summary().startswith("STOPPED AT A USAGE LIMIT. This run made 1 AI requests (per-run cap 1).")
+    row, = _events(store, "kind='request' AND owner_id=91")
+    assert (row["surface"], row["action_id"]) == ("browse.step", m.action_id)
+    ref, = _events(store, "kind='refusal' AND owner_id=91")
+    assert (ref["surface"], ref["limit_id"]) == ("browse.step", "run_requests")
+    started = []
+
+    def run_task(*a, **k):
+        started.append(1)
+        return BR.Result(status="limit", answer=res.limit.message, limit=res.limit)
+    monkeypatch.setattr(BR, "run_task", run_task)
+    m2 = U.run_meter(desk, "you")
+    orch = _orch(m2, tools=("browse",))
+    call = P.ToolCall("b1", "browse", {"task": "Find the boiler price", "url": "https://shop.example.com"})
+    first = orch._execute_tools(orch.agents["atlas"], [call], 0)
+    again = orch._execute_tools(orch.agents["atlas"], [call], 0)
+    assert first == again and first[0][3] is True and len(started) == 1 and "browse" in m2.limited
+    assert first[0][2] == ("LIMIT: AI requests per run or link study 1/1. browse is unavailable for the rest of this "
+                           "run; do not call it again.")
+
+
+def test_showrun_needs_two_requests_of_the_public_share(U, store, monkeypatch):
+    """S53 (spec §1.3 L12, §1.6): the site's live run starts only with 2 requests left in the website's share; held,
+    the feed says why and shows the recorded run until the reset, with one refusal on the ledger. A run that starts
+    carries the public meter (lane auto, the per-run cap)."""
+    from atlas import templates
+    from atlas.desk import showrun as SR
+    from atlas.orchestrator import Event
+    built = []
+
+    class Rec:
+        def __init__(self, configs, store_, emit, meter=None):
+            built.append(meter)
+            self.run_id, self.emit = "show-1", emit
+
+        def run(self, task, mode="auto"):
+            self.emit(Event("done", "system", "ok", {"status": "done"}))
+
+        def cancel(self):
+            pass
+    monkeypatch.setattr(SR, "Orchestrator", Rec)
+
+    def configs(d):
+        return {"agents": [{"id": "atlas", "name": "Atlas", "provider": "demo"}], "providers": {}, "business": {}}
+    sr = SR.ShowRunner({"store": store, "desk_configs": configs, "mode": lambda: "live", "blocked": lambda: "",
+                        "templates": templates, "template": "sales_desk"})
+    U.set_override(0, "public_requests_day", 1)
+    sr.touch()
+    reason = "The live run has used today's share; next one after 00:00 UTC."
+    assert sr.run is None and built == [] and sr.offline_reason() == reason and sr.starts == []
+    snap = sr.snapshot()
+    assert snap["live"] is False and snap["reason"] == reason
+    ref, = _events(store, "kind='refusal' AND scope='public'")
+    assert (ref["limit_id"], ref["surface"]) == ("public_requests_day", "show.run")
+    U.clear_override(0, "public_requests_day")
+    sr.touch()                                             # held: looked at again at most once a minute
+    assert built == []
+    sr.limited["checked"] = 0
+    sr.touch()
+    assert len(built) == 1 and sr.limited is None and sr.offline_reason() == ""
+    m = built[0]
+    assert (m.scope, m.surface, m.lane, m.owner_id, m.run_cap) == ("public", "show.run", "auto", 0, 120)

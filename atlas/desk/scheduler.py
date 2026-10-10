@@ -57,6 +57,9 @@ LIVE = lambda desk=None: True                             # replaced by the app:
 BASE_URL = lambda: ""                                     # replaced by the app: public URL for snapshot links
 DISPATCH = None                                           # replaced by the app: send an approved action for real
 LEAD_RUN = None                                           # replaced by the app: work a new lead as an enquiry case
+# job id -> owner id: a person pressed the job's "Run now". The next pass runs it in lane you (usage spec §1.1, §3.2):
+# what it starts counts as the owner's own work, not Atlas's background share.
+RUN_NOW: dict[int, int] = {}
 _last_frame: dict[tuple[int, str], bytes] = {}          # (desk_id, camera) -> last raw frame (motion baseline)
 _last_seen: dict[tuple[int, str], dict[str, Any]] = {}  # (desk_id, camera) -> last analysis (portal "live" tile)
 _present: dict[tuple[int, str], tuple[float, float]] = {}  # (desk_id, camera) -> (since, last seen) while the rule's count holds
@@ -1040,10 +1043,13 @@ def _run_job(store, job: dict[str, Any], start_run: Callable, desk_for: Callable
 
 
 def _finish_job(store, job: dict[str, Any], start_run: Callable, desk_for: Callable) -> None:
-    """Run one job and schedule its next run."""
+    """Run one job and schedule its next run. The runs it starts are in lane auto (Atlas on its own), or lane you
+    after the owner's "Run now"."""
     status = "ok"
+    lane = "you" if RUN_NOW.pop(int(job["id"]), None) is not None else "auto"
     try:
-        result = _run_job(store, job, start_run, desk_for)
+        with U.bind_lane(lane):
+            result = _run_job(store, job, start_run, desk_for)
         if result.startswith(("no IMAP", "desk missing", "connector ", "task must", "unknown job", "no camera")):
             status = "skipped"
     except Exception as exc:

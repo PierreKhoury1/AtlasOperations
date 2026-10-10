@@ -462,6 +462,13 @@ def _security_headers(resp):
     return resp
 
 
+@app.errorhandler(U.UsageLimit)
+def _usage_limit(exc: U.UsageLimit):
+    """A usage limit refused the work and nothing was sent (usage spec §4.5): 429 with the limit's body, or 409
+    outside a channel's reply window, plus Retry-After when something retries it. Routes only raise."""
+    return Response(json.dumps(exc.body()), exc.http_status, mimetype="application/json", headers=exc.headers())
+
+
 def _client_ip() -> str:
     """The address the rate limits key on. Behind Caddy (or Render's router) the TCP peer is the proxy, and the proxy
     appends the real client to X-Forwarded-For, so the LAST entry is the one to trust. The first entry is whatever the
@@ -1074,7 +1081,12 @@ def _design_team_for(desk: dict[str, Any], task: str, reuse: bool = False) -> di
         _require_live(desk)
         from ..providers import ProviderPool
         atlas_agent = next((a for a in configs["agents"] if a["id"] == "atlas"), {})
-        prov = ProviderPool(configs["providers"]).get(atlas_agent.get("provider") or "")
+        # the person's own action on the desk's provider: a design and at most one repair (overrun 1 past the check)
+        meter = U.desk_meter(desk, "team.design", lane="you", overrun=1)
+        prov = ProviderPool(configs["providers"], meter=meter).get(atlas_agent.get("provider") or "")
+        # S7, S8: refused as JSON before anything is sent; the owner's own key is never limited by Atlas
+        U.precheck(meter, provider=prov.usage_provider, model=atlas_agent.get("model") or prov.default_model,
+                   key_kind=prov.key_kind)
         existing = [a for a in configs["agents"] if a["id"] != "atlas"] if reuse else None
         res = TM.design_team(configs["business"], task, prov, atlas_agent.get("model", "") or "", allowed_tools=allowed,
                              hermes_available=hermes, cameras=cams, existing=existing)
@@ -1259,6 +1271,8 @@ def api_team_design(did):
         return jsonify({"error": "task required"}), 400
     try:
         res = _design_team_for(d, task, bool(body.get("reuse")))
+    except U.UsageLimit:
+        raise                                            # S7: the 429 body
     except Exception as exc:
         return jsonify({"error": f"design failed: {type(exc).__name__}: {str(exc)[:200]}"}), 502
     return jsonify({k: res[k] for k in ("team", "tree", "errors", "warnings", "turns", "mode")})
@@ -1402,10 +1416,61 @@ def _preflight(desk: dict[str, Any]) -> dict[str, Any]:
     return configs
 
 
-def _start_run(desk: dict[str, Any], task: str, mode: str, lead_id: int | None = None, case_id: int | None = None) -> str:
+def _run_lane(lane: str | None = None) -> str:
+    """Whose work a run is (usage spec §1.1, §3.2): the lane a background entry point bound (jobs, hooks, the case
+    clock, deferred starts), else "you" inside a signed-in /api/ request (a person typed or clicked), else "auto"."""
+    if lane in ("you", "auto"):
+        return lane
+    bound_ = U.bound_lane()
+    if bound_:
+        return bound_
+    try:
+        if request.path.startswith("/api/") and (OPEN or current_user()):
+            return "you"
+    except RuntimeError:                                  # no request: a scheduler or worker thread
+        pass
+    return "auto"
+
+
+def _run_pools(configs: dict[str, Any]) -> dict[str, bool]:
+    """What a run of these agents may draw on (usage spec §1.3 L1, L3, L5, §2). house: an agent on a provider that
+    pays with Atlas's keys (Atlas's own Hermes instance included); free / paid: the house pool its model is in. An
+    agent on the owner's own account (a BYO entry, the desk's own Hermes instance) is never limited by Atlas.
+    Scripted (demo) agents are house only under USAGE_DEMO=enforce."""
+    from ..providers import provider_id
+    provs = (configs.get("providers") or {}).get("providers") or {}
+    default = (configs.get("providers") or {}).get("default_provider") or ""
+    out = {"house": False, "free": False, "paid": False}
+    for a in configs.get("agents") or []:
+        if not a.get("enabled", True):
+            continue
+        pc = provs.get(a.get("provider") or default) or {}
+        kind = (pc.get("type") or "").lower()
+        if kind == "demo":
+            if U.demo_enforced():
+                out["house"] = out["free"] = True
+            continue
+        if pc.get("url_guard"):
+            continue
+        out["house"] = True
+        name = "anthropic" if kind == "anthropic" else "hermes" if kind == "hermes_agent" else provider_id(pc.get("base_url") or "")
+        pool = U.classify(name, a.get("model") or pc.get("default_model") or "", "house")
+        out["free" if pool.startswith("free:") else "paid"] = True
+    return out
+
+
+def _start_run(desk: dict[str, Any], task: str, mode: str, lead_id: int | None = None, case_id: int | None = None,
+               lane: str | None = None) -> str:
+    """Start a run on its own thread and return its id. Usage (spec §1.3, §4.2): the run gets one meter (its lane,
+    the per-run cap) that every request of the run counts for. It does not start, and raises UsageLimit (the error
+    handler's 429), when the free pool, the lane or the owner's allowance cannot carry it (its headroom), when the paid
+    allowance is spent, or when the owner already has the most runs going at once."""
     configs = _preflight(desk)
     if case_id:
         configs["case_id"] = int(case_id)                 # approvals queued in this run belong to the case
+    meter = U.run_meter(desk, _run_lane(lane))
+    pools = _run_pools(configs)
+    U.run_begin(meter, house=pools["house"], free=pools["free"], paid=pools["paid"])
     dstore = store.for_desk(desk["id"])
     events: list[dict[str, Any]] = []
     orch: Orchestrator
@@ -1424,7 +1489,11 @@ def _start_run(desk: dict[str, Any], task: str, mode: str, lead_id: int | None =
             _last_error[desk["id"]] = {"ts": ev.ts, "run_id": orch.run_id, "text": (ev.text or "")[:400]}
         _push_feed(orch.run_id, desk["id"], ev)
 
-    orch = Orchestrator(configs, dstore, emit)
+    try:
+        orch = Orchestrator(configs, dstore, emit, meter=meter)
+    except BaseException:
+        U.run_end(meter)                           # nothing started: the runs-at-once slot goes back
+        raise
     holder: dict[str, Any] = {"events": events, "orch": orch, "task": task, "desk_id": desk["id"], "started": time.time()}
 
     def work():
@@ -1441,6 +1510,8 @@ def _start_run(desk: dict[str, Any], task: str, mode: str, lead_id: int | None =
                 pass
             _push_feed(orch.run_id, desk["id"], Event(kind="error", agent="system", text="run crashed: " + msg))
             _push_feed(orch.run_id, desk["id"], Event(kind="done", agent="system", text=msg, data={"status": "error"}))
+        finally:
+            U.run_end(meter)                       # L5: no longer going, before the case may start its next step
         holder["ended"] = time.time()
         if lead_id is not None:
             dstore.set_lead(lead_id, status=("processed" if status == "done" else status), run_id=orch.run_id)
@@ -1454,7 +1525,11 @@ def _start_run(desk: dict[str, Any], task: str, mode: str, lead_id: int | None =
 
     th = threading.Thread(target=work, daemon=True)
     holder["thread"] = th
-    th.start()
+    try:
+        th.start()
+    except BaseException:
+        U.run_end(meter)
+        raise
     for _ in range(50):                            # wait briefly for run_id to exist
         if orch.run_id:
             break
@@ -1462,6 +1537,7 @@ def _start_run(desk: dict[str, Any], task: str, mode: str, lead_id: int | None =
     with _runs_lock:
         _runs[orch.run_id] = holder
         _prune_runs()
+    U.run_started(meter, orch.run_id)              # the run's start on the ledger (runs, runs:auto), under its id
     if lead_id is not None:
         dstore.set_lead(lead_id, status="running", run_id=orch.run_id)
     return orch.run_id
@@ -1546,6 +1622,8 @@ def api_run_task():
     if d.get("design_team"):                            # one shot: design the team for this job, save it, then run it
         try:
             res = _design_team_for(desk, task, bool(d.get("reuse")))
+        except U.UsageLimit:
+            raise                                       # S8: the 429 body; nothing was designed or saved
         except Exception as exc:
             return jsonify({"error": f"design failed: {type(exc).__name__}: {str(exc)[:200]}"}), 502
         applied = _apply_team(desk, res["team"])
@@ -1869,7 +1947,8 @@ def _health(desk_id: int | None, window_h: float = 24.0) -> dict[str, Any]:
     by = {}
     for r in runs:
         by[r["status"]] = by.get(r["status"], 0) + 1
-    finished = [r for r in runs if r["status"] in ("done", "error", "failed", "interrupted", "cancelled")]
+    # a run stopped at a usage limit finished, but did not fail: counted on its own as `limited` (usage spec §5.5)
+    finished = [r for r in runs if r["status"] in ("done", "error", "failed", "interrupted", "cancelled", "limit")]
     bad = [r for r in finished if r["status"] in ("error", "failed", "interrupted")]
     durs = sorted((r["ended"] or now) - r["created"] for r in finished if r.get("ended"))
     p = lambda q: round(durs[min(len(durs) - 1, int(q * len(durs)))], 1) if durs else None
@@ -1913,7 +1992,8 @@ def _health(desk_id: int | None, window_h: float = 24.0) -> dict[str, Any]:
                                              "house_paid_used", "house_paid_limit")}, "blocked": bool(blocked)},
         "ok": not any(a["level"] == "critical" for a in alerts), "window_h": window_h, "uptime_s": round(now - _BOOT_TS),
         "runs": {"total": len(runs), "by_status": by, "failure_rate": round(len(bad) / len(finished), 3) if finished else 0.0,
-                 "p50_s": p(0.5), "p90_s": p(0.9), "active": len(live), "stalled": len(stalled), "zombies": len(zombies)},
+                 "p50_s": p(0.5), "p90_s": p(0.9), "active": len(live), "stalled": len(stalled), "zombies": len(zombies),
+                 "limited": by.get("limit", 0)},
         "tokens": tokens, "cost_gbp": round(tokens / 1e6 * 5 * 0.78, 2),
         "queue": {"pending": len(store.actions("pending", limit=100000, desk_id=desk_id)),
                   "oldest_pending_h": round((now - oldest) / 3600, 1) if oldest else 0},
@@ -2045,9 +2125,10 @@ def api_report():
 
 
 # ---------------------------------------------------------------------------- demo helpers
-def _sample_leads(desk: dict[str, Any]) -> list[dict[str, str]]:
+def _sample_leads(desk: dict[str, Any], flags: dict[str, str] | None = None) -> list[dict[str, str]]:
     """Template samples for the stock business; for a customised business ask the (cheap) model to invent
-    three realistic enquiries so the demo matches what the client actually does."""
+    three realistic enquiries so the demo matches what the client actually does. At a usage limit the stock samples
+    stand in, and `flags` says so (samples: "stock (limit)")."""
     if desk.get("template") == "soc_desk":           # a security desk gets no invented leads: its input is real log data
         return []
     stock = templates.SAMPLE_LEADS.get(desk["template"], templates.SAMPLE_LEADS["sales_desk"])
@@ -2058,7 +2139,7 @@ def _sample_leads(desk: dict[str, Any]) -> list[dict[str, str]]:
         return stock
     try:
         from ..providers import ProviderPool
-        pool = ProviderPool(c["providers"])
+        pool = ProviderPool(c["providers"], meter=U.desk_meter(desk, "seed.leads", lane="you"))
         prov = pool.get()
         model = templates.FREE_MODEL if c["providers"].get("default_provider") == "openrouter" else ""
         prompt = (f"Invent 3 realistic inbound enquiries for this business. Return ONLY a JSON array of objects with keys "
@@ -2075,19 +2156,31 @@ def _sample_leads(desk: dict[str, Any]) -> list[dict[str, str]]:
                         "email": str(x.get("email", "") or "lead@example.com"), "phone": str(x.get("phone", "") or ""),
                         "source": str(x.get("source", "") or "website form"), "notes": str(x.get("notes", "") or "")})
         return out or stock
+    except U.UsageLimit:                                 # S9: no request was sent; the stock samples, flagged
+        if flags is not None:
+            flags["samples"] = "stock (limit)"
+        return stock
     except Exception:
         return stock
 
 
 @app.post("/api/demo/seed")
 def api_seed():
+    """Sample leads, each worked by a run. A run refused at a usage limit leaves its lead saved and says why
+    (`limited`, spec §5.5): one refusal no longer fails the whole seed."""
     desk = need_desk()
     dstore = store.for_desk(desk["id"])
     ids = []
-    for L in _sample_leads(desk):
+    flags: dict[str, str] = {}
+    for L in _sample_leads(desk, flags):
         lid = dstore.add_lead(L["name"], L["company"], L["email"], L["phone"], L["source"], L["notes"])
         dstore.upsert_contact(L["email"], {"name": L["name"], "company": L["company"], "email": L["email"], "phone": L["phone"], "stage": "New", "notes": "Inbound lead"})
-        ids.append({"id": lid, "run_id": _lead_case_run(desk, lid)})
+        item: dict[str, Any] = {"id": lid}
+        try:
+            item["run_id"] = _lead_case_run(desk, lid)
+        except U.UsageLimit as exc:                      # S9: the lead stays; its run did not start
+            item.update(run_id="", limited=exc.message)
+        ids.append({**item, **flags})
         time.sleep(0.05)
     return jsonify(ids)
 
@@ -2390,6 +2483,7 @@ def api_run_job(jid):
     j = store.job(jid)
     if not j or j["desk_id"] != desk["id"]:
         abort(404)
+    scheduler.RUN_NOW[jid] = int(desk.get("owner_id") or 0)   # a person pressed it: its run counts in lane you
     store.update_job(jid, next_run=time.time() - 1, enabled=1)
     return jsonify({"ok": True, "note": "will run within 20 seconds"})
 
@@ -2670,10 +2764,15 @@ def api_camera_look(cid):
     c = _camera(cid, desk)
     d = request.get_json(silent=True) or {}
     meter = U.desk_meter(desk, "camera.look", lane="you", ref=f"cam:{c['name']}", overrun=1)
+    question = str(d.get("question") or "").strip()[:500]
+    if question and _mode() != "demo":                   # S4: the question needs the vision model; refused as JSON first
+        V.vlm_precheck(meter, str(c["config"].get("vlm_model") or ""))
     try:
         r = scheduler.camera_tick(store, desk, c, _start_run, _mode() != "demo",
-                                  question=str(d.get("question") or "").strip()[:500], force=bool(d.get("trigger")),
+                                  question=question, force=bool(d.get("trigger")),
                                   meter=meter)
+    except U.UsageLimit:
+        raise                                            # S4: the 429 body; a limit says nothing about the camera itself
     except Exception as exc:
         msg = f"{type(exc).__name__}: {str(exc)[:300]}"
         store.update_connector(cid, status="error: " + msg, last_test=time.time())
@@ -2947,13 +3046,18 @@ def api_object_image(oid, which):
     return send_file(p, mimetype="image/jpeg", max_age=0)
 
 
+def _camera_vlm_model(desk: dict[str, Any], camera: str) -> str:
+    """The vision model a camera's config pins ("" = the default chain)."""
+    conn = next((c for c in store.connectors(desk["id"]) if c["kind"] == "camera" and c["name"] == camera), None)
+    return str(((conn or {}).get("config") or {}).get("vlm_model") or "")
+
+
 def _object_live(desk: dict[str, Any], o: dict[str, Any]):
     """(frame, box, vision model) for an object: the live frame while it is still in view, else its stored pictures."""
     OBJ, _ = _objects_mod()
     w = OBJ.worker(desk["id"], o["camera"])
     frame, box = w.latest(o["id"]) if w else (None, None)
-    conn = next((c for c in store.connectors(desk["id"]) if c["kind"] == "camera" and c["name"] == o["camera"]), None)
-    return frame, box, str(((conn or {}).get("config") or {}).get("vlm_model") or "")
+    return frame, box, _camera_vlm_model(desk, o["camera"])
 
 
 @app.post("/api/objects/<int:oid>/call")
@@ -2964,14 +3068,18 @@ def api_object_call(oid):
     d = request.get_json(silent=True) or {}
     on = bool(d.get("on", True))
     ds = store.for_desk(desk["id"])
+    meter = U.desk_meter(desk, "objects.call", lane="you", ref=f"obj:{oid}", overrun=1)
+    if on:                                               # S5: refused as JSON before anything changes
+        V.vlm_precheck(meter, _camera_vlm_model(desk, o["camera"]))
     ds.update_vision_object(oid, watch=1 if on else 0)
     if not on:
         return jsonify({"ok": True, "object": _obj_public(ds.vision_object(oid))})
     _require_live(desk)
     frame, box, model = _object_live(desk, o)
     try:
-        res = OBJ.call(store, o, model=model, frame=frame, box=box,
-                       meter=U.desk_meter(desk, "objects.call", lane="you", ref=f"obj:{oid}", overrun=1))
+        res = OBJ.call(store, o, model=model, frame=frame, box=box, meter=meter)
+    except U.UsageLimit:
+        raise                                            # S5: the 429 body, and no "vision model unavailable" note
     except Exception as exc:
         ds.add_object_note(oid, "error", f"vision model unavailable: {str(exc)[:200]}")
         return jsonify({"ok": False, "error": str(exc)[:300], "object": _obj_public(ds.vision_object(oid)), "notes": ds.object_notes(oid, 60)}), 502
@@ -2985,11 +3093,14 @@ def api_object_ask(oid):
     q = str((request.get_json(force=True) or {}).get("question") or "").strip()[:500]
     if not q:
         return jsonify({"error": "empty question"}), 400
+    meter = U.desk_meter(desk, "objects.ask", lane="you", ref=f"obj:{oid}", overrun=1)
+    V.vlm_precheck(meter, _camera_vlm_model(desk, o["camera"]))   # S6: refused as JSON first
     _require_live(desk)
     frame, box, model = _object_live(desk, o)
     try:
-        text = OBJ.ask(store, o, q, model=model, frame=frame, box=box,
-                       meter=U.desk_meter(desk, "objects.ask", lane="you", ref=f"obj:{oid}", overrun=1))
+        text = OBJ.ask(store, o, q, model=model, frame=frame, box=box, meter=meter)
+    except U.UsageLimit:
+        raise                                            # S6: the 429 body
     except Exception as exc:
         return jsonify({"ok": False, "error": str(exc)[:300]}), 502
     return jsonify({"ok": True, "answer": text, "notes": store.for_desk(desk["id"]).object_notes(oid, 60)})
@@ -3155,6 +3266,8 @@ def api_vision_video():
     from .. import vision as V
     if (request.content_length or 0) > VIDEO_UPLOAD_MAX:
         return jsonify({"error": f"video too large (max {VIDEO_UPLOAD_MAX // (1024 * 1024)} MB)"}), 413
+    meter = U.desk_meter(desk, "video.describe", lane="you", overrun=1)
+    V.vlm_precheck(meter)                                      # S1: refused as JSON before the upload is read or saved
     request.max_content_length = VIDEO_UPLOAD_MAX              # before the form is parsed
     question = (request.form.get("question") or (request.json or {}).get("question", "") if not request.files else request.form.get("question", "")) or ""
     try:
@@ -3162,6 +3275,7 @@ def api_vision_video():
     except ValueError:
         frames = 6
     f = request.files.get("video")
+    saved = ""
     if f and f.filename:
         vdir = Path("data") / "videos" / f"desk{desk['id']}"
         vdir.mkdir(parents=True, exist_ok=True)
@@ -3172,7 +3286,7 @@ def api_vision_video():
             src.unlink(missing_ok=True)
             return jsonify({"error": "video too large (max 300 MB)"}), 413
         label = name
-        src = str(src)
+        src = saved = str(src)
     else:
         src = str((request.json or {}).get("url", "") or "").strip()
         if not src:
@@ -3182,9 +3296,13 @@ def api_vision_video():
         if why:
             return jsonify({"error": f"refusing to fetch: {why}"}), 400
         label = src.rsplit("/", 1)[-1][:60]
+    meter.ref = f"video:{label}"[:120]
     try:
-        res = V.describe_video(src, question, frames=frames, context=desk.get("name", ""),
-                               meter=U.desk_meter(desk, "video.describe", lane="you", ref=f"video:{label}"[:120], overrun=1))
+        res = V.describe_video(src, question, frames=frames, context=desk.get("name", ""), meter=meter)
+    except U.UsageLimit:                                       # S1: refused after the check: nothing is kept
+        if saved:
+            Path(saved).unlink(missing_ok=True)
+        raise
     except Exception as exc:
         return jsonify({"error": f"{type(exc).__name__}: {exc}"}), 502
     snap = ""
@@ -3277,9 +3395,11 @@ def api_vision_live():
     _base, _key, chosen = V._vlm_cfg(model)
     # built here, used by the stream after the view returned: one narration, the viewer's own action
     meter = U.desk_meter(desk, "theatre.narrate", lane="you", ref=f"live:{camera}", overrun=1)
+    V.vlm_precheck(meter, model)                               # S2: a 429 JSON body before the stream starts
 
     def gen():
         parts = []
+        limited = False
         try:
             for delta in V.describe_stream(jpeg, "What is happening in this frame? What changed?", model=model,
                                            context=context, meter=meter):
@@ -3288,10 +3408,13 @@ def api_vision_live():
                     continue
                 parts.append(delta)
                 yield delta
+        except U.UsageLimit as exc:                            # S2: refused after the check: a meta line, no event
+            limited = True
+            yield "\x01" + json.dumps(exc.body()) + "\n"
         except Exception as exc:
             yield f"[vision error: {exc}]"
         note = "".join(parts).strip()
-        if note and not note.startswith("[vision error"):
+        if note and not limited and not note.startswith("[vision error"):
             try:
                 snap = V.save_snapshot(desk["id"], f"live-{camera}", jpeg)
                 store.add_vision_event(desk["id"], f"live:{camera}", {}, backend="vlm", source="live",
@@ -3453,7 +3576,8 @@ def api_vision_demo():
                                                          {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64," + base64.b64encode(jpeg).decode()}}]}]}
     headers = _demo_headers(key, "Atlas Desks site vision demo")
 
-    return Response(_demo_stream(base, headers, payload, model), mimetype="text/event-stream", headers=hdr)
+    return Response(_demo_stream(base, headers, payload, model, meter=_site_meter("site.demo")),
+                    mimetype="text/event-stream", headers=hdr)
 
 
 def _demo_cfg() -> tuple[str, str, str]:
@@ -3469,9 +3593,24 @@ def _demo_headers(key: str, title: str) -> dict[str, str]:
             "HTTP-Referer": "https://atlas-ops.onrender.com", "X-Title": title}
 
 
-def _demo_stream(base: str, headers: dict[str, str], payload: dict[str, Any], model: str, first: dict[str, Any] | None = None):
-    """SSE generator shared by the site demos: one concurrency slot, tokens as {"t": ...}, then {"done": true}."""
+def _site_meter(surface: str) -> "U.Meter":
+    """The public website's meter (usage spec §1.3 L12): the website's own share of the free pool, never an account's.
+    Lane auto: an anonymous visitor never takes the per-minute slots kept for owners' own work."""
+    return U.Meter(owner_id=0, desk_id=0, scope="public", lane="auto", surface=surface)
+
+
+def _sse_limit(exc: U.UsageLimit) -> str:
+    """The site demos' SSE body at a usage limit (S16): the page shows the message."""
+    return _sse({"error": "usage_limit", "message": exc.message, "resets_at": exc.resets_at})
+
+
+def _demo_stream(base: str, headers: dict[str, str], payload: dict[str, Any], model: str, first: dict[str, Any] | None = None,
+                 *, meter: "U.Meter"):
+    """SSE generator shared by the site demos: one concurrency slot, tokens as {"t": ...}, then {"done": true}. The one
+    model request is metered for `meter` (the website's share): refused at a limit, nothing is sent and the stream says
+    so with {"error": "usage_limit", message, resets_at}; otherwise the request is recorded with the provider's usage."""
     import httpx
+    from ..providers import provider_id
     t0 = time.time()
     if not _VISION_SLOTS.acquire(blocking=False):          # acquired inside the generator so a slot is never leaked
         yield _sse({"error": "busy - a few other visitors are using the demo right now, retrying shortly"})
@@ -3479,36 +3618,62 @@ def _demo_stream(base: str, headers: dict[str, str], payload: dict[str, Any], mo
     try:
         if first:
             yield _sse(first)
-        with httpx.Client(timeout=60) as c, c.stream("POST", base + "/chat/completions", headers=headers, json=payload) as r:
-            if r.status_code >= 400:
-                body = b"".join(r.iter_bytes())[:200].decode("utf-8", "replace")
-                yield _sse({"error": f"model HTTP {r.status_code}: {body}"})
-                return
-            sent = 0
-            for line in r.iter_lines():
-                if not line.startswith("data:"):
-                    continue
-                chunk = line[5:].strip()
-                if chunk == "[DONE]":
-                    break
-                try:
-                    j = json.loads(chunk)
-                except ValueError:
-                    continue
-                if j.get("error"):
-                    yield _sse({"error": str(j["error"].get("message") if isinstance(j["error"], dict) else j["error"])[:200]})
+        try:
+            tk = U.before(meter, provider=provider_id(base), model=model, key_kind="house")
+        except U.UsageLimit as exc:                         # S16: the website's share or the pool is used up
+            yield _sse_limit(exc)
+            return
+        seen: dict[str, Any] = {"status": 0, "usage": None, "error": ""}
+        try:
+            with httpx.Client(timeout=60) as c, c.stream("POST", base + "/chat/completions", headers=headers, json=payload) as r:
+                seen["status"] = r.status_code
+                if r.status_code >= 400:
+                    raw = b"".join(r.iter_bytes())[:400].decode("utf-8", "replace")
+                    try:
+                        err = (json.loads(raw) or {}).get("error")
+                        msg = str((err.get("message") if isinstance(err, dict) else err) or raw)
+                    except (ValueError, AttributeError):
+                        msg = raw
+                    U.after(tk, http_status=r.status_code, error=f"HTTP {r.status_code}: {msg[:200]}")
+                    if tk.limit is not None:                # the provider's daily free-model quota: closed until 00:00 UTC
+                        yield _sse_limit(tk.limit)
+                    else:
+                        yield _sse({"error": f"model HTTP {r.status_code}: {raw[:200]}"})
                     return
-                for ch in j.get("choices") or []:
-                    t = (ch.get("delta") or {}).get("content") or ""
-                    if t:
-                        sent += len(t)
-                        yield _sse({"t": t, "model": model.split("/")[-1]})
-            if not sent:
-                yield _sse({"error": "model returned no text"})
-                return
-            yield _sse({"done": True, "model": model.split("/")[-1], "ms": int((time.time() - t0) * 1000)})
-    except Exception as exc:
-        yield _sse({"error": f"{type(exc).__name__}: {str(exc)[:120]}"})
+                sent = 0
+                for line in r.iter_lines():
+                    if not line.startswith("data:"):
+                        continue
+                    chunk = line[5:].strip()
+                    if chunk == "[DONE]":
+                        break
+                    try:
+                        j = json.loads(chunk)
+                    except ValueError:
+                        continue
+                    if not isinstance(j, dict):
+                        continue
+                    if j.get("usage"):
+                        seen["usage"] = j["usage"]
+                    if j.get("error"):
+                        msg = str(j["error"].get("message") if isinstance(j["error"], dict) else j["error"])[:200]
+                        seen["error"] = "stream error: " + msg
+                        yield _sse({"error": msg})
+                        return
+                    for ch in j.get("choices") or []:
+                        t = (ch.get("delta") or {}).get("content") or ""
+                        if t:
+                            sent += len(t)
+                            yield _sse({"t": t, "model": model.split("/")[-1]})
+                if not sent:
+                    yield _sse({"error": "model returned no text"})
+                    return
+                yield _sse({"done": True, "model": model.split("/")[-1], "ms": int((time.time() - t0) * 1000)})
+        except Exception as exc:
+            seen["error"] = seen["error"] or f"{type(exc).__name__}: {str(exc)[:120]}"
+            yield _sse({"error": f"{type(exc).__name__}: {str(exc)[:120]}"})
+        finally:                                            # recorded even when the visitor closes the page early
+            U.after(tk, http_status=seen["status"], usage=seen["usage"], error=seen["error"])
     finally:
         _VISION_SLOTS.release()
 
@@ -3573,7 +3738,8 @@ def api_vision_demo_ask():
     payload = {"model": model, "max_tokens": 160, "temperature": 0.2, "stream": True,
                "messages": [{"role": "system", "content": system}, {"role": "user", "content": q}]}
     headers = _demo_headers(key, "Atlas Desks site vision ask")
-    return Response(_demo_stream(base, headers, payload, model, first={"used": used, "of": len(events)}),
+    return Response(_demo_stream(base, headers, payload, model, first={"used": used, "of": len(events)},
+                                 meter=_site_meter("site.ask")),
                     mimetype="text/event-stream", headers=hdr)
 
 
@@ -3602,10 +3768,14 @@ def api_vision_ask():
 
         def text_answer(system: str, prompt: str) -> str:   # noqa: F811 - text-only fallback on the desk's Atlas model
             return (prov.chat(system, [prov.user_message(prompt)], [], model=atlas_agent.get("model", "")).text or "").strip()
+    vlm = str(d.get("model") or "") or (DS.PAID_VLM if (desk.get("tier") or "free") != "free" else "")
+    if _mode() != "demo" and not text_byo:             # S3: the re-look needs Atlas's vision model; JSON first
+        V.vlm_precheck(meter, vlm)                     # (with the owner's own key the text answer still works, S31)
     try:
-        vlm = str(d.get("model") or "") or (DS.PAID_VLM if (desk.get("tier") or "free") != "free" else "")
         res = RAG.ask(store, desk["id"], q, hours, str(d.get("camera") or ""), configs["business"], mode=_mode(),
                       text_answer=text_answer, vlm_model=vlm, meter=meter, text_byo=text_byo)
+    except U.UsageLimit:
+        raise                                          # S3: the 429 body
     except Exception as exc:
         return jsonify({"error": f"model error: {type(exc).__name__}: {str(exc)[:200]}"}), 502
     scores = res.get("scores") or {}

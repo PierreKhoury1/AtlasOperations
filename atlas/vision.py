@@ -815,6 +815,24 @@ def _chain_or_raise(model: str) -> list[dict[str, str]]:
     return chain
 
 
+def vlm_precheck(meter: Any, model: str = "") -> None:
+    """Would a vision call on this chain be refused right now? The routes' fast check (usage spec §1.3 L1, §4.6): it
+    raises the refusal (the 429 body) before an upload is read or a stream starts, and only when every entry of the
+    chain would be refused, since each entry is its own pool. Nothing is taken; the chokepoint takes per request. With
+    no chain (no key) there is nothing to check: the call fails as it always did."""
+    from . import usage as U
+    from .providers import provider_id
+    chain = [e for e in vlm_chain(model) if e.get("key")]
+    for i, e in enumerate(chain):
+        last = i + 1 == len(chain)
+        try:
+            U.precheck(meter, provider=provider_id(e["base"]), model=e["model"], key_kind="house", record=last)
+            return
+        except U.UsageLimit:
+            if last:
+                raise
+
+
 def describe(jpeg: bytes, question: str, model: str = "", context: str = "", max_tokens: int = 400,
              transport: httpx.BaseTransport | None = None, *, meter: Any) -> str:
     """Ask the vision model one question about the frame. Plain-text answer, never invents what it can't see.

@@ -10,7 +10,8 @@ Write path. `before()` classifies one request, checks the limits in order and ta
 a refusal raises `UsageLimit` and nothing is sent. `after()` records the request with the provider-reported tokens and
 cost. `allow()` is the background form: it never raises, it answers "" / "paced" / "paused" and logs one deduplicated
 refusal per window. `action()`, `auto_action()`, `channel_send()` and `take_storage()` meter sends, unattended actions
-and uploads. Nothing else writes the usage_* tables.
+and uploads. `run_begin()` / `run_end()` gate a run's start (its headroom on the free pool, the paid allowances, the
+owner's runs at once) and `run_started()` records it. Nothing else writes the usage_* tables.
 
 Windows are UTC with no local-time arithmetic: a day starts at floor(now / 86400) * 86400; a month on the 1st, 00:00.
 """
@@ -24,6 +25,7 @@ import os
 import secrets
 import shutil
 import sqlite3
+import statistics
 import threading
 import time
 from collections import deque
@@ -332,7 +334,8 @@ def _limit(limit_id: str, *, used: Any, limit: Any, now: float, retry_at: Any = 
         retry_at = resets if w in ("D", "M") else (now + CFG.busy_retry_s if limit_id == "runs_at_once" else None)
     if not message:
         if limit_id == "runs_at_once":
-            message = f"{_fmt(used, 'runs')} runs are going (limit {_fmt(limit, 'runs')}). Start this when one finishes."
+            going = "run is" if used == 1 else "runs are"
+            message = f"{_fmt(used, 'runs')} {going} going (limit {_fmt(limit, 'runs')}). Start this when one finishes."
         elif limit_id == "run_requests":
             message = (f"This run made {_fmt(used, 'requests')} AI requests (per-run cap {_fmt(limit, 'requests')}). "
                        "Stopped; nothing retries it automatically.")
@@ -429,6 +432,7 @@ class Ticket:
     minute_ts: float | None = None
     done: bool = False
     limit: UsageLimit | None = None           # set by after() on the provider's daily-quota error: raise it
+    surface: str = ""                         # step_surface() in force at before(): the ledger row's surface
 
 
 # ---------------------------------------------------------------------------- module state
@@ -447,6 +451,7 @@ _email_cache: dict[int, tuple[float, str]] = {}
 _reserve_cache: dict[str, int] = {}
 _hermes: dict[str, dict[str, Any]] = {}      # Atlas->Hermes calls in flight (proxy mode): token -> meter, start, inner
 _hermes_warn: dict[str, Any] = {}
+_live_runs: dict[int, dict[str, float]] = {}  # owner -> {run meter's action id: start}: runs going on a house provider (L5)
 _poller: dict[str, Any] = {"thread": None}
 _unattr_log = [0.0]
 LEAD_RUN: Callable[..., str] | None = None   # app._lead_case_run(desk, lead_id); deferred_tick starts runs through it
@@ -475,6 +480,7 @@ def reset() -> None:
         _hermes.clear()
         _hermes_warn.clear()
         _hermes_warn.update(ts=0.0, message="", logged=0.0)
+        _live_runs.clear()
     with _dedup_lock:
         _refusals.clear()
     with _embed_lock:
@@ -1096,7 +1102,7 @@ def before(meter: Meter | None = None, *, provider: str = "", model: str = "", k
     pool = classify(provider, model, kk)
     t = Ticket(meter=m, pool=pool, day_start=day_start(now), month_start=month_start(now), taken=[],
                provider=(provider or "").lower(), model=model or "", t0=now, key_kind=kk,
-               metric="req:free" if pool == "demo" and _demo_enforced() else _metric(pool))
+               metric="req:free" if pool == "demo" and _demo_enforced() else _metric(pool), surface=_cur_surface.get())
     if not CFG.enforce or (pool == "demo" and CFG.demo != "enforce"):
         m.count()                                    # 1. meter only: counted, never refused
         if pool == "free:openrouter":
@@ -1107,7 +1113,7 @@ def before(meter: Meter | None = None, *, provider: str = "", model: str = "", k
         return t
     if not m._reserve():                             # 2. L4, the run's cap, on any key
         exc = _limit("run_requests", used=m.requests, limit=m.run_cap, now=now)
-        _refuse_quietly(m, exc)
+        _refuse_quietly(m, exc, surface=t.surface)
         raise exc
     try:
         if pool == "byo":                            # 3. the owner's own key: metered, never limited by Atlas
@@ -1132,14 +1138,15 @@ def before(meter: Meter | None = None, *, provider: str = "", model: str = "", k
         if t.pool_taken:
             _pool_release(now)
         _minute_release(pool, t.minute_ts)
-        _refuse_quietly(m, exc)
+        _refuse_quietly(m, exc, surface=t.surface)
         raise
 
 
 def precheck(meter: Meter, *, pool: str | None = None, provider: str = "", model: str = "",
-             key_kind: str | None = None) -> None:
+             key_kind: str | None = None, record: bool = True) -> None:
     """The read-only form of before() for routes: refuse with JSON before an SSE stream starts. Nothing is taken
-    (the per-request take still happens at the chokepoint); a refusal is logged like any other."""
+    (the per-request take still happens at the chokepoint); a refusal is logged like any other (record=False: not
+    logged, for a caller trying several pools in turn)."""
     kk = key_kind or meter.key_kind or "house"
     pool = pool or (classify(provider, model, kk) if (provider or model) else ("byo" if kk == "byo" else "free:openrouter"))
     now = _now()
@@ -1170,7 +1177,8 @@ def precheck(meter: Meter, *, pool: str | None = None, provider: str = "", model
         if pool == "paid":
             _check_paid(meter, provider, model, kk, now)
     except UsageLimit as exc:
-        _refuse_quietly(meter, exc)
+        if record:
+            _refuse_quietly(meter, exc)
         raise
 
 
@@ -1285,6 +1293,8 @@ def _after(t: Ticket, http_status: int, usage: Any, err: str, meta: dict[str, An
           "cost_usd": cost, "est_usd": est, "cost_basis": basis, "limit_id": limit_id,
           # the error's own line only: the "[upstream: raw]" part providers.py appends may echo request content
           "note": err.split(" [", 1)[0][:200] if err else str(meta.get("note") or "")}
+    if t.surface:                                   # e.g. a run's browser steps: browse.step, still the run's request
+        ev["surface"] = t.surface
     _write(ev, rows)
 
 
@@ -1689,6 +1699,142 @@ def set_storage(owner_id: int, nbytes: int) -> None:
                   "updated = excluded.updated", (f"o:{int(owner_id or 0)}", "storage", "T", 0, max(0, int(nbytes)), lim, _now()))
 
 
+# ---------------------------------------------------------------------------- runs (spec §1.3 L1 headroom, L2, L3, L5)
+RUN_START_SURFACES = ("run.you", "run.auto")   # the ledger row of a run start; the run's own requests are run.step
+
+
+def demo_enforced() -> bool:
+    """USAGE_DEMO=enforce: scripted DemoProvider requests count against the owner limits (tests, the limit UX)."""
+    return _demo_enforced()
+
+
+def run_meter(desk: dict[str, Any] | None, lane: str) -> Meter:
+    """The meter of one desk run. Every model request of the run counts for it: Atlas, the specialists, and their
+    tools' vision, search and browser steps, in the run's lane and under the per-run cap (L4)."""
+    m = desk_meter(desk, "run.step", lane=lane)
+    m.run_cap = run_cap(m.owner_id)
+    return m
+
+
+def run_headroom(desk_id: int, now: float | None = None) -> tuple[int, float | None]:
+    """A run's start headroom on the free pool (spec §1.3 L1): max(2, the median AI requests per run of this desk
+    over the last 7 UTC days, from the ledger), and that median (None when no run of the desk was measured yet). 2 is
+    Atlas plus one specialist. A run counts through its start row (run.you / run.auto) and every request under its
+    meter; embeddings are not AI requests, and runs still going are left out so they do not pull the median down."""
+    if _store is None:
+        return 2, None
+    now = _now() if now is None else now
+    since = day_start(now) - 6 * DAY
+    did = int(desk_id or 0)
+    marks = ",".join("?" * len(RUN_START_SURFACES))
+    rows = _store._conn.execute(
+        "SELECT e.action_id, SUM(e.units) FROM usage_events e WHERE e.desk_id=? AND e.ts>=? AND e.kind='request' "
+        "AND e.surface<>'embed' AND e.action_id IN (SELECT a.action_id FROM usage_events a WHERE a.desk_id=? AND "
+        f"a.ts>=? AND a.kind='action' AND a.surface IN ({marks})) GROUP BY e.action_id",
+        (did, since, did, since, *RUN_START_SURFACES)).fetchall()
+    with _mem_lock:
+        going = {aid for runs in _live_runs.values() for aid in runs}
+    counts = sorted(int(n or 0) for aid, n in rows if aid not in going and n)
+    if not counts:
+        return 2, None
+    med = statistics.median(counts)
+    return max(2, int(math.ceil(med))), med
+
+
+def _check_headroom(meter: Meter, now: float, need: int | None = None) -> None:
+    """Refuse a free-pool run that would stop after a step or two: fewer requests left today than its headroom, in
+    the shared pool (L10), then the lane and the owner's allowance (L2, L1), or the website's share (L12)."""
+    if need is None:
+        need, med = run_headroom(meter.desk_id, now)
+        why = (f"A run on this desk usually needs about {need} (median of the last 7 days)." if med is not None
+               else "A run needs at least 2 (Atlas and one specialist).")
+    else:
+        why = f"A run needs at least {need} (Atlas and one specialist)."
+    resets = reset_phrase(day_start(now) + DAY, now)
+    p = pool_size()
+    used = max(pool_used(now), p if pool_exhausted(now) else 0)
+    if p - used < need:                     # owners see the pool's state, not the whole account's counts (§5.1)
+        raise _limit("pool_free_day", used=used, limit=p, now=now,
+                     message=f"Shared free-model pool today: not enough left for a run. {why} {resets}")
+    for r in _owner_rows(meter):
+        if r.limit is None:
+            continue
+        n = counter_n(r.scope_key, r.metric, r.period, None, now)
+        if r.limit - n < need:
+            raise _limit(r.limit_id, used=n, limit=r.limit, now=now,
+                         message=f"{LIMITS[r.limit_id]['label']}: {_fmt(n, 'requests')} of {_fmt(r.limit, 'requests')} "
+                                 f"used. {why} {resets}")
+
+
+def _take_run_slot(meter: Meter, now: float) -> None:
+    """L5: one of the owner's runs-at-once, checked and taken in one step."""
+    o = int(meter.owner_id or 0)
+    lim = limit_value(o, "runs_at_once")
+    with _mem_lock:
+        going = _live_runs.setdefault(o, {})
+        if CFG.enforce and lim is not None and len(going) >= lim:
+            n = len(going)
+            if not going:
+                _live_runs.pop(o, None)
+            raise _limit("runs_at_once", used=n, limit=lim, now=now)
+        going[meter.action_id] = now
+
+
+def run_begin(meter: Meter, *, house: bool = True, free: bool = True, paid: bool = False, need: int | None = None,
+              surface: str = "") -> None:
+    """Before a run starts (spec §1.3 L1 headroom, L2, L3, L5, §4.2). A run that would draw on the free pool needs
+    its headroom left today (the lane's too, in lane auto: L2); one with paid house agents needs the paid allowances
+    (L13, L3); and a run with any agent on a house provider takes one of the owner's runs-at-once (L5). Raises
+    UsageLimit, and then nothing starts; each refusal is on the ledger once per window. run_end() gives the slot
+    back. A run whose every agent is on the owner's own key takes no slot and no headroom (spec §2)."""
+    now = _now()
+    surface = surface or f"run.{meter.lane or 'you'}"
+    try:
+        if CFG.enforce and free:
+            _check_headroom(meter, now, need)
+        if CFG.enforce and paid:
+            _check_paid(meter, "", "", "house", now)
+        if house and meter.scope == "owner":
+            _take_run_slot(meter, now)
+    except UsageLimit as exc:
+        _refuse_quietly(meter, exc, surface=surface)
+        raise
+
+
+def run_end(meter: Meter | None) -> None:
+    """The run's thread ended: its runs-at-once slot is free again (idempotent)."""
+    if meter is None:
+        return
+    o = int(meter.owner_id or 0)
+    with _mem_lock:
+        going = _live_runs.get(o)
+        if going is not None:
+            going.pop(meter.action_id, None)
+            if not going:
+                _live_runs.pop(o, None)
+
+
+def runs_going(owner_id: int) -> int:
+    """The owner's runs going now that hold a runs-at-once slot (L5)."""
+    with _mem_lock:
+        return len(_live_runs.get(int(owner_id or 0)) or {})
+
+
+def run_started(meter: Meter, run_id: str = "") -> None:
+    """The run is going: its start on the ledger (metric runs, and runs:auto in lane auto), under the run's id."""
+    if run_id:
+        meter.ref = str(run_id)[:120]
+    action(meter, "action", metric="runs", surface=f"run.{meter.lane or 'you'}", ref=meter.ref, note="run started")
+
+
+def tool_limit_text(limit: "UsageLimit | dict[str, Any]", tool: str) -> str:
+    """The typed result of a tool call refused at a limit (spec §4.6 S22): the model reads that the tool is out for
+    the rest of the run, so it stops calling it."""
+    until = until_text(limit)
+    return (f"LIMIT: {brief(limit)}" + (f", resets {until}" if until else "")
+            + f". {tool} is unavailable for the rest of this run; do not call it again.")
+
+
 # ---------------------------------------------------------------------------- deferred starts (spec §1.6)
 def defer(meter: Meter, kind: str, ref_id: int, exc: UsageLimit) -> int | None:
     """A run start refused at a limit, to retry after `retry_at` (ids only; the task is rebuilt from the lead). One
@@ -1799,6 +1945,18 @@ def prune(now: float | None = None) -> dict[str, int]:
 # ---------------------------------------------------------------------------- context: meters and lanes across calls
 _cur_meter: ContextVar[Meter | None] = ContextVar("atlas_usage_meter", default=None)
 _cur_lane: ContextVar[str] = ContextVar("atlas_usage_lane", default="")
+_cur_surface: ContextVar[str] = ContextVar("atlas_usage_surface", default="")
+
+
+@contextmanager
+def step_surface(surface: str) -> Iterator[str]:
+    """Requests made in this context (this thread) are recorded under `surface` instead of their meter's: a run's
+    browser steps are browse.step. They still count for that meter (its owner, lane and per-run cap)."""
+    tok = _cur_surface.set(surface)
+    try:
+        yield surface
+    finally:
+        _cur_surface.reset(tok)
 
 
 @contextmanager
