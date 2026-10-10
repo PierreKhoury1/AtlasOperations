@@ -9,6 +9,7 @@ Flow
 """
 from __future__ import annotations
 
+import copy
 import json
 import math
 import os
@@ -16,6 +17,7 @@ import re
 import threading
 import time
 import uuid
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
 
@@ -25,6 +27,7 @@ from . import integrations as I
 from . import nextsteps as NS
 from . import templates as T
 from . import tools as TL
+from .style import head_settled, strip_opener
 
 TAG_OPEN, TAG_CLOSE = "<atlas-design>", "</atlas-design>"
 _FENCE = re.compile(r"```(?:[Jj][Ss][Oo][Nn])?\s*(\{.*?\})\s*```", re.S)
@@ -268,8 +271,12 @@ class DesignSession:
         self.turn = 0
         self.links: list[str] = []
         self.profile: dict[str, Any] | None = None       # company profile from the pre-study of their links
-        self.fixed_turn = False                          # never saved: the last turn's steps are the server's (no model answer)
-        self.finish_reason = ""                          # never saved: why the last model call stopped ("length" = cut off)
+        # never saved: the last turn's steps are the server's (no model answer); the model's last "ready" before the
+        # server's gate (6.12); the owner's canvas edits by (kind, id, field) -> bp_rev (6.5); what Undo puts back (6.3)
+        self.fixed_turn = False
+        self.model_ready = False
+        self.owner_edits: dict[tuple[str, str, str], int] = {}
+        self.undo: dict[str, Any] | None = None
         self.next = session_next(self, [], fallback=NS.greeting(bool(sample_clips())))
         self.suggestions: list[str] = NS.labels(self.next)   # legacy chips (studio.js, old sessions)
         self.owner_id: int | None = None                 # the account that started it: its draft comes back on any device
@@ -302,6 +309,7 @@ class DesignSession:
         s.messages = DST.history(d.get("messages"), legacy="design" not in d)
         s.design = DST.load(d.get("design"))
         s.bp_rev = DST.whole(d.get("bp_rev"))
+        s.model_ready = s.ready is True
         # sessions saved before next steps carry only the legacy chips: derive the steps from them
         s.refresh_next(d["next"] if isinstance(d.get("next"), list) else d.get("suggestions") or [])
         return s
@@ -342,25 +350,56 @@ class DesignSession:
         self.suggestions = NS.labels(self.next)
 
 
+_SESSION = object()                                   # session_next: the session's own blueprint / ready
+
+
 def session_next(session: DesignSession, items: Any, intent: str = "design", fallback: list | None = None,
-                 paid: bool = True) -> list[dict[str, Any]]:
+                 paid: bool = True, blueprint: Any = _SESSION, ready: Any = _SESSION) -> list[dict[str, Any]]:
     """The 3 steps under a designer turn: `items` (the model's, or a fixed set) first, then the sketch's fallback.
     Build only once the blueprint has agents; the paid switch only on a live session still on free models, and only
     when `paid`: the server offers it on a turn the model never answered, a model's own steps never add it (the
-    prompt never asks for it, so one there was not the owner's idea)."""
-    drop = set() if session.blueprint and session.blueprint.get("agents") else {"build"}
+    prompt never asks for it, so one there was not the owner's idea). `blueprint` / `ready`: the turn's own, before
+    they are committed to the session."""
+    bp = session.blueprint if blueprint is _SESSION else blueprint
+    drop = set() if isinstance(bp, dict) and bp.get("agents") else {"build"}
     if not paid or session.mode == "demo" or session.tier != "free":
         drop.add("paid")
-    fb = fallback if fallback is not None else NS.design_fallback(session.blueprint, session.ready, intent)
+    fb = fallback if fallback is not None else NS.design_fallback(bp, session.ready if ready is _SESSION else ready, intent)
     return NS.normalise(items, fb, allow=[a for a in NS.DESIGN if a not in drop])
 
 
 SESSIONS: dict[str, DesignSession] = {}
 _SESSIONS_MAX = 200
 # sid -> (token, since): the request that holds a session's turn (spec 7.1). A module registry, not a session field, so
-# it outlives SESSIONS eviction and a reloaded copy of the session; never saved.
+# it outlives SESSIONS eviction and a reloaded copy of the session; never saved. /say claims it before Phase A (and
+# /build and /study for their whole run); the holder releases it in a finally, and only while its token still holds it.
 BUSY: dict[str, tuple[str, float]] = {}
 _BUSY_LOCK = threading.Lock()
+BUSY_MESSAGE = "Atlas is still answering your last message."
+
+
+class DesignBusy(RuntimeError):
+    """Another request holds this session's turn (the route answers 409 with BUSY_MESSAGE)."""
+
+
+def claim(sid: str) -> str | None:
+    """Take the session's turn, test-and-set: a fresh token, or None while another request holds it."""
+    with _BUSY_LOCK:
+        if sid in BUSY:
+            return None
+        token = uuid.uuid4().hex
+        BUSY[sid] = (token, round(time.time(), 3))
+        return token
+
+
+def release(sid: str, token: str | None) -> bool:
+    """Give the turn back, only while `token` still holds it (True when it did)."""
+    with _BUSY_LOCK:
+        held = BUSY.get(sid)
+        if held is None or held[0] != token:
+            return False
+        del BUSY[sid]
+        return True
 
 
 def busy_since(sid: str) -> float | None:
@@ -371,9 +410,14 @@ def busy_since(sid: str) -> float | None:
 
 
 def new_session(mode: str, tier: str = "free") -> DesignSession:
+    """A new session in SESSIONS. Past _SESSIONS_MAX the oldest quarter is evicted, never one whose turn is running: a
+    reload of that sid would be a second object, and a second turn could run on it."""
     s = DesignSession(mode, tier)
     if len(SESSIONS) >= _SESSIONS_MAX:
-        for k in sorted(SESSIONS, key=lambda k: SESSIONS[k].created)[: _SESSIONS_MAX // 4]:
+        with _BUSY_LOCK:
+            held = set(BUSY)
+        idle = [k for k in SESSIONS if k not in held]
+        for k in sorted(idle, key=lambda k: SESSIONS[k].created)[: _SESSIONS_MAX // 4]:
             SESSIONS.pop(k, None)
     SESSIONS[s.id] = s
     return s
@@ -911,112 +955,562 @@ def _wire_cameras(agents: list[dict[str, Any]], cams: list[dict[str, Any]]) -> N
         agents.sort(key=lambda a: a["id"] not in bound_set)   # stable: watchers first, whoever reads across them after
 
 
-# ---------------------------------------------------------------------------- the turn
-def _provider_for(mode: str, providers_cfg: dict[str, Any] | None):
-    from .providers import ProviderPool
-    if mode == "demo" or not providers_cfg:
-        return None, ""
-    pool = ProviderPool(providers_cfg)
-    prov_name = providers_cfg.get("default_provider") or pool.default_name
-    prov = pool.get(prov_name)
-    model = T.STRONG_MODEL if prov_name == "openrouter" and False else ""      # tier-gated later; default model for now
-    return prov, model
+# ---------------------------------------------------------------------------- the turn (spec 3, 6.3, 6.11-6.14, 7)
+def _env_seconds(name: str, default: float) -> float:
+    try:
+        v = float(str(os.environ.get(name) or default).strip())
+    except ValueError:
+        v = default
+    return max(10.0, min(900.0, v)) if math.isfinite(v) else default
 
 
-def reply(session: DesignSession, user_text: str, on_token: Callable[[str], None] | None = None,
-          providers_cfg: dict[str, Any] | None = None, designer_model: str = "") -> dict[str, Any]:
-    """Run one designer turn. Streams prose tokens through on_token (machine block is withheld)."""
-    user_text = (user_text or "").strip()
+DESIGN_TURN_MAX_S = _env_seconds("DESIGN_TURN_MAX_S", 180.0)    # one turn, both calls included [decision; to measure]
+# the HTTP requests a turn can make (the usage module's overrun reads them): the reply and at most one repair, each a
+# chat() of at most 2 requests on the free tier (one 5xx retry; the fallback model IS the free model) and 3 on a paid
+# tier (the paid model can fall back to the free one) [spec 7.2]
+DESIGN_TURN_MAX_REQUESTS = 4
+DESIGN_TURN_MAX_REQUESTS_PAID = 6
+HEAD_SENTENCES, HEAD_CHARS, HEAD_WAIT_CHARS = 3, 300, 1200     # the streamed head the opener strip runs on (7.4)
+# statuses, lower-case (7.4)
+S_PLANNING, S_WEIGHING, S_WRITING, S_SKETCH, S_REPAIR = (
+    "planning", "weighing", "writing", "updating the sketch", "checking the change list")
+V2_KEYS = ("changes", "blueprint", "plan", "ask", "answered", "propose", "assume", "unassume", "next")
+QUOTA_TEXT = ("Today's free model allowance on this account is used up (it resets at midnight UTC). You can switch this "
+              "conversation to the paid model, about 3p a message, or come back after the reset. The sketch so far is kept.")
+QUOTA_STEPS = (PAID_STEP, BUILD_STEP, {**RETRY_STEP, "label": "Try the free model again",
+                                       "detail": "Works again after the midnight UTC reset"})
+MINUTE_TEXT = "The model is busy for a moment (per-minute limit). Try again shortly; the sketch so far is kept."
+DEADLINE_TEXT = "Atlas took too long; nothing changed. Try again, or build from the sketch as it is."
+EMPTY_TEXT = "No reply came back from the model that time; nothing changed. Say that again, or switch to the paid model."
+APPLY_ERROR_TEXT = "The change could not be applied; nothing changed. Try again."
+UNREAD_NOTE = "_The change list could not be read, so the sketch did not change._"
+LIMIT_NOTE = "_The sketch did not change: the AI allowance ran out before the change list was read._"
+DEADLINE_NOTE = "_Atlas took too long on the change list; nothing changed._"
+
+
+def turn_max_requests(tier: str) -> int:
+    return DESIGN_TURN_MAX_REQUESTS if (tier or "free") == "free" else DESIGN_TURN_MAX_REQUESTS_PAID
+
+
+def _reasoning_budget() -> dict[str, Any]:
+    """The design call's reasoning budget: DESIGN_REASONING (JSON), default {"max_tokens": 3000} [decision; to measure].
+    Every free OpenRouter model takes the "reasoning" parameter; whether one honours the budget is read from
+    meta.reasoning_tokens. Before, no budget was sent and reasoning shared max_tokens with the reply."""
+    try:
+        v = json.loads(os.environ.get("DESIGN_REASONING") or "null")
+    except ValueError:
+        v = None
+    return v if isinstance(v, dict) and v else {"max_tokens": 3000}
+
+
+def _int(v: Any) -> int:
+    return v if isinstance(v, int) and not isinstance(v, bool) and v > 0 else 0
+
+
+def _num(v: Any, default: float) -> float:
+    try:
+        x = float(v)
+    except (TypeError, ValueError):
+        return default
+    return x if math.isfinite(x) and x > 0 else default
+
+
+def _keys(st: dict[str, Any] | None) -> set[str]:
+    """Every text a step can be sent or typed as: its label, its message, its legacy chip (spec 6.3: a click by say,
+    label or chip)."""
+    if not st:
+        return set()
+    return {k for k in (DST.key(st.get("label")), DST.key(st.get("say") or ""), DST.key(NS._chip(st))) if k}
+
+
+def _main_key(st: dict[str, Any]) -> str:
+    """The key `offered` keeps for a step: its message (what a click sends), else its label."""
+    return DST.key(st.get("say") or st.get("label"))
+
+
+# ---------------------------------------------------------------------------- Phase A: decide (6.3, 6.8)
+@dataclass
+class Decided:
+    """Phase A's outcome. `server`: the result of a server-only turn (accept, decline, skip, undo, Continue on queued
+    agents), already committed. Otherwise the model turn's inputs: the owner's text, the snapshot it is built from and
+    applied against (bp0, rev0, the view the model is shown), and what Phase A wrote to the ledger (an answer)."""
+    text: str
+    server: dict[str, Any] | None = None
+    bp0: dict[str, Any] | None = None
+    rev0: int = 0
+    view: dict[str, Any] | None = None
+    ledger: list[dict[str, Any]] = field(default_factory=list)
+
+
+_AFFIRM = re.compile(r"(?:yes|yeah|yep|ok|okay|sure|go ahead|do it|agreed|fine|please do|confirm)\b")
+_NEGATE = re.compile(r"(?:no|nope|keep|leave|don'?t|don’t)\b")
+_NOT_YES = re.compile(r"\b(?:but|only|except|not|without)\b|\?")
+_NEGATION = re.compile(r"\b(?:no|not|don'?t|don’t|never|instead)\b", re.I)
+_SERVER_LINE = re.compile(r"^\s*(?:_.*_|Question: .*)\s*$")
+
+
+def decide(session: DesignSession, user_text: str) -> Decided:
+    """Phase A, under the session lock, before any usage check or model call (spec 6.3):
+    - a team with no plan gets its plan seeded (kept whatever the turn does next);
+    - the text is matched to a step offered on the latest turn (by its message, label or chip), else read as a bare
+      yes / no to the pending proposal;
+    - accept, decline, skip, undo and Continue on an item with queued agents are server-only: applied here with no model
+      and nothing metered, `turn` and `dturn` unchanged, one server reply built from the ledger;
+    - an option of the open question (clicked, or typed: a unique best match where 60% of an option's words appear,
+      never with a negation) is recorded as the owner's answer, and the turn goes on to the model."""
+    text = (user_text or "").strip()
     with session.lock:
-        # before the turn (Phase A): a session with a team and no plan gets its plan seeded, kept even if the turn fails
         if DST.seed(session.design, session.blueprint):
             session.design = DST.clamp(session.design)
-        session.turn += 1
-        session.transcript.append({"role": "user", "text": DST.cut(user_text, DST.TRANSCRIPT_CHARS), "ts": round(time.time(), 3)})
-        session.messages = DST.history(session.messages + [{"role": "user", "content": user_text}])
-        session.fixed_turn = False                       # _live_turn sets it when the model never answered
-        session.finish_reason = ""                       # _live_turn sets it from the model's answer
-        if session.mode == "demo":
-            raw = _demo_turn(session, user_text, on_token)
-        else:
-            raw = _live_turn(session, providers_cfg, designer_model, on_token)
-        prose, data = split_reply(raw, session.finish_reason)
-        prose = prose.strip()                                # light markdown: the workspace renders it
-        if not prose:
-            prose = "Noted. I have updated the sketch — tell me more, or build the desk when it looks right."
-        steps: Any = []
-        intent = "design"
-        if data:
-            steps = data["next"] if isinstance(data.get("next"), list) and data["next"] else data.get("suggestions")
-            intent = "answer" if str(data.get("intent") or "").lower() == "answer" else "design"
-            # a follow-up that never mentioned dropping anyone must not shrink the team (truncated / lazy replies did)
-            protect = bool(session.blueprint and session.blueprint.get("agents")) and not REMOVAL_WORDS.search(user_text)
-            bp = normalise(data.get("blueprint"), session.blueprint, keep_missing=protect)
-            if bp and (bp.get("agents") or bp.get("business")):
-                carried = bp.pop("carried_over", [])
-                if carried:
-                    names = [a["name"] for a in bp["agents"] if a["id"] in carried]
-                    prose += "\n\n_Kept from the previous draft: " + ", ".join(names) + ". Say \"remove …\" to drop one._"
-                if bp != session.blueprint:              # an answer turn hands back the sketch as it was: no new revision
-                    session.blueprint = bp
-                    session.bp_rev += 1
-                if DST.seed(session.design, bp, DST.FIRST_DRAFT_WHY):   # a first draft whose block carried no plan
-                    session.design = DST.clamp(session.design)
-            if isinstance(data.get("ready"), bool):
-                session.ready = data["ready"] and bool(session.blueprint and session.blueprint.get("agents"))
-        # after the blueprint settles, so "build" is real; the paid switch only from the server's own steps
-        session.next = session_next(session, steps, intent, paid=session.fixed_turn)
-        session.suggestions = NS.labels(session.next)
-        prose = DST.cut(prose, DST.TRANSCRIPT_CHARS)
-        session.transcript.append({"role": "assistant", "text": prose, "ts": round(time.time(), 3),
-                                   "k": "fixed" if session.fixed_turn else "model"})
-        # the model's history holds prose only (the sketch reaches the model as state, not as old blocks), and a
-        # fixed reply (quota, error, no answer) never enters it: the owner's message stays for the next try
-        if not session.fixed_turn:
-            session.messages.append({"role": "assistant", "content": prose})
-        session.messages = DST.history(session.messages)
-        return {"text": prose, "next": session.next, "suggestions": session.suggestions, "blueprint": session.blueprint,
-                "ready": session.ready, "turn": session.turn}
+        saved_undo, session.undo = session.undo, None        # Undo lasts one turn
+        kind, ref, step = _picked(session, text)
+        server = {"accept": lambda: _accept_turn(session, text, ref), "decline": lambda: _decline_turn(session, text, ref),
+                  "skip": lambda: _skip_turn(session, text, ref), "undo": lambda: _undo_turn(session, text, saved_undo),
+                  "continue": lambda: _continue_turn(session, text, ref)}.get(kind, lambda: None)()
+        if server is not None:
+            return Decided(text, server=server)
+        ledger = []
+        line = _answer_option(session, text, ref) if kind in ("option", "") else None    # a click, or the owner's words
+        if line:
+            ledger.append(line)
+        if kind in ("model", "continue") and ref.startswith("p"):     # a picked step that names a plan item touches it
+            for it in session.design["plan"]:
+                if it["id"] == ref:
+                    it["touched_dturn"] = session.design["dturn"]
+        bp0 = copy.deepcopy(session.blueprint) if isinstance(session.blueprint, dict) else None
+        return Decided(text, bp0=bp0, rev0=session.bp_rev, ledger=ledger,
+                       view=DST.view(bp0, session.design, session.turn, OPS.facts(bp0)))
 
 
-def _fixed_block(session: DesignSession, *steps: dict[str, Any]) -> str:
-    """Machine block for a turn the model never answered, and the mark that its steps are the server's (only these
-    may offer the paid switch). No "ready": the design state stays as it was."""
-    session.fixed_turn = True
-    return chr(10) + "<atlas-design>" + json.dumps({"next": list(steps), "blueprint": None}) + "</atlas-design>"
+def _picked(session: DesignSession, text: str) -> tuple[str, str, dict[str, Any] | None]:
+    """(kind, ref, step) of what the text picks: a step offered on the latest turn, else a bare yes / no; ("", "", None)
+    for a message of the owner's own."""
+    k = DST.key(text)
+    if k:
+        for e in session.design["offered"]:
+            step = next((s for s in session.next if _main_key(s) == e["key"]), None)
+            if k in (_keys(step) | {e["key"]}):
+                return e["kind"], e["ref"], step
+    x = DST.pending_proposal(session.design)
+    yn = _yes_no(session, text) if x else ""
+    return (yn, x["id"], None) if yn else ("", "", None)
 
 
-def _live_turn(session: DesignSession, providers_cfg: dict[str, Any] | None, model: str,
-               on_token: Callable[[str], None] | None) -> str:
-    from .providers import ProviderPool
-    pool = ProviderPool(providers_cfg or {})
-    prov = pool.get()
-    buf: list[str] = []
-    gate = {"open": True}
+def _yes_no(session: DesignSession, text: str) -> str:
+    """"accept" / "decline" for a bare yes or no to the pending proposal (6.3), else "". Only with no question open,
+    when Atlas's latest reply asked nothing outside the server's own lines, and for at most 4 words: a yes starts with
+    an AFFIRM word and has no but / only / except / not / without / "?"; a no starts with a NEGATE word and asks for no
+    removal. "fine, but only merge the first three" and "ok so what does the reader do?" are messages, not consent."""
+    if DST.open_question(session.design) is not None:
+        return ""
+    t = NS._text(text).casefold().lstrip("\"'“‘([ ")
+    if not t or len(t.split()) > 4:
+        return ""
+    last = next((e for e in reversed(session.transcript) if isinstance(e, dict) and e.get("role") == "assistant"), {})
+    said = last.get("text") if isinstance(last.get("text"), str) else ""
+    if "?" in "\n".join(ln for ln in said.splitlines() if not _SERVER_LINE.match(ln)):
+        return ""
+    if _AFFIRM.match(t) and not _NOT_YES.search(t):
+        return "accept"
+    if _NEGATE.match(t) and not REMOVAL_WORDS.search(t):
+        return "decline"
+    return ""
 
-    def tok(text: str, thinking: bool = False):
-        if thinking or not on_token:
+
+def _answer_option(session: DesignSession, text: str, qid: str) -> dict[str, Any] | None:
+    """Record the open question's answer from an option click (`qid`) or a typed reply (6.8); the ledger line, or None."""
+    q = DST.open_question(session.design)
+    if q is None or (qid and q["id"] != qid):
+        return None
+    k = DST.key(text)
+    opt = next((o for o in q["options"] if k in _keys(o)), None) if qid else _typed_option(q, text)
+    if opt is None:
+        return None
+    design = copy.deepcopy(session.design)
+    line = OPS.answer(design, DST.open_question(design), opt["label"], design["dturn"], source="owner")
+    if line:
+        session.design = DST.clamp(design)
+    return line
+
+
+def _typed_option(q: dict[str, Any], text: str) -> dict[str, Any] | None:
+    """The option a typed reply picks: the unique best one where at least 60% of its label's (or its message's) words
+    appear in the reply. A reply with a negation ("no, not daily") is left to the model's "answered"."""
+    if _NEGATION.search(text or ""):
+        return None
+    words = OPS._tokens(text)
+    if not words:
+        return None
+    scores = []
+    for o in q["options"]:
+        best = 0.0
+        for src in (o.get("label"), o.get("say")):
+            toks = OPS._tokens(src)
+            if toks:
+                best = max(best, len(toks & words) / len(toks))
+        scores.append(best)
+    top = max(scores, default=0.0)
+    return q["options"][scores.index(top)] if top >= 0.6 and scores.count(top) == 1 else None
+
+
+# ---------------------------------------------------------------------------- server-only turns (6.3)
+def _accept_turn(session: DesignSession, text: str, ref: str) -> dict[str, Any] | None:
+    x = DST.pending_proposal(session.design)
+    if x is None or x["id"] != ref:
+        return None
+    res = OPS.accept(session.blueprint, session.design)
+    if res is None:
+        return None
+    if res["withdrawn"]:
+        return _server_turn(session, text, session.blueprint, res["design"], [],
+                            reply="That change no longer applies: what it named has left the sketch. Nothing changed.")
+    return _server_turn(session, text, res["blueprint"], res["design"], res["ledger"], notes=res["notes"], undo=res["undo"])
+
+
+def _decline_turn(session: DesignSession, text: str, ref: str) -> dict[str, Any] | None:
+    x = DST.pending_proposal(session.design)
+    res = OPS.decline(session.blueprint, session.design) if x is not None and x["id"] == ref else None
+    return _server_turn(session, text, session.blueprint, res["design"], res["ledger"]) if res else None
+
+
+def _skip_turn(session: DesignSession, text: str, ref: str) -> dict[str, Any] | None:
+    q = DST.open_question(session.design)
+    res = OPS.skip(session.design) if q is not None and q["id"] == ref else None
+    return _server_turn(session, text, session.blueprint, res["design"], res["ledger"]) if res else None
+
+
+def _undo_turn(session: DesignSession, text: str, saved: dict[str, Any] | None) -> dict[str, Any]:
+    """Undo puts the team back only while nothing changed the sketch since the accept (the same bp_rev)."""
+    res = OPS.undo(saved) if isinstance(saved, dict) and saved.get("rev") == session.bp_rev else None
+    if res is None:
+        return _server_turn(session, text, session.blueprint, session.design, [],
+                            reply="Nothing to undo: the sketch has changed since that change.")
+    return _server_turn(session, text, res["blueprint"], res["design"], res["ledger"])
+
+
+def _continue_turn(session: DesignSession, text: str, ref: str) -> dict[str, Any] | None:
+    """Continue on a plan item with queued agents adds them (no model); on any other item the say goes to the model."""
+    res = OPS.apply_queued(session.blueprint, session.design, ref)
+    if res is None:
+        return None
+    notes = []
+    if not res["ledger"]:
+        notes.append(f"_The sketch holds {OPS.TEAM_MAX} agents: remove one to add the next._")
+    return _server_turn(session, text, res["blueprint"], res["design"], res["ledger"], notes=notes)
+
+
+def _server_turn(session: DesignSession, text: str, blueprint: Any, design: dict[str, Any], ledger: list[dict[str, Any]],
+                 notes: Any = (), reply: str = "", undo: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Commit a server-only turn (lock held): the owner's text and a reply built from the ledger in the transcript
+    (k "server") and the model's history; no usage check, no model call, `turn` and `dturn` unchanged. The SSE stream
+    carries its result as one done event."""
+    t0 = time.time()
+    design = DST.clamp(design)
+    rev = session.bp_rev + (1 if blueprint != session.blueprint else 0)
+    prose = reply or OPS.ledger_sentence(ledger)
+    ready = OPS.compute_ready(session.model_ready, blueprint, design)
+    steps, offered = _compose_next(session, blueprint, design, ready, "design", "server", undo=undo)
+    design = DST.clamp({**design, "offered": offered})
+    shown = _shown(prose, list(notes), design)
+    ts = round(time.time(), 3)
+    session.blueprint, session.bp_rev, session.design, session.ready = blueprint, rev, design, ready
+    session.next, session.suggestions = steps, NS.labels(steps)
+    session.fixed_turn = False
+    session.transcript += [{"role": "user", "text": DST.cut(text, DST.TRANSCRIPT_CHARS), "ts": ts},
+                           {"role": "assistant", "text": shown, "ts": ts, "k": "server"}]
+    session.messages = DST.history(session.messages + [{"role": "user", "content": text}, {"role": "assistant", "content": prose}])
+    session.undo = {**undo, "rev": rev} if undo else None
+    meta = {"requests": 0, "fallback_from": "", "parse": "none", "finish_reason": "", "output_tokens": 0,
+            "reasoning_tokens": 0, "seconds": round(time.time() - t0, 2), "first_token_s": None, "deadline": False}
+    return _result(session, {**OPS.new_changes(), "applied": list(ledger)}, meta)
+
+
+def _result(session: DesignSession, changes: dict[str, Any], meta: dict[str, Any],
+            limit: Any = None) -> dict[str, Any]:
+    """The done event's body (12.5): the next-steps contract's keys, plus design (the Plan strip's view), changes (the
+    ledger), meta (telemetry, not saved) and rev; `limit` when a usage limit refused the turn."""
+    out = {"text": session.transcript[-1]["text"], "next": session.next, "suggestions": session.suggestions,
+           "blueprint": session.blueprint, "ready": session.ready, "turn": session.turn,
+           "design": DST.public_view(session.design, session.blueprint, OPS.public_facts(session.blueprint)),
+           "changes": changes, "meta": meta, "rev": session.bp_rev}
+    if limit is not None:
+        out["limit"] = limit
+    return out
+
+
+def _shown(prose: str, notes: list[str], design: dict[str, Any]) -> str:
+    """The reply as the owner sees it: the prose, then the server's factual notes, then the open question's line; the
+    prose is what gives way when the entry would pass TRANSCRIPT_CHARS."""
+    tail = [n for n in notes if n]
+    line = OPS.question_line(design)
+    if line:
+        tail.append(line)
+    end = "\n\n".join(tail)
+    body = DST.cut((prose or "").strip(), max(400, DST.TRANSCRIPT_CHARS - len(end) - 2))
+    return DST.cut(body + ("\n\n" + end if end else ""), DST.TRANSCRIPT_CHARS)
+
+
+# ---------------------------------------------------------------------------- next-step composition (6.11)
+def _compose_next(session: DesignSession, bp: Any, design: dict[str, Any], ready: bool, intent: str, kind: str, *,
+                  model_steps: Any = None, asked: bool = False, fixed: Any = (),
+                  undo: dict[str, Any] | None = None) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """The 3 steps under a turn and the `offered` entries the Phase A matcher reads them by. `kind`: "server" (a
+    server-only turn), "fixed" (the model never answered) or "model".
+      server:  Continue, Undo (after an accept), build, then the latest turn's model steps
+      fixed:   accept, decline, the first fixed step while a proposal waits; else the fixed steps
+      model:   a proposal waits -> accept, decline, the first model step (else Continue)
+               a question asked this turn -> its options, plus "Skip this question" when there are 2
+               a question still open -> its first option, Skip, the first model step (else Continue)
+               else the model's steps, with Continue in place of the 3rd (or added) when a "next" item waits and no
+               step names one
+    A model step that reads like a server step (its label, message or chip) is dropped; the next-steps contract
+    (session_next) fills to exactly 3."""
+    x, q = DST.pending_proposal(design), DST.open_question(design)
+    server: list[tuple[dict[str, Any], str, str]] = []
+
+    def srv(st: dict[str, Any] | None, k: str, ref: str) -> dict[str, Any] | None:
+        if st:
+            server.append((st, k, ref))
+        return st
+
+    item = next((it for it in design["plan"] if it["status"] == "next"), None)
+    acc = srv(OPS.accept_step(x, bp), "accept", x["id"]) if x else None
+    dec = srv(NS.clean(OPS.DECLINE_STEP), "decline", x["id"]) if x else None
+    opts = [srv(NS.clean(o), "option", q["id"]) for o in q["options"]] if q else []
+    skp = srv(OPS.skip_step(q), "skip", q["id"]) if q else None
+    cont = srv(OPS.continue_step(item), "continue", item["id"]) if item else None
+    und = srv(OPS.undo_step(undo.get("names") or []), "undo", undo.get("proposal") or "") if undo else None
+    taken = set().union(*[_keys(st) for st, _k, _r in server])
+    valid: list[tuple[dict[str, Any], str]] = []
+    for raw in model_steps if isinstance(model_steps, list) else []:
+        st = NS.clean(raw)
+        if not st or st["action"] == "paid" or (_keys(st) & taken):
+            continue
+        ref = raw.get("plan") if isinstance(raw, dict) and isinstance(raw.get("plan"), str) else ""
+        valid.append((st, ref if any(it["id"] == ref for it in design["plan"]) else ""))
+    first = [valid[0][0]] if valid else [cont]
+    if kind == "server":
+        latest = [s for s in session.next if _offered(session.design, s)[0] == "model" and not (_keys(s) & taken)]
+        build = next((s for s in NS.design_fallback(bp, ready) if s["action"] == "build"), None) if DST._agents(bp) else None
+        items = [cont, und, build] + latest
+    elif kind == "fixed":
+        items = [acc, dec, (list(fixed) or [None])[0]] if x else list(fixed)
+    elif x:
+        items = [acc, dec] + first
+    elif q is not None and asked:
+        items = opts + ([skp] if len(opts) == 2 else [])
+    elif q is not None:
+        items = [opts[0] if opts else None, skp] + first
+    else:
+        items = [st for st, _r in valid]
+        waiting = {it["id"] for it in design["plan"] if it["status"] == "next"}
+        if cont and not any(r in waiting for _s, r in valid):
+            if len(items) >= 3:
+                items[2] = cont
+            else:
+                items.append(cont)
+    steps = session_next(session, [s for s in items if s], intent, paid=kind == "fixed", blueprint=bp, ready=ready)
+    by_key: dict[str, tuple[str, str]] = {}
+    for st, k, ref in server:
+        by_key.setdefault(_main_key(st), (k, ref))
+    for st, ref in valid:
+        by_key.setdefault(_main_key(st), ("model", ref))
+    return steps, [{"key": _main_key(s), "kind": by_key.get(_main_key(s), ("model", ""))[0],
+                    "ref": by_key.get(_main_key(s), ("model", ""))[1]} for s in steps]
+
+
+def _offered(design: dict[str, Any], st: dict[str, Any]) -> tuple[str, str]:
+    """(kind, ref) the latest turn offered this step as; ("model", "") for one it does not list."""
+    e = next((e for e in design["offered"] if e["key"] == _main_key(st)), None)
+    return (e["kind"], e["ref"]) if e else ("model", "")
+
+
+# ---------------------------------------------------------------------------- Phase B: the call (5.6, 7.2, 7.4)
+_BOUND = re.compile(r"[.!?](?=\s)|\n")
+_ATLAS = re.compile(r"<atlas", re.I)
+_TAG_HEADS = ("<atlas", "<think")
+
+
+class _Stream:
+    """The turn's on_token (spec 7.4). Statuses: "weighing" on the first reasoning delta (its text is never shown),
+    "writing" on the first prose, "updating the sketch" once the machine block starts. Prose is held until the head
+    has 3 sentence ends or 300 characters (or the reply is done) and the opener strip can no longer change it, then it
+    is shown stripped, and the rest as it comes. Never shown: reasoning, <think> text, the block and whatever follows
+    it (the done event carries the final text)."""
+
+    def __init__(self, on_token: Callable[[str], None] | None, t0: float):
+        self.on = on_token
+        self.t0 = t0
+        self.parts: list[str] = []
+        self.seen: set[str] = set()
+        self.first_s: float | None = None          # seconds to the first prose (meta)
+        self.flushed = False
+        self.base = 0                              # visible characters already shown (after the head)
+        self.closed = False
+
+    def status(self, s: str) -> None:
+        if self.on and s not in self.seen:
+            self.seen.add(s)
+            self.on(STATUS_MARK + s)
+
+    def __call__(self, text: str, thinking: bool = False) -> None:
+        if not isinstance(text, str) or not text:
             return
-        buf.append(text)
-        if not gate["open"]:
+        if thinking:
+            self.status(S_WEIGHING)
             return
-        joined = "".join(buf)
-        cut = joined.find("<atlas")
-        if cut >= 0:                                   # machine block starts: stop streaming prose
-            gate["open"] = False
-            on_token(STATUS_MARK + "Sketching the blueprint")
-            return
-        if "<" in text:                                # hold back a tag fragment so "<her" + "mes-design>" never leaks
-            head = text.split("<", 1)[0]
-            if head:
-                on_token(head)
-            gate["held"] = text[len(head):]
-            return
-        held = gate.pop("held", "")
-        on_token(held + text)
+        if not self.closed:
+            self.parts.append(text)
+            self._pump(False)
 
-    # every prompt input that is not the model's own reply has the block tag neutralised: the owner's messages, the
-    # links and the profile studied from their (third-party) pages, and the sketch with its owner- and model-written names
+    def finish(self) -> None:
+        """The reply is complete: show whatever is held."""
+        if not self.closed:
+            self._pump(True)
+            self.closed = True
+
+    def _visible(self) -> tuple[str, bool]:
+        raw = _THINK.sub("", "".join(self.parts))
+        hits = [m for m in (_THINK_OPEN.search(raw), _ATLAS.search(raw)) if m]
+        vis = raw[:min(m.start() for m in hits)] if hits else raw
+        if not hits:                               # a tag still arriving ("<", "<at", "<thi"): wait for the next token
+            j = vis.rfind("<")
+            if j >= 0 and any(t.startswith(vis[j:].lower()) for t in _TAG_HEADS):
+                vis = vis[:j]
+        return vis, _ATLAS.search(raw) is not None
+
+    def _pump(self, final: bool) -> None:
+        vis, block = self._visible()
+        if self.first_s is None and vis.strip():
+            self.first_s = round(time.time() - self.t0, 2)
+            self.status(S_WRITING)
+        if block:
+            self.status(S_SKETCH)
+            self.closed = True
+        if not self.on:
+            return
+        end = final or block
+        if not self.flushed:
+            head = vis.lstrip()
+            if not head or not end and not (len(head) >= HEAD_CHARS or len(_BOUND.findall(head)) >= HEAD_SENTENCES):
+                return
+            if not end and len(head) < HEAD_WAIT_CHARS and not head_settled(head):
+                return
+            self.flushed, self.base = True, len(vis)
+            self.on(strip_opener(head))
+        elif len(vis) > self.base:
+            self.on(vis[self.base:])
+            self.base = len(vis)
+
+
+def _discard(*_a: Any, **_k: Any) -> None:
+    """The repair call's on_token: streamed (so the provider's wall-clock limits apply), shown nowhere."""
+
+
+@dataclass
+class _Call:
+    """Phase B's outcome: the reply (prose, block, how it parsed, why it stopped), or `fixed` for a turn the model never
+    answered ({text, steps, limit?, keep?, note?}), and the call's telemetry."""
+    raw: str = ""
+    prose: str = ""
+    block: dict[str, Any] | None = None
+    how: str = "none"
+    finish: str = ""
+    fixed: dict[str, Any] | None = None
+    demo: bool = False
+    retried: bool = False                      # the empty reply's retry used the second call's slot
+    repaired: bool = False                     # the repair call ran
+    requests: int = 0
+    fallback_from: str = ""
+    output_tokens: int = 0
+    reasoning_tokens: int = 0
+
+
+def _design_provider(providers_cfg: Any, model: str) -> Any:
+    """The design call's provider, from a copy of the provider config (7.2): max_tokens = max(its own, the reasoning
+    budget + 3,000), and on OpenRouter the reasoning budget itself (not for a model whose extras set reasoning)."""
+    from .providers import HermesAgentProvider, OpenAICompatProvider, ProviderPool, model_extras
+    cfg = copy.deepcopy(providers_cfg) if isinstance(providers_cfg, dict) else {}
+    pcs = cfg.get("providers") if isinstance(cfg.get("providers"), dict) else {}
+    pc = pcs.get(cfg.get("default_provider") or next(iter(pcs), ""))
+    budget = _reasoning_budget()
+    want = _int(budget.get("max_tokens"))
+    if isinstance(pc, dict) and want:
+        pc["max_tokens"] = max(int(_num(pc.get("max_tokens"), 4096)), want + 3000)
+    prov = ProviderPool(cfg).get()
+    if (isinstance(prov, OpenAICompatProvider) and not isinstance(prov, HermesAgentProvider)
+            and "openrouter.ai" in str(getattr(prov, "base_url", "")).lower()
+            and "reasoning" not in model_extras(model or getattr(prov, "default_model", ""))):
+        prov._extra_payload = {**(getattr(prov, "_extra_payload", None) or {}), "reasoning": dict(budget)}
+    return prov
+
+
+def _chat(prov: Any, system: str, msgs: list[Any], model: str, on_token: Any, c: _Call, deadline: float) -> tuple[Any, Any]:
+    """One chat() call: (response, None) or (None, the exception). Its wall-clock limit is the time left before the
+    turn's deadline; requests, fallback, output and reasoning tokens go into the turn's telemetry (read with getattr
+    defaults: a test stub answers with .text only)."""
+    pc = getattr(prov, "cfg", None)
+    if isinstance(pc, dict):
+        left = max(1.0, deadline - time.time())
+        pc["call_max_s"] = left
+        pc["first_token_s"] = min(_num(pc.get("first_token_s"), 120.0), left)
+    try:
+        r = prov.chat(system, msgs, [], model or "", on_token=on_token)
+    except Exception as exc:                   # an HTTP error carries the call's count; anything else sent at least one
+        c.requests += _int(getattr(exc, "requests", 0)) or 1
+        return None, exc
+    extra = getattr(r, "extra", None)
+    extra = extra if isinstance(extra, dict) else {}
+    c.requests += _int(extra.get("requests")) or 1
+    c.fallback_from = c.fallback_from or str(extra.get("fallback_from") or "")
+    c.output_tokens += _int(getattr(r, "output_tokens", 0))
+    c.reasoning_tokens += _int(extra.get("reasoning_tokens"))
+    return r, None
+
+
+def _limit_body(exc: BaseException) -> dict[str, Any] | None:
+    """A usage limit's body (the usage module raises UsageLimit with .body()), else None."""
+    if type(exc).__name__ != "UsageLimit":
+        return None
+    body = getattr(exc, "body", None)
+    try:
+        out = body() if callable(body) else body
+    except Exception:
+        out = None
+    return out if isinstance(out, dict) else {}
+
+
+def _quota(exc: BaseException) -> bool:
+    """The daily allowance is out: a usage limit, or OpenRouter's free-models-per-day (only that: a per-minute 429 is
+    not the daily allowance, 7.2)."""
+    return _limit_body(exc) is not None or "free-models-per-day" in str(exc)
+
+
+def _late(exc: BaseException, deadline: float) -> bool:
+    """The call ended at the turn's deadline (the provider's own wall-clock limit, set to the time left)."""
+    return "model call exceeded" in str(exc) or time.time() >= deadline - 1
+
+
+def _fixed_for(exc: BaseException, deadline: float) -> dict[str, Any]:
+    """The fixed turn for a call that raised (7.3): the daily allowance, a per-minute limit, the deadline, an error."""
+    msg = str(exc)
+    if _quota(exc):                            # a usage limit says what it is in its own message
+        limit = _limit_body(exc)
+        said = str(getattr(exc, "message", "") or "").strip() if limit is not None else ""
+        return {"text": f"{said} The sketch so far is kept." if said else QUOTA_TEXT, "steps": list(QUOTA_STEPS),
+                "limit": limit, "why": "quota"}
+    if msg.startswith("HTTP 429"):
+        return {"text": MINUTE_TEXT, "steps": [RETRY_STEP, BUILD_STEP], "why": "minute"}
+    if _late(exc, deadline):
+        return {"text": DEADLINE_TEXT, "steps": [RETRY_STEP, BUILD_STEP], "why": "deadline"}
+    return {"text": f"The model did not answer ({type(exc).__name__}: {msg[:160]}). Say that again in a moment; the sketch "
+                    "so far is kept.", "steps": [RETRY_STEP, PAID_STEP, BUILD_STEP], "why": "error"}
+
+
+def _system(session: DesignSession, dec: Decided) -> str:
+    """The design prompt, from the turn's snapshot. Every input that is not the model's own reply has the block tag
+    neutralised: the links and the profile studied from the owner's (third-party) pages, and the sketch with its
+    owner- and model-written names."""
     system = DESIGNER_SYSTEM + camera_guide()
     if session.profile:
         prof = {k: session.profile.get(k) for k in ("name", "summary", "sector", "services", "locations", "customers", "team_hint",
@@ -1024,68 +1518,229 @@ def _live_turn(session: DesignSession, providers_cfg: dict[str, Any] | None, mod
         system += ("\n\nYou already studied the owner's public links (" + neutralise(", ".join(map(str, session.links[:3])))
                    + "). Company profile - treat as known facts, do not ask for them again, reference them naturally:\n"
                    + neutralise(json.dumps(prof, ensure_ascii=False))[:3500])
-    if session.blueprint:
+    if dec.bp0:
         system += ("\n\nCurrent blueprint (update it, keep what still holds):\n"
-                   + neutralise(json.dumps(session.blueprint, ensure_ascii=False)))
-    msgs = [prov.user_message(neutralise(m["content"])) if m["role"] == "user"
-            else {"role": "assistant", "content": neutralise(m["content"])} for m in session.messages]
-    raw = ""
-    err = ""
-    for attempt in range(2):
-        try:
-            r = prov.chat(system, msgs, [], model or "", on_token=tok)
-            raw = r.text or ""
-            session.finish_reason = str(getattr(r, "stop_reason", "") or "")    # test stubs answer with .text only
-            break
-        except Exception as exc:
-            err = f"{type(exc).__name__}: {str(exc)[:160]}"
-            time.sleep(2.0)
-    if not raw and err:
-        if "free-models-per-day" in err or ("429" in err and ":free" in (model or "")):
-            return ("Today's free model allowance on this account is used up (it resets at midnight UTC). You can switch "
-                    "this conversation to the paid model, about 3p a message, or come back after the reset. The sketch so far is kept."
-                    + _fixed_block(session, PAID_STEP, BUILD_STEP, {**RETRY_STEP, "label": "Try the free model again",
-                                                                    "detail": "Works again after the midnight UTC reset"}))
-        return (f"The model did not answer ({err}). Say that again in a moment — the sketch so far is kept."
-                + _fixed_block(session, RETRY_STEP, PAID_STEP, BUILD_STEP))
-    if not raw.strip():                                    # some free models return content="" - try the fallback model once
-        fallback = (getattr(prov, "cfg", {}) or {}).get("fallback_model") or ""
-        if fallback and fallback != model:
-            try:
-                r = prov.chat(system, msgs, [], fallback, on_token=tok)
-                raw = r.text or ""
-                session.finish_reason = str(getattr(r, "stop_reason", "") or "")
-            except Exception as exc:
-                err = f"{type(exc).__name__}: {str(exc)[:160]}"
+                   + neutralise(json.dumps(dec.bp0, ensure_ascii=False)))
+    return system
+
+
+def _repair_ask(dec: Decided) -> str:
+    if dec.bp0:
+        return ("Output ONLY the <atlas-design>{...}</atlas-design> block, nothing else. Start from the Current blueprint "
+                "in your instructions and apply ONLY the changes your last reply described - same ids, same order, "
+                "everything else copied unchanged. Keep the same next steps.")
+    return ("Output ONLY the <atlas-design>{...}</atlas-design> block, nothing else. Include your best FIRST-DRAFT "
+            "blueprint for what has been said so far (make reasonable assumptions; the owner can adjust it on the "
+            "canvas). Keep the same next steps. If the owner has only asked general questions and not described "
+            "work to take on, set \"intent\": \"answer\" and \"blueprint\": null instead.")
+
+
+def _usable(block: Any) -> bool:
+    """A block the turn can use (5.6): any v2 key, or "intent": "answer"."""
+    return isinstance(block, dict) and (any(k in block for k in V2_KEYS)
+                                        or str(block.get("intent") or "").strip().lower() == "answer")
+
+
+def _claims(prose: str) -> bool:
+    """Sentence 1 claims a change ("Drafted", "Added", "Changed", "Merged", "Parked", "Removed", "Proposed")."""
+    return OPS.first_verb(OPS.split_first(prose)[0]) in OPS._VERBS
+
+
+def _needs_repair(session: DesignSession, dec: Decided, msgs: list[dict[str, Any]], c: _Call) -> bool:
+    """The repair (5.6) runs once the owner has said something about the business (a greeting or a question must not
+    conjure a team), on a turn that is not a plain answer, when no usable block came back, or when a loose block was cut
+    off ("length") under a sentence 1 that claims a change. A question-only turn makes one request."""
+    said = " ".join(m["content"] for m in msgs if m["role"] == "user" and isinstance(m.get("content"), str))
+    if not (dec.bp0 or session.profile or len(said.split()) >= 12):
+        return False
+    if isinstance(c.block, dict) and str(c.block.get("intent") or "").strip().lower() == "answer":
+        return False
+    return not _usable(c.block) or (c.how == "loose" and c.finish == "length" and _claims(c.prose))
+
+
+def _model_call(session: DesignSession, dec: Decided, msgs: list[dict[str, Any]], stream: _Stream, providers_cfg: Any,
+                model: str, deadline: float) -> _Call:
+    """Phase B, with no lock held (7.2): ONE streamed model call. An empty reply uses the second slot as a plain retry
+    (the fallback model when there is one); otherwise the second slot is the streamed repair, whose block keys replace
+    the same keys of the reply's block. No designer-level retry: the provider retries a 5xx once."""
+    c = _Call()
+    try:
+        prov = _design_provider(providers_cfg, model)
+    except Exception as exc:
+        c.fixed = _fixed_for(exc, deadline)
+        return c
+    system = _system(session, dec)
+    pm = [prov.user_message(neutralise(m["content"])) if m["role"] == "user"
+          else {"role": "assistant", "content": neutralise(m["content"])} for m in msgs]
+    r, exc = _chat(prov, system, pm, model, stream, c, deadline)
+    if exc is None and not str(getattr(r, "text", "") or "").strip():
+        c.retried = True
+        fb = str((getattr(prov, "cfg", None) or {}).get("fallback_model") or "") if isinstance(getattr(prov, "cfg", None), dict) else ""
+        r, exc = _chat(prov, system, pm, fb if fb and fb != model else model, stream, c, deadline)
+    if exc is not None:
+        c.fixed = _fixed_for(exc, deadline)
+        return c
+    raw = str(getattr(r, "text", "") or "")
     if not raw.strip():
-        return ("I did not get a reply from the model that time - nothing was lost. Say that again, or switch to the paid model."
-                + _fixed_block(session, RETRY_STEP, PAID_STEP, BUILD_STEP))
-    # repair pass: the prose came back without a usable machine block -> ask for the block alone (not streamed).
-    # Only once the owner has actually said something about the business (a greeting or "what did you understand"
-    # must not conjure a team).
-    _, data = split_reply(raw, session.finish_reason)
-    said = " ".join(m["content"] for m in session.messages if m["role"] == "user" and isinstance(m["content"], str))
-    substantive = bool(session.blueprint) or bool(session.profile) or len(said.split()) >= 12
-    answered = bool(data) and str(data.get("intent") or "").lower() == "answer"     # a plain question: no team for it
-    if substantive and not answered and not (data and isinstance(data.get("blueprint"), dict)):
-        if session.blueprint:
-            ask = ("Output ONLY the <atlas-design>{...}</atlas-design> block, nothing else. Start from the Current blueprint "
-                   "in your instructions and apply ONLY the changes your last reply described - same ids, same order, "
-                   "everything else copied unchanged. Keep the same next steps.")
-        else:
-            ask = ("Output ONLY the <atlas-design>{...}</atlas-design> block, nothing else. Include your best FIRST-DRAFT "
-                   "blueprint for what has been said so far (make reasonable assumptions; the owner can adjust it on the "
-                   "canvas). Keep the same next steps. If the owner has only asked general questions and not described "
-                   "work to take on, set \"intent\": \"answer\" and \"blueprint\": null instead.")
+        c.fixed = {"text": EMPTY_TEXT, "steps": [RETRY_STEP, PAID_STEP, BUILD_STEP], "why": "empty"}
+        return c
+    stream.finish()
+    c.raw, c.finish = raw, str(getattr(r, "stop_reason", "") or "")
+    c.prose, c.block, c.how = parse_reply(raw, c.finish)
+    if c.retried or time.time() >= deadline or not _needs_repair(session, dec, msgs, c):
+        return c
+    stream.status(S_REPAIR)
+    fix, exc = _chat(prov, system, pm + [{"role": "assistant", "content": raw}, prov.user_message(_repair_ask(dec))],
+                     model, _discard, c, deadline)
+    c.repaired = True
+    if exc is not None:
+        if _quota(exc):                        # the reply stands, nothing is applied (5.6)
+            c.fixed = {**_fixed_for(exc, deadline), "keep": True, "note": LIMIT_NOTE}
+        elif _late(exc, deadline):
+            c.fixed = {"text": DEADLINE_TEXT, "steps": [RETRY_STEP, BUILD_STEP], "why": "deadline", "keep": True,
+                       "note": DEADLINE_NOTE}
+        return c
+    _p, fixed_block, _h = parse_reply(str(getattr(fix, "text", "") or ""), str(getattr(fix, "stop_reason", "") or ""))
+    if isinstance(fixed_block, dict):
+        c.block, c.how = {**(c.block or {}), **fixed_block}, "repair"
+    return c
+
+
+# ---------------------------------------------------------------------------- Phases B and C
+def run_turn(session: DesignSession, dec: Decided, on_token: Callable[[str], None] | None = None,
+             providers_cfg: dict[str, Any] | None = None, designer_model: str = "") -> dict[str, Any]:
+    """A model turn after Phase A (and after the route's usage pre-check): the owner's message enters the transcript and
+    the history, Phase B calls the model with no lock held (deadline DESIGN_TURN_MAX_S), Phase C applies the block under
+    the lock, all or nothing."""
+    t0 = time.time()
+    deadline = t0 + DESIGN_TURN_MAX_S
+    stream = _Stream(on_token, t0)
+    stream.status(S_PLANNING)
+    with session.lock:
+        session.transcript.append({"role": "user", "text": DST.cut(dec.text, DST.TRANSCRIPT_CHARS), "ts": round(time.time(), 3)})
+        session.messages = DST.history(session.messages + [{"role": "user", "content": dec.text}])
+        msgs = [dict(m) for m in session.messages]
+    if session.mode == "demo":
+        call = _Call(demo=True, raw=_demo_turn(session, dec.text, stream if on_token else None))
+        stream.finish()
+        call.prose, call.block, call.how = parse_reply(call.raw)
+    else:
+        call = _model_call(session, dec, msgs, stream, providers_cfg, designer_model, deadline)
+    with session.lock:
+        return _phase_c(session, dec, call, stream, t0, deadline)
+
+
+def _meta(call: _Call, stream: _Stream, t0: float) -> dict[str, Any]:
+    """The turn's telemetry (7.5), in done only, never saved."""
+    return {"requests": call.requests, "fallback_from": call.fallback_from,
+            "parse": call.how if call.block is not None else "none", "finish_reason": call.finish,
+            "output_tokens": call.output_tokens, "reasoning_tokens": call.reasoning_tokens,
+            "seconds": round(time.time() - t0, 2), "first_token_s": stream.first_s,
+            "deadline": bool(call.fixed and call.fixed.get("why") == "deadline")}
+
+
+def _phase_c(session: DesignSession, dec: Decided, call: _Call, stream: _Stream, t0: float, deadline: float) -> dict[str, Any]:
+    """Phase C, lock held (6.14): the turn is computed into locals and assigned in one block. A turn past its deadline
+    commits a fixed turn and discards the late result; an exception while applying changes nothing and gives RETRY."""
+    if call.fixed is None and not call.demo and time.time() > deadline:
+        call.fixed = {"text": DEADLINE_TEXT, "steps": [RETRY_STEP, BUILD_STEP], "why": "deadline", "keep": True,
+                      "note": DEADLINE_NOTE}
+    if call.fixed is None:
         try:
-            fix = prov.chat(system, msgs + [{"role": "assistant", "content": raw}, prov.user_message(ask)], [], model or "")
-            _, data2 = split_reply(fix.text or "", str(getattr(fix, "stop_reason", "") or ""))
-            if data2:                                  # "<" escaped: a tag inside a JSON string can never cut the block
-                raw = (split_reply(raw, session.finish_reason)[0] + chr(10) + TAG_OPEN
-                       + json.dumps(data2, ensure_ascii=False).replace("<", "\\u003c") + TAG_CLOSE)
-        except Exception:
-            pass
-    return raw
+            out = _apply_turn(session, dec, call)
+        except Exception as exc:
+            print("design turn not applied:", f"{type(exc).__name__}: {exc}")
+            call.fixed = {"text": APPLY_ERROR_TEXT, "steps": [RETRY_STEP, BUILD_STEP], "why": "error"}
+    if call.fixed is not None:
+        return _fixed_turn(session, call, _meta(call, stream, t0))
+    session.blueprint = out["blueprint"]
+    session.bp_rev += 1 if out["changed"] else 0
+    session.design = out["design"]
+    session.ready, session.model_ready = out["ready"], out["model_ready"]
+    session.next, session.suggestions = out["steps"], NS.labels(out["steps"])
+    session.turn += 1 if out["advance"] else 0
+    session.transcript.append(out["entry"])
+    session.messages = DST.history(session.messages + [{"role": "assistant", "content": out["history"]}])
+    session.fixed_turn = False
+    session.owner_edits = {k: v for k, v in session.owner_edits.items() if v > session.bp_rev}
+    return _result(session, out["changes"], _meta(call, stream, t0))
+
+
+def _apply_turn(session: DesignSession, dec: Decided, call: _Call) -> dict[str, Any]:
+    """Everything a model turn commits, computed from the session as it is now (bp1 and its design state, the owner's
+    canvas edits included) without changing it: the block applied (design_ops), the prose (opener strip, a re-asked
+    question removed, sentence 1 checked against the ledger), the notes and the question line, the steps, `ready`."""
+    block = call.block
+    if block is None:                          # nothing readable came back: the prose stands, nothing is applied
+        answer, t = False, None
+        prose = strip_opener(call.prose)
+        notes = [UNREAD_NOTE] if (call.repaired or _claims(call.prose)) else []
+        blueprint, design, changed = session.blueprint, copy.deepcopy(session.design), False
+        changes = {**OPS.new_changes(), "applied": list(dec.ledger)}
+        steps_in, asked, model_ready, intent = [], False, session.model_ready, "design"
+    else:
+        t = OPS.apply_block(session.blueprint, session.design, block, owner_text=dec.text, how=call.how,
+                            finish_reason=call.finish, bp_view=dec.view, owner_edits=session.owner_edits, rev0=dec.rev0)
+        answer, intent = t.intent == "answer", t.intent
+        ask = block.get("ask")
+        prose = strip_opener(call.prose, answer=answer)
+        prose = OPS.drop_reask(prose, t.design, ask.get("text") if isinstance(ask, dict) and isinstance(ask.get("text"), str) else "")
+        if not answer:
+            prose = OPS.check_sentence1(prose, t)
+        notes = list(t.notes) + ([UNREAD_NOTE] if call.repaired and not _usable(block) else [])
+        blueprint, design, changed = t.blueprint, t.design, t.changed
+        changes = {**t.changes, "applied": list(dec.ledger) + list(t.changes["applied"])}
+        steps_in = block["next"] if isinstance(block.get("next"), list) and block["next"] else block.get("suggestions")
+        asked = t.asked is not None
+        model_ready = t.ready if t.ready is not None else session.model_ready
+    if not prose.strip():
+        prose = OPS.ledger_sentence(changes["applied"])
+    ready = OPS.compute_ready(model_ready, blueprint, design)
+    steps, offered = _compose_next(session, blueprint, design, ready, intent, "model", model_steps=steps_in, asked=asked)
+    design = DST.clamp({**design, "offered": offered})
+    shown = _shown(prose, notes, design)
+    return {"blueprint": blueprint, "design": design, "changed": changed, "ready": ready, "model_ready": model_ready is True,
+            "steps": steps, "changes": changes, "advance": block is not None or call.demo,
+            "entry": {"role": "assistant", "text": shown, "ts": round(time.time(), 3), "k": "model"},
+            "history": DST.cut(prose.strip(), DST.TRANSCRIPT_CHARS)}
+
+
+def _fixed_turn(session: DesignSession, call: _Call, meta: dict[str, Any]) -> dict[str, Any]:
+    """A turn the model never answered, or whose answer could not be used (7.3): nothing advances, the plan, the
+    question and the proposal stay, accept and decline stay offered while a proposal waits, the paid switch only from
+    these server steps. The owner's message stays in the model's history; the fixed reply never enters it."""
+    f = call.fixed or {}
+    prose = strip_opener(call.prose).strip() if f.get("keep") else ""
+    text = prose + "\n\n" + f["note"] if prose and f.get("note") else f.get("text") or APPLY_ERROR_TEXT
+    steps, offered = _compose_next(session, session.blueprint, session.design, session.ready, "design", "fixed",
+                                   fixed=f.get("steps") or [RETRY_STEP])
+    session.design = DST.clamp({**session.design, "offered": offered})
+    session.next, session.suggestions = steps, NS.labels(steps)
+    session.fixed_turn = True
+    session.transcript.append({"role": "assistant", "text": DST.cut(text, DST.TRANSCRIPT_CHARS), "ts": round(time.time(), 3),
+                               "k": "fixed"})
+    return _result(session, OPS.new_changes(), meta, limit=f.get("limit"))
+
+
+def reply(session: DesignSession, user_text: str, on_token: Callable[[str], None] | None = None,
+          providers_cfg: dict[str, Any] | None = None, designer_model: str = "", token: str | None = None) -> dict[str, Any]:
+    """One designer turn, end to end (spec 3): claim the session's turn (unless the caller holds `token`), Phase A
+    (decide: a server-only turn ends there), then Phases B and C; the turn is released in a finally. Streams prose and
+    statuses through on_token; the machine block is never shown. Raises DesignBusy while another turn holds the
+    session."""
+    own = token is None
+    if own:
+        token = claim(session.id)
+        if token is None:
+            raise DesignBusy(BUSY_MESSAGE)
+    try:
+        dec = decide(session, user_text)
+        if dec.server is not None:
+            return dec.server
+        return run_turn(session, dec, on_token, providers_cfg, designer_model)
+    finally:
+        if own:
+            release(session.id, token)
 
 
 # ---------------------------------------------------------------------------- demo designer (no model)
@@ -1179,7 +1834,7 @@ def _demo_turn(session: DesignSession, text: str, on_token: Callable[[str], None
     if m and not name:
         name = m.group(1).strip()
         session._demo_name = name  # type: ignore[attr-defined]
-    turn = session.turn
+    turn = session.turn + 1                            # turn advances when the turn commits (Phase C)
     bp = _demo_blueprint(kind, name, turn)
     label = {"sales": "inbound enquiry desk", "proposal": "proposal desk", "inbox": "inbox triage desk", "orders": "order-care desk"}[kind]
     whose = (name + ("'" if name.endswith("s") else "'s")) if name else "the"

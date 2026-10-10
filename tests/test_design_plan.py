@@ -10,6 +10,9 @@ Step 3: the server ops (atlas/design_ops.py) - validation, the full-blueprint di
 with ids authoritative and the owner's edits winning, the camera source rule, consent and proposals (declined, expiry,
 re-validation, accept), the first draft's clone collapse, the cap and the queue, build_item, the plan, questions, the
 ledger, the decision and the sentence-1 check, build facts and cost.
+Step 4: the turn - Phase A (decide: offered steps, a bare yes / no, typed answers, server-only turns), the busy registry,
+the deadline, one call plus a streamed repair, the opener strip, notes and the question line, the next-step composition,
+the atomic commit, meta and the request count (tests/design_script.py: a scripted provider and a MockTransport).
 Numbers in the test names follow the spec's test table (designer_spec.md section 14)."""
 import json
 import re
@@ -19,6 +22,7 @@ from pathlib import Path
 
 import pytest
 
+import design_script as SC
 import atlas.design_ops as OPS
 import atlas.design_state as DST
 import atlas.designer as DS
@@ -169,7 +173,7 @@ def test_1_a_cut_off_reply_does_not_apply_a_misclosed_block(monkeypatch):
     body = {"intent": "design", "blueprint": {"agents": [{"id": "w", "name": "Writer", "role": "Writes", "tools": ["crm_lookup"]}]}}
     raw = "Drafted a writer.\n<atlas-design>" + json.dumps(body) + "<atlas-design>"
     s, r = _live(monkeypatch, _Model(raw, "length"), "hello there")          # a greeting: no repair call either
-    assert s.blueprint is None and r["text"] == "Drafted a writer."
+    assert s.blueprint is None and r["text"] == "Drafted a writer.\n\n" + DS.UNREAD_NOTE     # (step 4) and says so
     s, r = _live(monkeypatch, _Model(raw, "stop"), "hello there")
     assert [a["id"] for a in s.blueprint["agents"]] == ["w"] and r["text"] == "Drafted a writer."
 
@@ -1657,3 +1661,498 @@ def test_design_ops_reads_nothing_from_designer_at_import():
         used = {n.value.id for n in ast.walk(node) if isinstance(n, ast.Attribute) and isinstance(n.value, ast.Name)}
         assert not used & {"DS", "DST", "NS", "I"}, ast.dump(node)[:200]
     assert OPS.BUSINESS_FIELDS == DS._BIZ_TEXT + ("services",)
+
+
+# ================================================================== step 4: the turn (decide, phases B and C)
+BRIEF = "We run a campus with five cameras and want everything that happens there documented for the team"
+QUOTA_EXC = RuntimeError("HTTP 429: Rate limit exceeded: free-models-per-day")
+INTO = {"name": "Floor Watcher", "role": "Reads every camera journal", "goal": "Answer from every camera's journal",
+        "tools": ["camera_ask", "camera_events"]}
+MERGE = {"intent": "design", "propose": {"kind": "merge", "ids": [f"cam{i}" for i in range(1, 6)], "into": INTO,
+                                         "reason": "they differ only by camera"},
+         "next": [{"label": "Add a nightly summary", "say": "Add a nightly summary for me."}]}
+MERGE_REPLY = "Proposed merging the five monitors into one Floor Watcher: they differ only by their camera.\n" + SC.block(MERGE)
+NOTHING = "Kept the team as it is.\n" + SC.block({"intent": "design", "next": []})
+ASK_Q = {"text": "Alerts in real time, or one daily report?", "decides": "alert_mode",
+         "options": [{"label": "Real-time alerts", "detail": "Adds an alert step", "say": "Real-time alerts.", "default": True},
+                     {"label": "One daily report", "detail": "One summary a day", "say": "One daily report."}]}
+READER = {"name": "Floor Watcher", "role": "Reads every camera journal", "goal": "Answer from every journal",
+          "tools": ["camera_ask", "camera_events"]}
+ASK_REPLY = ("Added a Floor Watcher that reads every camera journal.\n"
+             + SC.block({"intent": "design", "changes": [{"op": "add_agent", "agent": READER, "why": "one reader covers every journal"}],
+                         "ask": ASK_Q}))
+WRITER = {"name": "Reply Writer", "role": "Drafts replies", "goal": "Draft each reply", "tools": ["record_find"]}
+
+
+def _cams5():
+    s = DS.new_session("live")
+    s.blueprint = DS.normalise({"business": {"name": "Campus"},
+                                "agents": [_cam_agent(f"cam{i}", f"Camera {i} Monitor") for i in range(1, 6)],
+                                "cameras": [{"name": n} for n in ("lobby", "entrance", "car-park", "drive", "gym")]})
+    return s
+
+
+def _merge_turn(monkeypatch, *then, reply=MERGE_REPLY):
+    s = _cams5()
+    prov = SC.install(monkeypatch, SC.Scripted(reply, *then))
+    return s, prov, SC.say(s, "i have 5 camera")
+
+
+def _asked(monkeypatch, *then):
+    prov = SC.install(monkeypatch, SC.Scripted(ASK_REPLY, *then))
+    s = DS.new_session("live")
+    return s, prov, SC.say(s, BRIEF)
+
+
+# ------------------------------------------------------------------ 10-12 proposals and server-only turns
+def test_10_a_click_accepts_by_say_label_or_chip_with_no_model_call(monkeypatch):
+    for pick in (lambda st: st["say"], lambda st: st["label"], NS._chip):
+        s, prov, r = _merge_turn(monkeypatch)
+        acc = r["next"][0]
+        assert acc["label"] == "Merge 5 agents into Floor Watcher" and acc["detail"] == "they differ only by camera"
+        assert acc["say"] == ("Yes: merge Camera 1 Monitor, Camera 2 Monitor, Camera 3 Monitor, Camera 4 Monitor and Camera 5 "
+                              "Monitor into Floor Watcher.")
+        assert [x["label"] for x in r["next"][1:]] == ["Keep the team as it is", "Add a nightly summary"]
+        assert [e["kind"] for e in s.design["offered"]] == ["accept", "decline", "model"]
+        assert s.design["proposal"]["status"] == "pending" and (s.turn, s.design["dturn"]) == (1, 1)
+        assert r["text"].endswith("_Waiting for your OK: merge Camera 1 Monitor, Camera 2 Monitor, Camera 3 Monitor, Camera 4 "
+                                  "Monitor and Camera 5 Monitor into Floor Watcher._")
+        done = SC.say(s, pick(acc))
+        assert len(prov.calls) == 1                                           # server-only: no model call, nothing metered
+        assert [a["id"] for a in s.blueprint["agents"]] == ["floor_watcher"] and s.design["proposal"]["status"] == "accepted"
+        assert done["text"] == ("Merged Camera 1 Monitor, Camera 2 Monitor, Camera 3 Monitor, Camera 4 Monitor and Camera 5 "
+                                "Monitor into Floor Watcher.")
+        assert s.transcript[-1]["k"] == "server" and s.transcript[-2] == {**s.transcript[-2], "role": "user", "text": pick(acc)}
+        assert (s.turn, s.design["dturn"], s.bp_rev, done["rev"]) == (1, 1, 1, 1)
+        assert [e["kind"] for e in done["changes"]["applied"]] == ["accept"] and done["meta"]["requests"] == 0
+        assert [x["label"] for x in done["next"]] == ["Undo: put back Camera 1 Monitor, Camera 2 Monitor and 3 more",
+                                                       "Build the desk now", "Add a nightly summary"]
+        assert s.messages[-1] == {"role": "assistant", "content": done["text"]}
+
+
+def test_10_a_bare_yes_or_no_answers_the_proposal_and_nothing_else_does(monkeypatch):
+    s, prov, _ = _merge_turn(monkeypatch)
+    SC.say(s, "Yes")
+    assert len(prov.calls) == 1 and [a["id"] for a in s.blueprint["agents"]] == ["floor_watcher"]
+    s, prov, _ = _merge_turn(monkeypatch)
+    no = SC.say(s, "no")
+    assert len(prov.calls) == 1 and len(s.blueprint["agents"]) == 5 and s.design["proposal"]["status"] == "declined"
+    assert s.design["declined"][-1] == {"sig": "merge:cam1,cam2,cam3,cam4,cam5", "by": "owner", "dturn": 1}
+    assert no["text"] == "Kept Camera 1 Monitor, Camera 2 Monitor, Camera 3 Monitor, Camera 4 Monitor and Camera 5 Monitor."
+    assert s.transcript[-1]["k"] == "server" and no["changes"]["applied"][0]["kind"] == "decline"
+    for text in ("fine, but only merge the first three", "ok so what does the reader do?", "no, remove all of them",
+                 "yes please do it now"):
+        s, prov, _ = _merge_turn(monkeypatch, NOTHING)
+        SC.say(s, text)
+        assert len(prov.calls) == 2 and len(s.blueprint["agents"]) == 5 and s.design["proposal"]["status"] == "pending", text
+    # a question in Atlas's latest reply: a bare yes answers that, not the proposal
+    s, prov, _ = _merge_turn(monkeypatch, NOTHING, reply=MERGE_REPLY.replace("camera.\n", "camera. Shall I merge them?\n"))
+    SC.say(s, "yes")
+    assert len(prov.calls) == 2 and s.design["proposal"]["status"] == "pending"
+
+
+def test_10_undo_puts_the_team_back_only_while_the_sketch_is_unchanged(monkeypatch):
+    s, prov, _ = _merge_turn(monkeypatch)
+    before = _roundtrip(s.blueprint)
+    undo = SC.say(s, "yes")["next"][0]
+    assert undo == {"label": "Undo: put back Camera 1 Monitor, Camera 2 Monitor and 3 more",
+                    "detail": "Restores the team as it was before", "action": "say", "say": "Undo that change."}
+    back = SC.say(s, undo["say"])
+    assert len(prov.calls) == 1 and s.blueprint == before and s.design["proposal"]["status"] == "undone"
+    assert s.design["declined"][-1] == {"sig": "merge:cam1,cam2,cam3,cam4,cam5", "by": "owner", "dturn": 1}
+    assert back["text"] == "Put back Camera 1 Monitor, Camera 2 Monitor, Camera 3 Monitor, Camera 4 Monitor and Camera 5 Monitor."
+    assert back["changes"]["applied"][0]["kind"] == "undo" and s.bp_rev == 2 and s.transcript[-1]["k"] == "server"
+    assert not any(x["label"].startswith("Undo") for x in back["next"])
+    # a canvas edit since the accept (a new revision): nothing to undo, the merge stands
+    s, prov, _ = _merge_turn(monkeypatch)
+    SC.say(s, "yes")
+    s.bp_rev += 1
+    late = SC.say(s, "Undo that change.")
+    assert late["text"].startswith("Nothing to undo") and [a["id"] for a in s.blueprint["agents"]] == ["floor_watcher"]
+    assert len(prov.calls) == 1
+
+
+def test_10_ids_are_re_validated_when_the_owner_accepts(monkeypatch):
+    s, prov, r = _merge_turn(monkeypatch)
+    s.blueprint = DS.normalise({**s.blueprint, "agents": s.blueprint["agents"][:1]}, s.blueprint)   # four deleted on the canvas
+    done = SC.say(s, r["next"][0]["say"])
+    assert done["text"].startswith("That change no longer applies") and [a["id"] for a in s.blueprint["agents"]] == ["cam1"]
+    assert s.design["proposal"] is None and not any(x["label"].startswith("Merge") for x in done["next"])
+
+
+def test_10_model_steps_that_read_like_a_server_step_are_dropped(monkeypatch):
+    x_say = ("Yes: merge Camera 1 Monitor, Camera 2 Monitor, Camera 3 Monitor, Camera 4 Monitor and Camera 5 Monitor into "
+             "Floor Watcher.")
+    blk = {**MERGE, "next": [{"label": "Merge them now", "say": x_say}, {"label": "Keep the team as it is", "say": "Leave it"},
+                             {"label": "Add a nightly summary", "say": "Add a nightly summary for me."}]}
+    s, prov, r = _merge_turn(monkeypatch, reply="Proposed merging them.\n" + SC.block(blk))
+    assert [x["label"] for x in r["next"]] == ["Merge 5 agents into Floor Watcher", "Keep the team as it is", "Add a nightly summary"]
+    assert [e["kind"] for e in s.design["offered"]] == ["accept", "decline", "model"]
+
+
+def test_11_a_redirect_parks_the_cameras_and_accepting_removes_them_for_good(monkeypatch):
+    s = DS.new_session("live")
+    s.blueprint = DS.normalise({"agents": [_cam_agent("door_watcher", "Door Watcher"), _cam_agent("till_watcher", "Till Watcher")],
+                                "cameras": [{"name": "door"}, {"name": "till"}]})
+    blk = {"intent": "design", "changes": [
+        {"op": "remove_agent", "id": "door_watcher", "why": "you want bookings first"}, {"op": "remove_agent", "id": "till_watcher"},
+        {"op": "remove_camera", "name": "door"}, {"op": "remove_camera", "name": "till"},
+        {"op": "add_agent", "agent": {"name": "Booking Agent", "role": "Answers WhatsApp bookings", "goal": "Book each request",
+                                      "tools": ["calendar_free_slots", "record_save"]}, "why": "you want WhatsApp bookings"},
+        {"op": "add_connector", "connector": {"kind": "whatsapp"}}]}
+    prov = SC.install(monkeypatch, SC.Scripted("Added a Booking Agent and removed the camera watchers.\n" + SC.block(blk)))
+    r = SC.say(s, "forget the cameras, focus on WhatsApp bookings")
+    x = s.design["proposal"]
+    assert (x["kind"], x["ids"], x["cameras"], x["status"]) == ("park", ["door_watcher", "till_watcher"], ["door", "till"], "pending")
+    assert [a["id"] for a in s.blueprint["agents"]] == ["door_watcher", "till_watcher", "booking_agent"]
+    assert r["next"][0]["label"] == "Park Door Watcher, Till Watcher and cameras door, till"
+    assert r["text"].startswith("Added Booking Agent")              # sentence 1 claimed a removal that is only proposed
+    SC.say(s, "yes")
+    assert [a["id"] for a in s.blueprint["agents"]] == ["booking_agent"] and s.blueprint["cameras"] == []
+    assert len(prov.calls) == 1 and s.design["plan"][-1]["title"] == "Door Watcher, Till Watcher and cameras door, till (parked)"
+    SC.install(monkeypatch, SC.Scripted(NOTHING))
+    SC.say(s, "add a daily summary for me")
+    assert s.blueprint["cameras"] == [] and not any(a["camera"] for a in s.blueprint["agents"])    # no camera-N comes back
+
+
+def test_12_skip_is_server_only_too(monkeypatch):
+    s, prov, r = _asked(monkeypatch)
+    sk = SC.say(s, r["next"][2]["say"])
+    assert len(prov.calls) == 1 and (s.turn, s.design["dturn"]) == (1, 1) and s.transcript[-1]["k"] == "server"
+    assert sk["text"] == "Used the default: Real-time alerts." and s.design["questions"][-1]["status"] == "defaulted"
+    assert s.design["assumptions"][-1]["text"] == "Assumed: Real-time alerts (you skipped the question)"
+    assert [e["kind"] for e in sk["changes"]["applied"]] == ["default"] and sk["meta"]["requests"] == 0
+
+
+SIX = [("enquiry_reader", "Enquiry Reader", "Reads each enquiry"), ("reply_writer", "Reply Writer", "Drafts replies"),
+       ("bookings_manager", "Bookings Manager", "Books the slots"), ("stock_checker", "Stock Checker", "Counts the stock"),
+       ("review_agent", "Review Agent", "Checks each draft"), ("report_writer", "Report Writer", "Writes the weekly report")]
+
+
+def test_13_continue_adds_the_queued_agents_back_into_their_workflow_with_no_model_call(monkeypatch):
+    ids = [i for i, _n, _r in SIX]
+    agents = [{"id": i, "name": n, "role": r, "goal": f"{r} for the shop", "tools": ["record_find", "record_save"]} for i, n, r in SIX]
+    blk = {"intent": "design", "blueprint": {"agents": agents, "workflows": [{"id": "flow", "name": "Enquiry flow",
+                                                                             "trigger": {"kind": "inbox"}, "steps": ids}]},
+           "next": [{"label": "Add a weekly summary", "say": "Add a weekly summary for me."}]}
+    prov = SC.install(monkeypatch, SC.Scripted("Drafted the whole team.\n" + SC.block(blk)))
+    s = DS.new_session("live")
+    r = SC.say(s, "We are a shop that answers enquiries too slowly and runs out of stock every single week")
+    assert [a["id"] for a in s.blueprint["agents"]] == ids[:3] and s.blueprint["workflows"][0]["steps"] == ids[:3]
+    item = next(it for it in s.design["plan"] if it["status"] == "next")
+    assert [d["id"] for d in item["pending_agents"]] == ids[3:] and item["title"] == "Add Stock Checker, Review Agent and Report Writer"
+    assert r["text"].startswith("Added Enquiry Reader") and "queued Stock Checker" in r["text"]   # not "Drafted the whole team"
+    cont = next(x for x in r["next"] if x["label"].startswith("Continue: "))
+    assert cont["say"] == "Go ahead with the next part of the plan: Add Stock Checker, Review Agent and Report Writer."
+    assert r["next"][0]["label"] == "Add a weekly summary"
+    done = SC.say(s, cont["say"])
+    assert len(prov.calls) == 1 and s.transcript[-1]["k"] == "server" and (s.turn, s.design["dturn"]) == (1, 1)
+    assert [a["id"] for a in s.blueprint["agents"]] == ids and s.blueprint["workflows"][0]["steps"] == ids
+    assert next(it for it in s.design["plan"] if it["id"] == item["id"])["status"] == "done"
+    assert [e["kind"] for e in done["changes"]["applied"]] == ["build"] * 3
+    assert done["text"] == "Added Stock Checker, Review Agent and Report Writer."
+
+
+# ------------------------------------------------------------------ 15 questions through the turn
+def test_15_a_question_shows_its_options_and_skip_then_waits_then_defaults(monkeypatch):
+    s, prov, r = _asked(monkeypatch, NOTHING)
+    q = DST.open_question(s.design)
+    assert (q["decides"], q["default"], q["asked_dturn"], q["waited"]) == ("alert_mode", 0, 1, 0)
+    assert [x["label"] for x in r["next"]] == ["Real-time alerts", "One daily report", "Skip this question"]
+    assert r["next"][2]["detail"] == "Atlas assumes: Real-time alerts"
+    assert r["text"] == ("Added a Floor Watcher that reads every camera journal.\n\n"
+                         "Question: Alerts in real time, or one daily report? (if you skip: Real-time alerts)")
+    assert [e["kind"] for e in s.design["offered"]] == ["option", "option", "skip"]
+    r2 = SC.say(s, "Call the business Kite Campus")
+    assert "\n\n_Still open: Alerts in real time, or one daily report? I use Real-time alerts after your next message._\n\n" \
+           "Question: Alerts in real time" in r2["text"]
+    assert [x["label"] for x in r2["next"][:2]] == ["Real-time alerts", "Skip this question"]
+    assert DST.open_question(s.design)["waited"] == 1
+    r3 = SC.say(s, "Call the business Kite Campus please")
+    assert DST.open_question(s.design) is None and s.design["questions"][-1]["status"] == "defaulted"
+    assert s.design["assumptions"][-1]["text"] == "Assumed: Real-time alerts (question not answered)"
+    assert any(d["source"] == "default" and d["text"] == "alert mode: Real-time alerts" for d in s.design["decisions"])
+    assert '_No answer to "Alerts in real time, or one daily report?": I used Real-time alerts. Say otherwise any time._' in r3["text"]
+    assert "Question:" not in r3["text"] and len(prov.calls) == 3
+
+
+def test_15_a_click_or_a_typed_reply_answers_but_not_one_with_a_negation(monkeypatch):
+    s, prov, r = _asked(monkeypatch, NOTHING)
+    done = SC.say(s, r["next"][1]["say"])
+    assert len(prov.calls) == 2                                               # recorded in Phase A, then the model goes on
+    q = s.design["questions"][-1]
+    assert (q["status"], q["answer"]) == ("answered", "One daily report")
+    assert any(d["source"] == "owner" and d["text"] == "alert mode: One daily report" for d in s.design["decisions"])
+    assert done["changes"]["applied"][0]["kind"] == "answer" and "Question:" not in done["text"]
+    s, prov, r = _asked(monkeypatch, NOTHING)
+    SC.say(s, "a daily report is enough")
+    assert s.design["questions"][-1]["answer"] == "One daily report"
+    s, prov, r = _asked(monkeypatch, NOTHING)
+    SC.say(s, "no daily report, not yet")
+    assert DST.open_question(s.design) is not None                           # a negation is left to the model's "answered"
+
+
+def test_15_a_re_ask_leaves_the_prose_and_answer_turns_do_not_count(monkeypatch):
+    again = ("Kept the reader. Do you want alerts in real time or a daily report?\n"
+             + SC.block({"intent": "design", "ask": {**ASK_Q, "text": "Do you want alerts in real time or a daily report?"}}))
+    s, prov, r = _asked(monkeypatch, "Price on value.\n" + SC.block({"intent": "answer"}), again)
+    a = SC.say(s, "How should I price this?")                                # a plain question: the clock does not move
+    assert DST.open_question(s.design)["waited"] == 0 and s.design["dturn"] == 1 and s.turn == 2
+    assert a["text"].startswith("Price on value.") and [x["label"] for x in a["next"][:2]] == ["Real-time alerts", "Skip this question"]
+    SC.say(s, r["next"][2]["say"])                                           # skipped: resolved
+    r3 = SC.say(s, "What else?")
+    assert r3["text"] == "Kept the reader." and r3["changes"]["skipped_q"] == 1 and DST.open_question(s.design) is None
+
+
+# ------------------------------------------------------------------ 18 atomic and fixed turns, the busy registry
+def test_18_a_quota_turn_changes_nothing_and_keeps_accept_and_decline(monkeypatch):
+    s, prov, _ = _merge_turn(monkeypatch, QUOTA_EXC)
+    before = (s.turn, s.design["dturn"], json.dumps(s.design["plan"]), json.dumps(s.design["proposal"]), _roundtrip(s.blueprint))
+    q = SC.say(s, "make the watcher stricter")
+    assert q["text"] == DS.QUOTA_TEXT and s.transcript[-1]["k"] == "fixed" and q["meta"]["requests"] == 1
+    assert (s.turn, s.design["dturn"], json.dumps(s.design["plan"]), json.dumps(s.design["proposal"]), s.blueprint) == before
+    assert [x["action"] for x in q["next"]] == ["say", "say", "paid"] and q["next"][0]["label"] == "Merge 5 agents into Floor Watcher"
+    assert s.messages[-1] == {"role": "user", "content": "make the watcher stricter"}
+    SC.say(s, "yes")                                                         # the allowance is out: accepting still works
+    assert [a["id"] for a in s.blueprint["agents"]] == ["floor_watcher"] and len(prov.calls) == 2
+
+
+UPDATE = "Changed the first monitor.\n" + SC.block({"intent": "design", "changes": [
+    {"op": "update_agent", "id": "cam1", "set": {"goal": "Watch the lobby door"}, "why": "the door matters most"}]})
+
+
+def test_18_an_error_while_applying_changes_nothing_and_offers_retry(monkeypatch):
+    s = _cams5()
+    SC.install(monkeypatch, SC.Scripted(UPDATE))
+    monkeypatch.setattr(OPS, "apply_block", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom")))
+    bp, design = _roundtrip(s.blueprint), _roundtrip(s.design)
+    r = SC.say(s, "watch the lobby door more closely")
+    assert r["text"] == DS.APPLY_ERROR_TEXT and r["next"][0] == NS.clean(DS.RETRY_STEP)
+    assert s.blueprint == bp and s.turn == 0 and s.transcript[-1]["k"] == "fixed" and s.messages[-1]["role"] == "user"
+    seeded = DST.empty()
+    DST.seed(seeded, bp)                                                      # Phase A's seeding is the one change kept
+    assert {**s.design, "offered": []} == {**DST.clamp(seeded), "offered": []} and design["plan"] == []
+
+
+def test_18_past_the_deadline_the_turn_is_fixed_and_the_session_free_again(monkeypatch):
+    s = _cams5()
+    SC.install(monkeypatch, SC.Scripted(UPDATE, sleep=0.3))
+    monkeypatch.setattr(DS, "DESIGN_TURN_MAX_S", 0.1)
+    bp = _roundtrip(s.blueprint)
+    r = SC.say(s, "watch the lobby door more closely")
+    assert r["meta"]["deadline"] is True and r["text"] == "Changed the first monitor.\n\n" + DS.DEADLINE_NOTE
+    assert s.blueprint == bp and s.turn == 0 and s.transcript[-1]["k"] == "fixed" and DS.busy_since(s.id) is None
+    assert r["next"][0]["label"] == "Try that again"
+
+
+def test_18_a_turn_holds_the_session_and_a_second_one_is_refused(monkeypatch):
+    s = _cams5()
+    seen = []
+    SC.install(monkeypatch, SC.Scripted(lambda system, msgs: seen.append(DS.busy_since(s.id)) or NOTHING))
+    token = DS.claim(s.id)
+    try:
+        with pytest.raises(DS.DesignBusy):
+            SC.say(s, "hello")
+        assert DS.claim(s.id) is None and len(s.transcript) == 1
+    finally:
+        assert DS.release(s.id, token) and not DS.release(s.id, token)
+    SC.say(s, "Rename the business to Campus One")
+    assert seen and seen[0] is not None and DS.busy_since(s.id) is None and s.public()["busy"] is False
+    # the caller's own token (the route claims before Phase A): reply leaves it to the caller to release
+    token = DS.claim(s.id)
+    SC.say(s, "Rename the business to Campus Two", token=token)
+    assert DS.busy_since(s.id) is not None and DS.release(s.id, token)
+
+
+def test_18_eviction_never_drops_a_session_whose_turn_is_running(monkeypatch):
+    monkeypatch.setattr(DS, "_SESSIONS_MAX", 4)
+    monkeypatch.setattr(DS, "SESSIONS", {})
+    first = DS.new_session("demo")
+    token = DS.claim(first.id)
+    try:
+        for _ in range(8):
+            DS.new_session("demo")
+        assert first.id in DS.SESSIONS
+    finally:
+        DS.release(first.id, token)
+
+
+# ------------------------------------------------------------------ 19 the repair
+def test_19_a_question_only_turn_makes_one_request_and_keeps_its_question(monkeypatch):
+    prov = SC.install(monkeypatch, SC.Scripted("One thing decides the next agents.\n" + SC.block({"intent": "design", "ask": ASK_Q})))
+    s = DS.new_session("live")
+    r = SC.say(s, BRIEF)
+    assert len(prov.calls) == 1 and DST.open_question(s.design)["text"] == ASK_Q["text"] and r["meta"]["parse"] == "strict"
+    assert (s.turn, s.design["dturn"]) == (1, 1)
+
+
+def test_19_the_repair_runs_once_and_its_keys_merge_over_the_reply_block(monkeypatch):
+    cut = ('Drafted a Reply Writer for your enquiries.\n<atlas-design>{"intent": "design", "ask": ' + json.dumps(ASK_Q)
+           + ', "changes": [{"op": "add_agent", "agent": {"name": "Reply Wri</atlas-design>')
+    assert DS.parse_reply(cut, "length")[2] == "loose"
+    repair = SC.block({"changes": [{"op": "add_agent", "agent": WRITER, "why": "replies take hours"}]})
+    prov = SC.install(monkeypatch, SC.Scripted((cut, "length"), repair))
+    s = DS.new_session("live")
+    r = SC.say(s, BRIEF)
+    assert len(prov.calls) == 2 and prov.calls[1]["on_token"] is DS._discard and r["meta"]["parse"] == "repair"
+    assert prov.calls[1]["msgs"][-2] == {"role": "assistant", "content": cut}
+    assert [a["name"] for a in s.blueprint["agents"]] == ["Reply Writer"] and DST.open_question(s.design)["decides"] == "alert_mode"
+    # no block at all: one repair; nothing readable after it: the prose stands, says so, and nothing advances
+    prov = SC.install(monkeypatch, SC.Scripted("Drafted a Reply Writer for your enquiries.", "Sorry, here it is."))
+    s = DS.new_session("live")
+    r = SC.say(s, BRIEF)
+    assert len(prov.calls) == 2 and s.blueprint is None and r["text"] == "Drafted a Reply Writer for your enquiries.\n\n" + DS.UNREAD_NOTE
+    assert (s.turn, s.design["dturn"]) == (0, 0) and s.transcript[-1]["k"] == "model" and r["meta"]["parse"] == "none"
+
+
+def test_19_a_repair_refused_by_the_allowance_keeps_the_prose_and_applies_nothing(monkeypatch):
+    prov = SC.install(monkeypatch, SC.Scripted("Drafted a Reply Writer for your enquiries.", QUOTA_EXC))
+    s = DS.new_session("live")
+    r = SC.say(s, BRIEF)
+    assert r["text"] == "Drafted a Reply Writer for your enquiries.\n\n" + DS.LIMIT_NOTE and s.blueprint is None
+    assert s.transcript[-1]["k"] == "fixed" and s.turn == 0 and r["next"][0]["action"] == "paid" and len(prov.calls) == 2
+
+
+def test_19_an_empty_reply_uses_the_second_call_as_a_plain_retry(monkeypatch):
+    prov = SC.install(monkeypatch, SC.Scripted("", "Drafted a Reply Writer for your enquiries."))
+    r = SC.say(DS.new_session("live"), BRIEF)
+    assert len(prov.calls) == 2 and r["text"] == "Drafted a Reply Writer for your enquiries.\n\n" + DS.UNREAD_NOTE   # no third call
+    prov = SC.install(monkeypatch, SC.Scripted(""))
+    r = SC.say(DS.new_session("live"), BRIEF)
+    assert len(prov.calls) == 2 and r["text"] == DS.EMPTY_TEXT and r["next"][0]["label"] == "Try that again"
+
+
+# ------------------------------------------------------------------ 20 the opener strip
+STRIPPED = [   # shapes the strip removed from the 59 stored replies (round2 review-power/strip_removed.py)
+    ("Thanks — that's a clear pain list. Let me sketch a desk.", "Let me sketch a desk."),
+    ("Got it — you want a monitoring desk with five camera-watching agents. Let me start with one question.",
+     "Let me start with one question."),
+    ("Understood —\nSafety monitoring across all five cameras.", "Safety monitoring across all five cameras."),
+    ("Hi! I’m Atlas, your operations orchestrator. To start, what does your business do?", "To start, what does your business do?"),
+    ("Hello Leo. It’s a pleasure to meet you. I’ve mapped out a structure for your desk.", "I’ve mapped out a structure for your desk."),
+    ("Understood, Dave. I have renamed the agent to Quote Writer.", "I have renamed the agent to Quote Writer."),
+    ("I can certainly help you monitor Trattoria Conti. I will set up a team.", "I will set up a team."),
+    ("Got it—you’d like an agent that replies to Instagram DMs. I can draft a quick setup.", "I can draft a quick setup."),
+    ("I understand you run a 3-chair barber shop in Jerusalem. I'll build a focused solution.", "I'll build a focused solution."),
+    ("Perfect — I'll wire up all five campus angles.", "I'll wire up all five campus angles."),
+    ("noted, drafted a writer.", "Drafted a writer."),
+]
+
+
+@pytest.mark.parametrize("raw, want", STRIPPED)
+def test_20_each_measured_opener_goes_and_the_strip_is_a_fixpoint(raw, want):
+    assert ST.strip_opener(raw) == want and ST.strip_opener(want) == want
+
+
+def test_20_the_strip_never_empties_keeps_requirements_and_answers_lose_only_acknowledgements():
+    assert ST.strip_opener("Got it.") == "Got it." and ST.strip_opener("You want X.") == "You want X."
+    x = "You want X. You need Y. That makes sense. Z."
+    assert ST.strip_opener(x) == "You need Y. That makes sense. Z." == ST.strip_opener(ST.strip_opener(x))
+    req = "You need a stream address before it can watch. Added the door camera."
+    assert ST.strip_opener(req) == req
+    a = "Great question. It sounds like you sell per seat. Price on value."
+    assert ST.strip_opener(a, answer=True) == "It sounds like you sell per seat. Price on value."
+    assert ST.strip_opener(a) == "Price on value." and ST.strip_opener("Sure-footed agents.") == "Sure-footed agents."
+    assert ST.strip_opener("") == "" and ST.strip_opener(None) == ""
+    assert not ST.head_settled("Got it — you want a desk with five cameras. ") and ST.head_settled("Drafted a writer. It drafts. ")
+
+
+def test_20_the_head_streams_stripped_and_nothing_streamed_disappears(monkeypatch):
+    blk = SC.block({"intent": "design", "changes": [{"op": "add_agent", "agent": WRITER, "why": "replies take hours"}]})
+    reply = ("Got it — you want replies drafted faster. Drafted a Reply Writer that drafts each reply. It waits for your OK "
+             "before anything is sent.\n" + blk)
+    for think_inline in (False, True):
+        toks: list[str] = []
+        raw = ("<think>the owner wants speed</think>" + reply) if think_inline else reply
+        SC.install(monkeypatch, SC.Scripted(raw, think="" if think_inline else "the owner wants speed", chunk=4))
+        r = SC.say(DS.new_session("live"), BRIEF, on_token=toks.append)
+        statuses = [t[1:] for t in toks if t.startswith(DS.STATUS_MARK)]
+        shown = "".join(t for t in toks if not t.startswith(DS.STATUS_MARK))
+        assert statuses == ["planning"] + ([] if think_inline else ["weighing"]) + ["writing", "updating the sketch"]
+        assert shown.strip() == r["text"] == ("Drafted a Reply Writer that drafts each reply. It waits for your OK before "
+                                              "anything is sent.")
+        assert "owner wants speed" not in "".join(toks) and "atlas" not in shown and "{" not in shown
+
+
+# ------------------------------------------------------------------ 24 the done event and meta
+def test_24_done_keeps_the_old_keys_and_adds_design_changes_meta_and_rev(app_client):
+    c = app_client
+    c.post("/signup", json={"name": "Owner", "company": "Meta Co", "email": "meta-r2@example.com", "password": "password1"})
+    sid = c.post("/api/design/start", json={}).get_json()["sid"]
+    body = c.post(f"/api/design/{sid}/say", json={"text": "We are Meta Co and our enquiries get answered too slowly"}).get_data(as_text=True)
+    evs = [json.loads(ln[6:]) for ln in body.splitlines() if ln.startswith("data: ")]
+    done = evs[-1]
+    assert done["t"] == "done" and {"text", "next", "suggestions", "blueprint", "ready", "turn", "design", "changes", "meta",
+                                    "rev"} <= set(done)
+    assert [e["d"] for e in evs if e["t"] == "status"] == ["planning", "writing"] and any(e["t"] == "tok" for e in evs)
+    assert done["rev"] == 1 and done["turn"] == 1 and done["design"]["plan"] and done["changes"]["applied"]
+    assert set(done["meta"]) == {"requests", "fallback_from", "parse", "finish_reason", "output_tokens", "reasoning_tokens",
+                                 "seconds", "first_token_s", "deadline"} and done["meta"]["parse"] == "strict"
+    assert "".join(e["d"] for e in evs if e["t"] == "tok").strip() == done["text"]
+    c.get("/logout")
+
+
+def test_24_meta_reads_a_stub_that_answers_with_text_only(monkeypatch):
+    class Bare:
+        def chat(self, *a, **k):
+            return type("R", (), {"text": "Price on value.\n" + SC.block({"intent": "answer"})})()
+
+        def user_message(self, t):
+            return {"role": "user", "content": t}
+    SC.install(monkeypatch, Bare())
+    r = SC.say(DS.new_session("live"), "How should I price this?")
+    assert r["text"] == "Price on value." and r["meta"]["requests"] == 1 and r["meta"]["finish_reason"] == ""
+    assert (r["meta"]["parse"], r["meta"]["output_tokens"], r["meta"]["reasoning_tokens"], r["meta"]["deadline"]) == ("strict", 0, 0, False)
+
+
+# ------------------------------------------------------------------ 25 the request bound, over a mock OpenRouter
+def _or_turn(monkeypatch, *responses, text=BRIEF):
+    router = SC.Router(*responses)
+    SC.mock_http(monkeypatch, router)
+    s = DS.new_session("live")
+    return s, router, SC.say(s, text, providers_cfg=SC.OPENROUTER, designer_model="vendor/model:free")
+
+
+def test_25_a_turn_is_one_request_a_repair_two_and_never_more_than_four(monkeypatch):
+    blk = SC.block({"intent": "design", "changes": [{"op": "add_agent", "agent": WRITER, "why": "replies take hours"}]})
+    s, router, r = _or_turn(monkeypatch, "Drafted a Reply Writer.\n" + blk)
+    assert len(router.seen) == 1 and r["meta"]["requests"] == 1 and r["meta"]["reasoning_tokens"] == 25
+    sent = router.seen[0]
+    assert sent["reasoning"] == {"max_tokens": 3000} and sent["max_tokens"] == 6000 and sent["stream"] is True
+    assert [a["name"] for a in s.blueprint["agents"]] == ["Reply Writer"] and r["meta"]["finish_reason"] == "stop"
+    s, router, r = _or_turn(monkeypatch, "Drafted a Reply Writer.", blk)
+    assert len(router.seen) == 2 == r["meta"]["requests"] and r["meta"]["parse"] == "repair" and s.blueprint["agents"]
+    # 5xx: the provider retries once per call; with a repair that fails too, the turn stops at 4 requests on the free tier
+    s, router, r = _or_turn(monkeypatch, (500, "upstream"), "Drafted a Reply Writer.", (502, "upstream"), (502, "upstream"))
+    assert len(router.seen) == 4 == r["meta"]["requests"] == DS.turn_max_requests("free")
+    assert r["text"] == "Drafted a Reply Writer.\n\n" + DS.UNREAD_NOTE and DS.turn_max_requests("balanced") == 6
+    s, router, r = _or_turn(monkeypatch, (500, "upstream"))
+    assert len(router.seen) == 2 == r["meta"]["requests"] and r["text"].startswith("The model did not answer (RuntimeError: HTTP 500")
+
+
+def test_25_a_per_minute_limit_is_never_the_daily_allowance(monkeypatch):
+    s, router, r = _or_turn(monkeypatch, (429, "Rate limit exceeded: free-models-per-min"))
+    assert len(router.seen) == 1 and r["text"] == DS.MINUTE_TEXT and "allowance" not in r["text"]
+    assert r["next"][0]["label"] == "Try that again" and not any(x["action"] == "paid" for x in r["next"])
+    s, router, r = _or_turn(monkeypatch, (429, "Rate limit exceeded: free-models-per-day"))
+    assert r["text"] == DS.QUOTA_TEXT and r["next"][0]["action"] == "paid"
+
+
+def test_25_requests_are_counted_in_the_response_extra(monkeypatch):
+    from atlas.providers import make_provider
+    router = SC.Router((502, "upstream blip"), "Hello.")
+    SC.mock_http(monkeypatch, router)
+    p = make_provider(dict(SC.OPENROUTER["providers"]["openrouter"]))
+    r = p.chat("", [{"role": "user", "content": "hi"}], [], on_token=lambda *a: None)
+    assert r.text == "Hello." and r.extra == {"requests": 2, "fallback_from": "", "reasoning_tokens": 25}
+    router = SC.Router((404, "No endpoints found"), "Hello.")
+    SC.mock_http(monkeypatch, router)
+    p = make_provider({**SC.OPENROUTER["providers"]["openrouter"], "fallback_model": "vendor/other:free"})
+    r = p.chat("", [{"role": "user", "content": "hi"}], [])
+    assert r.extra == {"requests": 2, "fallback_from": "vendor/model:free", "reasoning_tokens": 0}
+    assert router.seen[-1]["model"] == "vendor/other:free" and "stream" not in router.seen[-1]
+    router = SC.Router((500, "down"))
+    SC.mock_http(monkeypatch, router)
+    with pytest.raises(RuntimeError) as e:
+        make_provider(dict(SC.OPENROUTER["providers"]["openrouter"])).chat("", [{"role": "user", "content": "hi"}], [])
+    assert e.value.requests == 2

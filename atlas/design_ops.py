@@ -2043,3 +2043,77 @@ def apply_queued(bp: Any, design: dict[str, Any], item_id: str) -> dict[str, Any
     final = w.finish()
     mark_done(design, {a["id"] for a in DST._agents(final)}, design["dturn"])
     return {"blueprint": final, "design": DST.clamp(design), "ledger": w.changes["applied"], "changed": final != bp}
+
+
+def skip(design: dict[str, Any]) -> dict[str, Any] | None:
+    """"Skip this question" (server-only, 6.8): the open question's default is used, as the auto-default uses it, with
+    the assumption it rests on. Returns {design, ledger} or None when no question is open."""
+    design = copy.deepcopy(DST.clamp(design))
+    q = DST.open_question(design)
+    if q is None:
+        return None
+    label = default_label(q)
+    line = answer(design, q, label, design["dturn"], source="default")
+    if line is None:
+        return None
+    design["assumptions"].append({"id": DST.mint(design, "a"), "turn": design["dturn"],
+                                  "text": DST.cut(f"Assumed: {label} (you skipped the question)", DST.ASSUME_CHARS)})
+    return {"design": DST.clamp(design), "ledger": [line]}
+
+
+def undo(saved: Any) -> dict[str, Any] | None:
+    """Put back what an accepted proposal took (the Undo step, server-only, 6.3), from what accept() kept: the
+    blueprint and the design state from before it. The proposal becomes "undone" and the owner's declined entry keeps
+    the model from proposing it again. Returns {blueprint, design, ledger} or None when that proposal is not there."""
+    if not isinstance(saved, dict) or not isinstance(saved.get("design"), dict):
+        return None
+    design = copy.deepcopy(DST.clamp(saved["design"]))
+    x = DST.pending_proposal(design)
+    if x is None or x["id"] != saved.get("proposal"):
+        return None
+    bp = copy.deepcopy(saved.get("blueprint")) if isinstance(saved.get("blueprint"), dict) else None
+    names = target_names(x, bp)
+    x["status"] = "undone"
+    design["declined"].append({"sig": proposal_sig(x), "by": "owner", "dturn": design["dturn"]})
+    design["decisions"].append({"turn": design["dturn"], "text": DST.cut("Undone: " + proposal_phrase(x, bp, 2), DST.DECISION_CHARS),
+                                "why": DST.cut("You asked to put back " + _and(names, 6), DST.DECISION_CHARS), "source": "owner"})
+    return {"blueprint": bp, "design": DST.clamp(design),
+            "ledger": [entry("undo", "put back " + _and(names, 6), x["reason"], what="proposal")]}
+
+
+# ---------------------------------------------------------------------------- the server's own steps (6.11)
+# Every one is a plain "say" step under the next-steps contract; a click sends its say, and the Phase A matcher
+# (designer.decide) knows it by the design state's `offered` entry.
+DECLINE_STEP = {"label": "Keep the team as it is", "detail": "Nothing is removed", "action": "say",
+                "say": "No, keep them as they are."}
+
+
+def accept_step(x: dict[str, Any], bp: Any) -> dict[str, Any] | None:
+    """"Merge 5 agents into Floor Watcher" / "Remove Door Watcher" / "Park Door Watcher and 1 more": the reason as its
+    detail, and the say spells out the whole change ("Yes: merge Camera 1 Monitor, … into Floor Watcher.")."""
+    names = target_names(x, bp)
+    into = DS._txt((x.get("into") or {}).get("name"), 40) if x.get("into") else ""
+    if x["kind"] == "merge":
+        label = f"Merge {len(x['ids'])} agents into {into}"
+    elif x["kind"] == "replace":
+        label = f"Replace {_and(names, 2)} with {into}"          # NS.clean fits it to 60 at a word boundary
+    else:
+        label = _fit_names("Park " if x["kind"] == "park" else "Remove ", names, DST.TITLE_CHARS)
+    return NS.clean({"label": label, "detail": x["reason"], "action": "say",
+                     "say": DST.cut(f"Yes: {proposal_phrase(x, bp)}.", NS.LIMITS["say"])})
+
+
+def skip_step(q: dict[str, Any]) -> dict[str, Any] | None:
+    return NS.clean({"label": "Skip this question", "detail": f"Atlas assumes: {default_label(q)}", "action": "say",
+                     "say": "Skip that question; use your default."})
+
+
+def continue_step(item: dict[str, Any]) -> dict[str, Any] | None:
+    """Continue on a plan item: server-only when agents wait in it, else the say goes to the model."""
+    return NS.clean({"label": f"Continue: {item['title']}", "detail": item.get("why") or "", "action": "say",
+                     "say": f"Go ahead with the next part of the plan: {item['title']}."})
+
+
+def undo_step(names: list[str]) -> dict[str, Any] | None:
+    return NS.clean({"label": _fit_names("Undo: put back ", names, DST.TITLE_CHARS),
+                     "detail": "Restores the team as it was before", "action": "say", "say": "Undo that change."})

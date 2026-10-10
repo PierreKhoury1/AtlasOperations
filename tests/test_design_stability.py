@@ -1,5 +1,7 @@
-"""A follow-up design turn edits the sketch instead of redrawing it: ids, colours and canvas positions survive,
-and agents the owner never asked to drop are carried over (atlas/designer.py normalise + reply)."""
+"""A follow-up design turn edits the sketch instead of redrawing it: ids, colours and canvas positions survive, and
+agents the owner never asked to drop stay (atlas/designer.py normalise, atlas/design_ops.py apply_block)."""
+import atlas.design_ops as OPS
+import atlas.design_state as DST
 import atlas.designer as DS
 
 
@@ -32,14 +34,22 @@ def test_reorder_does_not_recolour():
     assert new["agents"][-1]["color"] not in before.values()
 
 
-def test_silently_dropped_agents_are_carried_over_only_when_no_removal_was_asked():
+def test_an_omission_is_kept_on_a_loose_parse_proposed_on_a_strict_one_and_ops_never_drop_silently():
+    """A follow-up whose full blueprint leaves agents out (a truncated or lazy reply) never shrinks the team (round 2
+    designer spec 5.5): on a parse that is not strict they stay silently; on a strict parse their removal waits as a
+    proposal for the owner's OK; an op naming no agent of the sketch removes nothing."""
     prev = DS.normalise(_bp(_a("writer", "Writer"), _a("research", "Research"), _a("qa", "QA")))
-    lazy = _bp(_a("writer", "Writer"))
-    kept = DS.normalise(lazy, prev, keep_missing=True)
-    assert [a["id"] for a in kept["agents"]] == ["writer", "research", "qa"]
-    assert kept["carried_over"] == ["research", "qa"]
-    dropped = DS.normalise(lazy, prev, keep_missing=False)
-    assert [a["id"] for a in dropped["agents"]] == ["writer"]
+    lazy = {"intent": "design", "blueprint": _bp(_a("writer", "Writer"))}
+    loose = OPS.apply_block(prev, DST.empty(), lazy, owner_text="make the writer warmer", how="loose")
+    assert [a["id"] for a in loose.blueprint["agents"]] == ["writer", "research", "qa"]
+    assert DST.pending_proposal(loose.design) is None and not loose.changes["converted"]
+    strict = OPS.apply_block(prev, DST.empty(), lazy, owner_text="make the writer warmer", how="strict")
+    x = DST.pending_proposal(strict.design)
+    assert [a["id"] for a in strict.blueprint["agents"]] == ["writer", "research", "qa"]
+    assert (x["kind"], x["ids"], strict.changes["converted"]) == ("park", ["research", "qa"], ["Research", "QA"])
+    ops = OPS.apply_block(prev, DST.empty(), {"intent": "design", "changes": [{"op": "remove_agent", "id": "nobody"}]},
+                          owner_text="remove nobody")
+    assert [a["id"] for a in ops.blueprint["agents"]] == ["writer", "research", "qa"] and ops.changes["skipped"] == 1
     assert DS.REMOVAL_WORDS.search("remove the QA agent") and DS.REMOVAL_WORDS.search("make the team simpler")
     assert not DS.REMOVAL_WORDS.search("rename the writer to Enquiry desk")
 
