@@ -60,7 +60,7 @@
   </div>
   <div class="wk-side">
     <div class="pills">
-      <button class="pill" id="run-pill" onclick="showTab('runs')" title="Runs in progress on this desk"><i></i><b id="run-n">0</b>running<span class="mono hide" id="sb-run-t"></span></button>
+      <button class="pill" id="run-pill" onclick="showTab('runs')" title="Runs in progress on this desk"><i></i><b id="run-n">–</b>running<span class="mono hide" id="sb-run-t"></span></button>
       <span class="pill" id="eng-pill" title="The agent engine"><i></i><span id="sb-engine">checking…</span></span>
       <button class="pill hide" id="tier-pill" onclick="toggleTier()" title="Free models cost nothing but have a daily limit; paid models cost a few pence a job"><i></i><span id="sb-tier">Free models</span></button>
     </div>
@@ -173,15 +173,29 @@
     <div class="tpane hide" id="pane-team"><div id="team-big" class="fill"></div></div>
 
     <!-- cameras -->
+    <!-- no camera yet (.nocam): the ways to connect one and the journal it will keep (left), the sample clips on this server (right) -->
     <div class="tpane hide" id="pane-cameras">
-      <div class="panel span2 cam-page">
+      <div class="panel span2 cam-page" id="feeds-panel">
         <div class="ph"><h2>Feeds<span class="n" id="cam-n2"></span></h2><span class="meta" id="cam-meta2">frames through the local detector</span><button class="btn sm" onclick="openAttach(null)"><svg class="i"><use href="#i-cam"/></svg>Add camera</button></div>
         <div id="cam-big"></div>
-        <div id="cam-none" class="none">No cameras yet. Press <b>Add camera</b>, or ask Atlas to watch a feed.</div>
+        <div id="cam-setup" class="hide">
+          <div class="gk">Connect a camera · Test shows a frame before anything is attached</div>
+          <div class="others srcs">
+            <button onclick="openAttach(null,'rtsp')"><svg class="i"><use href="#i-cam"/></svg><span><b>RTSP stream</b><small>An IP camera or recorder on your network: Hikvision, Dahua, Reolink, Tapo</small></span><svg class="i i14 go"><use href="#i-chev"/></svg></button>
+            <button onclick="openAttach(null,'upload')"><svg class="i"><use href="#i-clip"/></svg><span><b>Recording</b><small>Upload a video or an image; a video loops like a live camera</small></span><svg class="i i14 go"><use href="#i-chev"/></svg></button>
+            <button onclick="openAttach(null,'webcam')"><svg class="i"><use href="#i-eye"/></svg><span><b>Webcam</b><small>A USB or built-in camera on the computer running Atlas</small></span><svg class="i i14 go"><use href="#i-chev"/></svg></button>
+            <button onclick="openAttach(null,'http')"><svg class="i"><use href="#i-ext"/></svg><span><b>Snapshot URL</b><small>Any address that returns a JPEG (ESP32-CAM, Hikvision ISAPI), or an MJPEG stream</small></span><svg class="i i14 go"><use href="#i-chev"/></svg></button>
+            <button onclick="openAttach(null,'sample')"><svg class="i"><use href="#i-run"/></svg><span><b>Sample footage</b><small>Real CCTV clips on this server: try the desk before a camera is installed</small></span><svg class="i i14 go"><use href="#i-chev"/></svg></button>
+          </div>
+        </div>
       </div>
       <div class="panel span2" id="journal-panel">
         <div class="ph"><h2>Journal</h2><span class="meta" id="jr-meta">written notes from the cameras · UTC</span><a class="link" id="journal-page" href="/api/vision/journal?format=html" target="_blank" rel="noopener">Printable page<svg class="i i12"><use href="#i-ext"/></svg></a></div>
-        <div class="jr scroll" id="journal-list"><div class="none">Loading the journal…</div></div>
+        <div class="jr scroll" id="journal-list"><div class="none">&nbsp;</div></div>
+      </div>
+      <div class="panel hide" id="samples-panel">
+        <div class="ph"><h2>Sample footage<span class="n" id="smp-n"></span></h2><span class="meta" title="Use opens Add camera with the clip tested; nothing is attached until you press Attach feed">real CCTV on this server</span></div>
+        <div class="smps scroll" id="smp-list"><div class="none">Reading the sample clips…</div></div>
       </div>
     </div>
 

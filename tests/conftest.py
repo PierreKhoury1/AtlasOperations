@@ -1,4 +1,6 @@
+import atexit
 import os
+import shutil
 import sys
 import tempfile
 from pathlib import Path
@@ -17,6 +19,7 @@ os.environ["VISION_EMBED"] = "hash"          # no CLIP / API in the suite: deter
 os.environ["VISION_INDEX_SYNC"] = "1"        # embed inline so retrieval tests see the index immediately
 _TMP = Path(tempfile.mkdtemp(prefix="atlas-tests-"))
 os.environ["ATLAS_DATA_DIR"] = str(_TMP)
+atexit.register(shutil.rmtree, _TMP, True)   # the throw-away database goes with the run (each one left ~5 MB in Temp)
 
 
 @pytest.fixture(scope="session")

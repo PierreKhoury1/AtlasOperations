@@ -169,8 +169,29 @@ def test_sample_footage_needs_no_desk(app_client, fresh_limits):
     assert c.get("/api/cameras").status_code == 409                       # a desk's cameras need a desk...
     r = c.get("/api/cameras/samples")                                     # ...the server's sample clips do not
     assert r.status_code == 200 and isinstance(J(r)["samples"], list)
+    assert all({"name", "label", "camera"} <= set(x) for x in J(r)["samples"])   # Use offers the clip's usual camera name
     c.get("/logout")
     assert c.get("/api/cameras/samples").status_code == 401
+
+
+def test_sample_clips_carry_a_label_and_a_camera_name():
+    from atlas import designer as DS
+    assert DS.sample_label("corner-store_ezymart-1080p") == DS.SAMPLE_LABELS["corner-store_ezymart"] + ", 1080p"   # a copy reads as its original
+    assert DS.sample_camera_name("corner-store_ezymart-1080p") == "till" and DS.sample_camera_name("campus-gym") == "gym"
+    assert DS.sample_label("no-such_clip") == "no such clip" and DS.sample_camera_name("no-such_clip") == ""
+
+
+def test_health_prices_its_tokens_like_the_cost_tile(app_client, fresh_limits):
+    """Home showed two estimates for one desk: the cost tile (paid rates, $5 in / $25 out) and System health (every token
+    at $5). Both now use the paid rates; health keeps its own window (24 h) and says so."""
+    from atlas.desk import app as A
+    c = app_client
+    _owner(c, "ws-health-cost@example.com")
+    d = _desk(c, "Health cost")
+    A.store.create_run("hc-1", "price me", "auto", "", d["id"])
+    A.store.finish_run("hc-1", "done", "ok", 1_000_000, 100_000)
+    h = A._health(d["id"])
+    assert h["tokens"] == 1_100_000 and h["cost_gbp"] == round((1_000_000 * 5 + 100_000 * 25) / 1e6 * 0.78, 2)
 
 
 def test_an_unfinished_draft_follows_its_owner_and_nobody_else(app_client, fresh_limits):

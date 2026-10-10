@@ -21,7 +21,7 @@
     search: '<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>', chat: '<path d="M4 5h16v11H9l-5 4z"/>', chev: '<path d="m7 15 5 5 5-5M7 9l5-5 5 5"/>',
     side: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/>', plus: '<path d="M12 5v14M5 12h14"/>', out: '<path d="M15 4h4v16h-4M10 8l-4 4 4 4M6 12h11"/>',
     moon: '<path d="M20 14.5A8 8 0 0 1 9.5 4 8 8 0 1 0 20 14.5z"/>', tick: '<path d="m5 12.5 4.5 4.5L19 7.5"/>',
-    play: '<path d="M7 4.5v15l12-7.5z"/>', x: '<path d="M6 6l12 12M18 6 6 18"/>',
+    play: '<path d="M7 4.5v15l12-7.5z"/>', x: '<path d="M6 6l12 12M18 6 6 18"/>', send: '<path d="M4 12 20 4l-6 16-2.5-6.5L4 12Z"/>',
   };
   const svg = k => `<svg viewBox="0 0 24 24">${IC[k] || ''}</svg>`;
   const NAV = [
@@ -230,7 +230,9 @@
     render(q, keep) {
       const t = q.trim().toLowerCase();
       const score = it => { const s = (it.label + ' ' + (it.hint || '') + ' ' + it.g + ' ' + (it.kw || '')).toLowerCase(); if (!t) return 1; if (s.includes(t)) return 2 + (it.label.toLowerCase().startsWith(t) ? 1 : 0); return t.split(/\s+/).every(w => s.includes(w)) ? 1 : 0; };
-      this.items = this.all.map(it => [score(it), it]).filter(([s]) => s > 0).sort((a, b) => b[0] - a[0]).map(([, it]) => it).slice(0, 40);
+      // a page can rank its own entries (rank +1: its navigation and commands; -1: entries that start work), so a few
+      // letters never put a run above where the owner wanted to go
+      this.items = this.all.map(it => [score(it), it]).filter(([s]) => s > 0).sort((a, b) => (b[0] + (b[1].rank || 0)) - (a[0] + (a[1].rank || 0))).map(([, it]) => it).slice(0, 40);
       if (!t) this.items = this.all.slice(0, 40);
       const list = this.el.querySelector('.list');
       if (!this.items.length) { list.innerHTML = `<div class="none">${SETUP || page() ? 'Nothing matches. Press Enter to send this to Atlas.' : 'Nothing matches. Press Enter to give the team this as a job.'}</div>`; return; }
@@ -279,7 +281,7 @@
       el.innerHTML = `<div class="hd"><i class="mark"></i><div><b>Ask Atlas</b><small>your team lead: briefs the agents, checks their work</small></div><button title="Close (Esc)">${svg('x')}</button></div>
         <div class="tabs"><button data-m="job">Give a job</button><button data-m="ask">Ask the cameras</button><button data-m="design">Change the team</button></div>
         <div class="bd" id="sh-askbd"></div>
-        <div class="cmp"><textarea id="sh-asktx" rows="2"></textarea><button class="send" id="sh-asksend">Send</button></div>
+        <div class="cmp"><textarea id="sh-asktx" rows="2"></textarea><button class="send" id="sh-asksend" title="Send (Enter)">${svg('send')}Send</button></div>
         <div class="foot">Nothing leaves without your approval · <a href="/desk#approvals">Approvals</a> · <a href="/desk#live">Live runs</a></div>`;
       document.body.append(el);
       el.querySelector('.hd button').onclick = () => this.close();
@@ -301,9 +303,33 @@
                  ['Answer every WhatsApp enquiry within 10 minutes', 'Email me a report of the day every evening', 'Watch the bar for long queues and tell the floor manager']],
       }[m];
       tx.placeholder = {job: 'Describe the job…', ask: 'Ask about what the cameras saw…', design: 'What work should the team be shaped for?'}[m];
-      bd.innerHTML = `<div class="hint">${intro[0]}</div><div class="chips">${intro[1].map(c => `<button>${esc(c)}</button>`).join('')}</div>` + (this.log[m] || []).join('');
+      bd.innerHTML = `<div class="hint">${intro[0]}</div><div class="chips">${intro[1].map(c => `<button>${esc(c)}</button>`).join('')}</div><div class="ctx" id="sh-askctx"></div>` + (this.log[m] || []).join('');
       bd.querySelectorAll('.chips button').forEach(b => b.onclick = () => { tx.value = b.textContent; tx.focus(); });
       bd.scrollTop = 1e9;
+      this.context(m);
+    },
+    // what the mode works on, from the desk itself: the newest jobs, the cameras as they stand, the team as it is
+    async context(m) {
+      const box = () => this.el && this.el.querySelector('#sh-askctx'), seq = this.ctxSeq = (this.ctxSeq || 0) + 1;
+      const utc = ts => { const d = new Date(ts * 1000), t = d.toISOString().slice(11, 16); return d.toISOString().slice(0, 10) === new Date().toISOString().slice(0, 10) ? t : d.getUTCDate() + ' ' + 'Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec'.split(' ')[d.getUTCMonth()]; };
+      const row = (a, b, c, cls, t) => `<div class="r"><span class="a" title="${esc(a)}">${esc(a)}</span>${b ? `<span class="b ${cls || ''}">${esc(b)}</span>` : ''}${c ? `<span class="${t ? 't' : 'c'}">${esc(c)}</span>` : ''}</div>`;   // t: c is a time (never cut)
+      let head = '', rows = [], more = '';
+      if (m === 'job') {
+        const runs = await api('/runs'); if (seq !== this.ctxSeq) return;
+        const R = Array.isArray(runs) ? runs.slice(0, 6) : null;
+        head = 'Recent jobs · UTC'; more = `<a href="/desk#runs">Run history ›</a>`;
+        rows = R == null ? [`<div class="r none">The jobs could not be read.</div>`] : R.length ? R.map(r => row(String(r.task || '').replace(/^Run workflow /, ''), r.active ? 'running' : /error|fail/.test(r.status || '') ? 'failed' : (r.status || 'done'), utc(r.created), r.active ? 'on' : /error|fail/.test(r.status || '') ? 'bad' : '', true)) : [`<div class="r none">No jobs yet: the first one you give lands here.</div>`];
+      } else if (m === 'ask') {
+        head = 'Cameras · newest note UTC'; more = `<a href="/desk#cameras">Cameras ›</a>`;
+        const C = S.cameras || [];
+        rows = C.length ? C.slice(0, 8).map(c => { const st = c.status || {}; return row(c.name, st.problem ? 'fix feed' : st.state === 'live' ? 'live' : st.watching ? 'starting' : 'not watched', c.last_note && c.last_note.ts ? utc(c.last_note.ts) : 'no note', st.problem ? 'warn' : st.state === 'live' ? 'ok' : '', true); })
+          : [`<div class="r none">No cameras on this desk yet: answers come only from what cameras log.</div>`];
+      } else {
+        head = 'The team now'; more = `<a href="/desk#team">Team canvas ›</a>`;
+        const A = (S.agents || []).filter(a => a.enabled !== false);
+        rows = A.length ? A.slice(0, 10).map(a => row(a.name, a.id === 'atlas' ? 'lead' : '', a.id === 'atlas' ? 'Orchestrator' : (a.role || ''))) : [`<div class="r none">Only Atlas so far.</div>`];
+      }
+      const b = box(); if (b) b.innerHTML = `<div class="g"><span>${esc(head)}</span>${more}</div>${rows.join('')}`;
     },
     log: {job: [], ask: [], design: []},
     say(cls, html) { const s = `<div class="msg ${cls}">${html}</div>`; this.log[this.mode].push(s); const bd = this.el.querySelector('#sh-askbd'); bd.insertAdjacentHTML('beforeend', s); bd.scrollTop = 1e9; return bd.lastElementChild; },

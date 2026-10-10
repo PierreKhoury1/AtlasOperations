@@ -197,6 +197,21 @@ SAMPLE_CAMERA_NAMES = {"corner-store_ezymart": "till", "retail-store": "shop-flo
                        "kitchen-sink": "sink"}
 
 
+def sample_label(name: str) -> str:
+    """A clip's description. A higher-resolution copy (name-1080p) reads as its original's, with the resolution."""
+    if name in SAMPLE_LABELS:
+        return SAMPLE_LABELS[name]
+    base, _, res = name.rpartition("-")
+    if base in SAMPLE_LABELS and re.fullmatch(r"\d{3,4}p", res):
+        return f"{SAMPLE_LABELS[base]}, {res}"
+    return name.replace("-", " ").replace("_", " ")
+
+
+def sample_camera_name(name: str) -> str:
+    """The name a clip's camera usually gets (the till, the lobby): the original's for a higher-resolution copy."""
+    return SAMPLE_CAMERA_NAMES.get(name) or SAMPLE_CAMERA_NAMES.get(name.rpartition("-")[0], "")
+
+
 def sample_clips() -> dict[str, str]:
     """Sample footage the owner can try the desk on: {clip name: path}. Any .mp4 in the sample folder counts."""
     d = sample_dir()

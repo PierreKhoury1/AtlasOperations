@@ -421,6 +421,7 @@ aside.simple [data-lvl="full"]{display:none}
 .hm-col{display:flex;flex-direction:column;gap:12px;min-width:0}
 .hm-col>.panel{margin:0!important}
 .hm-n{display:inline-block;min-width:20px;padding:0 6px;border-radius:2px;background:var(--panel2);color:var(--muted);font-size:11px;font-weight:600;text-align:center;margin-left:8px;vertical-align:2px;line-height:18px}
+.hm-n:empty{display:none}   /* a count whose source has not answered yet: none, never 0 */
 .hm-n.hot{background:var(--warn);color:#14171b}
 .hm-need{display:grid;grid-template-columns:86px minmax(0,1fr) auto;gap:12px;align-items:center;padding:11px 18px;border-bottom:1px solid var(--line)}
 .hm-need:last-child{border-bottom:0}
@@ -434,6 +435,7 @@ aside.simple [data-lvl="full"]{display:none}
 .hm-clear i{width:24px;height:24px;border-radius:50%;background:var(--ok-soft);color:var(--ok);display:grid;place-items:center;font-style:normal;font-weight:700;flex:0 0 auto}
 .hm-more{padding:8px 18px;border-top:1px solid var(--line)}
 .hm-tabs{display:flex;gap:2px;margin:0 auto 0 16px;flex-wrap:wrap}
+.hm-utc{font:400 11px var(--mono);color:var(--muted);margin-left:8px;white-space:nowrap}
 .hm-tabs button{background:none;border:1px solid transparent;color:var(--muted);border-radius:3px;padding:3px 9px;font:inherit;font-size:12px;font-weight:600;cursor:pointer}
 .hm-tabs button:hover{color:var(--text)}
 .hm-tabs button.on{border-color:var(--line2);color:var(--text);background:var(--panel2)}
@@ -476,6 +478,8 @@ aside.simple [data-lvl="full"]{display:none}
 .fdrop.done{border-color:var(--ok);border-style:solid}
 .fprev{margin-top:10px;aspect-ratio:16/9;background:#05070a;border-radius:3px;display:grid;place-items:center;color:var(--faint);font-size:12px;overflow:hidden}
 .fprev img{width:100%;height:100%;object-fit:contain}
+.fprev.nopic{aspect-ratio:auto;height:44px;background:var(--panel2);border:1px dashed var(--line2);color:var(--muted)}   /* no frame yet: one slim line, as in the workspace */
+.fdlg .fh .fx{width:26px;padding:0;justify-content:center}
 .cam.plan{border-style:dashed}
 .cam.plan .shot{display:grid;place-items:center;background:var(--panel2);color:var(--muted);cursor:pointer;font-size:12.5px}
 .cam.addtile{border-style:dashed;display:grid;place-items:center;min-height:230px;cursor:pointer;color:var(--muted)}
@@ -637,7 +641,7 @@ aside.simple [data-lvl="full"]{display:none}
   <div class="hm-head">
     <div><div class="hm-eyebrow" id="hm-date"></div><h1 id="hm-greet">Home</h1><p class="lead" id="hm-sum">Loading the desk…</p></div>
     <div class="hm-pills">
-      <span class="hm-pill" onclick="go('live')" title="runs in progress"><span class="dot" id="d-dot"></span><b id="k-active">0</b> running</span>
+      <span class="hm-pill" onclick="go('live')" title="runs in progress"><span class="dot" id="d-dot"></span><b id="k-active">–</b> running</span>
       <span class="hm-pill" id="hm-brain" onclick="go('setup')" title="the models the agents run on"></span>
       <span class="hm-pill" id="hm-hpill" onclick="document.getElementById('hm-hz').scrollIntoView({behavior:'smooth'})" title="system health"><i></i><span>checking…</span></span>
     </div>
@@ -663,15 +667,15 @@ aside.simple [data-lvl="full"]{display:none}
 
   <div class="hm-grid">
     <div class="hm-col">
-      <div class="panel" id="hm-needs-p"><div class="ph"><h2>Needs you<span class="hm-n" id="hm-needs-n">0</span></h2><button class="link" onclick="go('approvals')">Approval queue ›</button></div><div id="hm-needs"><div class="hm-none">Loading…</div></div></div>
+      <div class="panel" id="hm-needs-p"><div class="ph"><h2>Needs you<span class="hm-n" id="hm-needs-n"></span></h2><button class="link" onclick="go('approvals')">Approval queue ›</button></div><div id="hm-needs"><div class="hm-none">Loading…</div></div></div>
       <div class="panel hcams" id="home-cams" style="display:none"><div class="ph"><h2 style="display:flex;align-items:center;gap:8px"><span class="dot" id="hc-dot"></span>Cameras now</h2><span class="hint" id="hc-hint" style="margin:0 auto 0 12px"></span><button class="link" onclick="go('cameras')">All cameras ›</button></div>
         <div class="wall"><div class="wgrid" id="hc-grid"></div></div></div>
-      <div class="panel"><div class="ph"><h2>Activity</h2><div class="hm-tabs" id="hm-ftabs"><button data-f="all" class="on">All</button><button data-f="job">Jobs</button><button data-f="cam">Cameras</button><button data-f="case">Cases</button><button data-f="you">Your decisions</button></div><button class="link" onclick="go('audit')">Full log ›</button></div><div class="hm-feed" id="hm-feed"><div class="hm-none">Loading…</div></div></div>
+      <div class="panel"><div class="ph"><h2>Activity</h2><span class="hm-utc" title="Times are UTC, as in the workspace">UTC</span><div class="hm-tabs" id="hm-ftabs"><button data-f="all" class="on">All</button><button data-f="job">Jobs</button><button data-f="cam">Cameras</button><button data-f="case">Cases</button><button data-f="you">Your decisions</button></div><button class="link" onclick="go('audit')">Full log ›</button></div><div class="hm-feed" id="hm-feed"><div class="hm-none">Loading…</div></div></div>
     </div>
     <div class="hm-col">
-      <div class="panel"><div class="ph"><h2>Agents<span class="hm-n" id="hm-agents-n">0</span></h2><button class="link" onclick="go('team')">Team canvas ›</button></div><div id="hm-agents"></div>
+      <div class="panel"><div class="ph"><h2>Agents<span class="hm-n" id="hm-agents-n"></span></h2><button class="link" onclick="go('team')">Team canvas ›</button></div><div id="hm-agents"></div>
         <div class="hm-pfoot"><button class="btn sm" onclick="go('team');homeAfter(()=>teamAddReady(),()=>document.getElementById('tm-i-name'))">+ Add an agent</button><button class="btn sm" onclick="homeMode('design');$('#d-task').focus();scrollTo({top:0,behavior:'smooth'})">Change the team with Atlas</button></div></div>
-      <div class="panel"><div class="ph"><h2>Open cases<span class="hm-n" id="hm-cases-n">0</span></h2><a href="/desk/ops">Cases ›</a></div><div id="hm-cases"></div>
+      <div class="panel"><div class="ph"><h2>Open cases<span class="hm-n" id="hm-cases-n"></span></h2><a href="/desk/ops">Cases ›</a></div><div id="hm-cases"></div>
         <div class="hm-pfoot"><button class="btn sm" onclick="shell&&shell.go('/desk/ops','newCase')">+ New case</button></div></div>
       <div class="panel"><div class="ph"><h2>Recent jobs</h2><button class="link" onclick="go('runs')">All runs ›</button></div><div id="hm-runs"></div></div>
     </div>
@@ -957,21 +961,22 @@ aside.simple [data-lvl="full"]{display:none}
 <div class="toast" id="toast"></div>
 <div class="veil hide" id="feed-veil" onclick="if(event.target===this)feedClose()">
   <div class="fdlg">
-    <div class="fh"><b id="fd-title">Connect a camera</b><span class="hint" id="fd-sub" style="margin:0 auto 0 12px"></span><button class="btn sm" onclick="feedClose()">✕</button></div>
+    <div class="fh"><b id="fd-title">Connect a camera</b><span class="hint" id="fd-sub" style="margin:0 auto 0 12px"></span><button class="btn sm fx" onclick="feedClose()" title="Close (Esc)" aria-label="Close"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg></button></div>
     <div class="fb">
       <div id="fd-name-row"><label>Camera name (the agents refer to it by this)</label><input id="fd-name" placeholder="front-door, bar-cam, terrace…"></div>
       <div class="hm-tabs" id="fd-tabs" style="margin:10px 0 8px">
-        <button data-k="stream" class="on">Stream address</button><button data-k="webcam">Webcam</button><button data-k="upload">Upload a video</button><button data-k="sample">Sample footage</button></div>
-      <div class="fpane" data-k="stream"><label>RTSP or snapshot URL</label><input id="fd-stream" placeholder="rtsp://user:pass@192.168.1.20:554/… or http://…/snapshot.jpg"></div>
-      <div class="fpane hide" data-k="webcam"><label>Device number</label><input id="fd-webcam" placeholder="0" style="width:100px"><p class="hint">0 is the first camera on the machine Atlas runs on.</p></div>
+        <button data-k="rtsp" class="on">RTSP stream</button><button data-k="upload">Upload file</button><button data-k="webcam">Webcam</button><button data-k="http">Snapshot URL</button><button data-k="sample">Sample footage</button></div>
+      <div class="fpane" data-k="rtsp"><label>Stream address</label><input id="fd-rtsp" spellcheck="false" placeholder="rtsp://user:password@192.168.1.20:554/Streaming/Channels/101"><p class="hint">Atlas connects over TCP and keeps one frame a second.</p></div>
+      <div class="fpane hide" data-k="http"><label>Snapshot or MJPEG URL</label><input id="fd-http" spellcheck="false" placeholder="http://user:password@192.168.1.20/ISAPI/Streaming/channels/101/picture"><p class="hint">Any address that returns a JPEG (ESP32-CAM /capture, Hikvision ISAPI) or an MJPEG stream.</p></div>
+      <div class="fpane hide" data-k="webcam"><label>Device on the computer running Atlas</label><input id="fd-webcam" placeholder="0" style="width:100px"><p class="hint">0 is usually the built-in webcam.</p></div>
       <div class="fpane hide" data-k="upload">
         <div class="fdrop" id="fd-drop" onclick="$('#fd-file').click()"><b>Drop a video or image here</b><span>or click to choose a file — mp4, mov, mkv, jpg… It plays on a loop as this camera's feed.</span></div>
         <input type="file" id="fd-file" accept="video/*,image/*" class="hide" onchange="feedUpload(this)"></div>
       <div class="fpane hide" data-k="sample"><label>Footage</label><select id="fd-sample"></select><p class="hint">Bundled demo footage: kitchens, a hotel lobby, a shop floor.</p></div>
-      <div class="fprev" id="fd-prev"><span>Test the source to see a frame from it.</span></div>
+      <div class="fprev nopic" id="fd-prev"><span>Test the source to see a frame from it.</span></div>
       <div class="hint" id="fd-msg" style="margin:6px 0 0"></div>
     </div>
-    <div class="ff"><button class="btn" id="fd-test" onclick="feedTest(this)">Test the source</button><span class="spacer" style="flex:1"></span><button class="btn p" id="fd-go" onclick="feedAttach(this)">Attach feed →</button></div>
+    <div class="ff"><span class="spacer" style="flex:1"></span><button class="btn" id="fd-test" onclick="feedTest(this)">Test</button><button class="btn p" id="fd-go" onclick="feedAttach(this)">Attach feed</button></div>
   </div>
 </div>
 
@@ -987,6 +992,8 @@ const jstr = v => JSON.stringify(String(v ?? '')).replace(/'/g, '\\u0027').repla
 const jsa = v => esc(jstr(v));
 const when = ts => new Date(ts * 1000).toLocaleString('en-GB', {day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit'});
 const hms = ts => new Date(ts * 1000).toLocaleTimeString('en-GB');
+const utcHm = ts => { const d = new Date(ts * 1000), t = d.toISOString().slice(11, 16); return d.toISOString().slice(0, 10) === new Date().toISOString().slice(0, 10) ? t : d.getUTCDate() + ' ' + 'Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec'.split(' ')[d.getUTCMonth()]; };   // Activity: UTC, the workspace's clock
+const utcFull = ts => new Date(ts * 1000).toISOString().replace('T', ' ').slice(0, 19) + ' UTC';
 let CFG = {}, colors = {}, af = 'pending', curRun = null, page = 'dash', ME = null;
 function toast(m){ const t=$('#toast'); t.textContent=m; t.classList.add('on'); setTimeout(()=>t.classList.remove('on'), 2600); }
 function go(p){ if(p==='design'){ page=p; openStudio(false); return; } page=p; if(location.hash!=='#'+p) history.replaceState(null,'','#'+p); document.querySelectorAll('main > section').forEach(s=>s.classList.toggle('hide', s.id!=='p-'+p)); document.querySelectorAll('#nav button').forEach(b=>b.classList.toggle('on', b.dataset.p===p)); refresh(); }
@@ -1248,7 +1255,7 @@ function homeFeed(){
   }
   const list = rows.filter(r => HM.filter === 'all' || r.f === HM.filter).sort((a, b) => b.ts - a.ts).slice(0, 60);
   const key = JSON.stringify([HM.filter, list.map(r => [r.ts, r.tag])]); if (key === HM.fkey) return; HM.fkey = key;
-  $('#hm-feed').innerHTML = list.length ? list.map(r => `<div class="hm-ev ${r.bad ? 'alert' : ''}" onclick="${r.on}"><span class="tm" title="${esc(when(r.ts))}">${hms(r.ts).slice(0, 5)}</span><span class="who" style="color:${r.col}" title="${esc(r.who)}">${esc(r.who)}</span><span class="tx"><em>${esc(r.tag)}</em>${esc(String(r.txt || '').slice(0, 400))}</span></div>`).join('')
+  $('#hm-feed').innerHTML = list.length ? list.map(r => `<div class="hm-ev ${r.bad ? 'alert' : ''}" onclick="${r.on}"><span class="tm" title="${esc(utcFull(r.ts))}">${esc(utcHm(r.ts))}</span><span class="who" style="color:${r.col}" title="${esc(r.who)}">${esc(r.who)}</span><span class="tx"><em>${esc(r.tag)}</em>${esc(String(r.txt || '').slice(0, 400))}</span></div>`).join('')
     : `<div class="hm-none">${{all: 'Nothing yet. Give the team a job above, or add a camera.', job: 'No jobs yet.', cam: 'No camera notes in the last 24 hours.', case: 'No case activity yet.', you: 'You have not approved or rejected anything yet.'}[HM.filter]}</div>`;
 }
 function homeAgents(running){
@@ -1913,6 +1920,7 @@ function teamCanvasClick(ev){
   if (!TMLIVE.active && !TMLIVE.replay && Object.keys(TMLIVE.inst).length) teamResetVisuals();   // finished play → back to idle
 }
 document.addEventListener('keydown', ev => { if (ev.key === 'Escape' && page === 'team' && TEAM.sel >= 0) teamClose(); });
+document.addEventListener('keydown', ev => { if (ev.key === 'Escape' && !$('#feed-veil').classList.contains('hide')) feedClose(); });
 window.addEventListener('resize', () => { if (page === 'team' && $('#tm-ws').clientWidth) { teamPlace(); teamEdges(); } });
 /* ---- inspector (edit on touch) */
 function teamInspect(i){
@@ -2569,20 +2577,23 @@ function feedOpen(cid, name, src){
   $('#fd-title').textContent = name ? name : 'Connect a camera';
   $('#fd-sub').textContent = cid ? 'change this camera\u2019s feed' : (name ? 'planned by Atlas — give it a feed' : 'a new camera object on this desk');
   $('#fd-name-row').style.display = name ? 'none' : ''; $('#fd-name').value = name || '';
-  $('#fd-stream').value = src && /^(rtsp|https?):/.test(src) ? src : ''; $('#fd-webcam').value = src && /^\d+$/.test(src) ? src : '';
-  $('#fd-prev').innerHTML = '<span>Test the source to see a frame from it.</span>'; $('#fd-msg').textContent = '';
-  $('#fd-go').textContent = cid ? 'Switch feed →' : 'Attach feed →';
+  $('#fd-rtsp').value = src && /^rtsps?:/i.test(src) ? src : ''; $('#fd-http').value = src && /^https?:/i.test(src) ? src : ''; $('#fd-webcam').value = src && /^\d+$/.test(src) ? src : '';
+  feedPreview('', ''); $('#fd-msg').textContent = '';
+  $('#fd-go').textContent = cid ? 'Switch feed' : 'Attach feed';
   const sel = $('#fd-sample'); sel.innerHTML = (FEED.samples || []).map(x => `<option value="sample:${esc(x.name)}">${esc(x.label || x.name)}</option>`).join('') || '<option value="">no samples bundled</option>';
   if (src && String(src).startsWith('sample:') && [...sel.options].some(o => o.value === src)) sel.value = src;
-  feedTab(src && String(src).startsWith('sample:') ? 'sample' : /^\d+$/.test(String(src||'')) ? 'webcam' : 'stream');
+  feedTab(src && String(src).startsWith('sample:') ? 'sample' : /^\d+$/.test(String(src||'')) ? 'webcam' : /^https?:/i.test(String(src||'')) ? 'http' : 'rtsp');
   $('#feed-veil').classList.remove('hide');
-  setTimeout(() => (name ? $('#fd-' + (FEED.tab === 'upload' ? 'file' : FEED.tab)) || $('#fd-stream') : $('#fd-name')).focus(), 60);
+  setTimeout(() => (name ? $('#fd-' + (FEED.tab === 'upload' ? 'file' : FEED.tab)) || $('#fd-rtsp') : $('#fd-name')).focus(), 60);
 }
 function feedClose(){ $('#feed-veil').classList.add('hide'); }
+// the frame a test returned, or one slim line until there is one (never an empty 16:9 black box)
+function feedPreview(src, msg){ const p = $('#fd-prev'); p.classList.toggle('nopic', !src); p.innerHTML = src ? `<img src="${esc(src)}" alt="">` : `<span>${esc(msg || 'Test the source to see a frame from it.')}</span>`; }
 function feedTab(k){ FEED.tab = k; document.querySelectorAll('#fd-tabs button').forEach(b => b.classList.toggle('on', b.dataset.k === k)); document.querySelectorAll('.fpane').forEach(p => p.classList.toggle('hide', p.dataset.k !== k)); }
 document.querySelectorAll('#fd-tabs button').forEach(b => b.onclick = () => feedTab(b.dataset.k));
 function feedSource(){
-  if (FEED.tab === 'stream') return $('#fd-stream').value.trim();
+  if (FEED.tab === 'rtsp') return $('#fd-rtsp').value.trim();
+  if (FEED.tab === 'http') return $('#fd-http').value.trim();
   if (FEED.tab === 'webcam') return $('#fd-webcam').value.trim();
   if (FEED.tab === 'upload') return FEED.uploaded;
   return $('#fd-sample').value;
@@ -2601,9 +2612,9 @@ async function feedTest(btn){
   const src = feedSource(); if (!src) return toast(FEED.tab === 'upload' ? 'Choose a file first' : 'Give a source first');
   btn.disabled = true; btn.textContent = 'Testing…'; $('#fd-msg').textContent = '';
   const r = await api('/cameras/probe', {method: 'POST', body: {source: src}});
-  btn.disabled = false; btn.textContent = 'Test the source';
-  if (!r || !r.ok) { $('#fd-prev').innerHTML = '<span>no frame</span>'; $('#fd-msg').textContent = (r && r.error) || 'Could not read that source.'; return; }
-  $('#fd-prev').innerHTML = `<img src="${r.preview}" alt="">`; $('#fd-msg').textContent = 'Working ' + r.kind + ' feed.';
+  btn.disabled = false; btn.textContent = 'Test';
+  if (!r || !r.ok) { feedPreview('', 'No frame from that source.'); $('#fd-msg').textContent = (r && r.error) || 'Could not read that source.'; return; }
+  feedPreview(r.preview); $('#fd-msg').textContent = 'Connected · ' + r.kind + ' feed.';
 }
 async function feedAttach(btn){
   const name = FEED.name || $('#fd-name').value.trim(); const src = feedSource();
@@ -2613,7 +2624,7 @@ async function feedAttach(btn){
   const r = await api('/cameras/attach', {method: 'POST', body: {name, source: src, cid: FEED.cid || undefined}});
   btn.disabled = false;
   if (!r || r.error) return toast(r?.error || 'failed');
-  toast(`${r.camera.name} is live: watching and writing its journal`); feedClose(); HOME.t = 0; loadCameras();
+  toast(`${r.camera.name}: feed attached · it goes live once its frames arrive`); feedClose(); HOME.t = 0; loadCameras();
 }
 function zoom(url){ const d = document.createElement('div'); d.className = 'lightbox'; d.innerHTML = `<img src="${url}">`; d.onclick = ()=>d.remove(); document.body.appendChild(d); }
 async function testVisionHook(){
@@ -2666,7 +2677,7 @@ async function loadHealth(){
   const jobs = h.jobs.length ? `<table style="margin-top:10px"><tr><th>Automation</th><th>Last</th><th>Result</th></tr>` + h.jobs.map(j => `<tr><td><b>${esc(j.name)}</b> <span class="model">${esc(j.kind)}${j.enabled?'':' · off'}</span></td><td><span class="tag ${j.last_status==='error'?'error':(j.last_status==='ok'?'done':'')}">${esc(j.last_status||'never')}</span> <span class="hint" style="margin:0">${j.last_run?hms(j.last_run):''}</span></td><td class="model">${esc(j.last_result)}</td></tr>`).join('') + '</table>' : '';
   const cons = h.connectors.length ? `<div class="row" style="margin-top:10px">${h.connectors.map(c => `<span class="tag ${String(c.status).startsWith('ok')?'done':(String(c.status).startsWith('error')?'error':'')}">${esc(c.name)} · ${esc(String(c.status).split(':')[0])}</span>`).join('')}</div>` : '';
   const err = h.last_error ? `<div class="hint" style="margin-top:10px">Last error ${hms(h.last_error.ts)} · run ${esc(h.last_error.run_id||'')}: <span class="model">${esc(h.last_error.text)}</span></div>` : '';
-  $('#hz-body').innerHTML = alerts + `<div class="grid" style="grid-template-columns:repeat(${h.spend && h.spend.used_usd != null ? 6 : 5},1fr)">${stat('Runs · 24h', r.total, Object.entries(r.by_status).map(([k,v])=>k+' '+v).join(' · ') || 'none')}${stat('Failure rate', Math.round(r.failure_rate*100)+'%', `${r.zombies} zombie · ${r.stalled} stalled · ${r.active} live`)}${stat('Run time p50 / p90', fmt(r.p50_s)+' / '+fmt(r.p90_s), 'finished runs')}${stat('Approval queue', h.queue.pending ?? 0, 'oldest ' + h.queue.oldest_pending_h + 'h')}${stat('Tokens · 24h', (h.tokens||0).toLocaleString(), '≈ £' + h.cost_gbp + ' on Sonnet · up ' + Math.round(h.uptime_s/3600) + 'h')}${h.spend && h.spend.used_usd != null ? stat('Model spend', '$' + (+h.spend.used_usd).toFixed(2), (h.spend.cap_usd ? 'cap $' + h.spend.cap_usd + ' · ' : '') + 'balance $' + (+(h.spend.credits_usd||0) - +h.spend.used_usd).toFixed(2) + (h.spend.blocked ? ' · BLOCKED' : '')) : ''}</div>` + jobs + cons + err;
+  $('#hz-body').innerHTML = alerts + `<div class="grid" style="grid-template-columns:repeat(${h.spend && h.spend.used_usd != null ? 6 : 5},1fr)">${stat('Runs · 24h', r.total, Object.entries(r.by_status).map(([k,v])=>k+' '+v).join(' · ') || 'none')}${stat('Failure rate', Math.round(r.failure_rate*100)+'%', `${r.zombies} zombie · ${r.stalled} stalled · ${r.active} live`)}${stat('Run time p50 / p90', fmt(r.p50_s)+' / '+fmt(r.p90_s), 'finished runs')}${stat('Approval queue', h.queue.pending ?? 0, 'oldest ' + h.queue.oldest_pending_h + 'h')}${stat('Tokens · 24h', (h.tokens||0).toLocaleString(), '≈ £' + h.cost_gbp + ' at paid rates · up ' + Math.round(h.uptime_s/3600) + 'h')}${h.spend && h.spend.used_usd != null ? stat('Model spend', '$' + (+h.spend.used_usd).toFixed(2), (h.spend.cap_usd ? 'cap $' + h.spend.cap_usd + ' · ' : '') + 'balance $' + (+(h.spend.credits_usd||0) - +h.spend.used_usd).toFixed(2) + (h.spend.blocked ? ' · BLOCKED' : '')) : ''}</div>` + jobs + cons + err;
 }
 let MODELCAT = null;
 async function renderModels(){

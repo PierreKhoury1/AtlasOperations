@@ -26,7 +26,7 @@ const W = {
   camPoll: null, evSince: 0,
   manual: new Map(), pan: {x: 0, y: 0}, uz: 1,
   addedCams: new Map(),
-  modeSel: 'job', apCount: null, apOldest: '', runs: null, desks: [], notes24: null, lastNoteTs: 0, cost: null, activeRuns: 0,
+  modeSel: 'job', apCount: null, apOldest: '', runs: null, desks: null, notes24: null, lastNoteTs: 0, cost: null, activeRuns: 0,
   // what has answered at least once on a built desk: until then its figures read "–" and no line claims anything from it
   // (W.apCount stays null until /actions answers, W.runs until /runs does)
   ld: {cams: false, last: false, stats: false},
@@ -117,7 +117,7 @@ async function boot(){
     return openBuiltDesk(cfg);
   }
   if (W.pin) { W.pin = 0; history.replaceState(null, '', '/desk/workspace'); }
-  W.phase = 'meet'; setPhaseAttr(); setPhase('brief'); setState('ready');
+  W.phase = 'meet'; setPhaseAttr(); setPhase('loading'); setState('opening'); lockComposer(true);   // "brief" once the draft (or a new one) is known
   // a draft in progress in this tab survives a reload; ?new=1 starts a fresh one
   const fresh = q.has('new') && !q.has('resume');
   let sid = ''; try { sid = fresh ? '' : (localStorage.getItem('ws_sid') || ''); } catch (_) {}
@@ -133,8 +133,8 @@ async function boot(){
     if (s && s.sid && !s.desk_id) { try { localStorage.setItem('ws_sid', s.sid); } catch (_) {} return resumeDesign(s, 'mine'); }
   }
   const s = await api('/design/start', {method: 'POST', body: {tier: W.tier}});
-  if (!s || s.error) { addMsg('s', (s && s.error) || 'Atlas is not available right now.'); setState('unavailable'); renderAll(); return; }
-  W.sid = s.sid; W.mode = s.mode || W.mode; W.tier = s.tier || W.tier; loadView();
+  if (!s || s.error) { W.noAtlas = true; addMsg('s', (s && s.error) || 'Atlas is not available right now.'); setPhase('brief'); setState('unavailable'); $('#say').placeholder = 'Atlas is not available right now'; renderAll(); return; }
+  W.sid = s.sid; W.mode = s.mode || W.mode; W.tier = s.tier || W.tier; loadView(); opened();
   try { localStorage.setItem('ws_sid', s.sid); } catch (_) {}
   if (q.has('new')) history.replaceState(null, '', '/desk/workspace?new=1&resume=1');
   setNext(s.next, addMsg('a', (s.transcript && s.transcript[0] && s.transcript[0].text) || 'Describe the business and the work to take on.'));
@@ -143,7 +143,7 @@ async function boot(){
   tutStart(false, 'meet');
 }
 async function resumeDesign(s, from){
-  W.sid = s.sid; W.mode = s.mode || W.mode; W.tier = s.tier || W.tier; loadView();
+  W.sid = s.sid; W.mode = s.mode || W.mode; W.tier = s.tier || W.tier; loadView(); opened();
   (s.transcript || []).forEach(m => addMsg(m.role === 'user' ? 'u' : 'a', m.text || '', '', !m.ts, m.ts));
   W.lastSaid = ((s.transcript || []).filter(m => m.role === 'user').pop() || {}).text || '';   // what a paid switch resends
   const lastA = [...document.querySelectorAll('#msgs > .m.a')].pop() || null;
@@ -154,6 +154,10 @@ async function resumeDesign(s, from){
   setDeskStatus(); loadMyDesks(); renderAll();
   tutStart(false, W.bp ? 'team' : 'meet');
 }
+// until the page knows which draft it shows (the saved one, the owner's last, or a new one), it says it is opening and
+// nothing can be sent: a message typed meanwhile stays in the box
+function lockComposer(on){ if (W.sayPh == null) W.sayPh = $('#say').placeholder; $('#send').disabled = on; $('#say').placeholder = on ? 'Opening the workspace…' : W.sayPh; }
+function opened(){ lockComposer(false); setPhase('brief'); setState('ready'); renderHead(); renderTeamTable(); }
 async function openBuiltDesk(cfg){
   W.deskId = W.pin = cfg.desk.id; W.deskName = (cfg.business && cfg.business.name) || cfg.desk.business_name || cfg.desk.name;
   W.policy = (cfg.business && cfg.business.policy) || null;              // the desk's outbound rules, as configured
@@ -171,7 +175,7 @@ async function openBuiltDesk(cfg){
   loadMyDesks();
   if (W.cams.size) startCamPoll();
   setMode(liveCams() ? 'ask' : 'job');                           // asking the cameras is the default only while one is live
-  W.greetEl = addMsg('a', greeting()); W.greetEl.classList.add('greet'); msgsEnd();   // kept current until the owner's first message
+  W.greetEl = addMsg('a', greeting()); W.greetEl.classList.add('greet'); W.greetH = md(greeting()); greetTitles(W.greetEl); msgsEnd();   // kept current until the owner's first message
   loadNext({context: 'desk_open'}, W.greetEl);                   // the desk's own three ways to proceed (its approvals, workflows, cameras)
   loadLatestRun();
   tutStart(false, W.cams.size ? 'watching' : 'built');
@@ -184,15 +188,17 @@ function camSumText(){
 }
 const liveCams = () => [...W.cams.values()].filter(c => c.st === 'live').length;
 // Atlas's opening status: the desk in one line, then what needs the owner and the last job (the same facts as the header)
+// One line per fact (the whole line in its tooltip), so the status and the three steps under it fit the panel.
 function greeting(){
   const out = [`**${W.deskName}**`];
   if (W.apCount != null) out.push('- Approvals: ' + (W.apCount ? `${W.apCount} waiting, oldest ${W.apOldest}` : 'none waiting'));
   if (W.cams.size) out.push('- Cameras: ' + camSumText());
-  const g = gapCount(); if (g) out.push(`- Gaps: ${plural(g, 'agent gap')} to fix, under Explorer › Attention`);
-  if (W.runs) { const r = W.runs[0], t = r ? String(r.task || '').replace(/\s+/g, ' ') : ''; out.push('- Last job: ' + (r ? `${runState(r)[0]} ${fmtTs(r.created)} UTC · ${t.length > 48 ? t.slice(0, 47) + '…' : t}` : 'none yet, give the team its first one below')); }
+  const g = gapCount(); if (g) out.push(`- Gaps: ${plural(g, 'agent gap')} to fix (Explorer › Attention)`);
+  if (W.runs) { const r = W.runs[0], t = r ? String(r.task || '').replace(/\s+/g, ' ') : ''; out.push('- Last job: ' + (r ? `${runState(r)[0]} ${fmtTs(r.created)} UTC · ${t.length > 60 ? t.slice(0, 59) + '…' : t}` : 'none yet, give the team its first one below')); }
   return out.join('\n');
 }
-function refreshGreeting(){ const el = W.greetEl; if (!el || !el.isConnected || W.greetDone) return; const h = md(greeting()); if (el.innerHTML !== h) { el.innerHTML = h; if (W.msgsPinned) msgsEnd(); } }
+function greetTitles(el){ el.querySelectorAll('li, p').forEach(x => { x.title = x.textContent; }); }
+function refreshGreeting(){ const el = W.greetEl; if (!el || !el.isConnected || W.greetDone) return; const h = md(greeting()); if (W.greetH !== h) { W.greetH = h; el.innerHTML = h; greetTitles(el); if (NX.box) fitNext(); if (W.msgsPinned) msgsEnd(); } }
 
 function loadAgentsFromConfig(list){
   W.agents.clear(); W.order = [];
@@ -216,12 +222,16 @@ function addMsg(role, text, cls, noTime, ts){
   if (role === 'a') { d.classList.add('md'); d.innerHTML = md(text); } else d.textContent = text;
   $('#msgs').appendChild(d); msgsEnd(); return d;
 }
-// the conversation shows its newest line; Atlas's opening status (with its next steps under it), alone and taller than
-// the panel, shows from its heading: the desk's name and time first, the rest of the steps a scroll away
-function msgsEnd(){
-  const m = $('#msgs'), kids = [...m.children].filter(c => c !== NX.box);
-  const lone = W.greetEl && W.greetEl.isConnected && !W.greetDone && kids.length === 1 && kids[0] === W.greetEl;
-  m.scrollTop = lone ? 0 : 1e9;
+// the conversation shows its newest line. The next steps under Atlas's newest message are its actions: the panel is
+// laid out so the message and its steps fit (one-line status facts, compact rows, Activity giving way), and where they
+// still do not, the steps stay in view and the message's first lines give way (they fade at the edge)
+function msgsEnd(){ $('#msgs').scrollTop = 1e9; }
+// while Atlas's opening status and its steps are the newest thing in the panel (no run going), Activity shows its two
+// newest rows: the steps are what to do next, the log is history. Anything the owner sends ends it.
+function syncRight(){
+  const on = !!(NX.box && W.greetEl && !W.greetDone && W.greetEl.isConnected && lastAtlas() === W.greetEl && !(W.run && W.run.active));
+  const r = $('#right'); if (r.classList.contains('nx-first') === on) return;
+  r.classList.toggle('nx-first', on); cancelAnimationFrame(W.actRaf); W.actRaf = requestAnimationFrame(snapAct);
 }
 function sayKey(ev){ if (ev.key === 'Enter' && !ev.shiftKey) { ev.preventDefault(); send(); } }
 
@@ -248,6 +258,7 @@ function retireNext(){
     if (had && !matchMedia('(pointer: coarse)').matches) $('#say').focus({preventScroll: true});
   }
   NX.box = null; NX.steps = []; NX.going = false;                         // the rows of a step still in flight are gone with it
+  syncRight();
 }
 // list: the server's steps for the reply `anchor`; or the page's own choices ({label, detail, icon, run}) under a notice
 function setNext(list, anchor, head){
@@ -270,7 +281,7 @@ function setNext(list, anchor, head){
   });
   $('#msgs').appendChild(box);
   NX.box = box; NX.steps = steps; NX.head = head;                          // Ctrl K lists them under the same heading
-  fitNext(); msgsBottom();
+  syncRight(); fitNext(); msgsBottom();
   return box;
 }
 // a short conversation (the right stack beside a built desk): one line per row, the label whole and the detail after it
@@ -279,12 +290,15 @@ function setNext(list, anchor, head){
 function fitNext(){
   const box = NX.box, m = $('#msgs'); if (!box || !m.clientHeight) return;
   box.classList.remove('tight'); box.querySelectorAll('.nx-d.gone').forEach(d => d.classList.remove('gone'));
-  box.classList.toggle('tight', box.offsetHeight > m.clientHeight * .6);
+  const cs = getComputedStyle(m), room = m.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom), prev = box.previousElementSibling;
+  // compact when the rows alone take most of the panel, or when the reply they answer and the rows do not fit together
+  box.classList.toggle('tight', box.offsetHeight > m.clientHeight * .6 || box.offsetHeight + (prev ? prev.offsetHeight + 8 : 0) > room);
   box.querySelectorAll('.nx-r').forEach(b => {
     const d = b.querySelector('.nx-d'); if (!d) { b.title = ''; return; }
     if (box.classList.contains('tight') && (d.clientWidth < 100 || d.clientWidth < d.scrollWidth * .6)) d.classList.add('gone');   // no stub of a detail
     b.title = d.classList.contains('gone') || d.scrollWidth > d.clientWidth + 1 ? d.textContent : '';
   });
+  if (W.msgsPinned) msgsEnd();                                             // re-pinned: the toggling above may have clamped the scroll
 }
 if (window.ResizeObserver) new ResizeObserver(() => { if (NX.box) { fitNext(); if (W.msgsPinned) msgsEnd(); } }).observe(document.getElementById('msgs'));
 // run mode asks the desk for its steps: {context: 'desk_open'} when the desk opens, {context: 'run_done', run_id} after a job
@@ -371,6 +385,7 @@ async function send(text){
   const typed = typeof text !== 'string';
   text = (typed ? $('#say').value : text).trim(); if (!text) return;
   if (W.busy) return toast('Atlas is still answering: your message stays in the box');
+  if (!W.sid && W.phase !== 'run' && W.phase !== 'load') return toast(W.noAtlas ? 'Atlas is not available right now: your message stays in the box' : 'The workspace is still opening: your message stays in the box');   // never a message to a draft that does not exist yet
   W.greetDone = true;
   if (typed) $('#say').value = '';                                         // a clicked step leaves the owner's draft alone
   if (W.phase === 'run' || W.phase === 'load') {
@@ -494,40 +509,96 @@ async function spawnAll(instant){
   if (instant) redrawEdges();
 }
 
-/* ---- layout: Atlas col 0, top-level col 1, members col 2; vertical stack centred (top-aligned when taller than the canvas).
-   That is the Team tab's chart, dragged and zoomed by hand. The Overview's chart fits its panel instead (layoutFit). */
-const NW = 236, NW_ATLAS = 214, COL = 300, ROW_MAX = 118, GAP_MAX = 26, K_MIN = .8;
+/* ---- the Team tab's chart, arranged by hand: full-size cards, never drawn below their real size (k >= 1; a team too big
+   for the canvas pans instead), a small team drawn larger (up to TB.kmax). The cards flow into as many columns as the
+   canvas is wide, Atlas beside them (lr) or above them (tb), the team anchored at the top. Between runs (.calm) a card
+   carries as much of its brief as the room allows: t2 its goal and first standing orders, t1 its goal, t0 its role and
+   tools; while its agent works it shows the assignment and the live output instead, and the rows re-space as it grows.
+   The Overview's chart fits its panel instead (layoutFit). */
+const NW = 236, NW_ATLAS = 214;
+const TB = {gy: 12, gm: 18, gc: 26, ga: 48, tb: 28, pad: 16, kmax: 1.25};
+function tabPlan(W0, H0, rowH, ah){
+  const blocks = fitBlocks(), rowsOf = b => Math.max(1, b.members.length);
+  const total = blocks.reduce((s, b) => s + rowsOf(b), 0), maxB = Math.max(1, ...blocks.map(rowsOf));
+  let best = null;
+  for (let T = Math.max(maxB, total); T >= maxB; T--) {                   // fewer columns first: a tie keeps them
+    const cols = []; let cur = null;
+    for (const b of blocks) { const r = rowsOf(b); if (!cur || cur.rows + r > T) cols.push(cur = {rows: 0, blocks: [], wide: false}); cur.blocks.push(b); cur.rows += r; if (b.members.length) cur.wide = true; }
+    const rows = Math.max(1, ...cols.map(c => c.rows)), gridH = blocks.length ? rows * rowH - TB.gy : 0;
+    const gridW = cols.reduce((s, c) => s + (c.wide ? 2 * NW + TB.gm : NW), 0) + Math.max(0, cols.length - 1) * TB.gc;
+    for (const o of blocks.length ? ['lr', 'tb'] : ['lr']) {
+      const bus = o === 'lr' && cols.length > 1 ? FBUS : 0;
+      const needH = 2 * TB.pad + (o === 'tb' ? ah + TB.tb + gridH : Math.max(ah, bus + gridH));
+      const needW = 2 * TB.pad + (o === 'tb' ? Math.max(NW_ATLAS, gridW + 12) : NW_ATLAS + (blocks.length ? TB.ga + gridW : 0));
+      const k = Math.min(TB.kmax, W0 / needW, H0 / needH), fill = Math.min(1, needW * k / W0) * Math.min(1, needH * k / H0);
+      const p = {o, cols, rows, bus, gridH, gridW, needW, needH, k, fill, rowH, ah};
+      // a plan that shows the team whole at full size beats one that does not; then the one that fills the canvas most
+      // (then the larger); among plans that cannot show it whole, the one that needs the least panning
+      const better = !best || ((p.k >= 1) !== (best.k >= 1) ? p.k >= 1 : p.k >= 1 ? p.fill > best.fill + .02 || (p.fill > best.fill - .02 && p.k > best.k + .02) : p.k > best.k + .005);
+      if (better) best = p;
+    }
+  }
+  return best;
+}
 function layoutAll(animate, freshIds){
   if (fitMode()) return layoutFit(animate, freshIds);
   const c = $('#canvas'); const H0 = c.clientHeight || 600, W0 = c.clientWidth || 900;
   if (c.classList.contains('fit')) { c.classList.remove('fit', 'f-f0', 'f-c1', 'f-mini'); W.fit = null; applyView(); }
-  document.querySelectorAll('#nodes .node:not(.ghost)').forEach(fitChips);   // wrapped chips here: before the rows are measured
-  const tops = W.order.filter(id => { const a = W.agents.get(id); return a && (a.reports_to === 'atlas' || !W.agents.has(a.reports_to)); });
-  const blocks = tops.map(id => ({id, members: (W.agents.get(id).members || []).filter(m => W.agents.has(m))}));
-  const tallest = [...document.querySelectorAll('#nodes .node:not(.atlas):not(.ghost)')].reduce((m, n) => Math.max(m, n.offsetHeight || 0), 0);
-  const ROW = Math.max(ROW_MAX, tallest + 14), GAP = GAP_MAX;               // never overlap: a row is as tall as the tallest card
-  const heights = blocks.map(b => Math.max(1, b.members.length) * ROW);
-  const total = heights.reduce((s, h) => s + h, 0) + Math.max(0, blocks.length - 1) * GAP;
-  const hasMembers = blocks.some(b => b.members.length);
-  const needW = NW_ATLAS + COL + (hasMembers ? COL : 0) + (NW - 30) + 48;
-  const k = W.k = Math.max(K_MIN, Math.min(1, (H0 - 40) / Math.max(1, total), W0 / needW)) * (W.uz || 1);   // never below a readable size: pan instead
-  const H = Math.max(H0 / k, total + 40), Wd = Math.max(W0 / k, needW);
+  const calm = !(W.run && W.run.active); c.classList.toggle('calm', calm);
+  if (!W.pos.has('atlas')) W.pos.set('atlas', {x: TB.pad, y: TB.pad, w: NW_ATLAS});
+  ensureAtlasNode();                                                     // measured with the others, before anything is placed
+  const P = tabChoose(W0, H0);
+  W.tfit = P; W.chartTall = P.rowH - TB.gy;
+  const k = W.k = Math.min(TB.kmax, Math.max(1, P.k)) * (W.uz || 1);   // never below the cards' real size: pan instead
+  const Wd = Math.max(W0 / k, P.needW), H = Math.max(H0 / k, P.needH);
   W.vb = [Wd, H];                                                    // the edges' viewBox must match the box the nodes were laid out in
   ['#nodes', '#edges'].forEach(q => { const st = $(q).style; st.inset = 'auto'; st.left = st.top = '0'; st.width = Wd + 'px'; st.height = H + 'px'; st.transformOrigin = '0 0'; }); applyView();
-  const x0 = Math.max(24, Math.round((Math.min(Wd, W0 / k) - (NW_ATLAS + COL + (hasMembers ? COL : 0) + (NW - 30))) / 2));
-  const fits = total <= H0 / k - 40;
-  let y = fits ? Math.max(20, Math.round((H0 / k - total) / 2)) : 20;     // taller than the view: start at the top, pan for the rest
-  const atlasY = fits ? Math.max(20, Math.round(y + total / 2 - 48)) : 20;
-  setPos('atlas', x0, atlasY, NW_ATLAS, animate);
-  blocks.forEach((b, i) => {
-    const blockH = heights[i]; const yT = y + Math.round(blockH / 2 - ROW / 2);
-    setPos(b.id, x0 + COL, yT, NW, animate && !(freshIds || []).includes(b.id));
-    b.members.forEach((m, j) => setPos(m, x0 + COL * 2, y + j * ROW, NW, animate && !(freshIds || []).includes(m)));
-    y += blockH + GAP;
+  const ox = Math.max(0, Math.round((W0 / k - P.needW) / 2)), oy = 0;     // centred across, anchored at the top
+  const fresh = freshIds || [], rowH = P.rowH;
+  let x, top;
+  if (P.o === 'tb') {                                                // Atlas above the columns, centred; a bus under it
+    setPos('atlas', ox + Math.round((P.needW - NW_ATLAS) / 2), oy + TB.pad, NW_ATLAS, animate, -1);
+    top = oy + TB.pad + P.ah + TB.tb; P.busY = oy + TB.pad + P.ah + Math.round(TB.tb / 2) - 2;
+    x = ox + TB.pad + 12 + Math.max(0, Math.round((P.needW - 2 * TB.pad - 12 - P.gridW) / 2));
+  } else {                                                           // Atlas on the left, level with the middle of the cards
+    top = oy + TB.pad + P.bus + Math.max(0, Math.round((P.ah - P.gridH) / 2) - P.bus); P.busY = top - Math.round(P.bus / 2) - 1;
+    setPos('atlas', ox + TB.pad, Math.max(oy + TB.pad, top + Math.round((P.gridH - P.ah) / 2)), NW_ATLAS, animate, -1);
+    x = ox + TB.pad + NW_ATLAS + TB.ga;
+  }
+  P.colX = [];
+  P.cols.forEach((col, ci) => {
+    let y = top; P.colX.push(x);
+    col.blocks.forEach(b => {
+      setPos(b.id, x, y, NW, animate && !fresh.includes(b.id), ci);
+      b.members.forEach((m, j) => setPos(m, x + NW + TB.gm, y + j * rowH, NW, animate && !fresh.includes(m), ci));
+      y += Math.max(1, b.members.length) * rowH;
+    });
+    x += (col.wide ? 2 * NW + TB.gm : NW) + TB.gc;
   });
   ensureAtlasNode();
   $('#empty').classList.toggle('hide', W.agents.size > 0);
   redrawEdges(); if (animate) animateEdges(900);
+}
+// the richest card that shows the team whole at full size in a W0 x H0 canvas (the density class stays on the canvas)
+function tabChoose(W0, H0){
+  const c = $('#canvas'), calm = c.classList.contains('calm'), cards = [...document.querySelectorAll('#nodes .node:not(.ghost)')];
+  let P = null;
+  for (const d of calm ? ['t2', 't1', 't0'] : ['t0']) {
+    ['t0', 't1', 't2'].forEach(x => c.classList.toggle(x, x === d));
+    cards.forEach(fitChips);                                             // t0: one row of tools, t1 / t2 wrap them: before the rows are measured
+    const tall = cards.filter(n => !n.classList.contains('atlas')).reduce((m, n) => Math.max(m, n.offsetHeight || 0), 60);
+    const atl = nodeEl('atlas'), ah = Math.max(60, (atl && atl.offsetHeight) || 0);
+    P = tabPlan(W0, H0, tall + TB.gy, ah); P.d = d;
+    if (P.k >= 1) break;
+  }
+  return P;
+}
+// a run starting or ending changes what the Team tab's cards carry (brief between runs, live output during one): re-lay them out
+function syncCalm(){
+  const c = $('#canvas'), calm = !(W.run && W.run.active);
+  if (c.classList.contains('calm') === calm || c.classList.contains('fit')) return;
+  c.classList.toggle('calm', calm);
+  if (W.teamView === 'chart' && W.phase !== 'meet') { cancelAnimationFrame(W.relayout); W.relayout = requestAnimationFrame(() => layoutAll(true)); }
 }
 /* ---- the Overview's chart fits its panel: fixed-height cards in as many columns as the room needs, never a card cut at
    the edge. Three card densities, the richest that reads wins: f0 (name, role, one row of tools), c1 (name, role), mini
@@ -614,16 +685,24 @@ function fitFollow(id){
   const ny = y0 < 8 ? W.fpan.y + 8 - y0 : y0 + h > vh - 8 ? W.fpan.y - (y0 + h - vh + 8) : W.fpan.y;
   if (nx !== W.fpan.x || ny !== W.fpan.y) { W.fpan = {x: nx, y: ny}; applyView(); }
 }
-function setPos(id, x, y, w, animate){ const m = W.manual.get(id); if (m) { x = m.x; y = m.y; } W.pos.set(id, {x, y, w}); const el = nodeEl(id); if (el && !el.classList.contains('spawn')) { if (!animate) el.style.transition = 'none'; el.style.transform = `translate(${x}px,${y}px)`; if (!animate) { void el.offsetWidth; el.style.transition = ''; } } }
+function setPos(id, x, y, w, animate, col){ const m = W.manual.get(id); if (m) { x = m.x; y = m.y; } W.pos.set(id, {x, y, w, col}); const el = nodeEl(id); if (el && !el.classList.contains('spawn')) { if (!animate) el.style.transition = 'none'; el.style.transform = `translate(${x}px,${y}px)`; if (!animate) { void el.offsetWidth; el.style.transition = ''; } } }
 function nodeEl(id){ return document.getElementById('n-' + String(id).replace(/[^a-zA-Z0-9_#-]/g, '-')); }
 function ensureAtlasNode(){
   let el = nodeEl('atlas'); const p = W.pos.get('atlas');
   if (!el) { el = document.createElement('div'); el.className = 'node atlas'; el.id = 'n-atlas'; el.dataset.id = 'atlas'; el.onclick = () => { if (!W.dragged) inspect('atlas'); };
     el.title = 'Atlas · orchestrator: briefs the team, reviews every result, holds outbound for your approval';
-    el.innerHTML = `<div class="nm"><span class="nt">Atlas</span><span class="tag lead">lead</span></div><div class="role">Orchestrator · briefs, reviews, approves</div><div class="asg"></div><div class="chips"></div><div class="out"></div><div class="ft"></div>`;
+    el.innerHTML = `<div class="nm"><span class="nt">Atlas</span><span class="tag lead">lead</span></div><div class="role">Orchestrator · briefs, reviews, approves</div>${NODE_BRIEF}<div class="asg"></div><div class="chips"></div><div class="out"></div><div class="ft"></div>`;
     el.style.transition = 'none'; el.style.transform = `translate(${p.x}px,${p.y}px)`; $('#nodes').appendChild(el); void el.offsetWidth; el.style.transition = ''; }
   else el.style.transform = `translate(${p.x}px,${p.y}px)`;
   const ac = atlasCfg(); if (ac && !W.run) setChips(el, (ac.tools || []).filter(t => !['list_agents', 'finish'].includes(t)));
+  setBrief(el, goalOf('atlas', {}), (ac && ac.instructions) || []);
+}
+// what a Team tab card carries between runs when the canvas has the room (t1 / t2): the agent's goal and first standing orders
+const NODE_BRIEF = '<div class="gl"></div><ul class="od"></ul>';
+function setBrief(el, goal, orders){
+  const g = el && el.querySelector('.gl'), o = el && el.querySelector('.od'); if (!g || !o) return;
+  g.textContent = goal || ''; g.title = goal || '';
+  const h = (orders || []).slice(0, 3).map(x => `<li title="${esc(x)}">${esc(x)}</li>`).join(''); if (o.innerHTML !== h) o.innerHTML = h;
 }
 // an agent between runs: "ready" on a built desk once its last run is known (no state at all before that), "drafted" in a draft
 const idleWord = () => W.phase === 'run' ? (W.ld.last ? 'ready' : '') : 'drafted';
@@ -633,6 +712,7 @@ function renderNodeInner(el, a){
   el.style.setProperty('--c', a.color);
   el.querySelector('.nm').innerHTML = `<span class="nt">${esc(a.name)}</span><span class="tag ${isLead ? 'lead rel' : member ? 'rel' : ''}">${isLead ? 'sub-team lead' : (member ? '↳ ' + esc((W.agents.get(a.reports_to) || {}).name || a.reports_to) : idleWord())}</span>`;
   el.querySelector('.role').textContent = a.role; el.title = a.name + (a.role ? ' · ' + a.role : '');
+  setBrief(el, a.goal, a.instructions);
   if (!el.querySelector('.chips').children.length || !W.run) setChips(el, a.tools || []);
 }
 // a card's tool chips: the names it has (or, during a run, the tools it called, newest last, each once). The Overview's
@@ -656,7 +736,7 @@ function fitChips(el){
   const kids = [...c.children]; kids.forEach(x => { x.style.display = ''; }); if (!kids.length) return;
   const more = () => { const m = document.createElement('span'); m.className = 'more'; c.appendChild(m); return m; };
   const hideFrom = (k, m) => { kids.slice(k).forEach(x => { x.style.display = 'none'; }); m.textContent = '+' + (kids.length - k); m.title = kids.slice(k).map(x => x.textContent).join(', '); };
-  if (!el.closest('#canvas.fit')) {                                       // the Team tab's chart wraps its chips: the first five, then +N
+  if (!el.closest('#canvas.fit, #canvas.t0')) {                           // the Team tab's richer cards wrap their chips: the first five, then +N
     if (c.dataset.run !== '1' && kids.length > 5) hideFrom(el.classList.contains('atlas') ? 4 : 5, more());
     return;
   }
@@ -670,10 +750,11 @@ async function spawn(id, fromId, instant){
   const a = W.agents.get(id); if (!a) return; if (nodeEl(id)) { renderNodeInner(nodeEl(id), a); return; }
   const to = W.pos.get(id) || W.pos.get(fromId) || W.pos.get('atlas') || {x: 40, y: 40, w: 200};
   const el = document.createElement('div'); el.className = 'node' + (instant ? '' : ' spawn'); el.id = 'n-' + id; el.dataset.id = id; el.onclick = () => { if (!W.dragged) inspect(id); };
-  el.innerHTML = `<div class="nm"></div><div class="role"></div><div class="asg"></div><div class="chips"></div><div class="out"></div><div class="ft"></div>`;
+  el.innerHTML = `<div class="nm"></div><div class="role"></div>${NODE_BRIEF}<div class="asg"></div><div class="chips"></div><div class="out"></div><div class="ft"></div>`;
   renderNodeInner(el, a);
   el.style.transition = 'none'; el.style.transform = `translate(${to.x}px,${to.y}px)`;      // fades in place, no fly-out
   $('#nodes').appendChild(el); void el.offsetWidth; el.style.transition = '';
+  fitChips(el);                                                          // on the canvas now: its chips fit its card (a fitted card keeps one row)
   if (instant) { drawEdge(id, false); return; }
   await sleep(20);
   el.classList.remove('spawn'); el.style.transform = `translate(${to.x}px,${to.y}px)`;
@@ -698,6 +779,18 @@ function edgeD(fromId, toId){
   }
   const fe = nodeEl(fromId), te = nodeEl(toId);
   const fh = fe ? fe.offsetHeight : 90, th = te ? te.offsetHeight : 90;
+  // the Team tab's grid, where nobody moved the two cards: the same square lines (a trunk beside each column, a bus)
+  if (W.tfit && !fitMode() && !String(toId).includes('#') && !W.manual.has(fromId) && !W.manual.has(toId)) {
+    const P = W.tfit, x1 = f.x + f.w, y1 = Math.round(f.y + fh / 2), x2 = t.x, y2 = Math.round(t.y + Math.min(th, P.rowH - TB.gy) / 2);
+    if (fromId !== 'atlas') { const tx = x2 - Math.round(TB.gm / 2); return `M${x1},${y1} H${tx} V${y2} H${x2}`; }
+    if (P.o === 'tb') { const ax = Math.round(f.x + f.w / 2), y0 = f.y + fh;
+      if (P.rows === 1) return `M${ax},${y0} V${P.busY} H${Math.round(t.x + t.w / 2)} V${t.y}`;
+      const tx = x2 - (t.col > 0 ? Math.round(TB.gc / 2) : 10); return `M${ax},${y0} V${P.busY} H${tx} V${y2} H${x2}`; }
+    const tx = x2 - Math.round((t.col > 0 ? TB.gc : TB.ga) / 2);
+    if (!(t.col > 0)) return `M${x1},${y1} H${tx} V${y2} H${x2}`;
+    const t0 = P.colX[0] - Math.round(TB.ga / 2);
+    return `M${x1},${y1} H${t0} V${P.busY} H${tx} V${y2} H${x2}`;
+  }
   const x1 = f.x + f.w, y1 = f.y + fh / 2, x2 = t.x, y2 = t.y + th / 2, mx = (x1 + x2) / 2;
   return `M${x1},${y1} C${mx},${y1} ${mx},${y2} ${x2},${y2}`;
 }
@@ -836,9 +929,10 @@ async function deploy(task, mode, echoed){
   task = (typeof task === 'string' ? task : $('#job').value).trim();
   if (!task) { showTab('runs'); $('#job').focus(); return toast('Type the job first'); }
   if (W.run && W.run.active) return toast('A run is already going: wait for it to finish');
+  if (!mode && W.jobWf && task === W.jobWf.text) mode = W.jobWf.id;      // the workflow the palette put in the bar, unedited
   const r = await api('/runs', {method: 'POST', body: {task, mode: mode || 'auto'}});
   if (!r || r.error) return toast((r && (r.message || r.error)) || 'could not start');
-  $('#job').value = ''; $('#deploy-btn').classList.remove('cue');
+  $('#job').value = ''; $('#deploy-btn').classList.remove('cue'); W.jobWf = null;
   W.openRunId = null; W.autoRun = true;                                    // the Result opens on this run once it finishes
   retireNext();                                                            // offers made for an earlier reply no longer apply
   if (!echoed) addMsg('u', task);
@@ -1013,6 +1107,7 @@ function renderApprovals(){
                     : `<div class="apb" title="${esc(body.slice(0, 600))}"><b>${esc(agentName(a.agent || a.by || 'atlas'))} wrote:</b> ${esc(body.slice(0, 420))}</div>`) : ''}
       ${a.flags ? `<div class="flag"><svg class="i"><use href="#i-alert"/></svg><span><b>Flagged:</b> ${esc(a.flags)}</span></div>` : ''}
       ${a.reason ? `<div class="hold"><b>Held</b> ${esc(a.reason)}</div>` : ''}
+      ${!big && (a.reason || a.flags) ? `<div class="hold why1" title="${esc([a.reason ? 'Held: ' + a.reason : '', a.flags ? 'Flagged: ' + a.flags : ''].filter(Boolean).join(' · '))}">${a.reason ? `<b>Held</b> ${esc(a.reason)}` : ''}${a.reason && a.flags ? ' · ' : ''}${a.flags ? `<b>Flagged</b> ${esc(a.flags)}` : ''}</div>` : ''}
       <div class="edit"><input id="ap-s-${a.id}" value="${esc(a.subject || '')}" placeholder="Subject"><textarea id="ap-b-${a.id}">${esc(a.body || '')}</textarea><input class="note" id="ap-n-${a.id}" placeholder="Note for the agents (optional): it goes with Approve or Reject"></div>
       <div class="ap-acts"><button class="btn sm ok" onclick="decide(${a.id},'approved')"><svg class="i"><use href="#i-check"/></svg>Approve &amp; send</button><button class="btn sm" onclick="apEdit(${a.id})"><svg class="i"><use href="#i-edit"/></svg>Edit</button><button class="btn sm d" onclick="decide(${a.id},'rejected')"><svg class="i"><use href="#i-x"/></svg>Reject</button></div></div>`; };
   $('#ap-body').innerHTML = W.apCount == null ? '<div class="none">Reading the approval queue…</div>'
@@ -1111,7 +1206,7 @@ async function applyCams(list, instant){
   }
   $('#camstrip').classList.toggle('hide', !incoming.size); $('#camstrip').classList.toggle('has', incoming.size > 0);
   $('#cams').style.setProperty('--n', Math.max(1, incoming.size)); $('#cams').style.setProperty('--cols', Math.min(6, Math.max(1, incoming.size)));
-  $('#cam-none').classList.toggle('hide', incoming.size > 0);
+  renderCamTab();                                                        // the first camera ends the Cameras tab's setup view
   fitCams(); fitStrip();
   if (first) { layoutAll(!instant); }
   if (W.phase === 'run') setMode(W.modeSel);
@@ -1220,10 +1315,38 @@ async function askCams(text, already, hours, camera){
   if (!m.considered && hours <= 24 && W.lastNoteTs && W.lastNoteTs < Date.now() / 1000 - 86400) addMsg('s', `nothing logged in the last 24 hours · the newest note is from ${fmtTs(W.lastNoteTs)} UTC`);
   if (d === lastAtlas()) setNext(r.next, d);                               // the server's follow-ups for this answer (a wider window, live view, a report)
 }
+// the Cameras tab with no camera yet: the ways to connect one, what the journal will keep, the sample clips on this server.
+// A draft (no desk) or a desk without cameras has no journal to read: it says so, and nothing is requested.
+function renderCamTab(){
+  const none = !W.cams.size;
+  $('#pane-cameras').classList.toggle('nocam', none);
+  $('#cam-setup').classList.toggle('hide', !none); $('#samples-panel').classList.toggle('hide', !none);
+  $('#journal-page').classList.toggle('hide', !W.deskId || none);                // no camera: no journal to print
+  if (none && W.tab === 'cameras' && !AT.samples && !AT.loading) loadSamples();   // the clip list: read when the tab is open
+  if (!W.deskId || none) { const h = journalNone(); if (W.jrNone !== h) { W.jrNone = h; $('#journal-list').innerHTML = h; $('#jr-meta').textContent = 'written notes from the cameras · UTC'; } }
+  else W.jrNone = '';
+}
+function journalNone(){
+  const why = !W.deskId ? (W.cams.size ? 'The journal starts once the desk is built: each camera then writes its notes here.' : 'The journal starts once the desk is built and a camera is attached.')
+    : 'No cameras on this desk yet: the journal starts when one is attached.';
+  const noNotes = W.deskId ? (W.mode === 'demo' ? 'Demo mode: no model calls, so the cameras keep detections only, no written notes.' : !W.vlmReady ? 'No vision model is ready on this desk: until one is, the cameras keep detections only.' : '')
+    : W.mode === 'demo' ? 'Demo mode: no model calls, so the cameras keep detections only, no written notes.' : '';
+  const row = (k, t) => `<div class="jrec"><span class="k">${k}</span><span>${t}</span></div>`;
+  return `<div class="none">${esc(why)}</div>`
+    + (noNotes ? `<div class="jrec warn"><svg class="i i14"><use href="#i-alert"/></svg><span>${esc(noNotes)}</span></div>` : '')
+    + `<div class="gk jrec-h">What a watched camera records</div>`
+    + row('Detections', 'A frame every 8 s through the local detector: people, vehicles and objects, counted')
+    + row('Notes', 'When the scene changes, and at least every 30 s, written by the vision model from the previous and the current frame')
+    + row('Summaries', 'Every 15 minutes, the camera\'s notes condensed into one entry')
+    + row('Questions', 'Ask the cameras answers only from these notes, with their times and the frames used');
+}
 async function loadJournal(){
-  if (!W.deskId) return;
+  renderCamTab();
+  if (!W.deskId || !W.cams.size) return;                                  // said above, nothing to read
   $('#journal-page').href = withDesk('/api/vision/journal?format=html');
-  const ev = await api('/vision/events?hours=720&limit=500'); const box = $('#journal-list'); if (!Array.isArray(ev)) return;
+  const box = $('#journal-list'); if (!W.jrRead) box.innerHTML = '<div class="none">Reading the journal…</div>';   // a request is out: say so, once
+  const ev = await api('/vision/events?hours=720&limit=500'); if (!Array.isArray(ev)) { if (!W.jrRead) box.innerHTML = '<div class="none">The journal could not be read. Open the tab again in a moment.</div>'; return; }
+  W.jrRead = true;
   const notes = ev.filter(e => e.answer).sort((a, b) => b.ts - a.ts).slice(0, 80);
   $('#jr-meta').textContent = notes.length ? `${plural(notes.length, 'note')}, newest first · since ${fmtTs(notes[notes.length - 1].ts).replace(/ \d\d:\d\d$/, '') || 'today'} · UTC` : 'written notes from the cameras · UTC';
   let day = ''; const out = [];
@@ -1400,7 +1523,7 @@ function resetLayout(){ W.manual.clear(); W.pan = {x: 0, y: 0}; W.uz = 1; saveVi
 /* ------------------------------------------------------------------ attach a feed to a camera (RTSP, upload, webcam, snapshot URL, sample) */
 const AT = {name: null, tab: 'rtsp', uploaded: '', uploadedName: '', sample: '', samples: null, tested: ''};
 function srcTab(src){ const k = camKind(src); return {'RTSP camera': 'rtsp', 'snapshot URL': 'http', 'webcam': 'webcam', 'sample footage': 'sample', 'recording': 'upload', 'still image': 'upload'}[k] || 'rtsp'; }
-async function openAttach(name){
+async function openAttach(name, tab){
   const cam = name ? W.cams.get(name) : null;
   AT.name = name; AT.uploaded = ''; AT.uploadedName = ''; AT.tested = ''; AT.sample = '';
   $('#at-title').textContent = cam ? name : 'Connect a camera';
@@ -1412,7 +1535,7 @@ async function openAttach(name){
   atPreview(cam && cam.id && cam.frameTs ? withDesk(`/api/cameras/${cam.id}/frame.jpg?t=${Date.now()}`) : '', cam && cam.id && cam.frameTs ? `Newest frame from this camera · ${fmtTs(cam.frameTs)} UTC` : '');
   $('#at-live').classList.toggle('hide', !(cam && cam.id && cam.st === 'live'));
   $('#at-go-t').textContent = cam && (cam.source || cam.id) ? 'Switch feed' : 'Attach feed';
-  atTab(src ? srcTab(src) : 'rtsp');
+  atTab(tab || (src ? srcTab(src) : 'rtsp'));
   $('#attach').classList.remove('hide');
   setTimeout(() => (cam ? ($('#at-' + AT.tab) || {focus(){}}) : $('#at-cam-name')).focus(), 50);
   if (!AT.samples) loadSamples();
@@ -1446,11 +1569,23 @@ function atCheck(src){
   return '';
 }
 async function loadSamples(){
-  const r = await api('/cameras/samples'); AT.samples = (r && r.samples) || null;            // the clips on this server: no desk needed
+  AT.loading = true;
+  const r = await api('/cameras/samples'); AT.loading = false; AT.samples = (r && r.samples) || null;   // the clips on this server: no desk needed
   const box = $('#at-samples');
   box.innerHTML = AT.samples && AT.samples.length ? AT.samples.map(c => `<button data-s="sample:${esc(c.name)}" onclick="pickSample(this.dataset.s)"><span>${esc(c.label)}</span><span class="c">${esc(c.name)}</span></button>`).join('')
     : `<div class="hint" style="padding:10px">${AT.samples ? 'No sample footage is installed on this server.' : 'Could not read the sample list. Try again in a moment.'}</div>`;
   if (AT.sample) markSample();
+  // the Cameras tab's list: each clip with Use (the Add camera dialog opens on it, tested, with a camera name to keep or change)
+  const cap = s => s.charAt(0).toUpperCase() + s.slice(1);
+  $('#smp-n').textContent = AT.samples ? AT.samples.length : '';
+  $('#smp-list').innerHTML = AT.samples && AT.samples.length ? AT.samples.map(c => `<div class="smp" title="${esc(cap(c.label))}"><span><b>${esc(cap(c.label))}</b><small>${esc(c.name)}</small></span><button class="btn sm" onclick="useSample(${jsa(c.name)})"><svg class="i"><use href="#i-plus"/></svg>Use</button></div>`).join('')
+    : `<div class="none">${AT.samples ? 'No sample footage is installed on this server.' : 'Could not read the sample list. Open the tab again in a moment.'}</div>`;
+}
+function useSample(name){
+  const c = (AT.samples || []).find(x => x.name === name) || {};
+  openAttach(null, 'sample');
+  $('#at-cam-name').value = (c.camera || String(name).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')).slice(0, 60);
+  pickSample('sample:' + name);
 }
 function markSample(){ document.querySelectorAll('#at-samples button').forEach(b => b.classList.toggle('on', b.dataset.s === AT.sample || (AT.sample && !AT.sample.startsWith('sample:') && AT.sample.includes(b.dataset.s.slice(7))))); }
 function pickSample(s){ AT.sample = s; markSample(); $('#at-test').classList.remove('hide'); testAttach(); }
@@ -1530,18 +1665,18 @@ function agentState(id){
 // what stops an agent doing part of its job: shown beside its run state, whatever the last run did
 const agentGaps = id => (W.phase === 'run' && W.gaps && W.gaps.get(id)) || [];
 function workingCount(){ return W.run && W.run.active ? [...W.run.inst.values()].filter(s => ['writing', 'thinking'].includes(s.status)).length : 0; }
-function renderAll(){ renderHead(); renderKpis(); renderTeamTable(); renderExplorer(); renderPlan(); }
+function renderAll(){ renderHead(); renderKpis(); renderTeamTable(); renderExplorer(); renderPlan(); syncCalm(); renderCamTab(); }
 function renderHead(){
   const n = W.agents.size, built = !!W.deskId, cams = [...W.cams.values()];
   const date = new Date().toLocaleDateString('en-GB', {weekday: 'long', day: 'numeric', month: 'long', timeZone: 'UTC'});
   const eb = W.phase === 'load' ? 'Atlas workspace · loading the desk'
     : built ? `Atlas workspace · desk #${W.deskId} · ${(W.template || 'custom').replace(/_/g, ' ')} · ${W.tier === 'free' ? 'free' : 'paid'} models`
-    : n ? 'Atlas workspace · draft, not built' : `Atlas workspace · ${(W.desks || []).length ? 'new desk' : 'no desk yet'}`;
+    : n ? 'Atlas workspace · draft, not built' : W.desks == null ? 'Atlas workspace' : `Atlas workspace · ${W.desks.length ? 'new desk' : 'no desk yet'}`;
   $('#ph-k').innerHTML = `<span class="eb-d">${esc(date)} · </span>` + esc(eb).replace(/^Atlas workspace · /, '<span class="eb-w">Atlas workspace · </span>');
   $('#ph-title').textContent = W.phase === 'load' ? 'Loading the desk…' : (W.deskName || 'New desk');
   document.title = (W.deskName ? W.deskName + ' · ' : '') + 'Atlas workspace';
   let lead = '';
-  if (W.phase === 'meet') lead = 'No draft yet. Nothing is built until you press <b>Build desk</b>.';
+  if (W.phase === 'meet') lead = W.sid ? 'No draft yet. Nothing is built until you press <b>Build desk</b>.' : W.noAtlas ? 'Atlas is not available right now. Nothing is built until you press <b>Build desk</b>.' : 'Opening the workspace…';
   else if (W.phase === 'design') lead = `Draft: Atlas + ${plural(n, 'specialist')}${cams.length ? ' · ' + plural(cams.length, 'camera') : ''}, not built yet. Build it when it looks right, or keep describing changes.`;
   else if (W.phase === 'run') {                              // each part only once its source has answered: no "0 jobs" while loading
     const gaps = gapCount(), need = [];
@@ -1571,7 +1706,7 @@ function renderHead(){
 // what the Team panel's header says: the Team tab's chart is arranged by hand; the Overview's is fitted, a click opens the brief
 function teamMeta(){
   const n = W.agents.size, ov = $('#team-panel').parentElement === $('#pane-overview'), chart = W.teamView === 'chart';
-  $('#team-meta').textContent = W.phase === 'load' ? '' : !n ? (W.phase === 'run' ? 'Atlas only' : 'drafted here as you talk to Atlas') : chart && !ov ? 'drag cards to arrange · drag the background to pan · Ctrl + scroll to zoom'
+  $('#team-meta').textContent = W.phase === 'load' ? '' : !n ? (W.phase === 'run' ? 'Atlas only' : 'drafted here as you talk to Atlas') : chart && !ov ? `Atlas + ${plural(n, 'specialist')} · drag to arrange, Ctrl + scroll to zoom`
     : `${W.phase === 'run' ? '' : 'draft · '}Atlas + ${plural(n, 'specialist')} · click a ${chart ? 'card' : 'row'} for the brief`;
 }
 // a draft's plan beyond its agents, as Atlas drafted it: workflows (who hands to whom, what starts them), the connections
@@ -1579,11 +1714,14 @@ function teamMeta(){
 function renderPlan(){
   const bp = W.phase === 'design' ? W.bp : null, el = $('#plan-panel');
   const wf = (bp && bp.workflows) || [], cx = (bp && bp.connectors) || [], pol = (bp && bp.policy) || {};
-  const rules = policyRules(pol);
-  el.classList.toggle('hide', !(wf.length || cx.length || rules.length)); if (!bp) return;
+  const rules = policyRules(pol), has = !!(wf.length || cx.length || rules.length);
+  el.classList.toggle('hide', !has); el.dataset.has = bp && has ? '1' : ''; if (!bp) return;
   const col = (title, n, rows, none) => `<div class="pcol"><div class="gk">${esc(title)}${n != null ? ' · ' + n : ''}</div>${rows.length ? rows.join('') : `<div class="prow muted">${esc(none)}</div>`}</div>`;
   $('#plan-body').innerHTML =
-    col('Workflows', wf.length, wf.map(w => { const t = w.trigger || {}; return `<div class="prow"><b>${esc(w.name || w.id)}</b><small>${esc((w.steps || []).map(agentName).join(' → '))}${t.kind ? ` · starts on ${esc(t.kind)}${t.detail ? ': ' + esc(t.detail) : ''}` : ''}</small></div>`; }), 'none: every job is planned by Atlas')
+    // each workflow with its hand-offs as this draft's agents, in order (what a run of it shows, agent by agent)
+    col('Workflows', wf.length, wf.map(w => { const t = w.trigger || {}, st = (w.steps || []).filter(id => W.agents.has(id));
+      const trig = t.kind ? `starts on ${esc(t.kind)}${t.detail ? ': ' + esc(t.detail) : ''}` : 'started by a job';
+      return `<div class="prow"><b>${esc(w.name || w.id)}</b><small title="${esc(trig)}">${st.length ? trig : esc((w.steps || []).map(agentName).join(' → ')) + ' · ' + trig}</small>${st.length ? `<ol class="wfs">${st.map(id => { const a = W.agents.get(id); return `<li style="--c:${esc(a.color || '')}"><b>${esc(a.name)}</b><span>${esc(a.role || '')}</span></li>`; }).join('')}</ol>` : ''}</div>`; }), 'none: every job is planned by Atlas')
     + col('Connections', cx.length, cx.map(c => `<div class="prow"><b>${esc(c.name || c.kind)}<span class="tag${c.required ? ' warn' : ''}">${c.required ? 'needed' : 'optional'}</span></b><small>${esc([c.kind, c.purpose].filter(Boolean).join(' · '))}</small></div>`), 'none needed yet')
     + col('Outbound rules', null, rules.map(r => `<div class="prow"><span>${esc(r)}</span></div>`).concat(['<div class="prow"><span>every message waits for your approval</span></div>']), '');
 }
@@ -1616,10 +1754,11 @@ function renderOthers(){
   $('#others-meta').textContent = 'ready-made desks open a short form on Home';
 }
 function renderRunPill(){
-  const local = W.run && W.run.active, n = Math.max(W.activeRuns || 0, local ? 1 : 0);
+  syncRight();
+  const local = W.run && W.run.active, n = Math.max(W.activeRuns || 0, local ? 1 : 0), known = local || W.ld.stats;   // no count before /stats answers
   const p = $('#run-pill'); p.className = 'pill' + (local ? ' live' : n ? ' ok' : '');
-  $('#run-n').textContent = n; $('#sb-run-t').classList.toggle('hide', !local);
-  p.title = local ? `Run ${W.run.id} in progress: open Runs` : 'Runs in progress on this desk';
+  $('#run-n').textContent = known ? n : '–'; $('#sb-run-t').classList.toggle('hide', !local);
+  p.title = local ? `Run ${W.run.id} in progress: open Runs` : known ? 'Runs in progress on this desk' : 'Reading the runs in progress';
 }
 function kpi(sel, v, small, s, cls){ const el = $(sel); if (!el) return; el.className = 'kpi' + (cls ? ' ' + cls : ''); el.querySelector('.v').innerHTML = esc(String(v)) + (small ? `<small>${esc(small)}</small>` : '');
   if (s !== undefined) { const e = el.querySelector('.s'), [l, sh] = Array.isArray(s) ? s : [s, '']; if (sh) e.innerHTML = `<span class="t-l">${esc(l)}</span><span class="t-s">${esc(sh)}</span>`; else e.textContent = l || '\u00a0'; e.title = l || ''; } }   // [long, short]: a narrow tile shows the short one
@@ -1667,7 +1806,7 @@ function renderTeamTable(){
   }
   $('#team-rows').innerHTML = rows.join(''); $('#team-empty').classList.toggle('hide', W.agents.size > 0);
   $('#team-empty').textContent = W.phase === 'run' ? 'Only Atlas so far. Add a specialist on the team canvas, or choose Change the team in the Atlas panel.'
-    : 'No specialists yet. Atlas drafts them here from your brief, one row per agent; click a row to read its brief.';
+    : W.phase === 'meet' && !W.sid && !W.noAtlas ? 'Opening the workspace…' : 'No specialists yet. Atlas drafts them here from your brief, one row per agent; click a row to read its brief.';
   if ((W.agents.size + 1) !== W.fitRows) { W.fitRows = W.agents.size + 1; fitTeam(); }
 }
 // Table or Org chart, remembered separately for a draft and for a built desk. A draft opens on the Org chart (the team is
@@ -1694,6 +1833,7 @@ function applyTeamView(v){
 // The Overview's org chart works the same way: beside the selected agent's brief when the panel is wide, above it when
 // the panel is tall, alone (fitted to the panel) otherwise.
 function fitTeam(){ cancelAnimationFrame(W.fitRaf); W.fitRaf = requestAnimationFrame(fitTeamNow); }
+const PLAN_MIN = 200;                                                     // the draft plan's header and a few rows
 function fitTeamNow(){
   {
     const p = $('#team-panel'), cv = $('#canvas'); let d = 0, mode = '', canvasH = '', bw = '';
@@ -1716,9 +1856,18 @@ function fitTeamNow(){
       }
     }
     if (isPhone() && fitMode() && W.agents.size) { const P = fitPlan(cv.clientWidth || p.clientWidth, 2000); canvasH = Math.max(160, Math.ceil(P.needH * Math.max(FIT_MIN, Math.min(1, P.k)))) + 'px'; mode = ''; }   // one column: the chart as tall as it is
+    // the Team tab's chart of a small draft: the canvas as tall as the chart, and the rest of the draft (workflows,
+    // connections, outbound rules) under it, never a half-empty canvas
+    const pane = $('#pane-team'); let snug = '';
+    if (p.parentElement === $('#team-big') && W.teamView === 'chart' && !isPhone() && W.phase === 'design' && W.agents.size && $('#plan-panel').dataset.has === '1') {
+      const avail = pane.clientHeight - p.querySelector('.ph').offsetHeight - 2, cw = cv.clientWidth;
+      if (avail > 0 && cw > 0) { const P = tabChoose(cw, avail), h = Math.ceil(P.needH * Math.min(TB.kmax, Math.max(1, P.k)));
+        if (P.k >= 1 && avail - h - 12 >= PLAN_MIN) snug = h + 'px'; }
+    }
+    pane.classList.toggle('snug', !!snug);
     p.classList.toggle('d1', d === 1); p.classList.toggle('d2', d >= 2); p.classList.toggle('d3', d === 3);
     if (bw) p.style.setProperty('--bw', bw);
-    cv.style.height = (mode === 'below' || isPhone()) && W.teamView === 'chart' ? canvasH : '';
+    cv.style.height = snug || ((mode === 'below' || isPhone()) && W.teamView === 'chart' ? canvasH : '');
     if (mode !== (W.tmode || '')) { W.tmode = mode; placeInsp(); }
   }
 }
@@ -1743,7 +1892,7 @@ function renderRunPanel(){
     return `<div class="step ${cls}"><span class="sno">${cls === 'ok' ? '<svg class="i i12"><use href="#i-check"/></svg>' : i + 1}</span><span class="nm">${esc(name)}${s.ghost ? ` <span>${esc(s.inst)}</span>` : ''}<span>${esc(sub)}</span></span><span class="tm" title="${esc(s.assignment || '')}">${esc((s.assignment || '').slice(0, 48))}</span></div>`; });
   const lv = insts.filter(s => s.status === 'writing' && s.text).pop() || insts.filter(s => s.text).pop();
   const err = failed ? `<div class="run-err"><b>Run failed.</b> ${esc(String(r.summary || 'The run stopped with an error.').split('\n\n---\n')[0].replace(/^ERROR from [^:]+:\s*/, '').slice(0, 400))}</div>` : '';
-  body.innerHTML = `<div class="run-task"><span class="gk">Job</span>${esc(r.task || '')}</div>${err}<div class="steps">${steps.join('') || (r.active ? `<div class="step run"><span class="sno">1</span><span class="nm">Atlas<span>briefing the team</span></span><span class="tm"></span></div>` : (failed ? '' : `<div class="step"><span class="sno">–</span><span class="nm">Atlas<span>no specialist was called</span></span><span class="tm"></span></div>`))}</div>`
+  body.innerHTML = `<div class="run-task" title="${esc(r.task || '')}"><div class="rtx"><span class="gk">Job</span>${esc(r.task || '')}</div></div>${err}<div class="steps">${steps.join('') || (r.active ? `<div class="step run"><span class="sno">1</span><span class="nm">Atlas<span>briefing the team</span></span><span class="tm"></span></div>` : (failed ? '' : `<div class="step"><span class="sno">–</span><span class="nm">Atlas<span>no specialist was called</span></span><span class="tm"></span></div>`))}</div>`
     + (lv && (r.active || failed || !/---/.test(r.summary || '')) ? `<div class="out-box" id="run-live" data-inst="${esc(lv.inst)}"><span class="who">${esc(agentName(lv.base))}</span><span class="tx">${esc(lv.text.slice(-360))}</span>${r.active ? '<span class="caret"></span>' : ''}</div>` : '')
     + `<div class="rmeta" id="run-rmeta"></div>`;
   // the desk's own record of what the run left behind (a failed run keeps it too when something was queued or saved)
@@ -1868,11 +2017,14 @@ function renderWorkflows(){
   $('#wf-list').innerHTML = wf.map(w => `<div class="wfrow" id="wf-${esc(w.id)}"><div style="min-width:0"><b>${esc(w.name)}</b><small title="${esc(wfDesc(w.description))}">${esc(wfDesc(w.description))}</small></div><button class="btn sm" onclick="runWorkflowNow(${jsa(w.id)})"><svg class="i"><use href="#i-run"/></svg>Run</button></div>`).join('');
 }
 function runWorkflowNow(id){ const w = (W.workflows || []).find(x => x.id === id); if (!w) return; deploy(`Run the "${w.name}" workflow now.`, w.id); }
+// the job bar with a workflow in it: Deploy runs that workflow (its own hand-offs), as its Run button does
+function prefillWorkflow(id){ const w = (W.workflows || []).find(x => x.id === id); if (!w) return; const t = `Run the "${w.name}" workflow now.`; W.jobWf = {id: w.id, text: t}; prefillJob(t); }
 function showTab(name, focus){
   W.tab = name; $('#wk').dataset.tab = name;
   document.querySelectorAll('#tabs .tab').forEach(t => t.classList.toggle('on', t.dataset.tab === name));
   document.querySelectorAll('.tpane').forEach(p => p.classList.toggle('hide', p.id !== 'pane-' + name));
   const tp = $('#team-panel'); if (name === 'team') $('#team-big').appendChild(tp); else if (tp.parentElement !== $('#pane-overview')) $('#pane-overview').insertBefore(tp, $('#run-panel'));
+  const pl = $('#plan-panel'); if (name === 'team') { if (pl.parentElement !== $('#pane-team')) $('#pane-team').appendChild(pl); } else if (pl.parentElement !== $('#pane-overview')) $('#pane-overview').insertBefore(pl, $('#start-panel'));   // a draft's plan: under the Team tab's chart when it has the room
   const cams = $('#cams'); cams.classList.toggle('big', name === 'cameras'); cams.classList.toggle('strip', name !== 'cameras'); if (name === 'cameras') $('#cam-big').appendChild(cams); else if (cams.parentElement !== $('#camrow')) $('#camrow').insertBefore(cams, $('#cam-side'));
   fitCams(); fitStrip(); fitTeam(); teamMeta();
   const ap = $('#ap-panel'); if (name === 'approvals') $('#ap-big').appendChild(ap); else if (ap.parentElement !== $('#right')) $('#right').insertBefore(ap, $('#right').firstChild);
@@ -2003,7 +2155,7 @@ window.shellPage = {
   ask(mode, text){ if (W.phase === 'run' && mode) setMode(mode); openAtlas(); if (text) $('#say').value = text; return true; },   // the rail's Ask Atlas opens THIS conversation
   replaces: ['agents', 'cameras', 'add-camera'],
   commands(){
-    const c = [], add = (label, ic, run, hint) => c.push({g: 'This workspace', label, ic, run, hint});
+    const c = [], add = (label, ic, run, hint) => c.push({g: 'This workspace', label, ic, run, hint, rank: 1});   // this page's own commands rank first
     NX.steps.forEach(s => c.push({g: NX.head || 'Next steps', label: s.label, hint: s.detail || '', ic: typeof s.run === 'function' ? 'play' : NX_ACT[s.action][1],
       run: () => { const j = NX.steps.indexOf(s); if (j >= 0) pickNext(j); else toast('Those steps were replaced: the newest are under Atlas\'s last message'); }}));
     if (W.phase === 'run') add('New job', 'plus', newJob, 'N');
@@ -2016,7 +2168,8 @@ window.shellPage = {
     if (W.deskId) add('Explorer: agents, cameras, workflows', 'grid', () => toggleExplorer(true));
     add('How Atlas works', 'doc', openGuide); if (W.agents.size) add('Reset the org chart layout', 'grid', resetLayout);
     if (W.sid && !W.deskId) c.push({g: 'This workspace', label: W.tier === 'free' ? 'Use paid models for this draft' : 'Use free models for this draft', ic: 'gear', run: toggleTier, hint: 'now: ' + (W.tier === 'free' ? 'free' : 'paid') + ' models'});
-    (W.workflows || []).forEach(w => c.push({g: 'Workflows', label: w.name, hint: 'run now', ic: 'play', run: () => runWorkflowNow(w.id)}));
+    // a workflow is never started from the palette: it opens Runs with the workflow in the job bar, and Deploy runs it
+    (W.workflows || []).forEach(w => c.push({g: 'Workflows', label: w.name, hint: 'workflow · put in the job bar, runs on Deploy', ic: 'play', rank: -1, run: () => prefillWorkflow(w.id)}));
     if (W.agents.size) c.push({g: 'Agents', label: 'Atlas', hint: 'orchestrator', ic: 'team', run: () => inspect('atlas')});
     W.agents.forEach(a => c.push({g: 'Agents', label: a.name, hint: a.role, ic: 'team', run: () => inspect(a.id)}));
     W.cams.forEach(k => c.push({g: 'Cameras', label: k.name, hint: !k.id ? 'draft' : k.st === 'live' ? 'live view' : k.problem ? 'fix the feed' : 'feed settings', ic: 'camera', run: () => camClick(k.name)}));

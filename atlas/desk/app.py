@@ -1877,7 +1877,8 @@ def _health(desk_id: int | None, window_h: float = 24.0) -> dict[str, Any]:
     oldest = store.oldest_pending_action(desk_id)
     jobs = store.jobs(desk_id) if desk_id is not None else []
     cons = store.connectors(desk_id) if desk_id is not None else []
-    tokens = sum((r["tokens_in"] or 0) + (r["tokens_out"] or 0) for r in runs)
+    tin, tout = sum(r["tokens_in"] or 0 for r in runs), sum(r["tokens_out"] or 0 for r in runs)
+    tokens = tin + tout
     err = _last_error.get(desk_id) if desk_id is not None else (max(_last_error.values(), key=lambda e: e["ts"]) if _last_error else None)
     alerts: list[dict[str, str]] = []
     if zombies:
@@ -1910,7 +1911,7 @@ def _health(desk_id: int | None, window_h: float = 24.0) -> dict[str, Any]:
         "ok": not any(a["level"] == "critical" for a in alerts), "window_h": window_h, "uptime_s": round(now - _BOOT_TS),
         "runs": {"total": len(runs), "by_status": by, "failure_rate": round(len(bad) / len(finished), 3) if finished else 0.0,
                  "p50_s": p(0.5), "p90_s": p(0.9), "active": len(live), "stalled": len(stalled), "zombies": len(zombies)},
-        "tokens": tokens, "cost_gbp": round(tokens / 1e6 * 5 * 0.78, 2),
+        "tokens": tokens, "cost_gbp": round((tin * 5 + tout * 25) / 1e6 * 0.78, 2),   # the Model cost tile's basis (paid rates), over this window
         "queue": {"pending": len(store.actions("pending", limit=100000, desk_id=desk_id)),
                   "oldest_pending_h": round((now - oldest) / 3600, 1) if oldest else 0},
         "jobs": [{"id": j["id"], "name": j["name"], "kind": j["kind"], "enabled": bool(j.get("enabled")), "last_status": j.get("last_status") or "",
@@ -2511,7 +2512,7 @@ def api_cameras():
                     "vlm": {"ready": V.vlm_ready() and _mode() != "demo", "model": V.DEFAULT_VLM},
                     "stats": store.vision_stats(desk["id"], time.time() - 86400), "hook_url": hook,
                     "planned": _planned_cameras(desk, cams),
-                    "samples": [{"name": n, "label": DS.SAMPLE_LABELS.get(n, n.replace("-", " "))} for n in DS.sample_clips()]})
+                    "samples": [{"name": n, "label": DS.sample_label(n)} for n in DS.sample_clips()]})
 
 
 def _planned_cameras(desk: dict[str, Any], cams: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -2588,9 +2589,10 @@ def _camera_source_reason(src: str, uid: Any) -> str | None:
 @app.get("/api/cameras/samples")
 def api_camera_samples():
     """The sample clips on this server. No desk needed: an owner without a desk can try sample footage while Atlas
-    drafts the first one (the clip goes into the draft and goes live when the desk is built)."""
+    drafts the first one (the clip goes into the draft and goes live when the desk is built). "camera" is the name the
+    clip's camera usually gets (the till, the lobby), offered when the owner picks it."""
     _signed_in()
-    return jsonify({"samples": [{"name": n, "label": DS.SAMPLE_LABELS.get(n, n.replace("-", " "))} for n in DS.sample_clips()]})
+    return jsonify({"samples": [{"name": n, "label": DS.sample_label(n), "camera": DS.sample_camera_name(n)} for n in DS.sample_clips()]})
 
 
 @app.post("/api/cameras/upload")

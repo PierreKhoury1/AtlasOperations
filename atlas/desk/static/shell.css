@@ -111,7 +111,22 @@ body.sh-mini #sh-rail .sh-top{flex-direction:column}
 #sh-ask .cmp{border-top:1px solid var(--sh-line);padding:12px 14px;display:flex;gap:8px;align-items:flex-end}
 #sh-ask textarea{flex:1;min-height:44px;max-height:160px;resize:vertical;background:var(--sh-bg);border:1px solid var(--sh-line2);border-radius:3px;color:var(--sh-text);font:13.5px var(--sh-font);padding:9px 11px;outline:none}
 #sh-ask textarea:focus{border-color:var(--sh-acc)}
-#sh-ask .send{background:var(--sh-acc);border:0;color:#fff;border-radius:3px;padding:10px 14px;font:600 13px var(--sh-font);cursor:pointer}
+#sh-ask .send{display:inline-flex;align-items:center;gap:6px;background:var(--sh-acc);border:0;color:#fff;border-radius:3px;height:32px;padding:0 12px 0 10px;font:600 12.5px var(--sh-font);cursor:pointer}
+#sh-ask .send svg{width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linejoin:round}
+/* what the mode works on: the newest jobs, the cameras, the team (real rows, never an empty drawer) */
+#sh-ask .ctx{border:1px solid var(--sh-line);border-radius:3px;margin:2px 0 14px}
+#sh-ask .ctx:empty{display:none}
+#sh-ask .ctx .g{display:flex;justify-content:space-between;align-items:center;padding:7px 10px;font:500 10.5px/1.4 var(--sh-mono,'IBM Plex Mono',monospace);letter-spacing:.1em;text-transform:uppercase;color:var(--sh-faint)}
+#sh-ask .ctx .g a{font:600 12px var(--sh-font);letter-spacing:0;text-transform:none;color:var(--sh-muted);text-decoration:none}
+#sh-ask .ctx .g a:hover{color:var(--sh-text)}
+#sh-ask .ctx .r{display:flex;align-items:center;gap:10px;min-height:32px;padding:5px 10px;border-top:1px solid var(--sh-line);font-size:12.5px;color:var(--sh-text)}
+#sh-ask .ctx .r .a{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#sh-ask .ctx .r .b{flex:none;font:500 11px var(--sh-mono,'IBM Plex Mono',monospace);letter-spacing:.05em;text-transform:uppercase;color:var(--sh-muted)}
+#sh-ask .ctx .r .b.on{color:#8abbff}#sh-ask .ctx .r .b.ok{color:var(--sh-ok)}#sh-ask .ctx .r .b.warn{color:var(--sh-warn)}#sh-ask .ctx .r .b.bad{color:var(--sh-bad)}
+:root[data-theme="light"] #sh-ask .ctx .r .b.on{color:#215db0}
+#sh-ask .ctx .r .c{flex:0 1 auto;max-width:45%;font:400 11.5px var(--sh-mono,'IBM Plex Mono',monospace);color:var(--sh-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#sh-ask .ctx .r.none{color:var(--sh-muted);font-size:12px}
+#sh-ask .ctx .r .t{flex:none;min-width:44px;text-align:right;font:400 11.5px var(--sh-mono,'IBM Plex Mono',monospace);color:var(--sh-muted);white-space:nowrap}
 #sh-ask .send:disabled{opacity:.5;cursor:default}
 #sh-ask .foot{padding:0 16px 12px;color:var(--sh-faint);font-size:11.5px}
 #sh-ask .foot a{color:var(--sh-muted)}

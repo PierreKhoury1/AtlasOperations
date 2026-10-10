@@ -8,7 +8,15 @@
 - A desk with no run yet: its workflows, jobs to try and outbound rules; what a job runs through, from its own setup.
 - Escape closes the frame's desk menu; two desks with one name say which is which.
 - Fitted org chart cards never cut a tool chip; a run's chips name each tool once.
-- Activity shows whole rows; Atlas's opening status shows from its heading; the first screen lists the ready-made desks.
+- Activity shows whole rows; Atlas's opening status and its three next steps fit the panel; the first screen lists the
+  ready-made desks.
+- The Team tab's chart is never drawn below full size and lays a big team out in columns; a small draft's chart is as
+  tall as it is, with the draft plan under it.
+- The Cameras tab of a desk or draft with no camera is a setup surface (the sources, the sample clips with Use, what the
+  journal will keep); a draft has no journal to read and says so, without a request.
+- Until the page knows its draft it says it is opening and sends nothing (never to /api/design/null).
+- The name dialog's buttons never cover its hint; the job line is cut by whole lines; Ctrl K never puts a workflow run
+  above where the owner was going.
 Skipped when Playwright or its Chromium is missing."""
 from __future__ import annotations
 
@@ -130,7 +138,7 @@ def browser():
         b.close()
 
 
-def _open(browser, fake, path="/desk/workspace?desk=7", w=1600, h=900, theme="light", ls=None):
+def _open(browser, fake, path="/desk/workspace?desk=7", w=1600, h=900, theme="light", ls=None, reqs=None):
     ctx = browser.new_context(viewport={"width": w, "height": h}, device_scale_factor=1)
     init = {"ws_tut_done": "1", "atlas-theme": theme, **(ls or {})}
     ctx.add_init_script("".join(f"try{{localStorage.setItem({json.dumps(k)},{json.dumps(v)})}}catch(e){{}}" for k, v in init.items()))
@@ -138,6 +146,8 @@ def _open(browser, fake, path="/desk/workspace?desk=7", w=1600, h=900, theme="li
     page = ctx.new_page()
     errors = []
     page.on("pageerror", lambda e: errors.append(str(e)))
+    if reqs is not None:
+        page.on("request", lambda r: reqs.append(r.method + " " + re.sub(r"^https?://[^/]+", "", r.url)))
     page.goto(ORIGIN + path, wait_until="domcontentloaded")
     return ctx, page, errors
 
@@ -158,6 +168,7 @@ def test_nothing_is_claimed_before_its_source_answers(browser):
         assert "Nothing waiting" not in claims["#ap-body"] and "Reading" in claims["#ap-body"]
         assert not re.search(r"no run yet|Jobs to try|Workflows", claims["#run-body"] + claims["#run-meta"], re.I), claims["#run-body"]
         assert claims["#tab-n-ap"] == "" and claims["#tab-n-cams"] == ""
+        assert _text(page, "#run-n").strip() == DASH                         # no "0 running" before /stats answers
         assert "READY" not in claims["#phase-label"].upper()
         for k in ("#k-cams", "#k-journal", "#k-ap", "#k-spend"):                # "-" and nothing under it
             assert _text(page, k + " .v").strip() == DASH and _text(page, k + " .s").strip() == "", (k, _text(page, k))
@@ -282,12 +293,12 @@ def test_activity_shows_whole_rows_and_the_status_its_heading(browser):
     finally:
         ctx.close()
     fake = FakeDesk(runs=1)
-    ctx, page, errors = _open(browser, fake, w=1366, h=768)                 # a short panel: the status with its steps is taller
+    ctx, page, errors = _open(browser, fake, w=1366, h=768)                 # a short panel: the status with its steps
     try:
         page.wait_for_function("() => W.greetEl && document.querySelector('#msgs .nx')")
         page.wait_for_timeout(600)
         g = page.evaluate("(() => { const m = document.getElementById('msgs'), r = W.greetEl.getBoundingClientRect(), mr = m.getBoundingClientRect(); return {tall: m.scrollHeight > m.clientHeight, top: r.top - mr.top}; })()")
-        assert not g["tall"] or g["top"] >= 0, g                            # the desk's name and time in view, never scrolled away
+        assert not g["tall"] and g["top"] >= 0, g                           # it fits: the desk's name, its time and the steps in view
         assert not errors, errors
     finally:
         ctx.close()
@@ -313,6 +324,203 @@ def test_the_first_screen_lists_the_ready_made_desks_on_a_tall_screen(browser):
         page.wait_for_timeout(300)
         pane = page.evaluate("(p => [p.clientHeight, p.scrollHeight])(document.getElementById('pane-overview'))")
         assert pane[1] <= pane[0] + 1, pane                                 # a short screen keeps the one line for them
+        assert not errors, errors
+    finally:
+        ctx.close()
+
+
+def _rows_in_view(page):
+    return page.evaluate("""() => { const m = document.getElementById('msgs'), mr = m.getBoundingClientRect();
+        const rows = [...m.querySelectorAll('.nx-r')].map(r => r.getBoundingClientRect());
+        return [rows.length, rows.filter(r => r.top >= mr.top - .5 && r.bottom <= mr.bottom + .5).length]; }""")
+
+
+@pytest.mark.parametrize("size", [(1600, 900), (1366, 768), (1280, 720)])
+def test_the_opening_status_and_its_three_steps_fit(browser, size):
+    """Approvals and Activity took the right column, so the status's next steps (the panel's actions) fell below the fold.
+    A held, flagged approval and two agent gaps are the tallest case."""
+    fake = FakeDesk(runs=1, events=12)
+    fake.data["/api/actions"][0].update({"flags": "missing sign-off 'Harbour Physio'", "reason": "Outbound message to a lead needs owner approval."})
+    fake.data["/api/agents/links"] = {"agents": {"writer": {"gaps": ["no email connector"]}, "crm": {"gaps": ["no CRM connected"]}}}
+    ctx, page, errors = _open(browser, fake, w=size[0], h=size[1])
+    try:
+        page.wait_for_function("() => W.greetEl && document.querySelector('#msgs .nx') && W.ld.last && /Gaps/.test(W.greetEl.textContent)")
+        page.wait_for_timeout(700)
+        assert _rows_in_view(page) == [3, 3], (size, _rows_in_view(page))
+        cut = page.evaluate("""() => { const b = document.getElementById('ap-body').getBoundingClientRect();
+            return [...document.querySelectorAll('#ap-body .ap-acts .btn, #ap-body .ap-more .link')].map(x => x.getBoundingClientRect())
+              .filter(r => r.height && (r.bottom > b.bottom + .5 || r.top < b.top - .5)).length; }""")
+        assert cut == 0, size                                                # Approve & send, Edit and Reject whole
+        assert page.evaluate("[...W.greetEl.querySelectorAll('li')].every(l => l.getBoundingClientRect().height <= 22)")   # one line per fact
+        assert not errors, errors
+    finally:
+        ctx.close()
+
+
+def test_team_tab_chart_is_full_size_and_lays_a_big_team_out_in_columns(browser):
+    fake = FakeDesk(runs=1)
+    fake.data["/api/config"]["agents"] = _agents() + [{"id": f"watch{i}", "name": f"Watcher {i}", "role": "Camera monitor", "goal": "Watch the feed.",
+                                                       "reports_to": "atlas", "tools": ["camera_ask", "camera_events"]} for i in range(3)]
+    ctx, page, errors = _open(browser, fake, ls={"ws_teamview": "chart"})
+    try:
+        page.wait_for_function("() => document.getElementById('run-id').textContent")
+        page.evaluate("showTab('team')"); page.wait_for_timeout(900)
+        r = page.evaluate("""() => { const c = document.getElementById('canvas').getBoundingClientRect();
+            const ns = [...document.querySelectorAll('#nodes .node')].filter(n => getComputedStyle(n).display !== 'none');
+            let small = 99; ns.forEach(n => n.querySelectorAll('*').forEach(e => { if (e.offsetWidth && [...e.childNodes].some(t => t.nodeType === 3 && t.textContent.trim()))
+              small = Math.min(small, parseFloat(getComputedStyle(e).fontSize) * W.k); }));
+            const rs = ns.map(n => n.getBoundingClientRect());
+            return {k: W.k, n: ns.length, cols: W.tfit.cols.length, small, out: rs.filter(r => r.left < c.left - 1 || r.right > c.right + 1 || r.top < c.top - 1 || r.bottom > c.bottom + 1).length}; }""")
+        assert r["k"] >= 1 and r["small"] >= 11, r                         # never drawn below the cards' real size
+        assert r["n"] == 7 and r["cols"] >= 2 and r["out"] == 0, r          # Atlas + 6 in columns, every card whole
+        assert not errors, errors
+    finally:
+        ctx.close()
+
+
+DRAFT = {"agents": [{"id": "research", "name": "Researcher", "role": "Lead & company research", "goal": "Find who the enquirer is.", "reports_to": "atlas",
+                     "tools": ["web_fetch", "read_file", "list_files"]},
+                    {"id": "writer", "name": "Reply writer", "role": "First-response drafting", "goal": "Draft a short reply.", "reports_to": "atlas",
+                     "tools": ["read_file", "list_files", "record_find", "record_get"]}],
+         "workflows": [{"id": "inbound", "name": "Inbound lead to researched reply", "steps": ["research", "writer"], "trigger": {"kind": "webhook", "detail": "Website form"}}],
+         "connectors": [{"name": "Website form", "kind": "webhook", "required": True, "purpose": "New enquiries in"}],
+         "policy": {"max_words": 180, "no_money_figures": True}, "business": {"name": ""}, "cameras": []}
+
+
+def _draft(browser, fake, w, h, reqs=None):
+    ctx, page, errors = _open(browser, fake, path="/desk/workspace", w=w, h=h, reqs=reqs)
+    page.wait_for_function("() => typeof W !== 'undefined' && W.sid")
+    page.evaluate("bp => applyBlueprint(bp, true)", DRAFT)
+    page.wait_for_function("() => document.getElementById('wk').dataset.phase === 'design'")
+    page.wait_for_timeout(400)
+    return ctx, page, errors
+
+
+def test_a_small_drafts_team_tab_is_as_tall_as_its_chart(browser):
+    """The draft's Team tab opened on a big dotted canvas holding three small cards. The chart is now as tall as it is,
+    drawn a little larger, and the rest of the draft (workflows, connections, outbound rules) sits under it."""
+    ctx, page, errors = _draft(browser, FakeDesk(built=False), 1920, 1080)
+    try:
+        page.evaluate("showTab('team')"); page.wait_for_timeout(900)
+        r = page.evaluate("""() => { const c = document.getElementById('canvas').getBoundingClientRect(), pane = document.getElementById('pane-team').getBoundingClientRect();
+            const ns = [...document.querySelectorAll('#nodes .node')].filter(n => getComputedStyle(n).display !== 'none').map(n => n.getBoundingClientRect());
+            const bottom = Math.max(...ns.map(r => r.bottom));
+            return {k: W.k, snug: document.getElementById('pane-team').classList.contains('snug'), plan: document.getElementById('plan-panel').offsetHeight,
+                    canvasShare: c.height / pane.height, below: c.bottom - bottom, n: ns.length}; }""")
+        assert r["snug"] and r["plan"] > 150 and r["canvasShare"] < .7, r
+        assert 1 <= r["k"] <= 1.25 and r["below"] < 40 and r["n"] == 3, r  # no empty canvas under the cards
+        plan = _text(page, "#plan-panel")
+        assert "Researcher" in plan and "Reply writer" in plan and "at most 180 words" in plan, plan   # the hand-offs, as the draft's agents
+        assert not errors, errors
+    finally:
+        ctx.close()
+
+
+def test_cameras_tab_with_no_camera_is_a_setup_surface(browser):
+    fake = FakeDesk(built=False)
+    fake.data["/api/cameras/samples"] = {"samples": [{"name": "campus-lobby", "label": "campus building, lobby", "camera": "lobby"},
+                                                     {"name": "retail-store", "label": "retail shop floor", "camera": "shop-floor"}]}
+    reqs = []
+    ctx, page, errors = _draft(browser, fake, 1600, 900, reqs)
+    try:
+        reqs.clear()
+        page.evaluate("showTab('cameras')"); page.wait_for_timeout(800)
+        j = _text(page, "#journal-list")
+        assert "starts once the desk is built" in j and "Loading" not in j and "Reading" not in j, j      # nothing to read, said so
+        assert not [x for x in reqs if "/api/vision" in x], reqs                                         # ...and nothing requested
+        assert page.is_hidden("#journal-page")                                                           # no journal to print
+        assert page.evaluate("document.querySelectorAll('#cam-setup .srcs button').length") == 5
+        assert page.evaluate("document.querySelectorAll('#smp-list .smp').length") == 2
+        blank = page.evaluate("""() => { const p = document.getElementById('pane-cameras').getBoundingClientRect();
+            return p.bottom - Math.max(...[...document.querySelectorAll('#pane-cameras > .panel')].filter(e => e.offsetHeight).map(e => e.getBoundingClientRect().bottom)); }""")
+        assert blank < 2, blank                                                                          # no half-empty tab
+        page.click("#smp-list .smp:first-child button"); page.wait_for_timeout(400)
+        assert page.is_visible("#attach") and page.evaluate("AT.tab") == "sample" and page.input_value("#at-cam-name") == "lobby"
+        assert page.evaluate("AT.sample") == "sample:campus-lobby"
+        assert not errors, errors
+    finally:
+        ctx.close()
+
+
+def test_nothing_is_sent_before_the_draft_is_known(browser):
+    fake = FakeDesk(built=False)
+    fake.hold = {"/api/design/start"}
+    reqs = []
+    ctx, page, errors = _open(browser, fake, path="/desk/workspace", reqs=reqs)
+    try:
+        page.wait_for_function("() => typeof W !== 'undefined' && document.getElementById('phase-label').textContent.trim()")
+        page.wait_for_timeout(300)
+        assert _text(page, "#phase-label").strip().lower() == "loading" and "Opening the workspace" in _text(page, "#ph-sum")
+        assert "No draft yet" not in _text(page, "#ph-sum") and page.is_disabled("#send")
+        page.click("#say"); page.keyboard.type("Hi"); page.keyboard.press("Enter"); page.wait_for_timeout(200)
+        assert page.input_value("#say") == "Hi" and not [x for x in reqs if "/say" in x], reqs        # kept, never posted to a null draft
+        fake.release()
+        page.wait_for_function("() => W.sid && !document.getElementById('send').disabled")
+        assert _text(page, "#phase-label").strip().lower() == "brief" and "No draft yet" in _text(page, "#ph-sum")
+        assert not [x for x in reqs if "/null" in x], reqs
+        assert not errors, errors
+    finally:
+        ctx.close()
+
+
+@pytest.mark.parametrize("size", [(1600, 900), (390, 844)])
+def test_the_name_dialogs_buttons_never_cover_its_hint(browser, size):
+    ctx, page, errors = _open(browser, FakeDesk(runs=1), w=size[0], h=size[1])
+    try:
+        page.wait_for_function("() => typeof W !== 'undefined' && W.ld.last")
+        page.evaluate("W.me = {company: ''}; askDeskName()"); page.wait_for_timeout(300)
+        gap = page.evaluate("(() => { const b = document.querySelector('#namedlg .mbox'); return b.querySelector('.mrow').getBoundingClientRect().top - b.querySelector('.hint').getBoundingClientRect().bottom; })()")
+        assert gap >= 8, (size, gap)
+        assert not errors, errors
+    finally:
+        ctx.close()
+
+
+def test_the_job_line_is_cut_by_whole_lines(browser):
+    fake = FakeDesk(runs=1)
+    long = ("Write a short report from the camera journal on this question: what happened on the cameras in the last 30 days? "
+            "Give times. Cite times, camera names and the journal entries used, and queue the reply for my approval.")
+    fake.data["/api/runs"][0]["task"] = long
+    fake.details["r0"]["task"] = long
+    ctx, page, errors = _open(browser, fake, w=1280, h=720)
+    try:
+        page.wait_for_function("() => document.querySelector('#run-body .run-task')")
+        r = page.evaluate("(() => { const t = document.querySelector('#run-body .run-task'), x = t.querySelector('.rtx'), cs = getComputedStyle(x); return {clamp: cs.webkitLineClamp, title: t.title, h: x.clientHeight, lh: parseFloat(cs.lineHeight)}; })()")
+        assert r["clamp"] == "3" and r["title"] == long and abs(r["h"] - 3 * r["lh"]) < 2, r
+        assert not errors, errors
+    finally:
+        ctx.close()
+
+
+def test_ctrl_k_never_puts_a_workflow_run_first(browser):
+    """Typing "cam" to reach Cameras put "Campus Safety Summary · run now" first, and Enter started a whole team run."""
+    fake = FakeDesk(runs=1)
+    fake.data["/api/config"]["workflows"] = [{"id": "camsum", "name": "Campus Safety Summary", "description": "research -> writer"}]
+    reqs = []
+    ctx, page, errors = _open(browser, fake, reqs=reqs)
+    try:
+        page.wait_for_function("() => W.ld.last && document.getElementById('sh-rail')")
+        page.keyboard.press("Control+k"); page.wait_for_timeout(250); page.keyboard.type("cam"); page.wait_for_timeout(250)
+        items = page.evaluate("[...document.querySelectorAll('#sh-pal .it > span')].map(s => s.textContent)")
+        assert items and items[0] != "Campus Safety Summary" and items.index("Campus Safety Summary") > items.index("Add camera"), items
+        page.keyboard.type(" safety"); page.wait_for_timeout(200); page.keyboard.press("Enter"); page.wait_for_timeout(400)
+        assert not [x for x in reqs if x.startswith("POST /api/runs")], reqs                            # it only fills the job bar
+        assert "Campus Safety Summary" in page.input_value("#job") and page.evaluate("W.jobWf && W.jobWf.id") == "camsum"
+        assert not errors, errors
+    finally:
+        ctx.close()
+
+
+def test_drafted_cards_fit_their_chips_from_the_start(browser):
+    """A card drafted in front of the owner had its tool chips fitted before it was on the canvas, so the fitted chart
+    showed a chip cut through at the card's edge until something else re-laid it out."""
+    ctx, page, errors = _draft(browser, FakeDesk(built=False), 1920, 1080)
+    try:
+        page.wait_for_function("() => document.querySelector('#canvas.fit .node:not(.atlas)')")
+        cut = page.evaluate("""() => [...document.querySelectorAll('#canvas.fit .node')].flatMap(n => { const c = n.querySelector('.chips');
+            return [...c.children].filter(x => x.style.display !== 'none' && x.offsetWidth && x.offsetLeft - c.offsetLeft + x.offsetWidth > c.clientWidth + .5)
+              .map(x => n.dataset.id + ':' + x.textContent); })""")
+        assert cut == [], cut
         assert not errors, errors
     finally:
         ctx.close()
