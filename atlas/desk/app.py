@@ -48,6 +48,7 @@ from .. import tools as T
 from .. import vision as V
 from .. import rag as RAG
 from .. import team as TM
+from .. import usage as U
 from . import scheduler
 from . import auth as AUTH
 from ..orchestrator import Event, Orchestrator
@@ -1901,12 +1902,13 @@ def _health(desk_id: int | None, window_h: float = 24.0) -> dict[str, Any]:
     sp = _spend_poll()
     blocked = _spend_blocked()
     if blocked:
-        alerts.append({"level": "critical", "key": "spend", "text": blocked + " - new runs are refused"})
-    elif SPEND_CAP_USD and sp.get("total_usage") is not None and sp["total_usage"] >= 0.8 * SPEND_CAP_USD:
-        alerts.append({"level": "warn", "key": "spend80", "text": f"model spend ${sp['total_usage']:.2f} is over 80% of the ${SPEND_CAP_USD:.2f} cap"})
+        alerts.append({"level": "critical", "key": "spend", "text": blocked + " - paid models on Atlas's account are refused"})
+    elif sp["house_paid_limit"] and sp["house_paid_used"] >= 0.8 * sp["house_paid_limit"]:
+        alerts.append({"level": "warn", "key": "spend80", "text": f"paid models on Atlas's account: ${sp['house_paid_used']:.2f} "
+                                                                  f"of ${sp['house_paid_limit']:.2f} this UTC month"})
     return {
-        "spend": {"used_usd": sp.get("total_usage"), "credits_usd": sp.get("total_credits"), "cap_usd": SPEND_CAP_USD or None,
-                  "blocked": bool(blocked), "error": sp.get("error")},
+        "spend": {**{k: sp.get(k) for k in ("usage_monthly", "limit", "limit_remaining", "free_used", "free_limit", "error",
+                                             "house_paid_used", "house_paid_limit")}, "blocked": bool(blocked)},
         "ok": not any(a["level"] == "critical" for a in alerts), "window_h": window_h, "uptime_s": round(now - _BOOT_TS),
         "runs": {"total": len(runs), "by_status": by, "failure_rate": round(len(bad) / len(finished), 3) if finished else 0.0,
                  "p50_s": p(0.5), "p90_s": p(0.9), "active": len(live), "stalled": len(stalled), "zombies": len(zombies)},
@@ -1954,45 +1956,32 @@ def _notify_alerts(desk: dict[str, Any], alerts: list[dict[str, str]]) -> None:
         print("alert delivery failed:", exc)
 
 
-SPEND_CAP_USD = float(os.environ.get("SPEND_CAP_USD", "0") or 0)          # 0 = no cap
-_spend: dict[str, Any] = {"total_credits": None, "total_usage": None, "ts": 0.0, "error": ""}
-
-
 def _spend_poll(force: bool = False) -> dict[str, Any]:
-    """Read the OpenRouter balance at most every 5 minutes (real money now flows through the key)."""
-    if not force and time.time() - _spend["ts"] < 300:
-        return _spend
-    try:
-        prov = cfg.load("providers", cfg.DEFAULT_PROVIDERS)["providers"].get("openrouter") or {}
-        key = cfg.resolve_api_key({**prov, "name": "openrouter"})
-        if key:
-            import httpx
-            r = httpx.get("https://openrouter.ai/api/v1/credits", headers={"Authorization": f"Bearer {key}"}, timeout=15)
-            d = r.json().get("data", {}) if r.status_code < 400 else {}
-            _spend.update({"total_credits": d.get("total_credits"), "total_usage": d.get("total_usage"), "error": "" if d else f"HTTP {r.status_code}"})
-    except Exception as exc:
-        _spend["error"] = f"{type(exc).__name__}: {str(exc)[:80]}"
-    _spend["ts"] = time.time()
-    return _spend
+    """The OpenRouter key snapshot (GET /api/v1/key, every USAGE_KEY_POLL_S by the usage thread) plus this month's
+    paid spend on Atlas's account as the ledger sees it. The old credits read needed a management key and compared
+    all-time usage with the cap, so it never worked."""
+    if force:
+        U.poll_key()
+    return U.spend_view()
 
 
 def _spend_blocked() -> str:
-    """Non-empty reason when new model work must not start: cap exceeded or balance gone."""
-    s = _spend_poll()
-    used, total = s.get("total_usage"), s.get("total_credits")
-    if SPEND_CAP_USD and used is not None and used >= SPEND_CAP_USD:
-        return f"spend cap reached: ${used:.2f} of ${SPEND_CAP_USD:.2f} used - raise SPEND_CAP_USD to continue"
-    if used is not None and total is not None and total > 0 and used >= total:
-        return f"OpenRouter balance exhausted (${used:.2f} of ${total:.2f})"
-    return ""
+    """Non-empty when paid models on Atlas's account are refused: L13, the house's paid cap for this UTC month
+    (USAGE_HOUSE_PAID_USD_MONTH, else SPEND_CAP_USD, else $10). Free-model work is never blocked by it."""
+    return U.house_paid_blocked()
+
+
+_last_prune = [0.0]
 
 
 def _watchdog_loop() -> None:
-    """Every 15s: kill runs past RUN_MAX_S, mark orphaned DB rows failed, push critical alerts."""
+    """Every 15s: kill runs past RUN_MAX_S, mark orphaned DB rows failed, push critical alerts. Hourly: usage retention."""
     while True:
         try:
             now = time.time()
-            _spend_poll()
+            if now - _last_prune[0] > 3600:
+                _last_prune[0] = now
+                U.prune(now)
             with _runs_lock:
                 holders = list(_runs.items())
             for rid, h in holders:
@@ -5265,6 +5254,7 @@ C.START_RUN = _start_run
 C.RUN_STATUS = _run_status
 C.NOTIFY = lambda desk_id, text: I.notify(store.connectors(desk_id), text)
 scheduler.BASE_URL = lambda: os.environ.get("PUBLIC_URL", "").strip()
+U.start(store)                                    # the usage ledger + the provider key snapshot thread
 scheduler.start(store, _start_run, store.desk)
 threading.Thread(target=_watchdog_loop, daemon=True, name="atlas-watchdog").start()
 

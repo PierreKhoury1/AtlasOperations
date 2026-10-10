@@ -193,8 +193,10 @@ def reset() -> None:
         _state.clear()
 
 
-def due(key: tuple[int, str], jc: dict[str, Any], now: float, motion: float, counts: dict[str, int]) -> tuple[bool, str]:
-    """Should this tick write a note? Returns (due, why)."""
+def due(key: tuple[int, str], jc: dict[str, Any], now: float, motion: float, counts: dict[str, int],
+        pace: float = 0.0) -> tuple[bool, str]:
+    """Should this tick write a note? Returns (due, why). `pace` is usage.pace_gap(): while the last note is younger
+    than it, nothing is due, not even the every_s heartbeat, so the AI-request allowance lasts until 00:00 UTC."""
     st = _state.get(key) or {}
     if now < st.get("fail_until", 0):
         return False, "journal backing off after a model error"
@@ -202,6 +204,8 @@ def due(key: tuple[int, str], jc: dict[str, Any], now: float, motion: float, cou
     if not last:
         return True, "first note"
     gap = now - last["ts"]
+    if pace > jc["min_gap_s"] and gap < pace:
+        return False, f"paced: one note every {max(1, round(pace / 60))} min to last until 00:00 UTC"
     if gap >= jc["every_s"]:
         return True, f"{gap:.0f}s since last note"
     if gap < jc["min_gap_s"]:
