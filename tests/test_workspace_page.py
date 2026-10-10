@@ -61,10 +61,11 @@ def _run(rid, task, ago, events=0):
 
 
 class FakeDesk:
-    """A scripted API. `hold` names paths that wait until release(); `data` is what each path answers."""
+    """A scripted API. `hold` names paths ("/api/x", or "POST /api/x" for one method) that wait until release();
+    `data` is what each path answers a GET with, `post` what it answers a POST with (a str is sent as an event stream)."""
 
     def __init__(self, runs=1, events=0, desks=None, built=True):
-        self.held, self.hold = [], set()
+        self.held, self.hold, self.post = [], set(), {}
         rows, details = [], {}
         for i in range(runs):
             r, d = _run(f"r{i}", f"Write report {i}", 600 + i * 900, events)
@@ -105,13 +106,18 @@ class FakeDesk:
             return route.fulfill(status=200, body=(STATIC / "workspace.html").read_bytes(), headers={"Content-Type": "text/html"})
         if path.startswith("/api/"):
             key = "/api/runs" if path == "/api/runs" else path
-            if key in self.hold:
+            if key in self.hold or f"{route.request.method} {key}" in self.hold:
                 return self.held.append(route)
             return self.fulfill(route)
         return route.fulfill(status=404, body="")
 
     def fulfill(self, route):
         path = re.sub(r"^https?://[^/]+", "", route.request.url).split("?")[0]
+        if route.request.method == "POST" and path in self.post:
+            body = self.post[path]
+            if isinstance(body, str):                                        # the designer's /say: an event stream
+                return route.fulfill(status=200, body=body, headers={"Content-Type": "text/event-stream"})
+            return route.fulfill(status=200, body=json.dumps(body), headers={"Content-Type": "application/json"})
         if path.startswith("/api/runs/"):
             body = self.details.get(path.rsplit("/", 1)[1])
             return route.fulfill(status=200 if body else 404, body=json.dumps(body or {"error": "not found"}), headers={"Content-Type": "application/json"})
@@ -521,6 +527,242 @@ def test_drafted_cards_fit_their_chips_from_the_start(browser):
             return [...c.children].filter(x => x.style.display !== 'none' && x.offsetWidth && x.offsetLeft - c.offsetLeft + x.offsetWidth > c.clientWidth + .5)
               .map(x => n.dataset.id + ':' + x.textContent); })""")
         assert cut == [], cut
+        assert not errors, errors
+    finally:
+        ctx.close()
+
+
+
+# ------------------------------------------------------------------ one press, one thing; a guide that follows the owner
+def _sse(done):
+    return "data: " + json.dumps({"t": "tok", "d": done.get("text", "")}) + "\n\n" + "data: " + json.dumps({"t": "done", **done}) + "\n\n"
+
+
+COACH = """() => { const box = document.getElementById('coach-box'), on = !document.getElementById('coach').classList.contains('hide') && getComputedStyle(box).visibility !== 'hidden';
+  const br = box.getBoundingClientRect(), hit = (a, b) => a.left < b.right - 1 && b.left < a.right - 1 && a.top < b.bottom - 1 && b.top < a.bottom - 1;
+  const covers = on ? ['#deploy-btn', '#jobbar', '#composer', '#build-btn', '#newjob-btn'].filter(q => { const e = document.querySelector(q), r = e && e.getBoundingClientRect(); return r && r.width && r.height && hit(br, r); }) : [];
+  const t = document.querySelector('.coach-target'), tr = t && t.getBoundingClientRect();
+  return {on, title: document.getElementById('coach-title').textContent, covers, target: t ? t.id : null, inView: !on || (br.top >= 0 && br.left >= 0 && br.bottom <= innerHeight && br.right <= innerWidth),
+          gap: on && tr ? Math.max(tr.left - br.right, br.left - tr.right, tr.top - br.bottom, br.top - tr.bottom) : null}; }"""
+
+
+def _beside(c):
+    """a card on screen sits next to its target, whole, covering none of the controls the owner needs next"""
+    return not c["on"] or (not c["covers"] and c["inView"] and c["gap"] is not None and 0 <= c["gap"] <= 40)
+
+
+def test_the_walkthrough_follows_the_owner_through_a_draft(browser):
+    """The first card (Atlas) was placed once and never ended: it sat over Deploy, Approvals and the job bar for good.
+    The owner's first message ends it, the drafted team takes over, and a resize re-places the card beside its target."""
+    fake = FakeDesk(built=False)
+    fake.post["/api/design/s1/say"] = _sse({"text": "Drafted a researcher and a reply writer.", "blueprint": DRAFT, "ready": False,
+                                            "next": [{"label": "Add a reviewer", "action": "say", "say": "Add a reviewer"}]})
+    ctx, page, errors = _open(browser, fake, path="/desk/workspace", w=1440, h=900, ls={"ws_tut_done": ""})
+    try:
+        page.wait_for_function("() => typeof W !== 'undefined' && W.sid && TUT.on")
+        page.wait_for_timeout(300)
+        c0 = page.evaluate(COACH)
+        assert c0["on"] and c0["title"] == "Atlas" and _beside(c0), c0
+        page.click("#say"); page.keyboard.type("We answer website enquiries too slowly"); page.keyboard.press("Enter")
+        page.wait_for_function("() => W.phase === 'design' && !W.busy && W.agents.size === 2")
+        page.wait_for_timeout(1400)                                          # the hand-off waits 0.9 s
+        c1 = page.evaluate(COACH)
+        assert c1["on"] and c1["title"] == "Atlas drafted your team" and _beside(c1), c1
+        rings = "[...document.querySelectorAll('.coach-target')].map(e => e.id)"
+        assert page.evaluate(rings) == ["team-panel"]
+        page.click("#coach-next"); page.wait_for_timeout(300)
+        c1b = page.evaluate(COACH)
+        assert c1b["title"] == "Reshape it by talking" and page.evaluate(rings) == ["composer"] and _beside(c1b), c1b   # one ring, on this step's target
+        page.click("#coach-next"); page.wait_for_timeout(300)                # back to the first card for the resize: replay the stage
+        page.evaluate("tutShow(TUT_STEPS.team, 'team')"); page.wait_for_timeout(300)
+        page.set_viewport_size({"width": 1280, "height": 760}); page.wait_for_timeout(700)
+        c2 = page.evaluate(COACH)
+        assert c2["title"] == "Atlas drafted your team" and _beside(c2), c2  # re-placed, not left where it was
+        assert not errors, errors
+    finally:
+        ctx.close()
+
+
+def test_the_built_desks_walkthrough_never_covers_deploy(browser):
+    fake = FakeDesk(runs=0)
+    ctx, page, errors = _open(browser, fake, w=1440, h=900, ls={"ws_tut_done": ""})
+    try:
+        page.wait_for_function("() => typeof W !== 'undefined' && W.ld.last && TUT.on")
+        page.wait_for_timeout(300)
+        c0 = page.evaluate(COACH)
+        assert c0["on"] and c0["title"] == "Give the team a job" and _beside(c0), c0
+        page.evaluate("showTab('runs')"); page.wait_for_timeout(500)       # the job bar is on screen now: the card keeps off it
+        c1 = page.evaluate(COACH)
+        assert _beside(c1), c1
+        page.evaluate("prefillJob('Draft a reply to the newest enquiry')"); page.wait_for_timeout(500)
+        c2 = page.evaluate(COACH)
+        assert not c2["on"], c2                                              # the owner did what the card says: it is over
+        top = page.evaluate("(() => { const b = document.getElementById('deploy-btn'), r = b.getBoundingClientRect(), t = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2); return !!t && (t === b || b.contains(t)); })()")
+        assert top                                                           # Deploy is on top: the owner's press reaches it
+        assert not errors, errors
+    finally:
+        ctx.close()
+
+
+def test_build_waits_for_atlas_to_answer(browser):
+    """Build pressed while Atlas was still answering built the old team, then the reply added an agent the desk was not
+    built with (and showed the draft's footer in run mode)."""
+    fake = FakeDesk(built=False)
+    three = {**DRAFT, "agents": DRAFT["agents"] + [{"id": "crm", "name": "CRM keeper", "role": "Pipeline hygiene", "goal": "Stage every contact.",
+                                                   "reports_to": "atlas", "tools": ["crm_update"]}]}
+    fake.post["/api/design/s1/say"] = _sse({"text": "Added a CRM keeper.", "blueprint": three, "ready": True, "next": []})
+    reqs = []
+    ctx, page, errors = _draft(browser, fake, 1600, 900, reqs)
+    try:
+        assert not page.is_disabled("#build-btn")
+        fake.hold = {"POST /api/design/s1/say"}
+        page.click("#say"); page.keyboard.type("Add a CRM keeper"); page.keyboard.press("Enter"); page.wait_for_timeout(300)
+        st = page.evaluate("({busy: W.busy, dis: document.getElementById('build-btn').disabled, pal: window.shellPage.commands().some(c => c.label === 'Build desk')})")
+        assert st == {"busy": True, "dis": True, "pal": False}, st
+        page.evaluate("buildDesk(); runStep({action: 'build', label: 'Build the desk'})"); page.wait_for_timeout(300)
+        assert not [x for x in reqs if x.endswith("/build")], reqs          # nothing built from a team about to change
+        fake.release()
+        page.wait_for_function("() => !W.busy && W.agents.size === 3")
+        assert not page.is_disabled("#build-btn")                            # the reply's team is on the page: Build opens
+        assert not errors, errors
+    finally:
+        ctx.close()
+
+
+def test_one_press_starts_one_run(browser):
+    """A double click on Deploy, or Enter twice in the job bar, posted /api/runs twice: two runs, two costs."""
+    fake = FakeDesk(runs=1)
+    fake.post["/api/runs"] = {"run_id": "r9"}
+    fake.hold = {"POST /api/runs"}
+    reqs = []
+    ctx, page, errors = _open(browser, fake, reqs=reqs)
+    try:
+        page.wait_for_function("() => W.ld.last")
+        page.evaluate("showTab('runs')"); page.fill("#job", "Draft a reply to the newest enquiry")
+        page.dblclick("#deploy-btn")
+        page.focus("#job"); page.keyboard.press("Enter"); page.keyboard.press("Enter")
+        page.wait_for_timeout(300)
+        assert len([x for x in reqs if x.startswith("POST /api/runs")]) == 1, reqs
+        assert page.is_disabled("#deploy-btn") and page.is_disabled("#send")   # until the start is answered
+        fake.release()
+        page.wait_for_function("() => W.run && W.run.id === 'r9'")
+        assert not page.is_disabled("#deploy-btn") and not page.is_disabled("#send")
+        assert len([x for x in reqs if x.startswith("POST /api/runs")]) == 1, reqs
+        assert not errors, errors
+    finally:
+        ctx.close()
+
+
+def test_a_message_typed_while_the_desk_loads_stays_in_the_box(browser):
+    fake = FakeDesk(runs=1)
+    fake.hold = {"/api/config"}
+    reqs = []
+    ctx, page, errors = _open(browser, fake, reqs=reqs)
+    try:
+        page.wait_for_function("() => typeof W !== 'undefined' && W.phase === 'load'")
+        assert page.is_disabled("#send") and "Loading the desk" in page.get_attribute("#say", "placeholder")
+        page.click("#say"); page.keyboard.type("Draft a reply to the newest enquiry"); page.keyboard.press("Enter"); page.wait_for_timeout(200)
+        assert page.input_value("#say") == "Draft a reply to the newest enquiry" and not page.evaluate("!!W.greetDone")
+        fake.release()
+        page.wait_for_function("() => W.greetEl && W.ld.last && /Approvals/.test(W.greetEl.innerText)")   # the opening status still fills in
+        assert page.input_value("#say") == "Draft a reply to the newest enquiry" and not page.is_disabled("#send")
+        assert not [x for x in reqs if x.startswith("POST /api/runs")], reqs
+        assert not errors, errors
+    finally:
+        ctx.close()
+
+
+def test_a_draft_is_resumed_only_by_its_own_account(browser):
+    """A second account in the same browser asked for the first account's draft (404 and a console error)."""
+    fake = FakeDesk(built=False)
+    reqs = []
+    ctx, page, errors = _open(browser, fake, path="/desk/workspace", reqs=reqs, ls={"ws_sid": "legacy1", "ws_sid:2": "other2"})
+    try:
+        page.wait_for_function("() => typeof W !== 'undefined' && W.sid")
+        assert not [x for x in reqs if "/api/design/legacy1" in x or "/api/design/other2" in x], reqs
+        keys = page.evaluate("Object.fromEntries(Object.keys(localStorage).filter(k => k.startsWith('ws_sid')).map(k => [k, localStorage.getItem(k)]))")
+        assert keys == {"ws_sid:1": "s1", "ws_sid:2": "other2"}, keys          # this account's new draft; the old unkeyed one gone
+        assert not errors, errors
+    finally:
+        ctx.close()
+
+
+def test_homes_continue_link_resumes_the_draft(browser):
+    """Home > Your draft > Continue went to /desk/workspace, which sends an owner with a desk to that desk."""
+    html = (STATIC / "index.html").read_text(encoding="utf-8")
+    assert "location.href='/desk/workspace?new=1&amp;resume=1'" in html
+    fake = FakeDesk(built=False)
+    fake.data["/api/design/mine"] = {"sid": "s7", "mode": "demo", "tier": "free", "blueprint": DRAFT, "turn": 1,
+                                     "transcript": [{"role": "assistant", "text": "Describe the business."}, {"role": "user", "text": "We answer enquiries too slowly"},
+                                                    {"role": "assistant", "text": "Drafted a researcher and a writer."}], "next": []}
+    fake.data["/api/design/s7"] = fake.data["/api/design/mine"]
+    reqs = []
+    ctx, page, errors = _open(browser, fake, path="/desk/workspace?new=1&resume=1", reqs=reqs)
+    try:
+        page.wait_for_function("() => typeof W !== 'undefined' && W.sid && W.phase === 'design'")
+        assert page.evaluate("W.sid") == "s7" and page.evaluate("W.agents.size") == 2
+        assert not [x for x in reqs if x.startswith("POST /api/design/start")], reqs
+        assert not errors, errors
+    finally:
+        ctx.close()
+
+
+def _seven():
+    return _agents() + [{"id": f"watch{i}", "name": f"Watcher {i}", "role": "Camera monitor", "goal": "Watch the feed.", "reports_to": "atlas",
+                         "tools": ["camera_ask", "camera_events"]} for i in range(3)]
+
+
+@pytest.mark.parametrize("size", [(1366, 768), (1600, 900)])
+def test_team_tab_chart_takes_the_tab_on_a_short_screen(browser, size):
+    """Desk 13's chart beside the inline brief showed 3 of its 7 cards at 1366x768."""
+    fake = FakeDesk(runs=1)
+    fake.data["/api/config"]["agents"] = _seven()
+    ctx, page, errors = _open(browser, fake, w=size[0], h=size[1], ls={"ws_teamview": "chart"})
+    try:
+        page.wait_for_function("() => W.ld.last")
+        page.evaluate("showTab('team')"); page.wait_for_timeout(1000)
+        r = page.evaluate("""() => { const c = document.getElementById('canvas').getBoundingClientRect();
+            const ns = [...document.querySelectorAll('#nodes .node:not(.ghost)')].map(n => n.getBoundingClientRect());
+            return {k: W.k, n: ns.length, wide: !!W.tWide, inline: document.getElementById('insp').classList.contains('inline'),
+                    out: ns.filter(r => r.left < c.left - 1 || r.right > c.right + 1 || r.top < c.top - 1 || r.bottom > c.bottom + 1).length}; }""")
+        assert r["k"] >= 1 and r["n"] == 7 and r["out"] == 0, (size, r)     # the whole team at full size
+        if size[1] < 800:
+            assert r["wide"] and not r["inline"], r                          # the brief opens from a card, as a drawer
+            page.locator("#nodes .node[data-id='research']").click(); page.wait_for_timeout(400)
+            assert page.evaluate("document.getElementById('insp').classList.contains('on')") and page.evaluate("document.getElementById('insp-name').textContent") == "Researcher"
+        else:
+            assert r["inline"] and not r["wide"], r                          # room beside it: the brief stays
+        assert not errors, errors
+    finally:
+        ctx.close()
+
+
+def test_the_draft_plan_is_as_tall_as_its_rows(browser):
+    """The draft's Team tab at 1920x1080 stretched the plan panel with ~200 px empty in it."""
+    ctx, page, errors = _draft(browser, FakeDesk(built=False), 1920, 1080)
+    try:
+        page.evaluate("showTab('team')"); page.wait_for_timeout(900)
+        r = page.evaluate("""() => { const p = document.getElementById('plan-panel'), body = p.querySelector('.plan');
+            return {snug: document.getElementById('pane-team').classList.contains('snug'), h: p.offsetHeight,
+                    content: p.querySelector('.ph').offsetHeight + Math.max(...[...body.children].map(c => c.scrollHeight)) + 2}; }""")
+        assert r["snug"] and abs(r["h"] - r["content"]) < 24, r
+        assert not errors, errors
+    finally:
+        ctx.close()
+
+
+def test_the_live_view_says_why_a_camera_has_no_note(browser):
+    """Demo mode never writes journal notes: the live view said "No journal note yet" of a watched camera."""
+    ctx, page, errors = _open(browser, FakeDesk(runs=1))
+    try:
+        page.wait_for_function("() => W.ld.last")
+        page.evaluate("W.cams.set('lobby', {name: 'lobby', id: 3, journal: true, st: 'live', watching: true}); W.liveCam = 'lobby'; W.mode = 'demo'; liveNote()")
+        assert page.evaluate("document.getElementById('live-note').textContent").startswith("Demo mode: no model calls")
+        page.evaluate("W.mode = 'live'; W.vlmReady = true; liveNote()")
+        assert "when the scene changes" in page.evaluate("document.getElementById('live-note').textContent")
+        page.evaluate("W.vlmReady = false; liveNote()")
+        assert page.evaluate("document.getElementById('live-note').textContent").startswith("No vision model is ready")
+        page.evaluate("W.liveCam = null")
         assert not errors, errors
     finally:
         ctx.close()

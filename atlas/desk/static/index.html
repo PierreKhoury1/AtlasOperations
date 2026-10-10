@@ -1690,7 +1690,7 @@ async function startMore(){
   $('#st-draft').classList.toggle('hide', !bp);
   if (bp) {
     const n = (bp.agents || []).length, first = ((d.transcript || []).find(m => m.role === 'user') || {}).text || '';
-    $('#st-draft-b').innerHTML = `<div><b>${esc((bp.business || {}).name || 'Unnamed draft')} · Atlas + ${n} specialist${n === 1 ? '' : 's'}${(bp.cameras || []).length ? ' · ' + bp.cameras.length + ' camera' + (bp.cameras.length === 1 ? '' : 's') : ''}</b><small>${esc(d.turn + ' message' + (d.turn === 1 ? '' : 's') + ' with Atlas' + (first ? ' · first: “' + first.slice(0, 140) + '”' : ''))}</small></div><button class="btn p" onclick="location.href='/desk/workspace'">Continue in the workspace →</button>`;
+    $('#st-draft-b').innerHTML = `<div><b>${esc((bp.business || {}).name || 'Unnamed draft')} · Atlas + ${n} specialist${n === 1 ? '' : 's'}${(bp.cameras || []).length ? ' · ' + bp.cameras.length + ' camera' + (bp.cameras.length === 1 ? '' : 's') : ''}</b><small>${esc(d.turn + ' message' + (d.turn === 1 ? '' : 's') + ' with Atlas' + (first ? ' · first: “' + first.slice(0, 140) + '”' : ''))}</small></div><button class="btn p" onclick="location.href='/desk/workspace?new=1&amp;resume=1'" title="Opens this draft in the workspace (not your built desk)">Continue in the workspace →</button>`;
   }
 }
 function startTemplate(id){ OB.template = id; showOnboardingForm(); }

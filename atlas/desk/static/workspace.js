@@ -22,6 +22,9 @@ const W = {
   deskId: null, deskName: '', template: '', workflows: [], cfgAgents: null,
   run: null,                // {id, es, inst: Map(instId -> state), active, status, ...}
   sel: null, busy: false, edgeAnim: null,
+  building: false,          // POST /build is out: no second build, no message to the draft being built
+  starting: false,          // POST /runs is out: a double click or a second Enter never starts a second run
+  locked: false,            // the composer waits for the page to know what it shows (lockComposer)
   cams: new Map(),          // name -> {name, id, source, journal, el, st, watching, frameTs, problem, lastNote, counts}
   camPoll: null, evSince: 0,
   manual: new Map(), pan: {x: 0, y: 0}, uz: 1,
@@ -95,7 +98,8 @@ async function boot(){
   const q = new URLSearchParams(location.search);
   W.pin = parseInt(q.get('desk') || '', 10) || 0;
   W.phase = $('#wk').dataset.phase || 'meet';                              // 'load' for a desk link: never a flash of the new-desk copy
-  if (W.phase === 'load') { $('#say').placeholder = 'Loading the desk…'; setState('loading'); }
+  W.sayPh = $('#say').placeholder;
+  if (W.phase === 'load') { lockComposer(true, 'Loading the desk…'); setState('loading'); }   // a message typed meanwhile stays in the box
   try { W.exClosed = new Set(JSON.parse(localStorage.getItem('ws_ex_closed') || '[]')); } catch (_) { W.exClosed = new Set(); }
   applySize();
   applyTeamView();
@@ -109,6 +113,7 @@ async function boot(){
   const refitChips = () => { document.querySelectorAll('#nodes .node:not(.ghost)').forEach(fitChips); if (W.phase === 'meet' && W.tpls) renderOthers(); };   // (and the list under the steps)
   if (document.fonts) { document.fonts.ready.then(refitChips); document.fonts.addEventListener && document.fonts.addEventListener('loadingdone', refitChips); }
   renderAll();
+  const meP = W.pin ? null : api('/me');                                   // a new desk: whose drafts this browser may resume
   const cfg = await api('/config') || {};
   W.mode = cfg.mode || 'demo'; W.liveReason = cfg.live_reason || '';
   initStatus();
@@ -118,24 +123,28 @@ async function boot(){
   }
   if (W.pin) { W.pin = 0; history.replaceState(null, '', '/desk/workspace'); }
   W.phase = 'meet'; setPhaseAttr(); setPhase('loading'); setState('opening'); lockComposer(true);   // "brief" once the draft (or a new one) is known
-  // a draft in progress in this tab survives a reload; ?new=1 starts a fresh one
+  // a draft in progress in this browser survives a reload (kept per account, so another account signing in here never
+  // asks for it); ?new=1 starts a fresh one, ?new=1&resume=1 (Home's "Continue in the workspace") resumes it
   const fresh = q.has('new') && !q.has('resume');
-  let sid = ''; try { sid = fresh ? '' : (localStorage.getItem('ws_sid') || ''); } catch (_) {}
+  W.me = (await (meP || api('/me'))) || {};
+  try { if (sidKey() !== 'ws_sid') localStorage.removeItem('ws_sid'); } catch (_) {}   // an older page's key: whose draft it was is unknown
+  let sid = ''; try { sid = fresh ? '' : (localStorage.getItem(sidKey()) || ''); } catch (_) {}
   if (sid) {
     const s = await api('/design/' + encodeURIComponent(sid));
     if (s && !s.error && s.sid) {
-      if (s.desk_id) { try { localStorage.removeItem('ws_sid'); } catch (_) {} location.replace('/desk/workspace?desk=' + s.desk_id); return; }
+      if (s.desk_id) { keepSid(''); location.replace('/desk/workspace?desk=' + s.desk_id); return; }
       return resumeDesign(s);
     }
+    keepSid('');                                                           // gone: never asked for again, the owner's last draft follows
   }
   if (!fresh) {                                                            // a draft started on another device or browser
     const s = await api('/design/mine');
-    if (s && s.sid && !s.desk_id) { try { localStorage.setItem('ws_sid', s.sid); } catch (_) {} return resumeDesign(s, 'mine'); }
+    if (s && s.sid && !s.desk_id) { keepSid(s.sid); return resumeDesign(s, 'mine'); }
   }
   const s = await api('/design/start', {method: 'POST', body: {tier: W.tier}});
   if (!s || s.error) { W.noAtlas = true; addMsg('s', (s && s.error) || 'Atlas is not available right now.'); setPhase('brief'); setState('unavailable'); $('#say').placeholder = 'Atlas is not available right now'; renderAll(); return; }
   W.sid = s.sid; W.mode = s.mode || W.mode; W.tier = s.tier || W.tier; loadView(); opened();
-  try { localStorage.setItem('ws_sid', s.sid); } catch (_) {}
+  keepSid(s.sid);
   if (q.has('new')) history.replaceState(null, '', '/desk/workspace?new=1&resume=1');
   setNext(s.next, addMsg('a', (s.transcript && s.transcript[0] && s.transcript[0].text) || 'Describe the business and the work to take on.'));
   setDeskStatus(); loadMyDesks(); renderAll();
@@ -150,13 +159,25 @@ async function resumeDesign(s, from){
   if (s.blueprint && (s.blueprint.agents || []).length) await applyBlueprint(s.blueprint, true);
   if ((s.transcript || []).length > 1) addMsg('s', (from === 'mine' ? 'draft continued from your last session' : 'draft restored') + (W.agents.size ? ` · Atlas + ${plural(W.agents.size, 'specialist')}: ${[...W.agents.values()].map(a => a.name).join(', ')}` : ''), 'assign');
   setNext(s.next, lastA);                                                  // the saved steps of the last reply, as they were
-  $('#build-btn').disabled = !(W.bp && (W.bp.agents || []).length);
+  syncBuild();
   setDeskStatus(); loadMyDesks(); renderAll();
   tutStart(false, W.bp ? 'team' : 'meet');
 }
-// until the page knows which draft it shows (the saved one, the owner's last, or a new one), it says it is opening and
-// nothing can be sent: a message typed meanwhile stays in the box
-function lockComposer(on){ if (W.sayPh == null) W.sayPh = $('#say').placeholder; $('#send').disabled = on; $('#say').placeholder = on ? 'Opening the workspace…' : W.sayPh; }
+// this browser's draft in progress, one per account (open mode: one for the machine)
+const sidKey = () => W.me && W.me.id ? 'ws_sid:' + W.me.id : 'ws_sid';
+function keepSid(sid){ try { if (sid) localStorage.setItem(sidKey(), sid); else localStorage.removeItem(sidKey()); } catch (_) {} }
+// until the page knows what it shows (a desk link before its desk is read; which draft: the saved one, the owner's last,
+// or a new one), it says so and nothing can be sent: a message typed meanwhile stays in the box
+function lockComposer(on, ph){ if (W.sayPh == null) W.sayPh = $('#say').placeholder; W.locked = on; syncSend(); $('#say').placeholder = on ? ph || 'Opening the workspace…' : W.sayPh; }
+// Send waits while the page is opening, Atlas is answering, the desk is being built or a job is starting
+function syncSend(){ $('#send').disabled = !!(W.locked || W.busy || W.building || W.starting); }
+// Build is the owner's press on a settled draft: never while Atlas is still answering (its reply may still change the
+// team), never twice, never once the desk exists
+function syncBuild(){
+  const b = $('#build-btn'), has = !!(W.bp && (W.bp.agents || []).length);
+  b.disabled = !has || W.busy || W.building || !!W.deskId;
+  b.title = W.building ? 'Building the desk…' : W.busy && has ? 'Atlas is still answering: Build is available once it has finished' : has ? 'Build the desk from this draft' : 'Available once Atlas has drafted a team';
+}
 function opened(){ lockComposer(false); setPhase('brief'); setState('ready'); renderHead(); renderTeamTable(); }
 async function openBuiltDesk(cfg){
   W.deskId = W.pin = cfg.desk.id; W.deskName = (cfg.business && cfg.business.name) || cfg.desk.business_name || cfg.desk.name;
@@ -174,6 +195,7 @@ async function openBuiltDesk(cfg){
   enterRunMode();
   loadMyDesks();
   if (W.cams.size) startCamPoll();
+  lockComposer(false);                                           // the desk is read: a message can go (the mode below names what it does)
   setMode(liveCams() ? 'ask' : 'job');                           // asking the cameras is the default only while one is live
   W.greetEl = addMsg('a', greeting()); W.greetEl.classList.add('greet'); W.greetH = md(greeting()); greetTitles(W.greetEl); msgsEnd();   // kept current until the owner's first message
   loadNext({context: 'desk_open'}, W.greetEl);                   // the desk's own three ways to proceed (its approvals, workflows, cameras)
@@ -322,6 +344,7 @@ async function runStep(s){
     case 'say': return send(str(s.say) || s.label);
     case 'build':
       if (W.deskId) return toast('This desk is already built');
+      if (W.busy) return toast('Atlas is still answering: Build is available once it has finished');
       return W.bp && (W.bp.agents || []).length ? buildDesk() : toast('Build is available once Atlas has drafted a team');
     case 'job': return prefillJob(str(s.job));
     case 'camera': {
@@ -352,7 +375,7 @@ async function runStep(s){
 // a job step fills the job bar and points at Deploy; it never starts the run (runs cost money)
 function prefillJob(text){
   if (W.phase !== 'run' || !W.deskId) return toast('Jobs run once the desk is built');
-  sheetAway(); showTab('runs');
+  tutAct('job'); sheetAway(); showTab('runs');
   const j = $('#job'), b = $('#deploy-btn');
   if (text) j.value = text;                                                // "" = just focus the bar
   setTimeout(() => { j.focus({preventScroll: true}); j.setSelectionRange(0, 0); j.scrollLeft = 0; j.closest('.jobbar').scrollIntoView({block: 'nearest'}); }, 60);
@@ -377,19 +400,23 @@ function setMode(m){
   if (m === 'ask' && !W.cams.size) m = 'job';
   W.modeSel = m;
   document.querySelectorAll('#as-modes button').forEach(b => { b.classList.toggle('on', b.dataset.m === m); if (b.dataset.m === 'ask') b.classList.toggle('hide', !W.cams.size); });
-  $('#say').placeholder = MODE_PH[m] || MODE_PH.job;
+  if (!W.locked) $('#say').placeholder = MODE_PH[m] || MODE_PH.job;     // (while the desk is loading the box says so)
 }
 function looksLikeQuestion(t){ return /\?\s*$/.test(t) || /^(who|what|when|where|why|how|was|were|did|does|do|is|are|has|have|had|can|could|any|anyone|anything)\b/i.test(t.trim()); }
 
 async function send(text){
   const typed = typeof text !== 'string';
   text = (typed ? $('#say').value : text).trim(); if (!text) return;
+  // nothing below runs (the box is not cleared, the opening status is not ended) until the page can take the message
+  if (W.phase === 'load' || (W.locked && W.phase === 'run')) return toast('The desk is still loading: your message stays in the box');
   if (W.busy) return toast('Atlas is still answering: your message stays in the box');
-  if (!W.sid && W.phase !== 'run' && W.phase !== 'load') return toast(W.noAtlas ? 'Atlas is not available right now: your message stays in the box' : 'The workspace is still opening: your message stays in the box');   // never a message to a draft that does not exist yet
+  if (W.building) return toast('The desk is being built: your message stays in the box');
+  if (W.starting) return toast('The job is starting: your message stays in the box');
+  if (!W.sid && W.phase !== 'run') return toast(W.noAtlas ? 'Atlas is not available right now: your message stays in the box' : 'The workspace is still opening: your message stays in the box');   // never a message to a draft that does not exist yet
   W.greetDone = true;
   if (typed) $('#say').value = '';                                         // a clicked step leaves the owner's draft alone
-  if (W.phase === 'run' || W.phase === 'load') {
-    if (W.phase === 'load') return toast('The desk is still loading');
+  tutAct('send');
+  if (W.phase === 'run') {
     const m = W.modeSel || 'job';
     if (m === 'ask') return askCams(text);
     if (m === 'change') return changeTeam(text);
@@ -404,7 +431,8 @@ async function send(text){
   }
   W.lastSaid = text;
   retireNext(); addMsg('u', text);
-  W.busy = true; $('#send').disabled = true; setState('working');
+  const desk0 = W.deskId;
+  W.busy = true; syncSend(); syncBuild(); setState('working');
   const d = addMsg('a', ''); let acc = '', raf = 0;
   const paint = () => { raf = 0; d.innerHTML = md(acc) + '<i class="cur"></i>'; $('#msgs').scrollTop = 1e9; };
   paint();
@@ -431,17 +459,21 @@ async function send(text){
     if (!result && !r.ok) { let j = null; try { j = JSON.parse(buf); } catch (_) {} result = {error: (j && (j.error || j.message)) || `Atlas did not answer (${r.status}). Try again.`}; }
   } catch (e) { result = {error: String(e)}; }
   cancelAnimationFrame(raf);
-  W.busy = false; $('#send').disabled = false; setState('ready');
+  // Atlas has answered once its reply's team is on the page: until then Send and Build wait (a build mid-way would
+  // build a team the page is still drawing)
+  const settle = () => { W.busy = false; syncSend(); syncBuild(); setState('ready'); };
   if (!result || result.error) {
+    settle();
     d.innerHTML = md((result && result.error) || 'Atlas did not answer. Try again.');
-    setNext([{label: 'Send it again', detail: 'Resends your last message to Atlas', icon: 'i-reset', run: () => send(text)}], d);
+    if (W.deskId === desk0) setNext([{label: 'Send it again', detail: 'Resends your last message to Atlas', icon: 'i-reset', run: () => send(text)}], d);
     return;
   }
   const last = (result.transcript || []).filter(m => m.role === 'assistant').pop();
   d.innerHTML = md(result.text || (last && last.text) || acc || 'Atlas did not answer. Try again.');   // the final text, without the machine block
-  if (result.blueprint && (result.blueprint.agents || []).length) { await applyBlueprint(result.blueprint); setDeskStatus(); }
-  $('#build-btn').disabled = !(W.bp && W.bp.agents && W.bp.agents.length);
-  $('#build-btn').title = W.bp ? 'Build the desk from this draft' : 'Available once Atlas has drafted a team';
+  if (W.deskId !== desk0 || W.phase === 'run') return settle();            // the desk was built meanwhile: its team is the built one, the reply is only text
+  try { if (result.blueprint && (result.blueprint.agents || []).length) { await applyBlueprint(result.blueprint); setDeskStatus(); } }
+  finally { settle(); }
+  if (W.deskId !== desk0 || W.phase === 'run') return;
   $('#build-hint').textContent = result.ready ? 'Draft complete. Build it, or keep refining.' : (W.bp ? 'Describe changes to reshape the team, or build now.' : 'Build is available once there is a first draft.');
   if (W.bp) $('#chat-foot').classList.remove('hide');
   if (d === lastAtlas()) setNext(result.next, d);                          // after the team settles, so a build step is real
@@ -499,7 +531,7 @@ async function applyBlueprint(bp, quiet){
   await applyCams(bp.cameras || [], quiet);
   if (first && !quiet) tutHook('team');
   if (!quiet && !first && added.length && $('#insp').classList.contains('inline')) W.sel = added[added.length - 1].id;   // a brief on screen follows the newest agent
-  renderAll();
+  renderAll(); syncBuild();
   if (W.sel && W.sel !== 'atlas' && !W.agents.has(W.sel)) closeInsp();
   else if (W.sel) inspect(W.sel);
 }
@@ -863,7 +895,8 @@ function inspAsk(s){ closeInsp(); if (W.phase === 'design') return send(s); setM
 // Overview, a small team's brief sits under its rows when the panel has the room (fitTeam). Elsewhere it is a drawer.
 function placeInsp(){
   const insp = $('#insp'), tp = $('#team-panel');
-  const mode = W.tab === 'team' && !isPhone() && W.phase !== 'meet' ? 'inline' : (W.tab !== 'team' && W.tmode ? W.tmode : '');
+  // the Team tab: the brief beside the table or chart; a chart that needs the whole tab (W.tWide, fitTeam) opens it as a drawer
+  const mode = W.tab === 'team' && !isPhone() && W.phase !== 'meet' ? (W.tWide ? '' : 'inline') : (W.tab !== 'team' && W.tmode ? W.tmode : '');
   tp.classList.toggle('has-below', mode === 'below'); tp.classList.toggle('has-side', mode === 'side');
   if (!mode) { if (insp.classList.contains('inline')) { insp.classList.remove('inline', 'below', 'side'); $('#ws').appendChild(insp); closeInsp(); } return; }
   if (mode === 'inline' && insp.parentElement !== $('#pane-team')) $('#pane-team').appendChild(insp);
@@ -889,17 +922,23 @@ function nameAndBuild(){
   W.deskName = v; closeDeskName(); renderHead(); buildDesk();
 }
 async function buildDesk(){
+  if (W.deskId || W.building) return;                                      // built, or a build is out: one desk per draft
+  if (W.busy) return toast('Atlas is still answering: Build is available once it has finished');   // its reply may still change the team
   if (!W.bp || !(W.bp.agents || []).length) return;
   if (!W.deskName) return askDeskName();
-  $('#build-btn').disabled = true; $('#build-hint').textContent = 'Building…'; setState('building');
-  const r = await api(`/design/${W.sid}/build`, {method: 'POST', body: {blueprint: W.bp, tier: W.tier, name: W.deskName || ''}});
+  W.building = true; syncBuild(); syncSend(); $('#build-hint').textContent = 'Building…'; setState('building');
+  let r = null;
+  try { r = await api(`/design/${W.sid}/build`, {method: 'POST', body: {blueprint: W.bp, tier: W.tier, name: W.deskName || ''}}); }
+  catch (e) { r = {error: 'build failed: ' + String(e)}; }
+  finally { W.building = false; syncSend(); }
   setState('ready');
-  if (!r || r.error) { $('#build-hint').textContent = (r && r.error) || 'build failed'; $('#build-btn').disabled = false; return; }
+  if (!r || r.error) { $('#build-hint').textContent = (r && r.error) || 'build failed'; syncBuild(); return; }
   retireNext();                                                            // the draft's offers end with the draft
   W.deskId = W.pin = r.desk.id; W.deskName = r.desk.business_name || r.desk.name; saveView();
   W.runs = []; W.ld.cams = W.ld.last = true;                               // a desk built this second: no run yet, the draft's cameras
   history.replaceState(null, '', '/desk/workspace?desk=' + W.deskId);      // a reload now opens this desk, not a new conversation
-  try { localStorage.removeItem('ws_sid'); } catch (_) {}
+  keepSid('');
+  syncBuild();
   const cfg = await api('/config'); if (cfg && cfg.desk && cfg.desk.id === W.deskId) { W.cfgAgents = cfg.agents || []; W.workflows = cfg.workflows || []; W.template = cfg.template || ''; W.tier = cfg.desk.tier || W.tier; W.policy = (cfg.business && cfg.business.policy) || null;
     const byId = new Map(W.cfgAgents.map(a => [a.id, a])); W.agents.forEach(a => { const c = byId.get(a.id); if (c) { a.engine = c.engine || a.engine; a.engine_note = c.engine_note || ''; a.tools = (c.tools || a.tools).filter(t => !['delegate', 'list_agents', 'finish'].includes(t)); } }); }
   (r.cameras || []).forEach(c => { const k = W.cams.get(c.name); if (k) { k.id = c.id; k.journal = c.journal; k.st = 'waiting'; k.watching = true; renderCamTile(k); } });
@@ -910,6 +949,7 @@ async function buildDesk(){
   if (window.shell && shell.remount) shell.remount();                    // the setup rail becomes the full one
   enterRunMode();
   setMode('job');
+  tutAct('build');                                                         // the draft's walkthrough is over; the built desk's follows
   if ((r.cameras || []).length) { startCamPoll(); tutHook('watching'); } else tutHook('built');
   loadNext({context: 'desk_open'}, built);
 }
@@ -926,11 +966,16 @@ function enterRunMode(){
 
 /* ------------------------------------------------------------------ run: real events, live output */
 async function deploy(task, mode, echoed){
+  if (W.starting) return;                                                  // a double click or a second Enter while the first start is out: one run
   task = (typeof task === 'string' ? task : $('#job').value).trim();
   if (!task) { showTab('runs'); $('#job').focus(); return toast('Type the job first'); }
   if (W.run && W.run.active) return toast('A run is already going: wait for it to finish');
   if (!mode && W.jobWf && task === W.jobWf.text) mode = W.jobWf.id;      // the workflow the palette put in the bar, unedited
-  const r = await api('/runs', {method: 'POST', body: {task, mode: mode || 'auto'}});
+  W.starting = true; $('#deploy-btn').disabled = true; syncSend();
+  let r = null;
+  try { r = await api('/runs', {method: 'POST', body: {task, mode: mode || 'auto'}}); }
+  catch (e) { r = {error: 'could not start: ' + String(e)}; }
+  finally { W.starting = false; $('#deploy-btn').disabled = false; syncSend(); }
   if (!r || r.error) return toast((r && (r.message || r.error)) || 'could not start');
   $('#job').value = ''; $('#deploy-btn').classList.remove('cue'); W.jobWf = null;
   W.openRunId = null; W.autoRun = true;                                    // the Result opens on this run once it finishes
@@ -946,7 +991,7 @@ async function deploy(task, mode, echoed){
   renderRunPanel(); renderAll(); renderRunPill(); showTab('overview');
   attachStream(r.run_id, 0);
   shellRefresh();
-  tutHook('running');
+  tutAct('deploy'); tutHook('running');
 }
 function resetNodes(){
   document.querySelectorAll('.node').forEach(n => { n.classList.remove('busy', 'done', 'error'); n.querySelector('.out').textContent = ''; n.querySelector('.asg').textContent = ''; n.querySelector('.ft').textContent = ''; const t = n.querySelector('.nm .tag'); if (t && !t.classList.contains('lead') && !t.textContent.startsWith('↳')) { t.textContent = 'ready'; t.className = 'tag'; } });
@@ -1119,25 +1164,30 @@ async function decide(id, status){
   const v = q => { const e = document.getElementById(q); return e ? e.value : ''; };
   const r = await api(`/actions/${id}/decide`, {method: 'POST', body: {status, note: v(`ap-n-${id}`), body: v(`ap-b-${id}`), subject: v(`ap-s-${id}`)}});
   if (!r || r.error) return toast((r && r.error) || 'failed');
+  tutAct('decide');
   toast(status === 'approved' ? (W.mode === 'demo' ? 'Approved (simulated send in demo mode)' : 'Approved and sent') : 'Rejected: the agents see your note next run');
   loadApprovals(); shellRefresh();
 }
 function toggleApprovals(){ loadApprovals(); showTab('approvals'); }
 
-/* ------------------------------------------------------------------ tutorial (coach marks driven by what actually happens) */
-const TUT = {steps: [], i: -1, auto: true, on: false};
+/* ------------------------------------------------------------------ tutorial (coach marks driven by what actually happens)
+   A walkthrough follows the owner: a step ends when they do what it describes (its `on` actions, tutAct); a newer stage of
+   the desk (the team drafted, the desk built, a run going, an approval, the run done) takes over from whatever card is up
+   (tutHook); and the card stays beside its target, placed again whenever the layout moves, hidden while the target is off
+   screen, never over the target or a control the owner needs next (Deploy, the job bar, the composer, Build, New job). */
+const TUT = {steps: [], i: -1, auto: true, on: false, key: '', pend: '', pendFrom: 0, t: 0, iv: 0, at: ''};
 const TUT_STEPS = {
   meet: [
-    {t: '#chat-head', h: 'Atlas', p: 'Atlas designs the team, briefs every agent, checks their work and never sends anything without your approval.'},
-    {t: '#composer', h: 'Tell it about your business', p: 'One or two sentences: what you do, and the job that eats your time. For a quick start, pick one of the ways to start under Atlas\'s message. The team is drafted on the left as you talk.', end: true},
+    {t: '#chat-head', h: 'Atlas', p: 'Atlas designs the team, briefs every agent, checks their work and never sends anything without your approval.', on: ['send']},
+    {t: '#composer', h: 'Tell it about your business', p: 'One or two sentences: what you do, and the job that eats your time. For a quick start, pick one of the ways to start under Atlas\'s message. The team is drafted on the left as you talk.', on: ['send'], end: true},
   ],
   team: [
-    {t: '#team-panel', h: 'Atlas drafted your team', p: 'Each row is an agent with its own role, standing orders and tools. Click a row to read its brief; Org chart shows the structure.'},
-    {t: '#composer', h: 'Reshape it by talking', p: 'Say things like "add a QA reviewer", "split research into a pod of 3", "the writer should report to the researcher". The team changes in place.'},
-    {t: '#build-btn', h: 'Build when it looks right', p: 'Building creates the desk with this team. You can still change everything later.', end: true},
+    {t: '#team-panel', h: 'Atlas drafted your team', p: 'Each agent has its own role, standing orders and tools. Click its card (or its row in Table) to read its brief; the chart shows who reports to whom.'},
+    {t: '#composer', h: 'Reshape it by talking', p: 'Say things like "add a QA reviewer", "split research into a pod of 3", "the writer should report to the researcher". The team changes in place.', on: ['send']},
+    {t: '#build-btn', h: 'Build when it looks right', p: 'Building creates the desk with this team. You can still change everything later.', on: ['build'], end: true},
   ],
   built: [
-    {t: '#newjob-btn', h: 'Give the team a job', p: 'New job (N) opens Runs. Paste a customer enquiry, ask for a report, a comparison, a chase list. Atlas briefs the team and you watch them work in real time.', end: true},
+    {t: '#newjob-btn', h: 'Give the team a job', p: 'New job (N) opens Runs. Paste a customer enquiry, ask for a report, a comparison, a chase list. Atlas briefs the team and you watch them work in real time.', on: ['job', 'deploy'], end: true},
   ],
   running: [
     {t: '#run-panel', h: 'Watch them work', p: 'Each step is an agent: it lights up as it starts, its output streams here, tool calls and hand-backs land in Activity. Click a row in Team to read the full live output.', end: true},
@@ -1147,46 +1197,105 @@ const TUT_STEPS = {
   ],
   watching: [
     {t: '#camstrip', h: 'What the cameras recorded', p: 'Each tile shows the newest frame and the latest written note, with its time. LIVE means the camera is being watched right now.'},
-    {t: '#composer', h: 'Ask the cameras', p: 'With "Ask the cameras" selected, type a question like "Was any bag left unattended?". Atlas answers from the journal with times, and shows the frames it used.'},
-    {t: '#journal-link', h: 'Read the journal', p: 'Every note, day by day, under the Cameras tab.'},
-    {t: '#newjob-btn', h: 'Give the team a job', p: 'Ask for a report or a summary, paste an enquiry, anything. You watch every agent work, and nothing leaves without your approval.', end: true},
+    {t: '#composer', h: 'Ask the cameras', p: 'With "Ask the cameras" selected, type a question like "Was any bag left unattended?". Atlas answers from the journal with times, and shows the frames it used.', on: ['ask']},
+    {t: '#journal-link', h: 'Read the journal', p: 'Every note, day by day, under the Cameras tab.', on: ['journal']},
+    {t: '#newjob-btn', h: 'Give the team a job', p: 'Ask for a report or a summary, paste an enquiry, anything. You watch every agent work, and nothing leaves without your approval.', on: ['job', 'deploy'], end: true},
   ],
   approval: [
-    {t: '#ap-panel', h: 'Nothing goes out without you', p: 'An agent wants to send something. It waits under Approvals: edit the text if you like, then approve or reject with a note. The note tunes the agents next time.', end: true},
+    {t: '#ap-panel', h: 'Nothing goes out without you', p: 'An agent wants to send something. It waits under Approvals: edit the text if you like, then approve or reject with a note. The note tunes the agents next time.', on: ['decide'], end: true},
   ],
   done: [
-    {t: '#run-panel', h: 'The run is done', p: 'The result under Runs is verified by the desk (what was queued, sent, saved), not claimed by the model. Pick one of the next steps under Atlas\'s message, give the team another job, or change the team.', end: true},
+    {t: '#run-panel', h: 'The run is done', p: 'The result under Runs is verified by the desk (what was queued, sent, saved), not claimed by the model. Pick one of the next steps under Atlas\'s message, give the team another job, or change the team.', on: ['send', 'job', 'deploy'], end: true},
   ],
 };
+// a stage comes up only while it still describes the page (its hand-off waits a moment, and the owner may have moved on)
+const TUT_WHEN = {team: () => W.phase === 'design', cameras: () => W.phase !== 'run', approval: () => W.phase === 'run',
+  built: () => W.phase === 'run' && !(W.run && W.run.active), watching: () => W.phase === 'run' && !(W.run && W.run.active),
+  running: () => !!(W.run && W.run.active), done: () => !!(W.run && !W.run.active)};
+const TUT_SOFT = new Set(['cameras']);                                   // a side note: it never takes over a walkthrough
 function tutDone(){ try { return !!localStorage.getItem('ws_tut_done'); } catch (_) { return false; } }
 function tutStart(force, phase){
   if ((tutDone() || isPhone()) && !force) { TUT.auto = false; return; }   // phones: the guide is behind the help button
   TUT.auto = !force;              // a first session is followed through build, the first run and its approval; a replay shows its steps, then stops
   const key = phase || (W.phase === 'run' ? (W.cams.size ? 'watching' : 'built') : (W.agents.size ? 'team' : 'meet'));
-  tutShow(TUT_STEPS[key] || TUT_STEPS.meet);
+  tutShow(TUT_STEPS[key] || TUT_STEPS.meet, key);
 }
-function tutHook(ev){ if (!TUT.auto || TUT.on) return; const steps = TUT_STEPS[ev]; if (steps) setTimeout(() => tutShow(steps), ev === 'team' ? 900 : 500); }
-function tutShow(steps){ TUT.steps = steps.map(x => ({...x, seen: false})); TUT.i = -1; TUT.on = true; $('#coach').classList.remove('hide'); tutNext(); }
+// a newer stage of the desk: its walkthrough replaces the card that is up (one hand-off at a time, the newest wins)
+function tutHook(ev){
+  if (!TUT.auto || !TUT_STEPS[ev] || (TUT_SOFT.has(ev) && (TUT.on || TUT.pend))) return;
+  clearTimeout(TUT.t); TUT.pend = ev; TUT.pendFrom = 0;
+  TUT.t = setTimeout(() => { const from = TUT.pendFrom; TUT.pend = '';
+    if (TUT.auto && (!TUT_WHEN[ev] || TUT_WHEN[ev]())) tutShow(TUT_STEPS[ev], ev, from); }, ev === 'team' ? 900 : 500);
+}
+// the owner did something ('send', 'build', 'job', 'deploy', 'ask', 'journal', 'decide'): the card, or a stage about to
+// come up, moves past every step that action completes; past its last step the walkthrough is over
+function tutAct(a){
+  const upTo = (steps, from) => { let j = -1; for (let k = Math.max(0, from); k < steps.length; k++) if ((steps[k].on || []).includes(a)) j = k; return j; };
+  if (TUT.pend) { const st = TUT_STEPS[TUT.pend], j = upTo(st, TUT.pendFrom); if (j >= 0) { TUT.pendFrom = j + 1; if (j + 1 >= st.length) { clearTimeout(TUT.t); TUT.pend = ''; } } }
+  if (!TUT.on) return;
+  const j = upTo(TUT.steps, TUT.i); if (j >= 0) { TUT.i = j; tutNext(); }
+}
+function tutShow(steps, key, from){
+  tutEnd(false);                                                         // whatever card was up gives way
+  TUT.steps = steps.map(x => ({...x, seen: false})); TUT.key = key || ''; TUT.i = (from || 0) - 1; TUT.on = true;
+  $('#coach').classList.remove('hide'); TUT.iv = setInterval(tutPlace, 300); tutNext();
+}
 const visible = el => { if (!el) return false; const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0; };
 function tutNext(){
-  document.querySelectorAll('.coach-target').forEach(e => e.classList.remove('coach-target'));
   let s; do { TUT.i++; s = TUT.steps[TUT.i]; } while (s && !visible($(s.t)));                // a step whose target is hidden is skipped
   if (!s) { tutEnd(true); return; }
-  const target = $(s.t); const box = $('#coach-box');
   const left = TUT.steps.slice(TUT.i + 1).filter(x => visible($(x.t))).length;
   const shown = TUT.steps.slice(0, TUT.i).filter(x => x.seen).length; s.seen = true;     // hidden steps are skipped, and not counted
   $('#coach-step').textContent = `${shown + 1} / ${shown + 1 + left}`; $('#coach-title').textContent = s.h; $('#coach-text').textContent = s.p;
   $('#coach-next').textContent = left ? 'Next' : 'Got it';
-  target.classList.add('coach-target'); const r = target.getBoundingClientRect(); const below = r.bottom + 200 < innerHeight;
-  box.style.left = Math.max(12, Math.min(innerWidth - 352, r.left)) + 'px'; box.style.top = (below ? r.bottom + 14 : Math.max(12, r.top - 14)) + 'px';
-  box.style.transform = below ? '' : 'translateY(-100%)';
-  if (!below && r.top - 14 < 200) { box.style.top = Math.max(12, Math.min(innerHeight - 220, r.top + 20)) + 'px'; box.style.transform = ''; box.style.left = Math.max(12, Math.min(innerWidth - 352, r.left - 352)) + 'px'; }
+  const el = $(s.t), r = el.getBoundingClientRect();                      // a step's target scrolled away (a phone's long page): brought into view, once
+  if (r.bottom < 0 || r.top > innerHeight || r.right < 0 || r.left > innerWidth) el.scrollIntoView({block: 'center', inline: 'nearest'});
+  TUT.at = ''; tutPlace();
 }
+// where the card goes: beside the part of its target that is on screen (below, above, left, right: one that covers
+// neither the target nor a kept control, and the least of the panels the owner reads); a screen corner only when no side
+// has the room; no card at all while the target is off screen, a dialog or menu is open, or only a kept control has room
+const TUT_KEEP = '#deploy-btn, #jobbar, #composer, #send, #build-btn, #newjob-btn, #as-modes, #chat-foot';
+const TUT_AVOID = '#ap-panel, #act-panel, #msgs > .nx, .wk-head .acts, #tabs';
+function tutPlace(){
+  if (!TUT.on) return;
+  const s = TUT.steps[TUT.i], el = s && $(s.t), box = $('#coach-box'), vw = innerWidth, vh = innerHeight, m = 12, g = 12;
+  const r = el && el.getBoundingClientRect();
+  const v = r && {left: Math.max(0, r.left), top: Math.max(0, r.top), right: Math.min(vw, r.right), bottom: Math.min(vh, r.bottom)};
+  const seen = !!v && v.right - v.left > 8 && v.bottom - v.top > 8 && (!el.checkVisibility || el.checkVisibility({visibilityProperty: true}))
+    && !document.querySelector('.modal:not(.hide), .sh-menu');
+  const hide = () => { if (TUT.at !== 'off') { TUT.at = 'off'; box.style.visibility = 'hidden'; } };
+  document.querySelectorAll('.coach-target').forEach(e => { if (e !== el || !seen) e.classList.remove('coach-target'); });   // the ring is on this step's target only
+  if (!seen) return hide();
+  el.classList.add('coach-target');
+  const rects = q => [...document.querySelectorAll(q)].filter(e => e !== el && !el.contains(e) && !e.contains(el))
+    .map(e => e.getBoundingClientRect()).filter(x => x.width > 0 && x.height > 0);
+  // a target that fills much of the screen (a phone's team panel) has no side with room: the card may sit on part of it
+  const big = (v.right - v.left) * (v.bottom - v.top) > vw * vh * .35;
+  const keep = [...(big ? [] : [v]), ...rects(TUT_KEEP)], avoid = [...(big ? [v] : []), ...rects(TUT_AVOID)], bw = box.offsetWidth, bh = box.offsetHeight;
+  const ov = (a, b) => Math.max(0, Math.min(a.right, b.right) - Math.max(a.left, b.left)) * Math.max(0, Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top));
+  const cx = x => Math.max(m, Math.min(vw - bw - m, x)), cy = y => Math.max(m, Math.min(vh - bh - m, y));
+  const pick = list => { let best = null;
+    for (const [x, y] of list) {
+      const b = {left: x, top: y, right: x + bw, bottom: y + bh};
+      if (x < m - .5 || y < m - .5 || b.right > vw - m + .5 || b.bottom > vh - m + .5 || keep.some(k => ov(b, k) > 0)) continue;
+      const cost = avoid.reduce((sum, k) => sum + ov(b, k), 0); if (!best || cost < best.cost - 1) best = {x, y, cost};
+    }
+    return best; };
+  const best = pick([[cx(v.left), v.bottom + g], [cx(v.right - bw), v.bottom + g], [cx(v.left), v.top - g - bh], [cx(v.right - bw), v.top - g - bh],
+                     [v.left - g - bw, cy(v.top)], [v.right + g, cy(v.top)]])
+    || pick([[m, vh - bh - m], [vw - bw - m, vh - bh - m], [m, m], [vw - bw - m, m]]);
+  if (!best) return hide();
+  const at = Math.round(best.x) + ',' + Math.round(best.y); if (at === TUT.at) return;
+  TUT.at = at; box.style.transform = ''; box.style.left = Math.round(best.x) + 'px'; box.style.top = Math.round(best.y) + 'px'; box.style.visibility = '';
+}
+window.addEventListener('resize', () => { if (TUT.on) tutPlace(); });
 function tutEnd(finished){
-  TUT.on = false; $('#coach').classList.add('hide'); document.querySelectorAll('.coach-target').forEach(e => e.classList.remove('coach-target'));
+  TUT.on = false; clearInterval(TUT.iv); TUT.at = ''; $('#coach').classList.add('hide'); $('#coach-box').style.visibility = '';
+  document.querySelectorAll('.coach-target').forEach(e => e.classList.remove('coach-target'));
   if (finished) { try { localStorage.setItem('ws_tut_done', '1'); } catch (_) {} }   // finishing any walkthrough is enough: it never comes back by itself
 }
-function tutSkip(){ TUT.auto = false; tutEnd(true); }
+function tutSkip(){ TUT.auto = false; clearTimeout(TUT.t); TUT.pend = ''; tutEnd(true); }
 
 /* ------------------------------------------------------------------ cameras: tiles, frames, notes, questions */
 function camKind(src){ src = String(src || ''); if (!src) return 'needs a stream address'; if (src.startsWith('sample:') || /AtlasDemo[\\/]videos|[\\/]samples[\\/]/i.test(src)) return 'sample footage'; if (/^rtsps?:/i.test(src)) return 'RTSP camera'; if (/^https?:/i.test(src)) return 'snapshot URL'; if (/^\d+$/.test(src)) return 'webcam'; if (/\.(mp4|mov|avi|mkv|webm|m4v|ts|mpe?g)$/i.test(src)) return 'recording'; if (/\.(jpe?g|png)$/i.test(src)) return 'still image'; return 'camera'; }
@@ -1257,7 +1366,7 @@ function renderCamTile(k){
   if (k.lastNote && k.lastNote.text) { const t = `<b title="${esc(fullTs(k.lastNote.ts))}">${esc(fmtTs(k.lastNote.ts))}</b>`; const html = t + esc(k.lastNote.text); if (note.innerHTML !== html) { const fresh = k.noteTs && k.noteTs !== k.lastNote.ts; note.innerHTML = html; k.noteTs = k.lastNote.ts; if (fresh) { note.classList.remove('new'); void note.offsetWidth; note.classList.add('new'); } } }
   else if (!built) note.textContent = k.plan || 'Planned by Atlas';
   else if (k.problem) { note.textContent = 'Open the feed and re-enter the stream address to start watching.'; note.classList.add('warn'); }
-  else note.textContent = k.journal ? 'No journal note yet.' : 'Journal off: detections only.';
+  else note.textContent = !k.journal ? 'Journal off: detections only.' : W.mode === 'demo' ? 'Demo mode: detections only, no written notes.' : 'No journal note yet.';
 }
 function camClick(name){ const k = W.cams.get(name); if (!k) return; if (k.id && k.st === 'live') openLive(name); else openAttach(name); }
 function startCamPoll(){ clearInterval(W.camPoll); W.evSince = Date.now() / 1000 - 5; pollCams(true); W.camPoll = setInterval(() => { if (!document.hidden) pollCams(); }, 4000); }
@@ -1293,10 +1402,11 @@ async function askCams(text, already, hours, camera){
   hours = Math.min(720, Math.max(1, Number(hours) || 24));
   retireNext();                                                            // the owner asked: earlier offers no longer apply
   if (!already) addMsg('u', text);
-  W.busy = true; $('#send').disabled = true; setState('reading journal');
+  tutAct('ask');
+  W.busy = true; syncSend(); setState('reading journal');
   let r = null;
   try { r = await api('/vision/ask', {method: 'POST', body: camera ? {question: text, hours, camera} : {question: text, hours}}); } catch (e) { r = {error: String(e)}; }
-  W.busy = false; $('#send').disabled = false; setState('ready');
+  W.busy = false; syncSend(); setState('ready');
   if (!r || r.error) {
     const note = addMsg('s', (r && r.error) || 'could not read the journal; try again');
     setNext([{label: 'Ask again', detail: 'Reads the camera journal again', icon: 'i-reset', run: () => askCams(text, false, hours, camera)}], note);
@@ -1384,7 +1494,15 @@ async function liveFail(k, seq){
   const why = k.problem || (s && s.live && s.live.error) || (s && s.error) || 'The source sent no frames.';
   $('#live-state').innerHTML = `<div><b>No picture from ${esc(k.name)}</b>${esc(why)}<br><button class="btn sm" onclick="openLive(${jsa(k.name)})"><svg class="i"><use href="#i-reset"/></svg>Try again</button> <button class="btn sm" onclick="closeLive();openAttach(${jsa(k.name)})"><svg class="i"><use href="#i-cam"/></svg>Change feed</button></div>`;
 }
-function liveNote(){ const k = W.cams.get(W.liveCam); if (!k) return; const n = k.lastNote; $('#live-note-k').textContent = n ? 'Latest journal note · ' + fmtTs(n.ts) + ' UTC' : 'Latest journal note'; $('#live-note').textContent = n ? n.text : 'No journal note yet. Notes are written while the camera is watched with its journal on.'; }
+function liveNote(){ const k = W.cams.get(W.liveCam); if (!k) return; const n = k.lastNote; $('#live-note-k').textContent = n ? 'Latest journal note · ' + fmtTs(n.ts) + ' UTC' : 'Latest journal note'; $('#live-note').textContent = n ? n.text : noNoteWhy(k); }
+// a camera with no note yet: why, in the Cameras tab's words (demo mode and a missing vision model never write one)
+function noNoteWhy(k){
+  if (W.mode === 'demo') return 'Demo mode: no model calls, so this camera keeps detections only, no written notes.';
+  if (!k.journal) return 'Journal off for this camera: detections only, no written notes.';
+  if (!W.vlmReady) return 'No vision model is ready on this desk: until one is, the camera keeps detections only.';
+  return k.watching || k.st === 'live' ? 'No journal note yet: one is written when the scene changes, and at least every 30 s while the camera is watched.'
+    : 'No journal note yet: notes are written while the camera is watched with its journal on.';
+}
 function closeLive(){ liveStop(); W.liveSeq = (W.liveSeq || 0) + 1; $('#liveview').classList.add('hide'); W.liveCam = null; }
 setInterval(() => { if (W.liveCam) liveNote(); }, 2000);
 
@@ -1411,7 +1529,7 @@ document.addEventListener('keydown', e => {
     if (!$('#namedlg').classList.contains('hide')) return closeDeskName();
     if (!$('#attach').classList.contains('hide')) return closeAttach();
     if (!$('#liveview').classList.contains('hide')) return closeLive();
-    if (TUT.on) return tutEnd(true);
+    if (TUT.on && TUT.at && TUT.at !== 'off') return tutEnd(true);   // a card on screen (one waiting for its target is not what Escape closes)
     if ($('#ws').classList.contains('atlas-open')) return closeAtlas();
     if ($('#ws').classList.contains('ex-open')) return toggleExplorer(false);
     if ($('#insp').classList.contains('on')) return closeInsp();
@@ -1638,7 +1756,7 @@ async function doAttach(){
       if (W.phase === 'meet') openWorkspace();
       await applyCams(list);
       addMsg('s', `camera ${name} → ${camKind(src)} (goes live when the desk is built)`, 'assign');
-      $('#build-btn').disabled = !((W.bp.agents || []).length);
+      syncBuild();
     }
     toast(`${name}: ${camKind(src)} attached`); closeAttach();
   } finally { $('#at-go').disabled = false; }
@@ -1706,7 +1824,7 @@ function renderHead(){
 // what the Team panel's header says: the Team tab's chart is arranged by hand; the Overview's is fitted, a click opens the brief
 function teamMeta(){
   const n = W.agents.size, ov = $('#team-panel').parentElement === $('#pane-overview'), chart = W.teamView === 'chart';
-  $('#team-meta').textContent = W.phase === 'load' ? '' : !n ? (W.phase === 'run' ? 'Atlas only' : 'drafted here as you talk to Atlas') : chart && !ov ? `Atlas + ${plural(n, 'specialist')} · drag to arrange, Ctrl + scroll to zoom`
+  $('#team-meta').textContent = W.phase === 'load' ? '' : !n ? (W.phase === 'run' ? 'Atlas only' : 'drafted here as you talk to Atlas') : chart && !ov ? `Atlas + ${plural(n, 'specialist')} · ${W.tWide ? 'click a card for its brief, drag to arrange' : 'drag to arrange, Ctrl + scroll to zoom'}`
     : `${W.phase === 'run' ? '' : 'draft · '}Atlas + ${plural(n, 'specialist')} · click a ${chart ? 'card' : 'row'} for the brief`;
 }
 // a draft's plan beyond its agents, as Atlas drafted it: workflows (who hands to whom, what starts them), the connections
@@ -1865,6 +1983,24 @@ function fitTeamNow(){
         if (P.k >= 1 && avail - h - 12 >= PLAN_MIN) snug = h + 'px'; }
     }
     pane.classList.toggle('snug', !!snug);
+    // the Team tab's chart beside the brief: on a short screen a bigger team is not whole there at full size (desk 13 at
+    // 1366x768 showed 3 of 7 cards). When the whole tab shows it better, the chart takes the width and a card opens its
+    // brief as a drawer. Measured on the tab's own width, so the choice never flips with its own result.
+    let wide = !!W.tWide;                                                 // (another tab: the last choice holds)
+    if (W.tab === 'team') {
+      wide = false;
+      if (W.teamView === 'chart' && !snug && !isPhone() && W.phase !== 'meet' && W.agents.size && p.parentElement === $('#team-big')) {
+        const pw = pane.clientWidth, ch = cv.clientHeight;
+        if (pw > 0 && ch > 0) {
+          const keep = ['t0', 't1', 't2'].filter(x => cv.classList.contains(x)), gap = parseFloat(getComputedStyle(pane).columnGap) || 0;
+          const Pb = tabChoose(pw - Math.min(360, Math.max(300, pw * .3)) - gap - 2, ch);   // beside the brief: clamp(300px, 30%, 360px)
+          if (Pb.k < 1) { const Pf = tabChoose(pw - 2, ch); wide = Pf.k > Pb.k + .02; }
+          ['t0', 't1', 't2'].forEach(x => cv.classList.toggle(x, keep.includes(x)));       // measuring changed the cards' density: as it was
+          document.querySelectorAll('#nodes .node:not(.ghost)').forEach(fitChips);
+        } else wide = !!W.tWide;
+      }
+    }
+    if (wide !== !!W.tWide) { W.tWide = wide; placeInsp(); teamMeta(); }
     p.classList.toggle('d1', d === 1); p.classList.toggle('d2', d >= 2); p.classList.toggle('d3', d === 3);
     if (bw) p.style.setProperty('--bw', bw);
     cv.style.height = snug || ((mode === 'below' || isPhone()) && W.teamView === 'chart' ? canvasH : '');
@@ -2030,13 +2166,13 @@ function showTab(name, focus){
   const ap = $('#ap-panel'); if (name === 'approvals') $('#ap-big').appendChild(ap); else if (ap.parentElement !== $('#right')) $('#right').insertBefore(ap, $('#right').firstChild);
   placeInsp();
   renderApprovals();
-  if (name === 'cameras') { loadJournal(); if (focus === 'journal') setTimeout(() => $('#journal-panel').scrollIntoView({behavior: 'smooth', block: 'start'}), 80); }
+  if (name === 'cameras') { tutAct('journal'); loadJournal(); if (focus === 'journal') setTimeout(() => $('#journal-panel').scrollIntoView({behavior: 'smooth', block: 'start'}), 80); }
   if (name === 'runs') loadRuns(); if (name === 'approvals') loadApprovals();
   if (name === 'team' && W.teamView === 'chart') requestAnimationFrame(() => { if (W.phase !== 'meet') layoutAll(false); });
   if (isPhone()) { const t = $('#tabs'); if (t.getBoundingClientRect().top < 0) t.scrollIntoView({block: 'start'}); }
 }
 function wfShow(id){ showTab('runs'); const el = document.getElementById('wf-' + id); if (el) el.scrollIntoView({block: 'nearest'}); }
-function newJob(){ showTab('runs'); setTimeout(() => $('#job').focus({preventScroll: true}), 60); }
+function newJob(){ tutAct('job'); showTab('runs'); setTimeout(() => $('#job').focus({preventScroll: true}), 60); }
 function clearFeed(){ $('#feed').innerHTML = ''; }
 function exFilter(f){ W.exf = f; document.querySelectorAll('#ex-seg button').forEach(b => b.classList.toggle('on', b.dataset.f === f)); renderExplorer(); }
 function exToggle(key){ const c = W.exClosed || (W.exClosed = new Set()); c.has(key) ? c.delete(key) : c.add(key); try { localStorage.setItem('ws_ex_closed', JSON.stringify([...c])); } catch (_) {} renderExplorer(); }
@@ -2159,7 +2295,7 @@ window.shellPage = {
     NX.steps.forEach(s => c.push({g: NX.head || 'Next steps', label: s.label, hint: s.detail || '', ic: typeof s.run === 'function' ? 'play' : NX_ACT[s.action][1],
       run: () => { const j = NX.steps.indexOf(s); if (j >= 0) pickNext(j); else toast('Those steps were replaced: the newest are under Atlas\'s last message'); }}));
     if (W.phase === 'run') add('New job', 'plus', newJob, 'N');
-    if (W.bp && !W.deskId && (W.bp.agents || []).length) add('Build desk', 'spark', buildDesk);
+    if (W.bp && !W.deskId && (W.bp.agents || []).length && !W.busy && !W.building) add('Build desk', 'spark', buildDesk);   // never while Atlas answers
     add('Add camera', 'camera', () => openAttach(null));
     if (W.deskId) add('Approvals', 'check', toggleApprovals, W.apCount ? W.apCount + ' waiting' : 'none waiting');
     const tabs = W.phase === 'run' ? [['overview', 'Overview'], ['team', 'Team'], ['cameras', 'Cameras'], ['runs', 'Runs'], ['approvals', 'Approvals']] : W.phase === 'design' ? [['overview', 'Overview'], ['team', 'Team'], ['cameras', 'Cameras']] : [];

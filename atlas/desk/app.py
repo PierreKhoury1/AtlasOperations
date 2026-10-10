@@ -104,6 +104,10 @@ DEFAULT_TEMPLATE = os.environ.get("DESK_TEMPLATE", "sales_desk")
 
 _runs: dict[str, dict[str, Any]] = {}          # run_id -> {"events": [...], "thread":..., "orch":..., "desk_id":...}
 _runs_lock = threading.Lock()
+_starts: dict[tuple[int, str], tuple[float, str]] = {}   # (desk, job text) -> (when POST /api/runs took it, its run id once known)
+_starts_lock = threading.Lock()
+START_DEDUPE_S = 5.0                           # the same job on the same desk again within this, while it is starting or running: refused
+_build_lock = threading.Lock()                 # two builds of one draft at once (a double press, two tabs) make one desk
 _feed: list[dict[str, Any]] = []               # global live feed (all desks, incl. token deltas) for /api/stream
 _feed_lock = threading.Lock()
 _feed_seq = 0
@@ -1550,7 +1554,41 @@ def api_run_task():
             return jsonify({"error": applied}), 400
         desk = store.desk(desk["id"])
         return jsonify({"run_id": _start_run(desk, task, "auto"), "team": applied["team"], "tree": applied["tree"], "warnings": res["warnings"]})
-    return jsonify({"run_id": _start_run(desk, task, d.get("mode", "auto"))})
+    key = _claim_start(desk["id"], task)
+    if key is None:                                     # a double click / second Enter / second tab: one run, one cost
+        return jsonify({"error": "duplicate_run", "message": "That job was started a moment ago and is still going: one run, not two."}), 409
+    rid = ""
+    try:
+        rid = _start_run(desk, task, d.get("mode", "auto"))
+    finally:
+        _release_start(key, rid)
+    return jsonify({"run_id": rid})
+
+
+def _claim_start(desk_id: int, task: str) -> tuple[int, str] | None:
+    """Take (desk, job) for a new run unless the same job on the same desk was taken in the last START_DEDUPE_S seconds
+    and is still starting or running. Atomic, so two identical requests arriving together start one run."""
+    key, now = (int(desk_id), " ".join(task.split()).lower()), time.time()
+    with _starts_lock:
+        for k, (t, _) in list(_starts.items()):
+            if now - t > START_DEDUPE_S:
+                _starts.pop(k, None)
+        prev = _starts.get(key)
+        if prev:
+            h = _runs.get(prev[1]) if prev[1] else None
+            if not prev[1] or (h and h["thread"].is_alive()):
+                return None
+        _starts[key] = (now, "")
+    return key
+
+
+def _release_start(key: tuple[int, str], run_id: str) -> None:
+    with _starts_lock:
+        if key in _starts:
+            if run_id:
+                _starts[key] = (_starts[key][0], run_id)   # held while that run is alive (within the window)
+            else:
+                _starts.pop(key, None)                     # it did not start: the next press may try again
 
 
 @app.get("/api/runs")
@@ -3652,7 +3690,7 @@ def hook_vision(token):
             import base64 as _b64
             raw = _b64.b64decode(str(d["image"]).split(",")[-1])
             if raw[:2] == b"\xff\xd8":
-                snap = V.save_snapshot(desk["id"], camera, V.annotate(V._shrink(raw), [], f"{time.strftime('%d %b %H:%M:%S')}  {camera}: {note[:60]}"))
+                snap = V.save_snapshot(desk["id"], camera, V.annotate(V._shrink(raw), [], f"{time.strftime('%d %b %H:%M:%S', time.gmtime())} UTC  {camera}: {note[:60]}"))
         except Exception:
             snap = ""
     trigger = str(d.get("trigger", "1")).lower() not in ("0", "false", "no")
@@ -4969,12 +5007,13 @@ def api_design_build(sid):
     conf = DS.blueprint_to_desk(bp, tier, name=name)
     if not (bp.get("business") or {}).get("name"):                 # never show the template's placeholder business name
         conf["business"]["name"] = name
-    if s.desk_id and store.desk(s.desk_id):
-        store.update_desk(s.desk_id, name=name, tier=tier, config=conf)
-        desk = store.desk(s.desk_id)
-    else:
-        desk = store.add_desk(u["id"] if u else 0, name, "custom", tier, conf)
-        s.desk_id = desk["id"]
+    with _build_lock:                                              # a second build of this draft updates the first one's desk
+        if s.desk_id and store.desk(s.desk_id):
+            store.update_desk(s.desk_id, name=name, tier=tier, config=conf)
+            desk = store.desk(s.desk_id)
+        else:
+            desk = store.add_desk(u["id"] if u else 0, name, "custom", tier, conf)
+            s.desk_id = desk["id"]
     session["desk"] = desk["id"]
     s.blueprint = bp
     # triggers -> automations

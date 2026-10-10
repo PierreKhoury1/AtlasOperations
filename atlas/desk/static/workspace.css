@@ -459,11 +459,12 @@ table.team{width:100%;border-collapse:collapse;table-layout:fixed;font-size:12.5
 #wk[data-w="s"] #plan-panel{display:none!important}
 /* the Team tab of a small draft (fitTeam .snug): the chart as tall as it is, the draft plan under it, the brief beside both */
 #pane-team>#plan-panel{display:none;grid-column:1;grid-row:2}
-#pane-team.snug{grid-template-rows:max-content minmax(0,1fr)}
+#pane-team.snug{grid-template-rows:max-content minmax(0,max-content) minmax(0,1fr)}   /* the plan as tall as its rows: never a stretched, half-empty panel */
 #pane-team.snug>#team-big{grid-column:1;grid-row:1}
 #pane-team.snug>#team-big>.panel,#pane-team.snug #canvas{flex:none}
 #pane-team.snug>#plan-panel{display:flex}
-#pane-team.snug>#insp.inline{grid-column:2;grid-row:1/span 2}
+#pane-team.snug>#plan-panel>.plan{flex:1 1 auto;min-height:0;overflow:auto}
+#pane-team.snug>#insp.inline{grid-column:2;grid-row:1/-1}
 
 /* runs tab */
 .jobbar{display:flex;align-items:center;gap:8px;min-height:44px;padding:6px 6px 6px 12px;background:var(--panel);border:1px solid var(--line2);border-radius:var(--r)}

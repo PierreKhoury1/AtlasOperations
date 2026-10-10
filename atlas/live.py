@@ -364,9 +364,9 @@ class Feed:
                     cv2.line(out, pts[i - 1], pts[i], col, 1, cv2.LINE_AA)
         for tid in [k for k, v in self._trails.items() if not v or now - v[-1][0] > TRAIL_S * 2]:
             self._trails.pop(tid, None)
-        # HUD: name, clock, counts, loop rate
+        # HUD: name, clock (UTC, labelled: the pages show every time in UTC), counts, loop rate
         from . import vision as V
-        hud = f"{self.name}  {time.strftime('%H:%M:%S')}  {V.counts_text(counts) or 'no detections'}"
+        hud = f"{self.name}  {time.strftime('%H:%M:%S', time.gmtime())} UTC  {V.counts_text(counts) or 'no detections'}"
         rate = f"{self.fps:.0f} fps  det {self.det_ms:.0f} ms" + (f"  clip {self.pos_s:5.1f}s" if self.kind == "video" else "  live")
         oh, ow = out.shape[:2]
         font = cv2.FONT_HERSHEY_SIMPLEX

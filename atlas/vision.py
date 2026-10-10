@@ -862,7 +862,7 @@ def analyse(source: str, config: dict[str, Any], prev_jpeg: bytes | None = None,
         except Exception as exc:
             answer = f"(vision model unavailable: {str(exc)[:120]})"
     w, h = frame_size(jpeg)
-    return {"jpeg": jpeg, "annotated": annotate(jpeg, dets, f"{time.strftime('%d %b %H:%M:%S')}  {counts_text(c)}"),
+    return {"jpeg": jpeg, "annotated": annotate(jpeg, dets, f"{time.strftime('%d %b %H:%M:%S', time.gmtime())} UTC  {counts_text(c)}"),
             "detections": dets, "counts": c, "motion": round(mot, 3), "backend": backend, "answer": answer,
             "size": [w, h], "detector_error": det.error}
 
