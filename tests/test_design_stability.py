@@ -53,6 +53,28 @@ def test_layout_rides_along_and_follows_renamed_ids():
     assert moved["layout"] == {"writer": {"x": 1, "y": 2}, "research": {"x": 3, "y": 4}}
 
 
+def test_canvas_saves_keep_a_bound_watchers_rules(app_client):
+    """Every /layout and /blueprint call re-normalises the whole sketch. A bound watcher's third rule used to drop out
+    on each one: the 3-rule clamp ran before the server's "Your camera is ..." line was stripped and re-added."""
+    c = app_client
+    c.post("/signup", json={"name": "Owner", "company": "Corner Shop", "email": "rules@example.com", "password": "password1"})
+    sid = c.post("/api/design/start", json={}).get_json()["sid"]
+    rules = ["Note who enters", "Never guess faces", "Flag bags left behind"]
+    watcher = lambda i, n: _a(i, n, role="Watches one camera", tools=("camera_ask", "camera_events"), instructions=rules)
+    bp = {"business": {"name": "Corner Shop"}, "agents": [watcher("door_watcher", "Door Watcher"), watcher("till_watcher", "Till Watcher")],
+          "cameras": [{"name": "door"}, {"name": "till"}]}
+    first = c.post(f"/api/design/{sid}/blueprint", json={"blueprint": bp}).get_json()["blueprint"]
+    for _ in range(3):
+        c.post(f"/api/design/{sid}/layout", json={"positions": {"door_watcher": {"x": 640, "y": 80}}})
+    stored = c.get(f"/api/design/{sid}").get_json()["blueprint"]
+    again = c.post(f"/api/design/{sid}/blueprint", json={"blueprint": stored}).get_json()["blueprint"]
+    assert {a["id"]: a["camera"] for a in again["agents"]} == {"door_watcher": "door", "till_watcher": "till"}
+    for a in again["agents"]:
+        assert a["instructions"][1:] == rules and a["instructions"][0].startswith(f"Your camera is '{a['camera']}'")
+    assert again["agents"] == first["agents"] and again["layout"] == {"door_watcher": {"x": 640, "y": 80}}
+    c.get("/logout")
+
+
 def test_demo_follow_up_turn_keeps_structure(app_client):
     """End to end through the demo designer: a second message must not replace the ids the canvas drew."""
     c = app_client

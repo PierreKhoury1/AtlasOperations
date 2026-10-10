@@ -10,6 +10,7 @@ Flow
 from __future__ import annotations
 
 import json
+import math
 import os
 import re
 import threading
@@ -18,12 +19,16 @@ import uuid
 from pathlib import Path
 from typing import Any, Callable
 
+from . import integrations as I
 from . import nextsteps as NS
 from . import templates as T
 from . import tools as TL
 
-_BLOCK = re.compile(r"<atlas-design>\s*(\{.*?\})\s*</atlas-design>", re.S)
-_FENCE = re.compile(r"```(?:json)?\s*(\{.*?\})\s*```", re.S)
+TAG_OPEN, TAG_CLOSE = "<atlas-design>", "</atlas-design>"
+_FENCE = re.compile(r"```(?:[Jj][Ss][Oo][Nn])?\s*(\{.*?\})\s*```", re.S)
+# the keys a machine block may carry (the v2 contract, plus "suggestions", the legacy chip list)
+BLOCK_KEYS = ("intent", "changes", "blueprint", "plan", "propose", "ask", "answered", "assume", "unassume", "next", "ready",
+              "suggestions")
 
 SPECIALIST_TOOLS = ["read_file", "list_files", "web_fetch", "run_python", "save_deliverable", "camera_look", "camera_events", "camera_ask",
                     "record_find", "record_get", "record_save", "crm_lookup", "browse", "calendar_free_slots", "recall"]
@@ -31,8 +36,18 @@ ATLAS_TOOLS = ["delegate", "list_agents", "save_deliverable", "read_file", "list
                 "queue_action", "list_connectors", "http_request", "schedule_task", "mcp", "run_python", "remember", "recall", "generate_media"]
 PALETTE = ["#4c90f0", "#32a467", "#ec9a3c", "#9881f3", "#2ec4b6", "#e76a6e", "#68c1ee", "#d1980b", "#c274c2", "#8eb125"]   # muted (Blueprint)
 STATUS_MARK = "\x00"                      # on_token prefix for a status line instead of prose
-CONNECTOR_KINDS = ("smtp", "imap", "http", "mcp", "webhook", "hermes_agent", "higgsfield")
+# every connector kind the desk can connect (cameras are the blueprint's own "cameras" list), named as the desk names it
+CONNECTOR_KINDS = tuple(k for k in I.KINDS if k != "camera")
+T_KIND_LABEL = {k: I.KINDS[k]["label"] for k in CONNECTOR_KINDS}
+_KIND_ALIAS = {"email": "smtp", "gmail": "imap", "inbox": "imap", "api": "http", "rest": "http", "form": "webhook", "zapier": "webhook",
+               "hermes": "hermes_agent", "sms": "twilio", "calendar": "gcal", "google_calendar": "gcal"}
 TRIGGER_KINDS = ("webhook", "inbox", "schedule", "manual")
+# a camera journal's cadence as the build sets it (app.py _build_cameras, read by atlas/journal.py): a note on each
+# change, at most one every JOURNAL_MIN_GAP_S, at least one every JOURNAL_EVERY_S even when nothing changes, and a
+# summary of the notes every JOURNAL_ROLLUP_MIN minutes. The build facts the designer is shown are written from these.
+JOURNAL_EVERY_S = 30
+JOURNAL_MIN_GAP_S = 8
+JOURNAL_ROLLUP_MIN = 15
 
 DESIGNER_SYSTEM = """You are Atlas, the orchestrator of an AI operations desk, talking to a business owner for the first time.
 Your job: understand their business, find the highest-value processes to take off their plate, and assemble your own
@@ -249,6 +264,7 @@ class DesignSession:
         self.links: list[str] = []
         self.profile: dict[str, Any] | None = None       # company profile from the pre-study of their links
         self.fixed_turn = False                          # never saved: the last turn's steps are the server's (no model answer)
+        self.finish_reason = ""                          # never saved: why the last model call stopped ("length" = cut off)
         self.next = session_next(self, [], fallback=NS.greeting(bool(sample_clips())))
         self.suggestions: list[str] = NS.labels(self.next)   # legacy chips (studio.js, old sessions)
         self.owner_id: int | None = None                 # the account that started it: its draft comes back on any device
@@ -334,33 +350,130 @@ def new_session(mode: str, tier: str = "free") -> DesignSession:
 
 
 # ---------------------------------------------------------------------------- parsing + normalising
-def split_reply(raw: str) -> tuple[str, dict[str, Any] | None]:
-    """Return (prose, machine dict|None). Tolerates missing tags / fenced JSON / trailing junk."""
-    raw = raw or ""
-    m = _BLOCK.search(raw)
-    data: dict[str, Any] | None = None
-    prose = raw
+_TAG_ANY = re.compile(r"<(\s*/?\s*)atlas-design", re.I)
+_THINK = re.compile(r"<think>.*?</think>", re.S | re.I)
+_THINK_OPEN = re.compile(r"<think>", re.I)
+_DIGITS = re.compile(r"\d+")
+_SPECIAL = re.compile(r"</?\|")                                  # a model's special tokens: <|tool_call_begin|>, </|...|>
+_LONE_TAG = re.compile(r"^[ \t]*</?[A-Za-z][\w-]*>[ \t]*$", re.M)   # a line that is one wrapper tag: </output>, </response>
+
+
+def neutralise(text: Any) -> Any:
+    """Text bound for a prompt (the owner's messages, the studied profile, the sketch the model is shown) with
+    "<atlas-design" written "<atlas_design", opening or closing, in any case: quoted or injected text never reads as a
+    machine block, and the model is never handed one to copy. The transcript keeps the owner's words exactly."""
+    return _TAG_ANY.sub(lambda m: "<" + m.group(1) + "atlas_design", text) if isinstance(text, str) else text
+
+
+def _drop_think(raw: str) -> str:
+    """Reasoning a model wrote into its reply is never prose: <think>…</think> goes, and an unclosed <think> (a reply
+    cut off while thinking) takes everything up to the first machine block, or to the end."""
+    raw = _THINK.sub("", raw)
+    m = _THINK_OPEN.search(raw)
     if m:
-        prose = raw[: m.start()].strip()
-        try:
-            data = json.loads(m.group(1))
-        except json.JSONDecodeError:
-            data = _loose_json(m.group(1))
+        end = raw.find(TAG_OPEN, m.end())
+        raw = raw[:m.start()] + (raw[end:] if end >= 0 else "")
+    return raw
+
+
+def _tail(text: str) -> str:
+    """The text after the last block, kept only as far as it is prose. In the 58 stored replies with a block, the
+    text after it was never words: a lone wrapper tag (</output>, </response>) or a model's special tokens re-sending
+    the block as a tool call (<|tool_calls_section_begin|>… in prod). Both are format, so they go; anything before the
+    block is left exactly as written."""
+    m = _SPECIAL.search(text)
+    return _LONE_TAG.sub("", text[:m.start()] if m else text)
+
+
+def _parse_body(body: str, loose: bool = True) -> tuple[dict[str, Any] | None, str]:
+    """A block's JSON: (dict, "strict") when it reads whole, (dict, "loose") when only a repaired prefix does (tried
+    only with `loose`), else (None, "none"). A ```json fence inside the tags is tolerated."""
+    s = body.strip()
+    if s.startswith("```"):
+        s = re.sub(r"^```[A-Za-z]*\s*|\s*```$", "", s)
+    if not s.startswith("{"):
+        return None, "none"
+    try:
+        v = json.loads(s)
+        return (v, "strict") if isinstance(v, dict) else (None, "none")
+    except (ValueError, RecursionError):
+        if not loose:
+            return None, "none"
+    try:
+        v = _loose_json(s)
+    except RecursionError:
+        v = None
+    return (v, "loose") if isinstance(v, dict) else (None, "none")
+
+
+def parse_reply(raw: str, finish_reason: str = "") -> tuple[str, dict[str, Any] | None, str]:
+    """(prose, machine dict | None, how it parsed: strict | loose | fence | misclosed | none).
+    - The LAST block wins. Earlier blocks (one quoted from the owner, or injected) are cut from the prose and never
+      used; the prose is all the text outside the blocks, including words after the last one (_tail).
+    - An opening tag after the last complete block means the model's own block was cut off: no block (the turn
+      repairs), so an earlier quoted block can never stand in for it.
+    - The mis-closed shape <atlas-design>{…}<atlas-design> counts only when its JSON is strict and the reply was not
+      cut off (finish_reason "length").
+    - With no tag at all, the last ```json fence holding an object with a block key (BLOCK_KEYS) is the block.
+    - <think> reasoning is never prose (_drop_think)."""
+    raw = _drop_think(raw or "")
+    spans: list[tuple[int, int, str, str]] = []          # (start, end, complete | misclosed | open, body)
+    pos = 0
+    while True:
+        s = raw.find(TAG_OPEN, pos)
+        if s < 0:
+            break
+        b = s + len(TAG_OPEN)
+        nxt, close = raw.find(TAG_OPEN, b), raw.find(TAG_CLOSE, b)
+        if close >= 0 and (nxt < 0 or close < nxt):
+            spans.append((s, close + len(TAG_CLOSE), "complete", raw[b:close]))
+            pos = close + len(TAG_CLOSE)
+        elif (nxt >= 0 and _parse_body(raw[b:nxt], loose=False)[1] == "strict"
+              and not raw[nxt + len(TAG_OPEN):].lstrip().startswith("{")):   # the second tag closes it, opens nothing
+            spans.append((s, nxt + len(TAG_OPEN), "misclosed", raw[b:nxt]))
+            pos = nxt + len(TAG_OPEN)
+        else:                                            # never closed: up to the next opening tag, or to the end
+            end = nxt if nxt >= 0 else len(raw)
+            spans.append((s, end, "open", raw[b:end]))
+            pos = end
+    data: dict[str, Any] | None = None
+    how = "none"
+    if spans:
+        _, _, kind, body = spans[-1]
+        if kind == "complete":
+            data, how = _parse_body(body)
+        elif kind == "misclosed" and finish_reason != "length":
+            data, how = _parse_body(body, loose=False)[0], "misclosed"
+        parts, last = [], 0
+        for s, e, _kind, _body in spans:
+            parts.append(raw[last:s])
+            last = e
+        prose = "".join(parts) + _tail(raw[last:])
     else:
-        f = list(_FENCE.finditer(raw))
-        if f:
-            last = f[-1]
+        prose = raw
+        hits = []
+        for f in _FENCE.finditer(raw):
             try:
-                cand = json.loads(last.group(1))
-                if isinstance(cand, dict) and ("blueprint" in cand or "next" in cand or "suggestions" in cand):
-                    data = cand
-                    prose = (raw[: last.start()] + raw[last.end():]).strip()
-            except json.JSONDecodeError:
-                pass
-        if data is None and "<atlas-design>" in raw:          # opened but never closed (cut off)
-            prose = raw.split("<atlas-design>", 1)[0].strip()
-    prose = re.sub(r"</?atlas-design>", "", prose).strip()
-    return prose, data if isinstance(data, dict) else None
+                cand = json.loads(f.group(1))
+            except (ValueError, RecursionError):
+                continue
+            if isinstance(cand, dict) and any(k in cand for k in BLOCK_KEYS):
+                hits.append((f.start(), f.end(), cand))
+        if hits:
+            data, how = hits[-1][2], "fence"
+            parts, last = [], 0
+            for s, e, _cand in hits:
+                parts.append(raw[last:s])
+                last = e
+            prose = "".join(parts) + _tail(raw[last:])
+    prose = re.sub(r"\n{3,}", "\n\n", prose.replace(TAG_CLOSE, "")).strip()
+    return prose, data, how if data is not None else "none"
+
+
+def split_reply(raw: str, finish_reason: str = "") -> tuple[str, dict[str, Any] | None]:
+    """(prose, machine dict | None): parse_reply without how it parsed."""
+    prose, data, _how = parse_reply(raw, finish_reason)
+    return prose, data
 
 
 def _loose_json(s: str) -> dict[str, Any] | None:
@@ -377,106 +490,214 @@ def _loose_json(s: str) -> dict[str, Any] | None:
 
 
 def _slug(s: str) -> str:
+    """An id: lower-case letters and digits joined by "_", at most 24 characters, never ending in "_" (a cut that
+    landed on a separator used to leave one, so the next normalise gave the item a different id)."""
     s = re.sub(r"[^a-z0-9]+", "_", str(s or "").lower()).strip("_")
-    return s[:24] or "agent"
+    return s[:24].rstrip("_") or "agent"
+
+
+def _suffixed(base: str, taken: Any) -> str:
+    """A fresh id for an agent whose slug another agent holds: the base cut to 22 characters plus _2 … _9, so it stays
+    distinct within _slug's 24 (a 24-character base plus "_2" is cut straight back to the base). "" when all are taken."""
+    stem = base[:22].rstrip("_") or "agent"
+    return next((f"{stem}_{n}" for n in range(2, 10) if f"{stem}_{n}" not in taken), "")
 
 
 REMOVAL_WORDS = re.compile(r"\b(remove|delete|drop|get rid|without|merge|combine|consolidat\w*|fewer|smaller team|simpl\w*|"
                            r"cut|scrap|replace|instead of|swap|lose|kill|no longer|don'?t need|do not need|only keep|just keep)\b", re.I)
 
 
+def _txt(v: Any, n: int) -> str:
+    """One line of plain text from a model or canvas string (anything else is no text): hidden characters removed,
+    space separators such as U+202F and whitespace runs folded to one space, clamped to n at a word boundary."""
+    t = NS._fit(NS._shown(v, 1), n) if isinstance(v, str) else ""
+    return t if NS._visible(t) else ""                 # a cut can leave only joiners: that is no text either
+
+
+def _name_key(s: Any) -> str:
+    """A name as names are compared: plain text, case folded."""
+    return NS._text(s).casefold()
+
+
 def _name_tokens(s: str) -> set[str]:
-    return {t for t in re.split(r"[^a-z0-9]+", str(s or "").lower()) if len(t) > 2 and t not in ("the", "and", "for", "agent")}
+    """The words that identify a name: 3+ letters, or a number of any length ("Camera 3 Monitor" keeps its 3)."""
+    return {t for t in re.split(r"[^a-z0-9]+", str(s or "").lower())
+            if (len(t) > 2 or t.isdigit()) and t not in ("the", "and", "for", "agent")}
+
+
+def _digit_twins(a: str, b: str) -> bool:
+    """Names equal once every number is masked, with different numbers ("camera 3 monitor", "camera 1 monitor"): two
+    agents, never one renamed."""
+    return a != b and _DIGITS.sub("#", a) == _DIGITS.sub("#", b)
 
 
 def _match_prev(a: dict[str, Any], aid: str, prev_agents: list[dict[str, Any]], taken: set[str]) -> str | None:
-    """The id the canvas already knows for this agent, when the model re-slugged or renamed it."""
-    name = str(a.get("name") or "").strip().lower()
-    role = str(a.get("role") or "").strip().lower()
+    """The id the canvas already knows for this agent, when the model re-slugged or renamed it: an unbound agent of the
+    same name or whose name slugs to this id, else shared name words (>= 0.5, +0.5 for the same role). Digit twins never
+    match on words."""
+    name, role = _name_key(a.get("name")), _name_key(a.get("role"))
     free = [p for p in prev_agents if p["id"] not in taken]
-    for p in free:                                                   # exact name, or the same slug
-        if name and str(p.get("name") or "").strip().lower() == name:
+    for p in free:
+        if name and _name_key(p.get("name")) == name:
             return p["id"]
-        if aid == _slug(p.get("name")) or aid == p["id"]:
+    for p in free:
+        if aid == _slug(p.get("name")):
             return p["id"]
     toks = _name_tokens(name)
     best, score = None, 0.0
     for p in free:                                                   # "Enquiry writer" -> "Enquiry reply writer": shared words
-        pt = _name_tokens(p.get("name"))
-        if toks and pt:
-            s = len(toks & pt) / max(1, min(len(toks), len(pt)))
-            if role and str(p.get("role") or "").strip().lower() == role:
-                s += 0.5
-            if s > score:
-                best, score = p["id"], s
+        pname = _name_key(p.get("name"))
+        pt = _name_tokens(pname)
+        if not (toks and pt) or _digit_twins(name, pname):
+            continue
+        s = len(toks & pt) / max(1, min(len(toks), len(pt)))
+        if role and _name_key(p.get("role")) == role:
+            s += 0.5
+        if s > score:
+            best, score = p["id"], s
     return best if score >= 0.5 else None
 
 
-def normalise(bp: dict[str, Any] | None, prev: dict[str, Any] | None = None, keep_missing: bool = False) -> dict[str, Any] | None:
-    """Coerce a model-produced blueprint into the canonical shape; fall back to `prev` for missing sections.
-    Agents keep the id (and colour, and the owner's canvas position) they had in `prev` when the model re-slugged or
-    renamed them. With keep_missing, agents the model silently left out are carried over - the owner did not ask for a
-    removal, so a truncated or lazy reply must not shrink the team."""
-    if not isinstance(bp, dict):
-        return prev
-    prev = prev or {}
-    out: dict[str, Any] = {}
-    biz = bp.get("business") if isinstance(bp.get("business"), dict) else prev.get("business") or {}
+def _bind_agents(agents_in: list[Any], prev_agents: list[dict[str, Any]],
+                 remap: bool) -> tuple[list[tuple[dict[str, Any], str]], dict[str, str]]:
+    """Each incoming agent with the id it gets, in list order, and {id the model used -> id the canvas knows}.
+    Pass 1: an agent whose slug id the canvas already has keeps it (its first occurrence). Pass 2, with remap only: the
+    rest bind to an agent nobody bound yet (_match_prev). Two passes, so "Camera 3 Monitor" listed before cam1 and cam2
+    can never take their ids. What is left is new: its own slug, or the 22-character suffix when another agent holds
+    that slug or the canvas knows it (a new agent never takes over a known id). The same agent listed twice is dropped."""
+    cands = [(a, _slug(a.get("id") or a.get("name") or f"agent_{i}")) for i, a in enumerate(agents_in) if isinstance(a, dict)]
+    prev_ids = {p["id"] for p in prev_agents}
+    final: list[str] = [""] * len(cands)
+    holder: dict[str, str] = {}                        # id -> the name (as compared) of the agent that holds it
+    named = [_name_key(a.get("name")) or aid.replace("_", " ") for a, aid in cands]
+    for k, (a, aid) in enumerate(cands):
+        if aid in prev_ids and aid not in holder:
+            final[k], holder[aid] = aid, named[k]
+    renamed: dict[str, str] = {}
+    for k, (a, aid) in enumerate(cands):
+        if final[k] or (aid in holder and holder[aid] == named[k]):
+            continue
+        keep = _match_prev(a, aid, prev_agents, set(holder)) if remap else None
+        if keep:
+            if aid not in holder:
+                renamed[aid] = keep
+            final[k] = keep
+        elif aid not in holder and aid not in prev_ids:
+            final[k] = aid
+        else:
+            final[k] = _suffixed(aid, set(holder) | prev_ids)
+        if final[k]:
+            holder[final[k]] = named[k]
+    renamed = {k: v for k, v in renamed.items() if k not in holder}   # an id some agent holds always means that agent
+    return [(a, f) for (a, _aid), f in zip(cands, final) if f], renamed
+
+
+def _flag(v: Any) -> bool:
+    """A yes from JSON or a form: true, 1, "true", "yes", "1" or "on" ("false" is no longer read as a yes)."""
+    if isinstance(v, bool):
+        return v
+    if isinstance(v, int):
+        return v == 1
+    return isinstance(v, str) and v.strip().lower() in ("true", "yes", "1", "on")
+
+
+def _words_cap(v: Any, default: int) -> int:
+    """policy.max_words as a whole number of words from 1 to 10,000; anything else ("about 150", 0, true) keeps
+    `default` (int("about 150") used to raise and fail the whole turn)."""
+    if isinstance(v, str) and re.fullmatch(r"\s*[0-9]{1,6}\s*", v):
+        v = int(v)
+    elif isinstance(v, float) and v.is_integer():
+        v = int(v)
+    return v if isinstance(v, int) and not isinstance(v, bool) and 1 <= v <= 10_000 else default
+
+
+def _cam_slug(v: Any) -> str:
+    """A camera name as the desk keys it: lower-case letters, digits and hyphens, at most 32 characters."""
+    if isinstance(v, bool) or not isinstance(v, (str, int)):
+        return ""
+    return re.sub(r"[^a-z0-9-]+", "-", str(v).lower()).strip("-")[:32].strip("-")
+
+
+_BIZ_TEXT = ("name", "tagline", "description", "target_clients", "tone", "sender_name", "availability", "pricing_notes")
+
+
+def _business(biz: dict[str, Any]) -> dict[str, Any]:
+    """The business fields, plain and clamped: the name to 80 characters, the other texts to 600, up to 10 services of
+    60 each. Unknown fields go."""
     b: dict[str, Any] = {}
-    for k in ("name", "tagline", "description", "target_clients", "tone", "sender_name", "availability", "pricing_notes"):
-        v = biz.get(k)
-        if isinstance(v, str) and v.strip():
-            b[k] = v.strip()
+    for k in _BIZ_TEXT:
+        v = _txt(biz.get(k), 80 if k == "name" else 600)
+        if v:
+            b[k] = v
     sv = biz.get("services")
     if isinstance(sv, str):
-        sv = [x.strip() for x in sv.split(",")]
+        sv = sv.split(",")
     if isinstance(sv, list):
-        b["services"] = [str(x).strip() for x in sv if str(x).strip()][:10]
-    out["business"] = b
+        b["services"] = [s for s in (_txt(x, 60) for x in sv) if s][:10]
+    return b
 
-    agents_in = bp.get("agents") if isinstance(bp.get("agents"), list) else prev.get("agents") or []
-    agents: list[dict[str, Any]] = []
-    seen: set[str] = set()
-    prev_agents = [a for a in (prev.get("agents") or []) if isinstance(a, dict) and a.get("id")]
-    prev_ids = {a["id"] for a in prev_agents}
-    renamed: dict[str, str] = {}                       # id the model used this turn -> id the agent already has
-    for i, a in enumerate(agents_in):
-        if not isinstance(a, dict):
-            continue
-        aid = _slug(a.get("id") or a.get("name") or f"agent_{i}")
-        if aid not in prev_ids or aid in seen:                       # same agent, new slug or new name: keep the id the canvas knows
-            keep = _match_prev(a, aid, prev_agents, seen)
-            if keep and keep not in seen:
-                renamed[aid] = aid = keep
-        if aid in seen:
-            continue
-        seen.add(aid)
-        tools = a.get("tools") if isinstance(a.get("tools"), list) else []
-        tools = [t for t in tools if t in SPECIALIST_TOOLS] or ["read_file", "list_files"]
-        instr = a.get("instructions")
-        if isinstance(instr, str):
-            instr = [x.strip(" -•\t") for x in instr.splitlines()]
-        from . import team as _TM
-        instr = [str(x).strip()[:_TM.RULE_CHARS] for x in (instr if isinstance(instr, list) else []) if str(x).strip()][:_TM.MAX_RULES]
-        if aid != "atlas" and not any(t in _TM.FUNCTION_TOOLS for t in tools):
-            tools = tools + ["record_find", "record_get"]          # no text-only agents: at least read the business records
-        agents.append({
-            "id": aid,
-            "name": str(a.get("name") or aid.replace("_", " ").title())[:40],
-            "role": str(a.get("role") or "Specialist")[:60],
-            "goal": _TM._one_line(a.get("goal") or a.get("description") or "", _TM.GOAL_CHARS),
-            "tools": tools if aid != "atlas" else list(ATLAS_TOOLS),
-            "reports_to": (_slug(a.get("reports_to") or "atlas") or "atlas") if aid != "atlas" else "",
-            "camera": str(a.get("camera") or "")[:32],
-            "strong": bool(a.get("strong")),
-            "engine": "hermes_agent" if str(a.get("engine") or "").lower() in ("hermes_agent", "hermes") else "atlas",
-            "instructions": instr,
-        })
+
+def _agent(a: dict[str, Any], aid: str) -> dict[str, Any]:
+    """One agent in the canonical shape: plain clamped text, known tools only, at least one tool that acts."""
+    from . import team as TM
+    tools_in = a.get("tools") if isinstance(a.get("tools"), list) else []
+    tools = list(dict.fromkeys(t for t in tools_in if t in SPECIALIST_TOOLS)) or ["read_file", "list_files"]
+    if aid != "atlas" and not any(t in TM.FUNCTION_TOOLS for t in tools):
+        tools = tools + ["record_find", "record_get"]          # no text-only agents: at least read the business records
+    instr = a.get("instructions")
+    if isinstance(instr, str):
+        instr = [x.strip(" -•\t") for x in instr.splitlines()]
+    # the server's own camera line goes BEFORE the clamp (_wire_cameras puts it back): clamped first, it pushed a bound
+    # watcher's third rule out on every re-normalise
+    rules = [r for r in (NS._shown(x, 1) for x in (instr if isinstance(instr, list) else []) if isinstance(x, str))
+             if r and not r.startswith(_CAM_RULE)]
+    goal = a.get("goal") if isinstance(a.get("goal"), str) and a["goal"].strip() else a.get("description")
+    goal = TM._one_line(NS._HIDDEN.sub("", goal) if isinstance(goal, str) else "", TM.GOAL_CHARS)
+    if len(goal) > TM.GOAL_CHARS:                              # one unbroken word: keep it inside the clamp
+        goal = goal[:TM.GOAL_CHARS - 1] + "…"
+    return {
+        "id": aid,
+        "name": _txt(a.get("name"), 40) or aid.replace("_", " ").title()[:40],
+        "role": _txt(a.get("role"), 60) or "Specialist",
+        "goal": goal,
+        "tools": tools if aid != "atlas" else list(ATLAS_TOOLS),
+        "reports_to": (_slug(a.get("reports_to") or "atlas") or "atlas") if aid != "atlas" else "",
+        "camera": _cam_slug(a.get("camera")),
+        "strong": _flag(a.get("strong")),
+        "engine": "hermes_agent" if str(a.get("engine") or "").lower() in ("hermes_agent", "hermes") else "atlas",
+        "instructions": [NS._fit(r, TM.RULE_CHARS) for r in rules][:TM.MAX_RULES],
+    }
+
+
+def _listed(v: Any) -> list[Any]:
+    return v if isinstance(v, list) else []
+
+
+def normalise(bp: dict[str, Any] | None, prev: dict[str, Any] | None = None, keep_missing: bool = False,
+              remap: bool = True) -> dict[str, Any] | None:
+    """Coerce a blueprint (the model's, the canvas's, a stored one) into the canonical shape; fall back to `prev` for
+    missing sections. Every text is plain and clamped, and normalise(normalise(x)) == normalise(x).
+    remap (the model's full blueprints): an agent keeps the id (and colour, and the owner's canvas position) it had in
+    `prev` when the model re-slugged or renamed it (_bind_agents). Ops and proposals pass remap=False: their ids are
+    authoritative, so a new agent never takes over the id of one that went.
+    With keep_missing, agents the model silently left out are carried over - the owner did not ask for a removal, so a
+    truncated or lazy reply must not shrink the team."""
+    if not isinstance(bp, dict):
+        return prev
+    prev = prev if isinstance(prev, dict) else {}
+    out: dict[str, Any] = {}
+    biz = bp.get("business") if isinstance(bp.get("business"), dict) else prev.get("business")
+    out["business"] = _business(biz if isinstance(biz, dict) else {})
+
+    agents_in = bp["agents"] if isinstance(bp.get("agents"), list) else _listed(prev.get("agents"))
+    prev_agents = [a for a in _listed(prev.get("agents")) if isinstance(a, dict) and a.get("id")]
+    bound, renamed = _bind_agents(agents_in, prev_agents, remap)
+    agents = [_agent(a, aid) for a, aid in bound]
+    seen = {a["id"] for a in agents}
     agents = [a for a in agents if a["id"] != "atlas"]
     if keep_missing and prev_agents:                                 # the owner asked for no removal: nobody disappears
-        kept = [dict(p) for p in prev_agents if p["id"] not in seen and p["id"] != "atlas"]
-        for p in kept:
-            p.pop("members", None)
+        # re-shaped like any agent (a no-op on a normalised one), so an older stored sketch missing a field still wires
+        kept = [_agent(p, p["id"]) for p in prev_agents if p["id"] not in seen and p["id"] != "atlas"]
         agents.extend(kept)
         out["carried_over"] = [p["id"] for p in kept]
     agents = agents[:8]
@@ -493,10 +714,11 @@ def normalise(bp: dict[str, Any] | None, prev: dict[str, Any] | None = None, kee
         a["color"] = c
         a["reports_to"] = renamed.get(a["reports_to"], a["reports_to"])
     # the owner's canvas positions (POST /api/design/<sid>/layout) ride along with the blueprint
-    lay_in = bp.get("layout") if isinstance(bp.get("layout"), dict) else prev.get("layout") or {}
+    lay_in = bp.get("layout") if isinstance(bp.get("layout"), dict) else prev.get("layout")
     layout = {}
-    for k, v in lay_in.items():
-        if isinstance(v, dict) and isinstance(v.get("x"), (int, float)) and isinstance(v.get("y"), (int, float)):
+    for k, v in (lay_in.items() if isinstance(lay_in, dict) else ()):
+        if isinstance(v, dict) and all(isinstance(v.get(c), (int, float)) and not isinstance(v.get(c), bool)
+                                       and math.isfinite(v[c]) for c in ("x", "y")):
             kid = renamed.get(str(k), str(k))
             layout[kid] = {"x": int(v["x"]), "y": int(v["y"])}
     out["layout"] = layout
@@ -512,42 +734,41 @@ def normalise(bp: dict[str, Any] | None, prev: dict[str, Any] | None = None, kee
     out["agents"] = agents
     ids = {a["id"] for a in agents}
 
-    wfs_in = bp.get("workflows") if isinstance(bp.get("workflows"), list) else prev.get("workflows") or []
+    wfs_in = bp["workflows"] if isinstance(bp.get("workflows"), list) else _listed(prev.get("workflows"))
     wfs: list[dict[str, Any]] = []
     for i, w in enumerate(wfs_in):
         if not isinstance(w, dict):
             continue
         trig = w.get("trigger") if isinstance(w.get("trigger"), dict) else {"kind": str(w.get("trigger") or "manual")}
-        kind = str(trig.get("kind") or "manual").lower()
+        kind = str(trig.get("kind") or "manual").strip().lower()
         kind = {"email": "inbox", "form": "webhook", "cron": "schedule", "timer": "schedule", "api": "webhook"}.get(kind, kind)
         if kind not in TRIGGER_KINDS:
             kind = "manual"
-        steps = w.get("steps") if isinstance(w.get("steps"), list) else []
-        steps = [_slug(s if isinstance(s, str) else (s or {}).get("agent")) for s in steps]
+        steps = [_slug(s if isinstance(s, str) else s.get("agent") if isinstance(s, dict) else "") for s in _listed(w.get("steps"))]
         steps = [renamed.get(s, s) for s in steps]
         steps = [s for s in steps if s in ids]
         wfs.append({"id": _slug(w.get("id") or w.get("name") or f"workflow_{i}"),
-                    "name": str(w.get("name") or f"Workflow {i + 1}")[:60],
-                    "trigger": {"kind": kind, "detail": str(trig.get("detail") or "")[:200]},
+                    "name": _txt(w.get("name"), 60) or f"Workflow {i + 1}",
+                    "trigger": {"kind": kind, "detail": _txt(trig.get("detail"), 200)},
                     "steps": steps})
     out["workflows"] = wfs[:4]
 
-    cons_in = bp.get("connectors") if isinstance(bp.get("connectors"), list) else prev.get("connectors") or []
+    cons_in = bp["connectors"] if isinstance(bp.get("connectors"), list) else _listed(prev.get("connectors"))
     cons: list[dict[str, Any]] = []
     for c in cons_in:
         if isinstance(c, str):
             c = {"kind": c}
         if not isinstance(c, dict):
             continue
-        kind = str(c.get("kind") or "").lower()
-        kind = {"email": "smtp", "gmail": "imap", "inbox": "imap", "api": "http", "rest": "http", "form": "webhook", "zapier": "webhook"}.get(kind, kind)
+        kind = str(c.get("kind") or "").strip().lower()
+        kind = _KIND_ALIAS.get(kind, kind)
         if kind not in CONNECTOR_KINDS:
             continue
-        cons.append({"kind": kind, "name": str(c.get("name") or T_KIND_LABEL.get(kind, kind))[:40],
-                     "purpose": str(c.get("purpose") or "")[:160], "required": bool(c.get("required", True))})
+        cons.append({"kind": kind, "name": _txt(c.get("name"), 40) or _txt(T_KIND_LABEL[kind], 40),
+                     "purpose": _txt(c.get("purpose"), 160), "required": bool(c.get("required", True))})
     out["connectors"] = cons[:8]
 
-    cams_in = bp.get("cameras") if isinstance(bp.get("cameras"), list) else prev.get("cameras") or []
+    cams_in = bp["cameras"] if isinstance(bp.get("cameras"), list) else _listed(prev.get("cameras"))
     cams: list[dict[str, Any]] = []
     seen_c: set[str] = set()
     for i, c in enumerate(cams_in):
@@ -555,26 +776,30 @@ def normalise(bp: dict[str, Any] | None, prev: dict[str, Any] | None = None, kee
             c = {"name": c}
         if not isinstance(c, dict):
             continue
-        name = re.sub(r"[^a-z0-9-]+", "-", str(c.get("name") or f"camera-{i + 1}").lower()).strip("-")[:32] or f"camera-{i + 1}"
+        name = _cam_slug(c.get("name")) or f"camera-{i + 1}"
         if name in seen_c:
             continue
         seen_c.add(name)
-        cams.append({"name": name, "source": str(c.get("source") or "").strip()[:400],
-                     "notes": str(c.get("notes") or "")[:200], "focus": str(c.get("focus") or "")[:300],
+        src = c.get("source")
+        src = str(src).strip()[:400].rstrip() if isinstance(src, (str, int)) and not isinstance(src, bool) else ""   # 0 = webcam 0
+        cams.append({"name": name, "source": src,
+                     "notes": _txt(c.get("notes"), 200), "focus": _txt(c.get("focus"), 300),
                      "journal": c.get("journal", True) not in (False, "0", "false", "off"),
                      "alerts": c.get("alerts", False) in (True, "1", "true", "on"),
-                     "watch_for": str(c.get("watch_for") or "person")[:60]})
+                     "watch_for": _txt(c.get("watch_for"), 60) or "person"})
     cams = cams[:12]
     _wire_cameras(agents, cams)
     out["cameras"] = cams
 
-    pol_in = bp.get("policy") if isinstance(bp.get("policy"), dict) else prev.get("policy") or {}
+    pol_in = bp.get("policy") if isinstance(bp.get("policy"), dict) else prev.get("policy")
+    pol_in = pol_in if isinstance(pol_in, dict) else {}
+    prev_pol = prev.get("policy") if isinstance(prev.get("policy"), dict) else {}
     banned = pol_in.get("banned_phrases")
     if isinstance(banned, str):
-        banned = [x.strip() for x in banned.split(",")]
-    out["policy"] = {"no_money_figures": bool(pol_in.get("no_money_figures", True)),
-                     "max_words": int(pol_in.get("max_words") or 220),
-                     "banned_phrases": [str(x).strip() for x in (banned or []) if str(x).strip()][:20]}
+        banned = banned.split(",")
+    out["policy"] = {"no_money_figures": pol_in.get("no_money_figures", True) is not False,   # only a real false lifts it
+                     "max_words": _words_cap(pol_in.get("max_words"), _words_cap(prev_pol.get("max_words"), 220)),
+                     "banned_phrases": [p for p in (_txt(x, 120) for x in _listed(banned)) if p][:20]}
     return out
 
 
@@ -582,45 +807,78 @@ _CAM_TOOLS = ("camera_ask", "camera_events", "camera_look")
 # "log" as a word (log, logs, logged, logger, logging, logbook), never inside catalog, blog, dialog or login
 _CAM_READER = re.compile(r"summar|digest|report|document|\blog(?:s|ged|ger|ging|book)?\b|record|overview|incident|safety|security"
                          r"|cross.?camera", re.I)
+# a camera agent that reads across the journals rather than watching one feed
+_CAM_READS = re.compile(_CAM_READER.pattern + r"|journal|\bread|all cameras|every camera", re.I)
+_CAM_RULE = "Your camera is "
+
+
+def _cam_in_name(name: str, cams: list[str]) -> str:
+    """The camera an agent's name names ("Till Watcher" -> till, "Shop Floor Watcher" -> shop-floor); the longest wins."""
+    words = " " + " ".join(re.findall(r"[a-z0-9]+", name.lower())) + " "
+    hits = [c for c in cams if " " + " ".join(re.findall(r"[a-z0-9]+", c)) + " " in words]
+    return max(hits, key=len) if hits else ""
 
 
 def _wire_cameras(agents: list[dict[str, Any]], cams: list[dict[str, Any]]) -> None:
-    """Make a camera team hang together (in place). Models routinely sketch "five watchers and a summarizer" with no
-    cameras for them to watch and a summarizer that cannot read a single event:
-    - every watcher gets a camera: missing ones are added as placeholders the owner fills in (source "");
-    - watchers are bound one camera each, in order, and told which one is theirs;
-    - an agent that summarises / documents / reports, in a team that has cameras, gets the read tools."""
-    watchers = [a for a in agents if any(t in a["tools"] for t in _CAM_TOOLS)]
-    if not watchers and not cams:
+    """Make a camera team hang together (in place). Journals do the watching; agents read them.
+    - Bound: a camera agent (it has camera tools) whose camera is one of the desk's, whose name names a camera ("Till
+      Watcher" -> till) or carries a number ("Camera 3 Monitor") watches one camera, and is told which one.
+    - Reader: any other camera agent whose name, role or goal reads across ("Reads every camera journal", a summariser,
+      a reporter) gets camera "" and the read tools.
+    - The rest: bound in order when bound + rest are at least two, else readers (one camera agent reads every journal).
+    - Placeholders camera-N (source "", the owner fills them in) only for bound agents left without a camera.
+    - A non-camera agent that summarises / documents / reports, in a team with cameras, gets the read tools first, so
+      it is classed like any camera agent now and on every re-normalise."""
+    cam_ids = {a["id"] for a in agents if any(t in a["tools"] for t in _CAM_TOOLS)}
+    if not cam_ids and not cams:
         return
-    solo = [a for a in watchers if not _CAM_READER.search(f"{a['name']} {a['role']}") or re.search(r"watch|camera \d|cam \d", f"{a['name']} {a['role']}", re.I)]
-    if len(solo) > 1:                                  # several watchers = one camera each
-        names = {c["name"] for c in cams}
-        n = 0
-        while len(cams) < min(len(solo), 12):
-            n += 1
-            if f"camera-{n}" not in names:
-                names.add(f"camera-{n}")
-                cams.append({"name": f"camera-{n}", "source": "", "notes": "", "focus": "", "journal": True, "alerts": False, "watch_for": "person"})
-        taken = {a["camera"] for a in solo if a.get("camera") in names}
-        free = [c["name"] for c in cams if c["name"] not in taken]
-        for a in solo:
-            if a.get("camera") not in names:
-                a["camera"] = free.pop(0) if free else ""
-    if len(solo) > 1:
-        agents.sort(key=lambda a: a not in solo)       # stable: watchers first, whoever reads across them after
     for a in agents:
-        cam = a.get("camera") or ""
-        a["instructions"] = [x for x in a["instructions"] if not x.startswith("Your camera is ")]
-        if cam and a in solo and len(solo) > 1:
-            a["instructions"] = ([f"Your camera is '{cam}': pass camera=\"{cam}\" to camera_ask, camera_events and camera_look."] + a["instructions"])[:8]
-        elif a not in solo or len(solo) <= 1:
-            a["camera"] = ""
-        if a not in watchers and _CAM_READER.search(f"{a['name']} {a['role']} {a['goal']}"):
-            a["tools"] = ["camera_events", "camera_ask"] + [t for t in a["tools"] if t not in _CAM_TOOLS]
-
-
-T_KIND_LABEL = {"smtp": "Email sending", "imap": "Inbox", "http": "API", "mcp": "Tool server", "webhook": "Web form", "hermes_agent": "Hermes Agent", "higgsfield": "Higgsfield video"}
+        if a["id"] not in cam_ids and _CAM_READER.search(f"{a['name']} {a['role']} {a['goal']}"):
+            a["tools"] = ["camera_events", "camera_ask"] + a["tools"]
+            cam_ids.add(a["id"])
+    names = [c["name"] for c in cams]
+    want: dict[str, str] = {}                          # agent id -> its camera
+    bound: list[str] = []
+    readers: list[str] = []
+    rest: list[str] = []
+    for a in agents:
+        if a["id"] not in cam_ids:
+            continue
+        cam = a["camera"] if a.get("camera") in names else _cam_in_name(a["name"], names)
+        if cam:
+            want[a["id"]] = cam
+            bound.append(a["id"])
+        elif _DIGITS.search(a["name"]):
+            bound.append(a["id"])
+        elif _CAM_READS.search(f"{a['name']} {a['role']} {a['goal']}"):
+            readers.append(a["id"])
+        else:
+            rest.append(a["id"])
+    (bound if len(bound) + len(rest) >= 2 else readers).extend(rest)
+    bound_set = set(bound)
+    need = [a["id"] for a in agents if a["id"] in bound_set and a["id"] not in want]   # in list order
+    free = [n for n in names if n not in want.values()]
+    k = 0
+    while len(free) < len(need) and len(cams) < 12:
+        k += 1
+        ph = f"camera-{k}"
+        if ph not in names:
+            names.append(ph)
+            free.append(ph)
+            cams.append({"name": ph, "source": "", "notes": "", "focus": "", "journal": True, "alerts": False, "watch_for": "person"})
+    for aid in need:
+        want[aid] = free.pop(0) if free else ""
+    for a in agents:
+        a["instructions"] = [x for x in a["instructions"] if not x.startswith(_CAM_RULE)]
+        cam = want.get(a["id"], "") if a["id"] in bound_set else ""
+        a["camera"] = cam
+        if cam:
+            a["instructions"] = ([f"{_CAM_RULE}'{cam}': pass camera=\"{cam}\" to camera_ask, camera_events and camera_look."]
+                                 + a["instructions"])[:8]
+        elif a["id"] in readers:
+            a["tools"] = ["camera_events", "camera_ask"] + [t for t in a["tools"] if t not in ("camera_events", "camera_ask")]
+    if len(bound) > 1:
+        agents.sort(key=lambda a: a["id"] not in bound_set)   # stable: watchers first, whoever reads across them after
 
 
 # ---------------------------------------------------------------------------- the turn
@@ -644,11 +902,12 @@ def reply(session: DesignSession, user_text: str, on_token: Callable[[str], None
         session.transcript.append({"role": "user", "text": user_text, "ts": round(time.time(), 3)})
         session.messages.append({"role": "user", "content": user_text})
         session.fixed_turn = False                       # _live_turn sets it when the model never answered
+        session.finish_reason = ""                       # _live_turn sets it from the model's answer
         if session.mode == "demo":
             raw = _demo_turn(session, user_text, on_token)
         else:
             raw = _live_turn(session, providers_cfg, designer_model, on_token)
-        prose, data = split_reply(raw)
+        prose, data = split_reply(raw, session.finish_reason)
         prose = prose.strip()                                # light markdown: the workspace renders it
         if not prose:
             prose = "Noted. I have updated the sketch — tell me more, or build the desk when it looks right."
@@ -715,15 +974,19 @@ def _live_turn(session: DesignSession, providers_cfg: dict[str, Any] | None, mod
         held = gate.pop("held", "")
         on_token(held + text)
 
+    # every prompt input that is not the model's own reply has the block tag neutralised: the owner's messages, the
+    # links and the profile studied from their (third-party) pages, and the sketch with its owner- and model-written names
     system = DESIGNER_SYSTEM + camera_guide()
     if session.profile:
         prof = {k: session.profile.get(k) for k in ("name", "summary", "sector", "services", "locations", "customers", "team_hint",
                                                    "channels", "tech", "tone", "opportunities") if session.profile.get(k)}
-        system += ("\n\nYou already studied the owner's public links (" + ", ".join(session.links[:3]) + "). Company profile - treat as known facts, "
-                   "do not ask for them again, reference them naturally:\n" + json.dumps(prof, ensure_ascii=False)[:3500])
+        system += ("\n\nYou already studied the owner's public links (" + neutralise(", ".join(map(str, session.links[:3])))
+                   + "). Company profile - treat as known facts, do not ask for them again, reference them naturally:\n"
+                   + neutralise(json.dumps(prof, ensure_ascii=False))[:3500])
     if session.blueprint:
-        system += "\n\nCurrent blueprint (update it, keep what still holds):\n" + json.dumps(session.blueprint, ensure_ascii=False)
-    msgs = [prov.user_message(m["content"]) if m["role"] == "user" else {"role": "assistant", "content": m["content"]}
+        system += ("\n\nCurrent blueprint (update it, keep what still holds):\n"
+                   + neutralise(json.dumps(session.blueprint, ensure_ascii=False)))
+    msgs = [prov.user_message(neutralise(m["content"])) if m["role"] == "user" else {"role": "assistant", "content": m["content"]}
             for m in session.messages]
     raw = ""
     err = ""
@@ -731,6 +994,7 @@ def _live_turn(session: DesignSession, providers_cfg: dict[str, Any] | None, mod
         try:
             r = prov.chat(system, msgs, [], model or "", on_token=tok)
             raw = r.text or ""
+            session.finish_reason = str(getattr(r, "stop_reason", "") or "")    # test stubs answer with .text only
             break
         except Exception as exc:
             err = f"{type(exc).__name__}: {str(exc)[:160]}"
@@ -749,6 +1013,7 @@ def _live_turn(session: DesignSession, providers_cfg: dict[str, Any] | None, mod
             try:
                 r = prov.chat(system, msgs, [], fallback, on_token=tok)
                 raw = r.text or ""
+                session.finish_reason = str(getattr(r, "stop_reason", "") or "")
             except Exception as exc:
                 err = f"{type(exc).__name__}: {str(exc)[:160]}"
     if not raw.strip():
@@ -757,7 +1022,7 @@ def _live_turn(session: DesignSession, providers_cfg: dict[str, Any] | None, mod
     # repair pass: the prose came back without a usable machine block -> ask for the block alone (not streamed).
     # Only once the owner has actually said something about the business (a greeting or "what did you understand"
     # must not conjure a team).
-    _, data = split_reply(raw)
+    _, data = split_reply(raw, session.finish_reason)
     said = " ".join(m["content"] for m in session.messages if m["role"] == "user" and isinstance(m["content"], str))
     substantive = bool(session.blueprint) or bool(session.profile) or len(said.split()) >= 12
     answered = bool(data) and str(data.get("intent") or "").lower() == "answer"     # a plain question: no team for it
@@ -773,9 +1038,10 @@ def _live_turn(session: DesignSession, providers_cfg: dict[str, Any] | None, mod
                    "work to take on, set \"intent\": \"answer\" and \"blueprint\": null instead.")
         try:
             fix = prov.chat(system, msgs + [{"role": "assistant", "content": raw}, prov.user_message(ask)], [], model or "")
-            _, data2 = split_reply(fix.text or "")
-            if data2:
-                raw = split_reply(raw)[0] + chr(10) + "<atlas-design>" + json.dumps(data2, ensure_ascii=False) + "</atlas-design>"
+            _, data2 = split_reply(fix.text or "", str(getattr(fix, "stop_reason", "") or ""))
+            if data2:                                  # "<" escaped: a tag inside a JSON string can never cut the block
+                raw = (split_reply(raw, session.finish_reason)[0] + chr(10) + TAG_OPEN
+                       + json.dumps(data2, ensure_ascii=False).replace("<", "\\u003c") + TAG_CLOSE)
         except Exception:
             pass
     return raw
