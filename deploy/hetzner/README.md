@@ -35,7 +35,7 @@ point `A` records (`@` and `www`) at the IP and re-run `bash setup.sh --host atl
 | Piece | Where | Check |
 |---|---|---|
 | Portal | `atlas.service`, user `atlas`, `/srv/atlas/src`, venv `/srv/atlas/venv` | `curl localhost:8094/api/health` |
-| Hermes Agent | `hermes.service`, 127.0.0.1:8642, key in `/etc/atlas/atlas.env` | `curl localhost:8642/health` |
+| Hermes Agent | `hermes.service`, 127.0.0.1:8642, key in `/etc/atlas/atlas.env`; model calls via the metering proxy | `curl localhost:8642/health` |
 | Postgres | local, `DATABASE_URL` in `/etc/atlas/atlas.env` | `sudo -u postgres psql -l` |
 | Caddy | `/etc/caddy/Caddyfile`, access log `/var/log/caddy/access.log` | `systemctl status caddy` |
 | Deploy | `atlas-deploy.timer` pulls `origin/main` every minute | `journalctl -u atlas-deploy` |
@@ -46,6 +46,30 @@ point `A` records (`@` and `www`) at the IP and re-run `bash setup.sh --host atl
 `git push` to `main` on PierreKhoury1/AtlasOperations. The box fast-forwards within a minute, reinstalls
 requirements only if `requirements.txt` changed, restarts, health-checks, rolls back on failure. Never edit files on
 the box except `/etc/atlas/atlas.env` (then `systemctl restart atlas`).
+
+## Hermes model calls (the metering proxy)
+
+Hermes runs its own tool loop and makes its own model calls, up to `max_turns` 150 per delegation. Atlas counts them
+per account only when they go through the portal's metering proxy, `http://127.0.0.1:8094/internal/llm/v1`, which
+checks each one against the account's limits and forwards it to OpenRouter with Atlas's key.
+
+* A new install is wired to it: `~/.hermes/.env` holds `USAGE_HERMES_PROXY_TOKEN` (also in `/etc/atlas/atlas.env`)
+  where the OpenRouter key would go, `~/.hermes/config.yaml` has `model.base_url` set to the proxy, and Caddy answers
+  `/internal/*` with 404. The proxy itself answers only loopback requests with the token and no forwarding headers.
+* `USAGE_HERMES_METER=off` is the default: Atlas does not use its Hermes instance and specialists run on the built-in
+  engine (the proxy refuses every call). `proxy` turns Hermes on with every model call counted. `--hermes-proxy`
+  installs straight into `proxy`.
+* Before `proxy` on a box that matters, check on a test box with `USAGE_ENFORCE=0` (counted, never refused) that the
+  inner calls reach the proxy for the default model and for Atlas's per-request model. The operator view's Hermes
+  block shows the last inner call's model, whether it streamed and its header names; `journalctl -u hermes` shows
+  what Hermes does with a 429.
+* An install from before the proxy (atlas-1) keeps Hermes on its own key until switched by hand, as root: put
+  `USAGE_HERMES_METER=proxy` and a random `USAGE_HERMES_PROXY_TOKEN` (`python3 -c "import secrets;
+  print(secrets.token_urlsafe(32))"`) in `/etc/atlas/atlas.env`; the same token as `OPENROUTER_API_KEY` in
+  `/home/atlas/.hermes/.env`; `model.base_url: http://127.0.0.1:8094/internal/llm/v1` in
+  `/home/atlas/.hermes/config.yaml`; `respond /internal/* 404` in `/etc/caddy/Caddyfile` (a re-run of `setup.sh`
+  writes it); then `systemctl restart hermes caddy atlas` and run one job on a Hermes desk: the operator view should
+  show its inner requests and no self-check warning.
 
 ## Moving data off Supabase / Render (if anything worth keeping is there)
 
@@ -62,7 +86,9 @@ Then delete the Render services and point camera hooks (`node.json` -> `hook`) a
 * Accounts ON by default (`DESK_OPEN=0`). The 2 Sep 2026 audit still applies: `run_python` is unsandboxed and MCP
   connectors run as the `atlas` user. Desks for trusted customers only; no public signup yet.
 * Hermes API server listens on localhost only. `/etc/atlas/atlas.env` (root:root 600, read by systemd as root) and
-  `/home/atlas/.hermes/.env` (atlas 600, Hermes' own key) hold every key. Never commit them. The second file is still
-  readable by `run_python` (same user): until snippets run in a sandbox with another uid, treat the Hermes key as exposed
-  to any agent code. Caddy has its admin API off (`admin off`); reload with `systemctl restart caddy`.
+  `/home/atlas/.hermes/.env` (atlas 600) hold every key. Never commit them. The second file is still readable by
+  `run_python` (same user): until snippets run in a sandbox with another uid, treat what it holds as exposed to any
+  agent code. On an install wired to the metering proxy that is the proxy token, not the OpenRouter key: model calls
+  made with it are counted and limited like Hermes's own. Caddy has its admin API off (`admin off`); reload with
+  `systemctl restart caddy`.
 * ssh is key-only, fail2ban bans after 5 failures, ufw allows 22/80/443 only, security updates unattended.

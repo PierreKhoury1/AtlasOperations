@@ -9,9 +9,10 @@ seed, the browser's limit stop and the site's live run. Background work (§1.6, 
 T36, T39's case part, a camera alert's refused run, the watch job and a detection's run at a limit, the sensor hook,
 the scheduler's deferred starts and the Leads list's note. Channels and uploads (§1.3 W1, L7, L9, §3.4, §4.6
 S14-S15): T19, T38, Twilio's segments and price, the approved actions _dispatch counts and the storage
-reconcile. Next steps (§5.5): T39's next-steps part, the steps of a run stopped at a limit and /api/next for one. No
-model is called and nothing is sent: provider responses are stubbed (httpx.MockTransport), the key endpoint and the
-channel APIs too."""
+reconcile. Next steps (§5.5): T39's next-steps part, the steps of a run stopped at a limit and /api/next for one. The
+Hermes metering proxy (§1.8, §8.2): T32, the attribution rules, a refusal ending the delegation, the operator view's
+Hermes block and setup.sh's wiring. No model is called and nothing is sent: provider responses are stubbed
+(httpx.MockTransport), the key endpoint, the channel APIs and Hermes too."""
 import ast
 import io
 import json
@@ -1236,7 +1237,7 @@ METERED = {"vision": {"describe", "vlm_detect", "chat_images", "chat_images_stre
            "journal": {"write_note", "verify_note", "maybe_rollup"},
            "objects": {"call", "follow", "ask"}}
 POST_SITES = {"providers.py": "", "vision.py": "_vlm_post", "rag.py": "ApiEmbedder", "desk/app.py": "_demo_stream",
-              "study.py": "_hermes_browse"}
+              "study.py": "_hermes_browse", "desk/hermes_proxy.py": ""}
 # ProviderPool / make_provider calls still built without a meter, each with the step that hands one over. The list is
 # exact: a site that gets its meter must leave it, and a new unmetered call fails.
 POOL_PENDING = {
@@ -2780,3 +2781,364 @@ def test_storage_reconcile_measures_the_owners_files(app_client, monkeypatch):
     assert A._storage_walk().get(owner, 0) == 0
     usage.reconcile_storage(A._storage_walk())
     assert usage.counter(f"o:{owner}", "storage", "T", 0)[0] == 0
+
+
+# ---------------------------------------------------------------------------- the Hermes metering proxy (step 9)
+HP_TOKEN = "hp-test-token-0123456789abcdef"              # setup.sh writes a random 43-character one
+HP_URL = "/internal/llm/v1/chat/completions"
+HERMES = "http://127.0.0.1:8642"
+
+
+def _hp_sse(model):
+    return _sse([{"choices": [{"delta": {"content": "step"}}], "model": model},
+                 {"choices": [{"delta": {}, "finish_reason": "stop"}],
+                  "usage": {"prompt_tokens": 100, "completion_tokens": 10, "cost": 0}}])
+
+
+@pytest.fixture()
+def hp(app_client, U, monkeypatch):
+    """The metering proxy in proxy mode with a token, its ledger on a fresh store. OpenRouter is a stub that keeps every
+    request in `hp.sent` and answers with `hp.answer(req)` when set (a step with usage otherwise): nothing leaves the
+    machine. `hp.call(...)` is Hermes making one model call: a client with no session, on loopback, with the token."""
+    from atlas.desk import hermes_proxy as HP
+    import atlas.desk.app as A
+    monkeypatch.setattr(U.CFG, "hermes_meter", "proxy")
+    monkeypatch.setattr(U.CFG, "hermes_proxy_token", HP_TOKEN)
+    monkeypatch.setattr(U, "house_openrouter_key", lambda: "sk-or-house-test")
+    ns = SimpleNamespace(sent=[], answer=None, A=A)
+
+    def upstream(req):
+        ns.sent.append({"url": str(req.url), "headers": dict(req.headers), "body": req.content})
+        if ns.answer:
+            return ns.answer(req)
+        body = json.loads(req.content)
+        if body.get("stream"):
+            return httpx.Response(200, text=_hp_sse(body["model"]), headers={"Content-Type": "text/event-stream"})
+        return httpx.Response(200, json=_body("step", usage={"prompt_tokens": 100, "completion_tokens": 10, "cost": 0},
+                                              model=body["model"]))
+    monkeypatch.setattr(HP, "TRANSPORT", httpx.MockTransport(upstream))
+
+    def call(model=FREE, stream=False, headers=None, token=HP_TOKEN, **kw):
+        payload = {"model": model, "messages": [{"role": "user", "content": "next step"}], **({"stream": True} if stream else {})}
+        r = A.app.test_client().post(HP_URL, json=payload, headers={"Authorization": f"Bearer {token}", **(headers or {})}, **kw)
+        data = r.get_data()
+        r.close()
+        return r.status_code, data, r.headers
+    ns.call = call
+    return ns
+
+
+def _hermes(meter, handler, session_key="atlas:desk8:writer", model=FREE):
+    """Atlas's own Hermes instance (house; proxy mode) whose API server is `handler`: Hermes's own tool loop."""
+    return _stub(P.make_provider({"type": "hermes_agent", "base_url": HERMES, "api_key": "hk", "default_model": model,
+                                  "session_key": session_key}, meter=meter), handler)
+
+
+def _hp_rows(store, where="1=1", args=()):
+    return _events(store, f"surface IN ('hermes.inner', 'hermes.unattributed') AND {where}", args)
+
+
+def test_hermes_off_keeps_specialists_on_the_built_in_engine(app_client, monkeypatch):
+    """T32.1 (spec §1.8): USAGE_HERMES_METER defaults to off, and then DESK_DEFAULT_ENGINE=hermes_agent (and
+    DESK_LEAD_ENGINE) moves nobody onto Atlas's own Hermes instance: no hermes_agent_* providers, the engine note on
+    every agent it would have moved, and neither team design nor /api/health offers it. proxy moves them; a desk's
+    own Hermes instance is the owner's key and is never held back."""
+    from atlas import config as C
+    assert usage.load_config({}).hermes_meter == "off" and usage.load_config({"USAGE_HERMES_METER": "on"}).hermes_meter == "off"
+    A, did, owner = _signed_in(app_client, monkeypatch, "usage-hermes-off@example.com")
+    monkeypatch.setattr(C, "load", lambda name, default: json.loads(json.dumps(default)))
+    for k, v in (("DESK_MODE", "live"), ("DESK_DEFAULT_ENGINE", "hermes_agent"), ("DESK_LEAD_ENGINE", "hermes_agent"),
+                 ("HERMES_AGENT_URL", HERMES), ("HERMES_AGENT_KEY", "hk")):
+        monkeypatch.setenv(k, v)
+    monkeypatch.setattr(usage.CFG, "hermes_meter", "off")
+    try:
+        conf = A.desk_configs(A.store.desk(did))
+        assert not [n for n in conf["providers"]["providers"] if n.startswith("hermes_agent")]
+        assert len(conf["agents"]) == 5 and all(a.get("engine_note") == usage.HERMES_OFF_NOTE for a in conf["agents"])
+        assert A._team_context(A.store.desk(did))[2] is False and app_client.get("/api/health").get_json()["hermes_agent"] is False
+        monkeypatch.setattr(usage.CFG, "hermes_meter", "proxy")
+        conf = A.desk_configs(A.store.desk(did))
+        provs = conf["providers"]["providers"]
+        assert all(provs[f"hermes_agent_{a['id']}"]["url_guard"] is False and not a.get("engine_note") for a in conf["agents"])
+        assert A._team_context(A.store.desk(did))[2] is True and app_client.get("/api/health").get_json()["hermes_agent"] is True
+        monkeypatch.setattr(usage.CFG, "hermes_meter", "off")
+        A.store.add_connector(did, "hermes_agent", "hermes", {"base_url": "https://hermes.owner.test:8642", "api_key": "own"})
+        conf = A.desk_configs(A.store.desk(did))
+        provs = conf["providers"]["providers"]
+        assert all(provs[f"hermes_agent_{a['id']}"]["url_guard"] == "internal" and not a.get("engine_note") for a in conf["agents"])
+    finally:
+        monkeypatch.setenv("DESK_MODE", "demo")
+
+
+def test_hermes_proxy_charges_inner_requests_to_the_run(hp, U, store, capsys):
+    """T32.2 (spec §1.8): a stub Hermes makes 3 inner requests through /internal/llm while Atlas's call to it is open.
+    All 3 count for the run that delegated: its owner's allowance (L1), its per-run cap (L4), its lane and action id,
+    with OpenRouter's usage and cost (one streamed: its usage from the last chunk). OpenRouter sees Atlas's key, never
+    the proxy token or Hermes's session header; Hermes gets OpenRouter's answers byte for byte; the delegation is one
+    hermes.call action, not a request; no self-check warning."""
+    m = _meter(owner=70, desk=8, surface="run.step", run_cap=10)
+    got = []
+
+    def hermes(req):
+        assert str(req.url) == HERMES + "/v1/chat/completions" and req.headers["X-Hermes-Session-Key"] == "atlas:desk8:writer"
+        got.extend([hp.call(), hp.call(stream=True), hp.call()])
+        return httpx.Response(200, json=_body("Done in three steps.", model="hermes-agent"))
+    capsys.readouterr()
+    assert _ask(_hermes(m, hermes)).text == "Done in three steps."
+    assert [g[0] for g in got] == [200, 200, 200] and json.loads(got[0][1])["choices"][0]["message"]["content"] == "step"
+    assert got[1][1].decode() == _hp_sse(FREE) and got[1][2]["Content-Type"].startswith("text/event-stream")
+    rows = _hp_rows(store, "owner_id=70")
+    assert len(rows) == 3 and {(r["surface"], r["kind"], r["action_id"], r["desk_id"], r["lane"], r["key_kind"], r["provider"],
+                                r["pool"], r["model"]) for r in rows} == {
+        ("hermes.inner", "request", m.action_id, 8, "you", "house", "openrouter", "free:openrouter", FREE)}
+    assert [(r["status"], r["http_status"], r["tokens_in"], r["tokens_out"], r["cost_usd"], r["cost_basis"]) for r in rows] == \
+        [("ok", 200, 100, 10, 0.0, "provider")] * 3
+    assert U.counter("o:70", "req:free")[0] == 3 and U.counter("o:70:d8", "req:free")[0] == 3 and m.requests == 3
+    act, = _events(store, "kind='action' AND owner_id=70")
+    assert (act["surface"], act["status"], act["note"]) == ("hermes.call", "ok", "3 inner requests through the metering proxy")
+    assert [s["url"] for s in hp.sent] == [OR_URL + "/chat/completions"] * 3
+    for s in hp.sent:
+        assert s["headers"]["authorization"] == "Bearer sk-or-house-test" and "x-hermes-session-key" not in s["headers"]
+        assert HP_TOKEN not in json.dumps(s["headers"])
+    assert json.loads(hp.sent[1]["body"]) == {"model": FREE, "messages": [{"role": "user", "content": "next step"}], "stream": True}
+    assert U.hermes_warning() == {} and U.HERMES_SELF_CHECK not in capsys.readouterr().out
+    assert U._hermes == {} and U._hermes_stats["inflight"] == 0
+
+
+def test_a_byo_desks_hermes_specialists_count_in_runs_at_once(app_client, monkeypatch):
+    """T32.2, L5 (spec §1.3 L5, §2): a desk on the owner's own key whose specialists run on Atlas's Hermes instance
+    (DESK_DEFAULT_ENGINE=hermes_agent, proxy) takes one of the owner's runs at once; with Hermes off the same desk's run
+    is on the owner's key only and takes none."""
+    from atlas import config as C
+    A, did, owner = _signed_in(app_client, monkeypatch, "usage-hermes-l5@example.com")
+    assert app_client.post(f"/api/desks/{did}/providers", json={"preset": "openrouter", "api_key": "sk-or-own-4444-5555"}).status_code == 200
+    monkeypatch.setattr(C, "load", lambda name, default: json.loads(json.dumps(default)))
+    for k, v in (("DESK_MODE", "live"), ("DESK_DEFAULT_ENGINE", "hermes_agent"), ("HERMES_AGENT_URL", HERMES)):
+        monkeypatch.setenv(k, v)
+    for k in ("DESK_LEAD_ENGINE", "DESK_PROVIDER"):
+        monkeypatch.delenv(k, raising=False)
+    monkeypatch.setattr(A, "Orchestrator", _SlowOrch)
+    _SlowOrch.gate.set()
+    usage.set_override(owner, "runs_at_once", 0)
+    hdr = {"X-Desk": str(did)}
+    try:
+        monkeypatch.setattr(usage.CFG, "hermes_meter", "proxy")
+        assert A._run_pools(A.desk_configs(A.store.desk(did)))["house"] is True
+        _is_limit(app_client.post("/api/runs", json={"task": "Chase the Jones invoice"}, headers=hdr), "runs_at_once")
+        monkeypatch.setattr(usage.CFG, "hermes_meter", "off")
+        assert A._run_pools(A.desk_configs(A.store.desk(did)))["house"] is False
+        r = app_client.post("/api/runs", json={"task": "Chase the Jones invoice"}, headers=hdr)
+        assert r.status_code == 200, r.get_json()
+    finally:
+        usage.clear_override(owner, "runs_at_once")
+        monkeypatch.setenv("DESK_MODE", "demo")
+    assert _wait_runs(A, did)
+
+
+def test_hermes_proxy_answers_only_hermes_on_this_machine(hp, U, store, monkeypatch):
+    """T32.3 (spec §1.8): without the token, with a wrong one, through Caddy (X-Forwarded-For, Forwarded) or from
+    another machine: 404, as if the route did not exist; the same while the token is unset or too short. With the
+    token, any mode but proxy answers 403 and sends nothing. The model list passes through, unmetered."""
+    payload = {"model": FREE, "messages": [{"role": "user", "content": "hi"}]}
+    c = hp.A.app.test_client()
+    ok = {"Authorization": f"Bearer {HP_TOKEN}"}
+
+    def post(headers=None, **kw):
+        return c.post(HP_URL, json=payload, headers=headers or {}, **kw).status_code
+    assert post() == 404 and post({"Authorization": "Bearer not-the-token-0123456789"}) == 404
+    assert post({"Authorization": HP_TOKEN}) == 404                                   # no Bearer scheme
+    assert post({**ok, "X-Forwarded-For": "203.0.113.9"}) == 404
+    assert post({**ok, "Forwarded": "for=203.0.113.9;proto=https"}) == 404
+    assert post(ok, environ_base={"REMOTE_ADDR": "203.0.113.9"}) == 404
+    for tok in ("", "short-token"):
+        monkeypatch.setattr(U.CFG, "hermes_proxy_token", tok)
+        assert post({"Authorization": f"Bearer {tok}"}) == 404
+    monkeypatch.setattr(U.CFG, "hermes_proxy_token", HP_TOKEN)
+    for mode in ("off", "unmetered"):
+        monkeypatch.setattr(U.CFG, "hermes_meter", mode)
+        r = c.post(HP_URL, json=payload, headers=ok)
+        assert r.status_code == 403 and r.get_json()["error"]["code"] == 403
+        assert f"USAGE_HERMES_METER={mode}" in r.get_json()["error"]["message"]
+        assert c.get("/internal/llm/v1/models", headers=ok).status_code == 403
+    assert hp.sent == [] and _hp_rows(store) == [] and U._hermes_stats["seen"] == 0
+    monkeypatch.setattr(U.CFG, "hermes_meter", "proxy")
+    assert c.get("/internal/llm/v1/models").status_code == 404
+    hp.answer = lambda req: httpx.Response(200, json={"data": [{"id": FREE}]})
+    r = c.get("/internal/llm/v1/models?supported_parameters=tools", headers=ok)
+    assert r.status_code == 200 and r.get_json() == {"data": [{"id": FREE}]}
+    assert hp.sent[-1]["url"] == OR_URL + "/models?supported_parameters=tools" and _hp_rows(store) == []
+    hp.answer = None
+    assert post(ok, environ_base={"REMOTE_ADDR": "::1"}) == 200                       # loopback over IPv6
+    assert c.post(HP_URL, data="not json", headers={**ok, "Content-Type": "application/json"}).status_code == 400
+    assert len(_hp_rows(store, "kind='request'")) == 1 and len(hp.sent) == 2
+
+
+def test_hermes_proxy_caps_requests_in_flight(hp, U, store):
+    """T32.4 (spec §1.8, C8): with 8 proxied requests in flight the 9th gets 429 and Retry-After 5 at once; it sends
+    nothing and leaves no ledger row. Once they finish the next one goes through."""
+    gate, inside = threading.Event(), threading.Semaphore(0)
+
+    def slow(req):
+        inside.release()
+        gate.wait(20)
+        return httpx.Response(200, json=_body("step", usage={"prompt_tokens": 1, "completion_tokens": 1, "cost": 0}, model=FREE))
+    hp.answer = slow
+    codes = []
+    ts = [threading.Thread(target=lambda: codes.append(hp.call()[0])) for _ in range(8)]
+    for t in ts:
+        t.start()
+    try:
+        assert all(inside.acquire(timeout=20) for _ in range(8))
+        status, body, headers = hp.call()
+        err = json.loads(body)["error"]
+        assert (status, headers["Retry-After"], err["code"], err["type"]) == (429, "5", 429, "proxy_busy")
+        assert len(hp.sent) == 8 and U._hermes_stats["inflight"] == 8
+    finally:
+        gate.set()
+        for t in ts:
+            t.join(20)
+    assert codes == [200] * 8 and U._hermes_stats["inflight"] == 0 and U._hermes_stats["busy"] == 1
+    assert hp.call()[0] == 200 and len(_hp_rows(store, "kind='request'")) == 9
+
+
+def test_hermes_proxy_attribution_rules(hp, U, store, monkeypatch):
+    """Spec §1.8 rules 1-4: no call in flight: the house row hermes.unattributed (the pool only, no owner); one run's
+    parallel calls share its meter (exact); calls of two owners overlap: the earliest pays and the row says
+    'attributed: overlap', the provider's cost kept; a session key naming a call wins. The operator view's Hermes block
+    counts each, and requests charged to an overlapping call are no self-check warning for the other."""
+    clock = _clock(monkeypatch, _ts(2026, 10, 10, 9, 0))
+    assert hp.call()[0] == 200                                            # 4: no call in flight
+    row, = _hp_rows(store)
+    assert (row["surface"], row["scope"], row["owner_id"], row["lane"], row["cost_basis"]) == \
+        ("hermes.unattributed", "house", 0, "auto", "provider")
+    assert row["pool"] == "free:openrouter" and row["key_kind"] == "house"
+    a, b = _meter(owner=71, desk=9, surface="run.step"), _meter(owner=72, desk=10, surface="run.step")
+    ta1 = U.hermes_begin(a, "atlas:desk9:writer")
+    clock["t"] += 1
+    ta2 = U.hermes_begin(a, "atlas:desk9:qa")
+    assert hp.call()[0] == 200                                            # 2: one run in flight, two of its calls
+    clock["t"] += 1
+    tb = U.hermes_begin(b, "atlas:desk10:writer")
+    hp.answer = lambda req: httpx.Response(200, json=_body("step", usage={"prompt_tokens": 50, "completion_tokens": 5,
+                                                                          "cost": 0.002}, model=PAID))
+    assert hp.call(model=PAID)[0] == 200                                  # 3: two owners overlap: the earliest pays
+    hp.answer = None
+    assert hp.call(headers={"X-Hermes-Session-Key": "atlas:desk10:writer"})[0] == 200    # 1: the session key names b's
+    rows = _hp_rows(store, "kind='request' AND owner_id IN (71, 72)")
+    assert [(r["owner_id"], r["action_id"], r["pool"], r["cost_usd"], r["cost_basis"]) for r in rows] == [
+        (71, a.action_id, "free:openrouter", 0.0, "provider"),
+        (71, a.action_id, "paid", 0.002, "provider; attributed: overlap"),
+        (72, b.action_id, "free:openrouter", 0.0, "provider")]
+    assert U.counter("o:71", "usd:paid", "M")[0] == 2_000 and U.counter("o:72", "req:free")[0] == 1
+    assert (U.hermes_end(ta1), U.hermes_end(ta2), U.hermes_end(tb)) == (2, 0, 1)
+    assert U.hermes_warning() == {}                                       # nothing charged to ta2, but the proxy was used
+    v = U.hermes_view()
+    assert v["today"] == {"inner": 4, "overlap": 1, "unattributed": 1, "refused": 0}
+    assert (v["mode"], v["proxy_ready"], v["calls_in_flight"], v["requests_in_flight"], v["max_in_flight"]) == ("proxy", True, 0, 0, 8)
+    last = v["last_request"]
+    assert (last["rule"], last["model"], last["stream"]) == ("session", FREE, False)
+    assert "x-hermes-session-key" in last["headers"] and "authorization" not in last["headers"]
+
+
+def test_hermes_proxy_refuses_at_a_limit_and_the_delegation_ends_there(hp, U, store, monkeypatch):
+    """Spec §1.8, §4.6 S22: a limit refuses an inner request with an OpenAI-style 429 at once, Retry-After to the
+    reset, nothing sent; the call it belongs to ends at that limit whatever Hermes answered (the parent's typed LIMIT
+    result), its delegation row saying so. The run's cap (L4) refuses with no Retry-After. The provider's own daily
+    quota reaches Hermes unchanged and closes the pool; the retry is refused without a request. A per-minute refusal
+    Hermes got past is no limit for the call."""
+    from collections import deque
+    _no_sleep(monkeypatch)
+    _clock(monkeypatch, _ts(2026, 10, 10, 22, 0))
+    replies = []
+
+    def hermes_twice(req):                                # two model calls, then whatever Hermes makes of it
+        replies.extend([hp.call(), hp.call()])
+        return httpx.Response(200, json=_body("I could not finish: my model call failed.", model="hermes-agent"))
+    U.set_override(73, "ai_requests_day", 1)              # room for the pre-check and one inner request
+    m = _meter(owner=73, desk=11, surface="run.step", run_cap=10)
+    with pytest.raises(U.UsageLimit) as e:
+        _ask(_hermes(m, hermes_twice, session_key="atlas:desk11:writer"))
+    assert e.value.limit_id == "ai_requests_day" and len(hp.sent) == 1
+    (s1, _b1, _h1), (s2, b2, h2) = replies
+    err = json.loads(b2)["error"]
+    assert (s1, s2, err["code"], err["type"], h2["Retry-After"]) == (200, 429, 429, "usage_limit", "7200")
+    assert err["message"] == "AI requests today: 1 of 1 used. Resets 00:00 UTC (in 2 h)."
+    assert (err["metadata"]["limit_id"], err["metadata"]["used"], err["metadata"]["limit"]) == ("ai_requests_day", 1, 1)
+    ref, = _hp_rows(store, "owner_id=73 AND kind='refusal'")
+    assert (ref["surface"], ref["limit_id"], ref["action_id"]) == ("hermes.inner", "ai_requests_day", m.action_id)
+    act, = _events(store, "kind='action' AND owner_id=73")
+    assert (act["surface"], act["status"], act["limit_id"]) == ("hermes.call", "limit", "ai_requests_day")
+    replies.clear()                                       # L4: the run's cap, nothing resets it
+    m4 = _meter(owner=74, desk=12, surface="run.step", run_cap=1)
+    with pytest.raises(U.UsageLimit) as e:
+        _ask(_hermes(m4, hermes_twice, session_key="atlas:desk12:writer"))
+    s, b, h = replies[1]
+    assert e.value.limit_id == "run_requests" and m4.requests == 1 and len(hp.sent) == 2
+    assert s == 429 and json.loads(b)["error"]["metadata"]["limit_id"] == "run_requests" and "Retry-After" not in h
+    replies.clear()                                       # the per-minute window: refused at once, then got past
+
+    def hermes_waits(req):
+        U._minute.setdefault("free:openrouter", deque()).extend([U._now()] * 20)
+        replies.append(hp.call())
+        U._minute["free:openrouter"].clear()              # Hermes waited its Retry-After out
+        replies.append(hp.call())
+        return httpx.Response(200, json=_body("Done.", model="hermes-agent"))
+    m5 = _meter(owner=75, desk=13, surface="run.step", run_cap=10)
+    assert _ask(_hermes(m5, hermes_waits, session_key="atlas:desk13:writer")).text == "Done."
+    (s1, b1, h1), (s2, _b, _h) = replies
+    assert (s1, json.loads(b1)["error"]["metadata"]["limit_id"], h1["Retry-After"], s2) == (429, "pool_free_min", "60", 200)
+    assert [a["status"] for a in _events(store, "kind='action' AND owner_id=75")] == ["ok"] and len(hp.sent) == 3
+    replies.clear()                                       # the provider's daily quota
+    quota = {"error": {"code": 429, "message": "Rate limit exceeded: free-models-per-day. Add 10 credits to unlock "
+                                               "1000 free model requests per day"}}
+    hp.answer = lambda req: httpx.Response(429, json=quota)
+
+    def hermes_fails(req):
+        replies.append(hp.call())
+        return httpx.Response(500, json={"error": {"message": "model call failed"}})
+    m6 = _meter(owner=76, desk=14, surface="run.step", run_cap=10)
+    with pytest.raises(U.UsageLimit) as e:
+        _ask(_hermes(m6, hermes_fails, session_key="atlas:desk14:writer"))
+    assert e.value.limit_id == "pool_free_day" and U.pool_exhausted() and len(hp.sent) == 4
+    (s1, b1, _h1), (s2, b2, _h2) = replies                # Atlas's provider retried the 500 once
+    assert (s1, json.loads(b1)) == (429, quota)           # OpenRouter's answer, unchanged
+    assert s2 == 429 and json.loads(b2)["error"]["metadata"]["limit_id"] == "pool_free_day"
+    row, = _hp_rows(store, "owner_id=76 AND kind='request'")
+    assert (row["status"], row["limit_id"], row["http_status"]) == ("provider_limit", "pool_free_day", 429)
+    assert [a["status"] for a in _events(store, "kind='action' AND owner_id=76")] == ["limit"]
+
+
+def test_hermes_proxy_streams_are_one_ledger_row_however_they_end(hp, U, store):
+    """A streamed inner request is one ledger row whatever happens to the stream: an answer that came back as one JSON
+    body in a 200 is read like a plain answer (its daily-quota text closes the pool), and a stream Hermes stops reading
+    halfway is an error row with its slot freed."""
+    quota = {"error": {"code": 429, "message": "Rate limit exceeded: free-models-per-day"}}
+    hp.answer = lambda req: httpx.Response(200, json=quota)
+    status, body, _h = hp.call(stream=True)
+    assert (status, json.loads(body)) == (200, quota) and U.pool_exhausted()
+    row, = _hp_rows(store, "kind='request'")
+    assert (row["status"], row["limit_id"], row["note"]) == ("provider_limit", "pool_free_day",
+                                                             "provider returned no choices: Rate limit exceeded: free-models-per-day")
+    chunks = [{"choices": [{"delta": {"content": "half"}}], "model": PAID}, {"choices": [{"delta": {"content": " an answer"}}]}]
+    hp.answer = lambda req: httpx.Response(200, text=_sse(chunks), headers={"Content-Type": "text/event-stream"})
+    r = hp.A.app.test_client().post(HP_URL, json={"model": PAID, "messages": [], "stream": True}, buffered=False,
+                                    headers={"Authorization": f"Bearer {HP_TOKEN}"})
+    assert r.status_code == 200 and U._hermes_stats["inflight"] == 1      # the first bytes are on their way
+    r.close()                                                             # Hermes stops reading
+    row, = _hp_rows(store, "kind='request' AND pool='paid'")
+    assert (row["status"], row["note"], row["cost_usd"]) == ("error", "the client closed the stream", None)
+    assert U._hermes_stats["inflight"] == 0 and len(hp.sent) == 2
+
+def test_setup_wires_new_installs_through_the_metering_proxy():
+    """Spec §8.2, §8.3 steps 5-6: a new install's Hermes gets the proxy token where the OpenRouter key would go and
+    model.base_url = the proxy; atlas.env gets the same token and USAGE_HERMES_METER, off unless --hermes-proxy (the
+    owner's default); Caddy answers /internal/* with 404 on every run; an install from before keeps its own key."""
+    sh = (Path(usage.__file__).parents[1] / "deploy" / "hetzner" / "setup.sh").read_text(encoding="utf-8")
+    assert "PROXY_URL=http://127.0.0.1:8094/internal/llm/v1" in sh and "  base_url: $PROXY_URL\n" in sh
+    assert "openrouter.ai/api/v1" not in sh
+    assert 'setenv $HENV OPENROUTER_API_KEY "$PROXY_TOKEN"' in sh and 'PROXY_TOKEN="$(rand 32)"' in sh
+    assert 'HERMES_METER="off"' in sh and '--hermes-proxy) HERMES_METER="proxy"' in sh
+    assert "\nUSAGE_HERMES_METER=$HERMES_METER\nUSAGE_HERMES_PROXY_TOKEN=$PROXY_TOKEN\n" in sh
+    caddy = sh.split("cat > /etc/caddy/Caddyfile <<EOT", 1)[1].split("\nEOT\n", 1)[0]
+    assert caddy.index("respond /internal/* 404") < caddy.index("reverse_proxy 127.0.0.1:8094")
+    assert "-w 1 --threads 32" in sh                      # one worker: the calls in flight and the proxy share a process

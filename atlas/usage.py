@@ -116,6 +116,9 @@ def parse_price_table(raw: str) -> dict[str, tuple[float, float, str]]:
     return out
 
 
+PROXY_TOKEN_MIN = 16           # a shorter USAGE_HERMES_PROXY_TOKEN counts as unset: the proxy refuses everything
+
+
 def load_config(env=None) -> Config:
     env = os.environ if env is None else env
     c = Config()
@@ -147,7 +150,12 @@ def load_config(env=None) -> Config:
     c.disk_floor_pct = _env_num(env, "USAGE_DISK_FLOOR_PCT", 10.0, lo=0)
     mode = str(env.get("USAGE_HERMES_METER", "off") or "off").strip().lower()
     c.hermes_meter = mode if mode in ("off", "proxy", "unmetered") else "off"
+    if mode not in ("off", "proxy", "unmetered"):
+        print(f"usage: ignoring USAGE_HERMES_METER={mode!r} (want off, proxy or unmetered): Hermes stays off")
     c.hermes_proxy_token = str(env.get("USAGE_HERMES_PROXY_TOKEN", "") or "").strip()
+    if c.hermes_meter == "proxy" and len(c.hermes_proxy_token) < PROXY_TOKEN_MIN:
+        print("usage: USAGE_HERMES_METER=proxy but USAGE_HERMES_PROXY_TOKEN is unset or shorter than "
+              f"{PROXY_TOKEN_MIN} characters: the metering proxy refuses every request, so Hermes cannot call a model")
     c.proxy_max_inflight = _env_num(env, "USAGE_PROXY_MAX_INFLIGHT", 8, cast=int, lo=1)
     c.key_poll_s = _env_num(env, "USAGE_KEY_POLL_S", 300, cast=int, lo=0)
     c.events_keep_days = _env_num(env, "USAGE_EVENTS_KEEP_DAYS", 35, cast=int, lo=1)
@@ -453,6 +461,7 @@ _email_cache: dict[int, tuple[float, str]] = {}
 _reserve_cache: dict[str, int] = {}
 _hermes: dict[str, dict[str, Any]] = {}      # Atlas->Hermes calls in flight (proxy mode): token -> meter, start, inner
 _hermes_warn: dict[str, Any] = {}
+_hermes_stats: dict[str, Any] = {}           # the metering proxy: inner requests seen, requests in flight, busy answers
 _live_runs: dict[int, dict[str, float]] = {}  # owner -> {run meter's action id: start}: runs going on a house provider (L5)
 _poller: dict[str, Any] = {"thread": None}
 _unattr_log = [0.0]
@@ -482,6 +491,8 @@ def reset() -> None:
         _hermes.clear()
         _hermes_warn.clear()
         _hermes_warn.update(ts=0.0, message="", logged=0.0)
+        _hermes_stats.clear()
+        _hermes_stats.update(seen=0, inflight=0, busy=0, last={})
         _live_runs.clear()
     with _dedup_lock:
         _refusals.clear()
@@ -982,22 +993,23 @@ def _minute_state(pool: str, cap: int, now: float) -> tuple[int, float]:
     return (n, 0.0) if n < cap else (n, max(0.001, dq[n - cap] + 60 - now))
 
 
-def _wait_budget(meter: Meter) -> float:
+def _wait_budget(meter: Meter, surface: str = "") -> float:
     """How long a request may wait for a per-minute slot: background ticks and Hermes proxy requests never wait, run
-    steps up to 90 s, a person's request up to 10 s (spec §1.3 L11)."""
-    s = meter.surface or ""
-    if s == "hermes.inner" or s in _BG_SURFACES:
+    steps up to 90 s, a person's request up to 10 s (spec §1.3 L11). `surface`: the step_surface() in force, which
+    beats the meter's (a Hermes inner request counts for the run's meter but must never hold a portal thread)."""
+    s = surface or meter.surface or ""
+    if s in ("hermes.inner", "hermes.unattributed") or s in _BG_SURFACES:
         return 0.0
     if s.startswith(("run.", "browse.")) or s == "show.run":
         return 90.0
     return 10.0
 
 
-def _minute_take(pool: str, meter: Meter) -> float | None:
+def _minute_take(pool: str, meter: Meter, surface: str = "") -> float | None:
     cap = _minute_cap(pool, meter.lane)
     if cap is None:
         return None
-    budget, waited = _wait_budget(meter), 0.0
+    budget, waited = _wait_budget(meter, surface), 0.0
     while True:
         now = _now()
         with _mem_lock:
@@ -1128,7 +1140,7 @@ def before(meter: Meter | None = None, *, provider: str = "", model: str = "", k
             if pool == "free:openrouter":
                 _pool_take(now)
                 t.pool_taken = True
-            t.minute_ts = _minute_take(pool, m)
+            t.minute_ts = _minute_take(pool, m, t.surface)
             if pool == "free:openrouter":
                 t.taken = take(_owner_rows(m), meter=m, now=now)
                 t.owner_taken = True
@@ -1254,6 +1266,8 @@ def _after(t: Ticket, http_status: int, usage: Any, err: str, meta: dict[str, An
         basis = "estimate: operator price table" + (f", set {date}" if date else "")
     if meta.get("cost_basis"):
         basis = str(meta["cost_basis"])[:60]
+    if meta.get("attribution"):                   # the Hermes proxy's rule 3: "provider; attributed: overlap" (§3.4)
+        basis = (basis + "; " if basis else "") + str(meta["attribution"])[:40]
     D, M = t.day_start, t.month_start
     ok = _okey(m)
     dk = f"{ok}:d{int(m.desk_id or 0)}" if m.scope == "owner" else None
@@ -2308,6 +2322,21 @@ def _embed_after(t: EmbedTicket, http_status: int, usage: Any, err: str) -> None
 
 # ---------------------------------------------------------------------------- Hermes calls in flight (spec §1.8)
 HERMES_SELF_CHECK = "Hermes did not call the metering proxy; check ~/.hermes/config.yaml"
+HERMES_OFF_NOTE = "Hermes Agent on Atlas's account is off until its model use can be counted"
+HERMES_OVERLAP = "attributed: overlap"
+HERMES_SURFACES = ("hermes.inner", "hermes.unattributed")
+
+
+def hermes_house_on() -> bool:
+    """May Atlas use its own Hermes instance? Not with USAGE_HERMES_METER=off (the default): its inner model calls
+    could not be counted per account, so the lead and the specialists stay on the built-in engine. A desk's own
+    Hermes instance runs on the owner's key and is never affected (spec §2)."""
+    return CFG.hermes_meter != "off"
+
+
+def proxy_token_ok() -> bool:
+    """The metering proxy has a token Hermes can present (an empty or short one refuses every request)."""
+    return len(CFG.hermes_proxy_token) >= PROXY_TOKEN_MIN
 
 
 def hermes_begin(meter: Meter | None, session_key: str = "") -> str:
@@ -2316,21 +2345,24 @@ def hermes_begin(meter: Meter | None, session_key: str = "") -> str:
     Returns the token hermes_end() takes."""
     token = secrets.token_hex(8)
     with _mem_lock:
-        _hermes[token] = {"meter": resolve(meter), "session_key": str(session_key or "")[:120], "t0": _now(), "inner": 0}
+        _hermes[token] = {"meter": resolve(meter), "session_key": str(session_key or "")[:120], "t0": _now(),
+                          "inner": 0, "seen0": _hermes_stats["seen"], "limit": None}
     return token
 
 
 def hermes_end(token: str, *, answered: bool = True) -> int:
-    """The Hermes call returned (or failed): forget it, and return how many inner requests the proxy saw for it. In
-    proxy mode a Hermes answer needs at least one model call, so an answer with none seen means Hermes bypassed the
-    proxy: logged at most every 10 minutes and kept for the operator view (hermes_warning()). A call that failed
+    """The Hermes call returned (or failed): forget it, and return how many inner requests the proxy charged to it.
+    In proxy mode a Hermes answer needs at least one model call, so an answer while no inner request at all reached
+    the proxy means Hermes bypassed it: logged at most every 10 minutes and kept for the operator view
+    (hermes_warning()). A request charged to an overlapping call still proves the proxy is in use; a call that failed
     proves nothing either way."""
     with _mem_lock:
         h = _hermes.pop(str(token or ""), None)
+        quiet = bool(h) and _hermes_stats["seen"] == h.get("seen0", 0)
     if not h:
         return 0
     inner = int(h.get("inner") or 0)
-    if answered and CFG.hermes_meter == "proxy" and not inner:
+    if answered and CFG.hermes_meter == "proxy" and not inner and quiet:
         now = _now()
         with _mem_lock:
             log = not _hermes_warn.get("logged") or now - _hermes_warn["logged"] > 600
@@ -2344,3 +2376,124 @@ def hermes_warning() -> dict[str, Any]:
     """The last self-check warning ({ts, message}), or {} when there was none."""
     with _mem_lock:
         return {"ts": _hermes_warn["ts"], "message": _hermes_warn["message"]} if _hermes_warn.get("ts") else {}
+
+
+@dataclass
+class HermesClaim:
+    """Who pays for one inner request that reached the metering proxy, and how that was decided."""
+    meter: Meter
+    surface: str = "hermes.inner"           # hermes.unattributed for the house row (rule 4)
+    rule: str = "none"                      # session | run | overlap | none
+    basis: str = ""                         # HERMES_OVERLAP when rule 3 picked the call (cost_basis, §3.4)
+    token: str = ""                         # the registered Atlas->Hermes call charged; "" = none
+
+
+def _run_key(m: Meter) -> tuple[int, str, str]:
+    return int(m.owner_id or 0), m.scope, m.action_id
+
+
+def hermes_claim(session_key: str = "", *, model: str = "", stream: bool = False,
+                 headers: Any = ()) -> HermesClaim:
+    """Attribute one inner request of the Hermes runtime (spec §1.8), by the first rule that applies:
+
+      1. session: a per-request id, X-Hermes-Session-Key, names calls in flight (the session key Atlas sent with the
+         call, atlas:desk<id>:<agent>); exact when they all belong to one run.
+      2. run: every Atlas->Hermes call in flight belongs to one owner and run. Exact: a run's parallel delegations
+         share one meter.
+      3. overlap: calls of several owners or runs overlap. The call that started earliest pays, and the ledger row says
+         'attributed: overlap' (the operator view counts these).
+      4. none: no call in flight. The house row hermes.unattributed, limited only by the pool, the per-minute window
+         and Atlas's paid cap (L10, L11, L13).
+
+    Every request that passed the proxy's access checks counts as seen (the self-check). The last one's shape is kept
+    for the operator view (§8.4 item 3): its model, whether it streamed, the rule, and its header names (no values)."""
+    sk = str(session_key or "").strip()[:120]
+    with _mem_lock:
+        _hermes_stats["seen"] += 1
+        calls = sorted(_hermes.items(), key=lambda kv: kv[1]["t0"])
+        named = [c for c in calls if sk and c[1].get("session_key") == sk]
+        pick, rule = (named, "session") if named else (calls, "run")
+        if not pick:
+            claim = HermesClaim(meter=house_meter("hermes.unattributed"), surface="hermes.unattributed")
+        else:
+            token, first = pick[0]
+            exact = len({_run_key(h["meter"]) for _t, h in pick}) == 1
+            claim = HermesClaim(meter=first["meter"], rule=rule if exact else "overlap",
+                                basis="" if exact else HERMES_OVERLAP, token=token)
+        names = sorted({str(k).lower() for k in headers} - {"authorization", "cookie", "proxy-authorization"})
+        _hermes_stats["last"] = {"ts": _now(), "model": str(model or "")[:120], "stream": bool(stream),
+                                 "rule": claim.rule, "headers": names[:40]}
+    return claim
+
+
+def hermes_counted(claim: HermesClaim) -> None:
+    """The inner request passed the limits and is being sent: one more for its call (hermes_end's count)."""
+    if claim.token:
+        with _mem_lock:
+            h = _hermes.get(claim.token)
+            if h is not None:
+                h["inner"] += 1
+
+
+def hermes_refused(claim: HermesClaim, exc: UsageLimit) -> None:
+    """A limit refused one of the call's inner requests (in the proxy, or the provider's own daily quota). Kept on
+    the call, so the delegation ends at the limit instead of passing on whatever Hermes made of the error. A day,
+    month or run limit wins over a per-minute one, which a later retry may get past."""
+    if not claim.token:
+        return
+    with _mem_lock:
+        h = _hermes.get(claim.token)
+        if h is not None and (h.get("limit") is None or h["limit"].limit_id == "pool_free_min"):
+            h["limit"] = exc
+
+
+def hermes_limit(token: str) -> UsageLimit | None:
+    """The limit that refused one of this call's inner requests, if any (read it before hermes_end())."""
+    with _mem_lock:
+        h = _hermes.get(str(token or ""))
+        return h.get("limit") if h else None
+
+
+def proxy_enter() -> bool:
+    """Take one of the proxy's USAGE_PROXY_MAX_INFLIGHT slots (8: prod's 32 portal threads keep 24, C8). False =
+    all taken: the request is answered 429 at once, never queued."""
+    with _mem_lock:
+        if _hermes_stats["inflight"] >= CFG.proxy_max_inflight:
+            _hermes_stats["busy"] += 1
+            return False
+        _hermes_stats["inflight"] += 1
+        return True
+
+
+def proxy_exit() -> None:
+    with _mem_lock:
+        _hermes_stats["inflight"] = max(0, _hermes_stats["inflight"] - 1)
+
+
+def hermes_view(now: float | None = None) -> dict[str, Any]:
+    """The Hermes block of the operator view (spec §5.4): the mode, whether the proxy has a usable token, the calls
+    and proxied requests in flight, today's inner requests from the ledger (how many were attributed by overlap, how
+    many went unattributed, how many were refused), the proxy's busy answers since boot, the last self-check warning,
+    and the shape of the last inner request (spec §8.4 item 3)."""
+    now = _now() if now is None else now
+    today = {"inner": 0, "overlap": 0, "unattributed": 0, "refused": 0}
+    if _store is not None:
+        rows = _store._conn.execute(
+            "SELECT surface, kind, cost_basis, SUM(units) FROM usage_events WHERE ts >= ? AND surface IN (?, ?) "
+            "GROUP BY surface, kind, cost_basis", (day_start(now), *HERMES_SURFACES)).fetchall()
+        for surface, kind, basis, n in rows:
+            n = int(n or 0)
+            if kind == "refusal":
+                today["refused"] += n
+            elif kind == "request":
+                today["inner"] += n
+                if surface == "hermes.unattributed":
+                    today["unattributed"] += n
+                elif HERMES_OVERLAP in str(basis or ""):
+                    today["overlap"] += n
+    with _mem_lock:
+        calls, inflight, busy = len(_hermes), _hermes_stats["inflight"], _hermes_stats["busy"]
+        last = dict(_hermes_stats["last"]) or None
+    return {"mode": CFG.hermes_meter, "proxy_ready": proxy_token_ok(), "calls_in_flight": calls,
+            "requests_in_flight": inflight, "max_in_flight": CFG.proxy_max_inflight, "today": today,
+            "busy_since_boot": busy, "warning": hermes_warning(), "last_request": last}

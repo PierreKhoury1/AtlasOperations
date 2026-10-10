@@ -632,9 +632,12 @@ def test_soc_desk_runtime_has_no_dangerous_tools_or_hermes(cy, monkeypatch):
     conf = A.desk_configs(A.store.desk(desk["id"]))
     assert conf["agents"] and all(not (set(a["tools"]) | set(a["granted_tools"])) & bad for a in conf["agents"])
     assert J(c.post("/api/demo/seed")) == []                    # no invented leads on a security desk
-    # live mode with a Hermes runtime configured everywhere: still no agent on it (no providers.json read)
+    # live mode with a Hermes runtime configured everywhere, and its model calls counted so Atlas would use it
+    # (USAGE_HERMES_METER=proxy, usage spec §1.8): still no agent on it (no providers.json read)
     from atlas import config as C
+    from atlas import usage
     monkeypatch.setattr(C, "load", lambda name, default: json.loads(json.dumps(default)))
+    monkeypatch.setattr(usage.CFG, "hermes_meter", "proxy")
     monkeypatch.setenv("DESK_MODE", "live")
     monkeypatch.setenv("DESK_DEFAULT_ENGINE", "hermes_agent")
     monkeypatch.setenv("DESK_LEAD_ENGINE", "hermes_agent")

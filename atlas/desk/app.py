@@ -51,6 +51,7 @@ from .. import team as TM
 from .. import usage as U
 from . import scheduler
 from . import auth as AUTH
+from . import hermes_proxy
 from ..orchestrator import Event, Orchestrator
 from ..store import Store
 
@@ -77,6 +78,9 @@ def _no_peeking() -> None:
 _no_peeking()
 
 app = Flask(__name__, static_folder=None)
+# /internal/llm/v1: the Hermes runtime's model calls, metered per account (usage spec §1.8). Loopback and token only;
+# _guard does not cover /internal, the routes check for themselves.
+app.register_blueprint(hermes_proxy.bp)
 # DATABASE_URL (postgres://...) makes accounts, desks and approvals survive deploys; without it SQLite in DATA_DIR.
 store = Store(DB_PATH, url=os.environ.get("DATABASE_URL", "").strip() or None)
 
@@ -299,6 +303,10 @@ def desk_configs(desk: dict[str, Any]) -> dict[str, Any]:
     elif os.environ.get("HERMES_AGENT_URL", "").strip():
         hcfg = {"base_url": os.environ["HERMES_AGENT_URL"].strip(), "api_key": os.environ.get("HERMES_AGENT_KEY", "").strip(),
                 "session_prefix": "atlas"}
+    # Atlas's own instance only while its inner model calls are counted per account (usage spec §1.8): with
+    # USAGE_HERMES_METER=off the lead and the specialists stay on the built-in engine. A desk's own instance runs on
+    # the owner's key and is never held back (spec §2).
+    house_hermes_off = hcfg is not None and not hconn and not U.hermes_house_on()
     default_hermes = os.environ.get("DESK_DEFAULT_ENGINE", "").strip().lower() == "hermes_agent" and mode != "demo"
     # The LEAD may also run on the Hermes Agent runtime (Model landscape engine override for atlas, or
     # DESK_LEAD_ENGINE=hermes_agent). Hermes ignores client tool schemas, so the lead keeps our desk tools through
@@ -315,7 +323,9 @@ def desk_configs(desk: dict[str, Any]) -> dict[str, Any]:
                 a["engine"] = "atlas"
             continue
         if a["id"] == "atlas":
-            if lead_hermes and hcfg:
+            if lead_hermes and house_hermes_off:
+                a["engine_note"] = U.HERMES_OFF_NOTE
+            elif lead_hermes and hcfg:
                 tier_cfg = templates.TIERS.get(desk.get("tier") or "free", templates.TIERS["free"])
                 hmodel = (lead_ov.get("model") if lead_ov.get("model") and lead_ov["model"] != "hermes-agent"
                           else tier_cfg.get("hermes_model", templates.FREE_MODEL))
@@ -332,6 +342,9 @@ def desk_configs(desk: dict[str, Any]) -> dict[str, Any]:
             continue
         if not hcfg:
             a["engine_note"] = "no Hermes Agent instance configured - running on the built-in engine"
+            continue
+        if house_hermes_off:
+            a["engine_note"] = U.HERMES_OFF_NOTE
             continue
         pname = f"hermes_agent_{a['id']}"
         # the tier decides which model runs INSIDE the Hermes runtime (free MiniMax / Haiku / Sonnet); a per-agent
@@ -800,11 +813,16 @@ def api_orch_live():
     return resp
 
 
+def _house_hermes() -> bool:
+    """Atlas's own Hermes instance is configured and may be used (not USAGE_HERMES_METER=off, usage spec §1.8)."""
+    return bool(os.environ.get("HERMES_AGENT_URL", "").strip()) and U.hermes_house_on()
+
+
 @app.get("/api/health")
 def api_health():
     reason = _live_reason()
     return jsonify({"ok": True, "mode": _mode(), "live_ready": not reason, "live_reason": reason,
-                    "hermes_agent": bool(os.environ.get("HERMES_AGENT_URL", "").strip()),
+                    "hermes_agent": _house_hermes(),
                     "db": store.backend, "db_ok": store.ping(),
                     "mail": AUTH.mail_ready(), "two_factor": AUTH.two_factor_active(), "google": AUTH.google_ready(),
                     "two_factor_mode": AUTH.two_factor_mode(), "two_factor_ready": not AUTH.two_factor_problem()})
@@ -1065,7 +1083,7 @@ def _team_context(desk: dict[str, Any]) -> tuple[dict[str, Any], list[str], bool
     conns = store.connectors(desk["id"])
     cams = [c["name"] for c in conns if c["kind"] == "camera"]
     cams += [h["name"] for h in store.hook_cameras(desk["id"], time.time() - 7 * 86400, tuple(cams)) if h.get("name")]
-    hermes = configs["mode"] != "demo" and (any(c["kind"] == "hermes_agent" for c in conns) or bool(os.environ.get("HERMES_AGENT_URL", "").strip()))
+    hermes = configs["mode"] != "demo" and (any(c["kind"] == "hermes_agent" for c in conns) or _house_hermes())
     hermes = hermes and not configs["business"].get("no_hermes_engine")
     deny = set(configs["business"].get("deny_tools") or [])
     allowed = [t for t in TM.ALLOWED_TOOLS if t not in deny]   # camera tools stay designable before a camera is added

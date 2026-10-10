@@ -716,15 +716,27 @@ class HermesAgentProvider(OpenAICompatProvider):
         meter = U.resolve(self.meter)
         U.precheck(meter, provider="openrouter", model=want, key_kind="house")
         token = U.hermes_begin(meter, self.session_key)
-        status = "error"
+        status, failed, r = "error", None, None
         try:
             r = super().chat(system, messages, [], want, on_token=on_token)
             status = "ok"
-            return r
+        except Exception as exc:
+            failed = exc
         finally:
+            # A limit that refused one of its inner requests ends the delegation at that limit (the parent gets the
+            # typed LIMIT result), whatever Hermes made of the 429. A per-minute refusal Hermes got past is no limit.
+            held = U.hermes_limit(token)
+            if held is not None and (status != "ok" or held.limit_id != "pool_free_min"):
+                status = "limit"
             inner = U.hermes_end(token, answered=status == "ok")
             U.action(meter, "action", metric="hermes:calls", surface="hermes.call", status=status, provider="hermes",
-                     model=want, key_kind="house", note=f"{inner} inner requests through the metering proxy")
+                     model=want, key_kind="house", note=f"{inner} inner requests through the metering proxy",
+                     limit_id=held.limit_id if status == "limit" and held is not None else "")
+        if status == "limit" and held is not None:
+            raise held from failed
+        if failed is not None:
+            raise failed
+        return r
 
     def _once(self, client, payload, on_token, _raise, limits=None) -> dict[str, Any]:
         if self.metering() == "proxy":                # its inner requests are metered one by one in the proxy
