@@ -29,6 +29,14 @@ const W = {
   modeSel: 'job', apCount: null, apOldest: '', runs: [], desks: [], notes24: null, lastNoteTs: 0, cost: null, activeRuns: 0,
 };
 
+// usage limits (usage spec §4.7, §4.8): the frame's formatter (shell.js window.atlasLimit), so a limit reads the same on
+// every page: numbers first, the reset in UTC with local time in the tooltip, a link to the Usage page
+const LIMIT_KINDS = ['usage_limit', 'outside_window', 'rate_limited'];
+const isLimit = j => !!j && typeof j === 'object' && LIMIT_KINDS.includes(j.error);
+const limitBody = j => isLimit(j) ? (window.atlasLimit ? window.atlasLimit.map(j) : {...j, code: j.error, error: j.message || j.error, limited: true}) : j;
+function limitHtml(b){ return window.atlasLimit ? window.atlasLimit.html(b) : esc((b && (b.message || b.error)) || ''); }   // a server body or an api() one
+function limitLine(b, role){ const d = addMsg(role || 's', ''); d.classList.add('limit'); d.innerHTML = limitHtml(b); msgsEnd(); return d; }
+function limitLink(b){ const e = document.createElement('div'); e.className = 'lim-link'; e.innerHTML = window.atlasLimit ? window.atlasLimit.link(b) : '<a href="/desk/usage">See usage</a>'; return e; }
 // every API call names this page's desk (X-Desk), so another tab switching desk never changes what this page reads
 const deskOf = () => W.deskId || W.pin || 0;
 const withDesk = u => deskOf() ? u + (u.includes('?') ? '&' : '?') + 'desk=' + deskOf() : u;
@@ -37,7 +45,7 @@ const api = async (p, opt) => {
   const init = opt ? {...opt, headers: {'Content-Type': 'application/json', ...headers}, body: opt.body ? JSON.stringify(opt.body) : undefined} : {headers};
   const r = await fetch('/api' + p, init);
   if (r.status === 401) { location.href = '/login?next=' + encodeURIComponent(location.pathname + location.search); return null; }
-  try { return await r.json(); } catch (_) { return {error: 'bad response ' + r.status}; }
+  try { return limitBody(await r.json()); } catch (_) { return {error: 'bad response ' + r.status}; }
 };
 function toast(m){ const t = $('#toast'); t.textContent = m; t.classList.add('on'); clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.remove('on'), 2800); }
 
@@ -382,7 +390,11 @@ async function send(text){
   try {
     const r = await fetch(`/api/design/${W.sid}/say`, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({text})});
     if (r.status === 401) { location.href = '/login?next=' + encodeURIComponent(location.pathname + location.search); return; }
-    const reader = r.body.getReader(); const dec = new TextDecoder(); let buf = '';
+    if (!r.ok || !r.body) {                            // refused before any stream (a usage limit's 429, a rate limit): JSON, no turn recorded
+      let j = null; try { j = await r.json(); } catch (_) {}
+      result = isLimit(j) ? {refused: j} : {error: (j && (j.message || j.error)) || `Atlas did not answer (${r.status}). Try again.`};
+    }
+    else { const reader = r.body.getReader(); const dec = new TextDecoder(); let buf = '';
     while (true) {
       const {value, done} = await reader.read(); if (done) break;
       buf += dec.decode(value, {stream: true});
@@ -394,14 +406,18 @@ async function send(text){
           if (ev.t === 'tok') { acc += ev.d; if (!raf) raf = requestAnimationFrame(paint); }
           else if (ev.t === 'status') { setState(ev.d); }
           else if (ev.t === 'done') result = ev;
-          else if (ev.t === 'error') result = {error: ev.error};
+          else if (ev.t === 'error') result = isLimit(ev) ? {refused: ev} : {error: ev.error};
         }
       }
-    }
-    if (!result && !r.ok) { let j = null; try { j = JSON.parse(buf); } catch (_) {} result = {error: (j && (j.error || j.message)) || `Atlas did not answer (${r.status}). Try again.`}; }
+    } }
   } catch (e) { result = {error: String(e)}; }
   cancelAnimationFrame(raf);
   W.busy = false; $('#send').disabled = false; setState('ready');
+  if (result && result.refused) {                      // the limit's numbers and reset, with the server's steps; W.lastSaid stays (the paid step resends it)
+    const j = result.refused; d.classList.add('limit'); d.innerHTML = limitHtml(j);
+    setNext(Array.isArray(j.next) && j.next.length ? j.next : [{label: 'Send it again', detail: 'Resends your last message to Atlas', icon: 'i-reset', run: () => send(text)}], d);
+    return;
+  }
   if (!result || result.error) {
     d.innerHTML = md((result && result.error) || 'Atlas did not answer. Try again.');
     setNext([{label: 'Send it again', detail: 'Resends your last message to Atlas', icon: 'i-reset', run: () => send(text)}], d);
@@ -409,6 +425,7 @@ async function send(text){
   }
   const last = (result.transcript || []).filter(m => m.role === 'assistant').pop();
   d.innerHTML = md(result.text || (last && last.text) || acc || 'Atlas did not answer. Try again.');   // the final text, without the machine block
+  if (result.limit) d.append(limitLink(result.limit));                    // a limit inside the turn: the reset and the Usage page
   if (result.blueprint && (result.blueprint.agents || []).length) { await applyBlueprint(result.blueprint); setDeskStatus(); }
   $('#build-btn').disabled = !(W.bp && W.bp.agents && W.bp.agents.length);
   $('#build-btn').title = W.bp ? 'Build the desk from this draft' : 'Available once Atlas has drafted a team';
@@ -785,6 +802,7 @@ async function deploy(task, mode, echoed){
   if (!task) { showTab('runs'); $('#job').focus(); return toast('Type the job first'); }
   if (W.run && W.run.active) return toast('A run is already going: wait for it to finish');
   const r = await api('/runs', {method: 'POST', body: {task, mode: mode || 'auto'}});
+  if (r && r.limited) { toast(r.error); limitLine(r); return; }           // refused at a usage limit: the job text stays in the box
   if (!r || r.error) return toast((r && (r.message || r.error)) || 'could not start');
   $('#job').value = ''; $('#deploy-btn').classList.remove('cue');
   retireNext();                                                            // offers made for an earlier reply no longer apply
@@ -885,8 +903,10 @@ function onRunEvent(e){
     setPhase('ready'); setState('ready');
     showSummary(W.run.id, W.run.status, text);
     if (live) {
-      const failed = runFailed(W.run.status, text);
-      const fin = addMsg('a', failed ? `**Run failed.** ${text.split('\n\n---\n')[0].replace(/^ERROR from [^:]+:\s*/, '').slice(0, 300)}` : `Run finished. ${text.split('---').pop().trim()}`.trim(), failed ? 'err' : '');
+      const failed = runFailed(W.run.status, text), limited = W.run.status === 'limit';
+      const fin = addMsg('a', limited ? `**Run stopped at a limit.** ${text.split('\n\n---\n')[0].replace(/^Stopped:\s*/, '').slice(0, 300)}`
+        : failed ? `**Run failed.** ${text.split('\n\n---\n')[0].replace(/^ERROR from [^:]+:\s*/, '').slice(0, 300)}` : `Run finished. ${text.split('---').pop().trim()}`.trim(), failed ? 'err' : limited ? 'limit' : '');
+      if (limited) fin.append(limitLink({}));
       loadNext({context: 'run_done', run_id: W.run.id, status: W.run.status, task: W.run.task || ''}, fin);   // the stored run wins on the server
       loadApprovals(); loadRuns(); pollStats(); shellRefresh(); tutHook('done');
     }
@@ -959,7 +979,7 @@ function apEdit(id){ const el = document.getElementById('ap-' + id); if (!el) re
 async function decide(id, status){
   const v = q => { const e = document.getElementById(q); return e ? e.value : ''; };
   const r = await api(`/actions/${id}/decide`, {method: 'POST', body: {status, note: v(`ap-n-${id}`), body: v(`ap-b-${id}`), subject: v(`ap-s-${id}`)}});
-  if (r && (r.error === 'outside_window' || r.error === 'usage_limit')) return apNotSent(id, r);
+  if (r && (r.limited || r.error === 'outside_window' || r.error === 'usage_limit')) return apNotSent(id, r);
   if (!r || r.error) return toast((r && r.error) || 'failed');
   toast(status === 'approved' ? (W.mode === 'demo' ? 'Approved (simulated send in demo mode)' : 'Approved and sent') : 'Rejected: the agents see your note next run');
   loadApprovals(); shellRefresh();
@@ -967,7 +987,7 @@ async function decide(id, status){
 // the channel's own rule or a usage limit held the send (409 / 429): nothing went out, the card stays pending with
 // the reason above its buttons, and Approve works again once the customer writes or the limit resets
 function apNotSent(id, r){
-  const card = document.getElementById('ap-' + id), text = r.message || r.error;
+  const card = document.getElementById('ap-' + id), text = r.limited ? r.error : (r.message || r.error);
   if (!card) return toast('Not sent: ' + text);
   let el = card.querySelector('.hold.not-sent');
   if (!el) { el = document.createElement('div'); el.className = 'hold not-sent'; el.append(Object.assign(document.createElement('b'), {textContent: 'Not sent'}), ' ', document.createElement('span')); card.querySelector('.ap-acts').before(el); }
@@ -1074,7 +1094,8 @@ function ingestCams(r){
     const st = c.status || {}; const s = c.seen || {}; const le = c.last_event || {};
     Object.assign(k, {id: c.id, st: st.state || (c.watch_job && c.watch_job.enabled ? 'waiting' : 'off'), watching: !!st.watching, every: st.every_s || 30,
       frameTs: st.frame_ts || s.ts || le.ts || 0, problem: st.problem || '', sourceKind: c.source_kind || '', journal: !!c.journal,
-      counts: s.counts || le.counts || {}, lastNote: c.last_note || null});
+      counts: s.counts || le.counts || {}, lastNote: c.last_note || null,
+      usage: s.detect_status || s.journal_status || ''});              // AI counts or the journal paced or paused at a usage limit
     if (c.last_note && c.last_note.ts > lastNote) lastNote = c.last_note.ts;
     renderCamTile(k);
   }
@@ -1101,12 +1122,14 @@ function renderCamTile(k){
   const cl = built && k.frameTs ? countsText(k.counts) : '';
   const cnth = cl ? cl.split(', ').slice(0, 3).map(t => `<span>${esc(t)}</span>`).join('') : '';
   if (cnt.innerHTML !== cnth) { cnt.innerHTML = cnth; cnt.title = cl; }
-  const tg = !built ? ['draft', ''] : k.problem ? ['fix feed', 'warn'] : st === 'live' ? ['watching', 'ok'] : st === 'waiting' ? ['starting', 'warn'] : ['not watching', ''];
-  tag.textContent = tg[0]; tag.className = 'tag ' + tg[1]; tag.title = k.problem || (st === 'off' && built ? 'The watch job for this camera is switched off' : '');
+  const held = built && !k.problem && st !== 'off' && k.usage ? (/paused/i.test(k.usage) ? 'paused' : /paced/i.test(k.usage) ? 'paced' : '') : '';
+  const tg = !built ? ['draft', ''] : k.problem ? ['fix feed', 'warn'] : held === 'paused' ? ['paused', 'warn'] : st === 'live' ? ['watching', 'ok'] : st === 'waiting' ? ['starting', 'warn'] : ['not watching', ''];
+  tag.textContent = tg[0]; tag.className = 'tag ' + tg[1]; tag.title = k.problem || (held ? k.usage : (st === 'off' && built ? 'The watch job for this camera is switched off' : ''));
   note.classList.remove('warn');
   if (k.lastNote && k.lastNote.text) { const t = `<b title="${esc(fullTs(k.lastNote.ts))}">${esc(fmtTs(k.lastNote.ts))}</b>`; const html = t + esc(k.lastNote.text); if (note.innerHTML !== html) { const fresh = k.noteTs && k.noteTs !== k.lastNote.ts; note.innerHTML = html; k.noteTs = k.lastNote.ts; if (fresh) { note.classList.remove('new'); void note.offsetWidth; note.classList.add('new'); } } }
   else if (!built) note.textContent = k.plan || 'Planned by Atlas';
   else if (k.problem) { note.textContent = 'Open the feed and re-enter the stream address to start watching.'; note.classList.add('warn'); }
+  else if (held === 'paused') { note.textContent = k.usage; note.classList.add('warn'); }   // e.g. "Detection paused until 00:00 UTC: ..."
   else note.textContent = k.journal ? 'No journal note yet.' : 'Journal off: detections only.';
 }
 function camClick(name){ const k = W.cams.get(name); if (!k) return; if (k.id && k.st === 'live') openLive(name); else openAttach(name); }
@@ -1148,7 +1171,7 @@ async function askCams(text, already, hours, camera){
   try { r = await api('/vision/ask', {method: 'POST', body: camera ? {question: text, hours, camera} : {question: text, hours}}); } catch (e) { r = {error: String(e)}; }
   W.busy = false; $('#send').disabled = false; setState('ready');
   if (!r || r.error) {
-    const note = addMsg('s', (r && r.error) || 'could not read the journal; try again');
+    const note = r && r.limited ? limitLine(r) : addMsg('s', (r && r.error) || 'could not read the journal; try again');
     setNext([{label: 'Ask again', detail: 'Reads the camera journal again', icon: 'i-reset', run: () => askCams(text, false, hours, camera)}], note);
     return;
   }
@@ -1681,7 +1704,7 @@ function renderRunMeta(){
 }
 setInterval(() => { if (W.run && W.run.active) renderRunMeta(); }, 1000);
 async function cancelRun(){ if (!W.run || !W.run.active) return; const r = await api(`/runs/${encodeURIComponent(W.run.id)}/cancel`, {method: 'POST', body: {}}); toast(r && !r.error ? 'Stopping the run' : ((r && r.error) || 'could not stop')); }
-function runState(r){ if (r.active) return ['running', 'run', 'd-run']; if (runFailed(r.status, r.summary)) return ['failed', 'err', 'd-err']; return [r.status || 'done', r.status === 'done' ? 'ok' : '', r.status === 'done' ? 'd-ok' : 'd-q']; }
+function runState(r){ if (r.active) return ['running', 'run', 'd-run']; if (r.status === 'limit') return ['stopped at a limit', 'warn', 'd-warn']; if (runFailed(r.status, r.summary)) return ['failed', 'err', 'd-err']; return [r.status || 'done', r.status === 'done' ? 'ok' : '', r.status === 'done' ? 'd-ok' : 'd-q']; }
 async function loadRuns(){
   if (!W.deskId) return;
   const rows = await api('/runs'); if (!Array.isArray(rows)) return;
@@ -1693,12 +1716,12 @@ async function loadRuns(){
   renderHead();
 }
 function showSummary(id, status, text){
-  const failed = runFailed(status, text);
-  $('#sum-h').className = 'sum-h' + (failed ? ' err' : ''); $('#sum-h').querySelector('use').setAttribute('href', failed ? '#i-alert' : '#i-check');
-  $('#sum-title').textContent = failed ? 'Run failed' : 'Run finished';
+  const failed = runFailed(status, text), limited = status === 'limit';   // a usage limit stopped it: not a failure (usage spec §5.5)
+  $('#sum-h').className = 'sum-h' + (failed ? ' err' : limited ? ' warn' : ''); $('#sum-h').querySelector('use').setAttribute('href', failed || limited ? '#i-alert' : '#i-check');
+  $('#sum-title').textContent = failed ? 'Run failed' : limited ? 'Run stopped at a limit' : 'Run finished';
   $('#summary-text').innerHTML = md((failed ? String(text || '').replace(/^ERROR from ([^:]+):\s*/, '**The run stopped: $1 hit an error.** ') : (text || '')).trim() || '(no summary)');
   $('#summary').classList.remove('hide'); $('#summary-empty').classList.add('hide');
-  $('#sum-meta').textContent = `${id} · ${failed ? 'failed' : (status || 'finished')}`;
+  $('#sum-meta').textContent = `${id} · ${failed ? 'failed' : limited ? 'stopped at a limit' : (status || 'finished')}`;
 }
 async function openRun(id){
   const r = await api(`/runs/${encodeURIComponent(id)}`); if (!r || r.error) return toast((r && r.error) || 'run not found');

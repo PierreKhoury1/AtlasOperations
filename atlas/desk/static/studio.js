@@ -65,8 +65,12 @@ async function dsStudy() {
   const push = (t, done) => { if (lines.length) lines[lines.length - 1].cls = 'done'; lines.push({t, cls: done ? 'done' : 'on'}); box.innerHTML = lines.map(l => `<div class="st-line ${l.cls}">${esc(l.t)}</div>`).join(''); };
   try {
     const r = await fetch(`/api/design/${DSG.sid}/study`, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({links})});
-    if (!r.ok) throw new Error('HTTP ' + r.status);
-    const rd = r.body.getReader(); const dec = new TextDecoder(); let buf = '';
+    if (!r.ok) {                                         // refused before the stream: a usage limit's 429 says why and until when
+      let j = null; try { j = await r.json(); } catch (_) {}
+      push(dsLimit(j) ? window.atlasLimit.text(j) : 'Study failed: ' + ((j && (j.message || j.error)) || 'HTTP ' + r.status), true);
+      if (dsLimit(j)) dsLimitLink(box, j);
+    }
+    else { const rd = r.body.getReader(); const dec = new TextDecoder(); let buf = '';
     while (true) {
       const {value, done} = await rd.read(); if (done) break;
       buf += dec.decode(value, {stream: true});
@@ -77,11 +81,11 @@ async function dsStudy() {
           if (!line.startsWith('data: ')) continue;
           const ev = JSON.parse(line.slice(6));
           if (ev.t === 'status') push(ev.d);
-          else if (ev.t === 'error') push('Study failed: ' + ev.error, true);
-          else if (ev.t === 'done') onStudyDone(ev, push);
+          else if (ev.t === 'error') push(dsLimit(ev) ? window.atlasLimit.text(ev) : 'Study failed: ' + ev.error, true);
+          else if (ev.t === 'done') { onStudyDone(ev, push); if (ev.limit) dsLimitLink($('#ds-study'), ev.limit); }
         }
       }
-    }
+    } }
   } catch (e) { push('Connection error: ' + e.message, true); }
   DSG.busy = false; $('#ds-studybtn').disabled = false;
 }
@@ -140,8 +144,13 @@ async function dsSend(text) {
       try { await api(`/design/${DSG.sid}/blueprint`, {method: 'POST', body: {blueprint: DSG.bp}}); } catch (_) {}
     }
     const r = await fetch(`/api/design/${DSG.sid}/say`, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({text})});
-    if (!r.ok) throw new Error('HTTP ' + r.status);
-    const rd = r.body.getReader(); const dec = new TextDecoder(); let buf = '';
+    if (!r.ok) {                                         // refused before the stream (a usage limit's 429): no turn was recorded
+      let j = null; try { j = await r.json(); } catch (_) {}
+      if (!dsLimit(j)) throw new Error((j && (j.message || j.error)) || 'HTTP ' + r.status);
+      tx.innerHTML = window.atlasLimit.html(j); node.classList.add('limit');
+      setSugg((j.next || []).map(s => s && s.say).filter(Boolean).slice(0, 3));
+    }
+    else { const rd = r.body.getReader(); const dec = new TextDecoder(); let buf = '';
     while (true) {
       const {value, done} = await rd.read(); if (done) break;
       buf += dec.decode(value, {stream: true});
@@ -153,14 +162,18 @@ async function dsSend(text) {
           const ev = JSON.parse(line.slice(6));
           if (ev.t === 'tok') { tx.textContent = (tx.textContent + ev.d).replace(/\*\*/g, ''); $('#ds-msgs').scrollTop = 1e9; }
           else if (ev.t === 'status') { setStatus(node, ev.d); }
-          else if (ev.t === 'done') { setStatus(node, ''); try { onDesignTurn(ev, tx); } catch (e) { console.error('design turn render failed', e); tx.textContent = ev.text; } }
-          else if (ev.t === 'error') { tx.textContent = 'Designer error: ' + ev.error; }
+          else if (ev.t === 'done') { setStatus(node, ''); try { onDesignTurn(ev, tx); } catch (e) { console.error('design turn render failed', e); tx.textContent = ev.text; } if (ev.limit) dsLimitLink(node, ev.limit); }
+          else if (ev.t === 'error') { tx.textContent = dsLimit(ev) ? window.atlasLimit.text(ev) : 'Designer error: ' + ev.error; }
         }
       }
-    }
+    } }
   } catch (e) { tx.textContent = (tx.textContent || '') + `\n[connection error: ${e.message}]`; }
   node.classList.remove('typing'); DSG.busy = false; $('#ds-sendbtn').disabled = false; $('#ds-input').focus();
 }
+
+// a usage limit (usage spec §4.7): the frame's formatter says it the same way as every other page
+const dsLimit = j => !!(j && window.atlasLimit && window.atlasLimit.is(j));
+function dsLimitLink(box, limit) { if (!box || !window.atlasLimit) return; const e = document.createElement('div'); e.className = 'lim-link'; e.innerHTML = window.atlasLimit.link(limit); box.appendChild(e); }
 
 function onDesignTurn(ev, tx) {
   tx.textContent = ev.text;

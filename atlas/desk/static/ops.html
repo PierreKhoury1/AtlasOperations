@@ -5,7 +5,7 @@
 <title>Atlas Desk · Operations</title>
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
-<script>try{var t=localStorage.getItem("atlas-theme");document.documentElement.dataset.theme=t||(matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light")}catch(e){document.documentElement.dataset.theme="light"}</script>
+<script>try{var t=localStorage.getItem("atlas-theme");document.documentElement.dataset.theme=t||"light"}catch(e){document.documentElement.dataset.theme="light"}</script>
 <style>
 :root{--appbar:#1c2127;--appbar-text:#f6f7f9;--bg:#f4f5f7;--panel:#fff;--panel2:#f6f7f9;--panel3:#eceef1;--line:#e1e4e8;--line2:#d0d5db;
   --text:#14171c;--text2:#3d4550;--muted:#59616d;--faint:#7c8591;--accent:#2d72d2;--accent2:#215db0;--accent-soft:rgba(45,114,210,.10);
@@ -271,13 +271,16 @@ body.sh-on .bar>.brand{display:none}   /* inside the app frame the rail carries 
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const ic = (n, cls='s') => `<svg class="i ${cls}"><use href="#i-${n}"/></svg>`;
+// a usage limit (429 usage_limit) or a channel's reply window (409 outside_window): the error carries the formatted
+// message (window.atlasLimit, shell.js), `limited` and the body (usage spec §4.8)
+const limitBody = j => (j && ['usage_limit', 'outside_window', 'rate_limited'].includes(j.error)) ? (window.atlasLimit ? window.atlasLimit.map(j) : {...j, code: j.error, error: j.message || j.error, limited: true}) : j;
 async function api(path, opt){
   const init = opt ? {method: opt.method || 'POST', headers: {'Content-Type':'application/json'}, body: opt.body !== undefined ? JSON.stringify(opt.body) : undefined} : undefined;
   const r = await fetch('/api' + path, init);
   if (r.status === 401) { location.href = '/login?next=/desk/ops'; throw new Error('signed out'); }
   let j = null; try { j = await r.json(); } catch (e) {}
   if (r.status === 409 && j && j.error === 'no_desk') { location.href = '/desk'; throw new Error('no desk'); }
-  if (!r.ok) { const e = new Error((j && j.error) || ('HTTP ' + r.status)); e.status = r.status; e.data = j; throw e; }
+  if (!r.ok) { const b = limitBody(j); const e = new Error((b && b.error) || ('HTTP ' + r.status)); e.status = r.status; e.data = b; e.limited = !!(b && b.limited); throw e; }
   return j;
 }
 function toast(m){ const t = $('#toast'); t.textContent = m; t.classList.add('on'); clearTimeout(toast._t); toast._t = setTimeout(() => t.classList.remove('on'), 2600); }
