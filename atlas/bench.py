@@ -25,6 +25,7 @@ from typing import Any
 
 from . import config as cfg
 from .config import WORKSPACE_DIR
+from . import usage as U
 from .providers import ProviderPool, make_provider
 
 TASKS: dict[str, dict[str, Any]] = {
@@ -67,13 +68,14 @@ def build_provider(engine: str, model: str, args) -> tuple[Any, str, list[str]]:
         if not key:
             kf = Path(cfg.ROOT) / "config" / "hermes_agent.key"
             key = kf.read_text(encoding="utf-8").strip() if kf.exists() else ""
-        prov = make_provider({"type": "hermes_agent", "base_url": url, "api_key": key, "session_key": "atlas:bench"})
+        prov = make_provider({"type": "hermes_agent", "base_url": url, "api_key": key, "session_key": "atlas:bench"},
+                             meter=U.cli_meter("bench"))
         return prov, "hermes-agent", []                     # Hermes runs its own tools
     providers = cfg.load("providers", cfg.DEFAULT_PROVIDERS)
     for n, pc in cfg.DEFAULT_PROVIDERS["providers"].items():
         providers.setdefault("providers", {}).setdefault(n, dict(pc))
     providers["default_provider"] = "openrouter"
-    return ProviderPool(providers).get("openrouter"), model, None  # None => task decides tools
+    return ProviderPool(providers, meter=U.cli_meter("bench")).get("openrouter"), model, None  # None => task decides tools
 
 
 def run_cell(prov, model: str, task: dict[str, Any], forced_tools, run_dir: Path) -> dict[str, Any]:

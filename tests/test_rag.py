@@ -11,6 +11,9 @@ import pytest
 from PIL import Image
 
 from atlas import rag as R
+from atlas import usage as U
+
+M = U.cli_meter("tests")          # a house meter: what these direct calls count for
 
 
 def J(resp):
@@ -41,7 +44,7 @@ def test_api_embedder_against_mock_endpoint():
         return httpx.Response(200, json={"data": [{"index": i, "embedding": [float(i + 1), 1.0, 0.0]} for i in range(len(body["input"]))]})
 
     e = R.ApiEmbedder(base_url="https://emb.example/v1", api_key="k", model="openai/text-embedding-3-small", transport=httpx.MockTransport(handler))
-    v = e.embed_texts(["a", "b"])
+    v = e.embed_texts(["a", "b"], meter=M)
     assert v.shape == (2, 3) and e.dim == 3 and e.name == "api-openai-text-embedding-3-small"
     assert seen == {"model": "openai/text-embedding-3-small", "auth": "Bearer k"}
     assert np.allclose(np.linalg.norm(v, axis=1), 1.0, atol=1e-5)
@@ -115,7 +118,7 @@ def test_events_are_indexed_on_insert_and_backfill_is_idempotent(store, tmp_path
     assert {v["event_id"] for v in vecs} == set(ids)
     assert all(v["dim"] == 256 and len(bytes(v["text_vec"])) == 256 * 4 for v in vecs)
     assert store.unindexed_vision_events(1, emb.name) == []
-    assert R.backfill(store, 1, emb) == 0
+    assert R.backfill(store, 1, emb, meter=M) == 0
     # a different embedder name means "not indexed yet" for that model, without touching the existing rows
     assert len(store.unindexed_vision_events(1, "other-model", 10)) == len(ids)
 
@@ -123,7 +126,7 @@ def test_events_are_indexed_on_insert_and_backfill_is_idempotent(store, tmp_path
 def test_retrieve_ranks_by_meaning_and_honours_time_and_camera(store, tmp_path):
     ids = _seed(store, 1, tmp_path)
     van = ids[1]
-    ret = R.retrieve(store, 1, "when did the delivery van come to the rear door?", hours=24)
+    ret = R.retrieve(store, 1, "when did the delivery van come to the rear door?", hours=24, meter=M)
     assert ret["embedder"] == "hash-trigram-256" and ret["considered"] == 6 and ret["indexed"] == 6
     assert ret["channels"] == ["text", "keyword", "recency"]
     best = max(ret["scores"], key=ret["scores"].get)
@@ -131,21 +134,21 @@ def test_retrieve_ranks_by_meaning_and_honours_time_and_camera(store, tmp_path):
     assert "text" in ret["why"][van] or "keyword" in ret["why"][van]
     assert van in ret["matched"]
     # camera filter
-    ret = R.retrieve(store, 1, "queue at the till", camera="counter")
+    ret = R.retrieve(store, 1, "queue at the till", camera="counter", meter=M)
     assert {r["camera"] for r in ret["rows"]} == {"counter"}
     # time window from the question beats the hours argument: 'last 2 hours' -> only the newest two
-    ret = R.retrieve(store, 1, "what happened in the last 150 minutes", hours=24)
+    ret = R.retrieve(store, 1, "what happened in the last 150 minutes", hours=24, meter=M)
     assert ret["window"] == "last 150 minutes" and ret["considered"] == 2
     # strict mode drops non-matches; a nonsense query matches nothing
-    ret = R.retrieve(store, 1, "zebra crossing giraffe", strict=True)
+    ret = R.retrieve(store, 1, "zebra crossing giraffe", strict=True, meter=M)
     assert ret["rows"] == [] and ret["matched"] == []
-    ret = R.retrieve(store, 1, "delivery van", strict=True)
+    ret = R.retrieve(store, 1, "delivery van", strict=True, meter=M)
     assert [r["id"] for r in ret["rows"]] == [van]
 
 
 def test_ask_demo_mode_cites_best_events_and_reports_retrieval(store, tmp_path):
     ids = _seed(store, 1, tmp_path)
-    res = R.ask(store, 1, "did a delivery arrive at the back door?", mode="demo", business={"name": "Corner Shop"})
+    res = R.ask(store, 1, "did a delivery arrive at the back door?", mode="demo", business={"name": "Corner Shop"}, meter=M)
     assert f"[#{ids[1]}]" in res["answer"]
     m = res["retrieval"]
     assert m["method"] == "hybrid-rrf" and m["grounding"] == "demo" and m["considered"] == 6 and m["matched"] >= 1
@@ -157,7 +160,7 @@ def test_ask_live_uses_vision_model_with_retrieved_frames(store, tmp_path, monke
     ids = _seed(store, 1, tmp_path)
     calls = {}
 
-    def fake_chat_images(system, text, images, model="", max_tokens=500, transport=None):
+    def fake_chat_images(system, text, images, model="", max_tokens=500, transport=None, *, meter):
         calls["images"] = [lab for lab, _ in images]
         calls["text"] = text
         return f"A van unloaded at the rear door [#{ids[1]}]."
@@ -165,14 +168,14 @@ def test_ask_live_uses_vision_model_with_retrieved_frames(store, tmp_path, monke
     from atlas import vision as V
     monkeypatch.setattr(V, "chat_images", fake_chat_images)
     monkeypatch.setattr(V, "vlm_ready", lambda: True)
-    res = R.ask(store, 1, "did a delivery van come?", mode="live", text_answer=lambda s, p: "text fallback")
+    res = R.ask(store, 1, "did a delivery van come?", mode="live", text_answer=lambda s, p: "text fallback", meter=M)
     assert res["answer"].startswith("A van unloaded")
     assert calls["images"] and calls["images"][0].startswith(f"[#{ids[1]}]")
     assert "of 6 events match" in calls["text"]
     assert res["retrieval"]["grounding"].startswith("vision model re-looked at 1")
     # no vision key -> text-only fallback on the desk model
     monkeypatch.setattr(V, "vlm_ready", lambda: False)
-    res = R.ask(store, 1, "did a delivery van come?", mode="live", text_answer=lambda s, p: "text fallback")
+    res = R.ask(store, 1, "did a delivery van come?", mode="live", text_answer=lambda s, p: "text fallback", meter=M)
     assert res["answer"] == "text fallback" and "text only" in res["retrieval"]["grounding"]
 
 

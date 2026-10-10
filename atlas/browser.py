@@ -913,8 +913,8 @@ def main(argv: list[str] | None = None) -> int:
             hand.close()
         return 0
     if a.cmd == "run":
-        from . import config as C, providers as P
-        pool = P.ProviderPool(C.load("providers", C.DEFAULT_PROVIDERS))
+        from . import config as C, providers as P, usage as U
+        pool = P.ProviderPool(C.load("providers", C.DEFAULT_PROVIDERS), meter=U.cli_meter("browser"))
         provider = pool.get(a.provider or DEFAULT_PROVIDER)
         res = run_task(a.task, a.url, provider, a.model, allow_submit=a.allow_submit, profile=a.profile, headless=not a.headed,
                        max_steps=a.max_steps, allow_domains=[d for d in a.domains.split(",") if d], macro=load_macro(a.macro) if a.macro else None,

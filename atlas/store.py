@@ -535,10 +535,11 @@ class Store:
         return int(self._conn.execute(sql, args).fetchone()[0])
 
     def unindexed_vision_events(self, desk_id: int, model: str, limit: int = 32) -> list[dict[str, Any]]:
-        """Newest events on the desk that have no vector row for `model`."""
+        """Newest events on the desk that have no vector row for `model` (`usage` notices are never indexed)."""
         rows = _rows(self._conn.execute(
             "SELECT e.* FROM vision_events e LEFT JOIN vision_vectors v ON v.event_id=e.id AND v.model=? "
-            "WHERE e.desk_id=? AND v.event_id IS NULL ORDER BY e.ts DESC LIMIT ?", (model, desk_id, limit)))
+            "WHERE e.desk_id=? AND v.event_id IS NULL AND COALESCE(e.backend, '')<>'usage' ORDER BY e.ts DESC LIMIT ?",
+            (model, desk_id, limit)))
         return [self._vrow(r) for r in rows]
 
     def update_vision_event_reason(self, vid: int, reason: str) -> None:

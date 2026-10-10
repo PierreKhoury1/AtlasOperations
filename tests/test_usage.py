@@ -1,8 +1,11 @@
 """The usage ledger and the one check (usage spec §1-§4, §7): T1, T2, T7, T16, T27, T28, plus the step-2 helpers
 (refusal dedup, overrun, lanes and minute windows, auto actions, the reply window, SMS segments, storage, deferred
 starts, estimates). The text chokepoint in providers.py (§3.2, §4.4): T8, T9, T10, T14, T43, the provider side of T15
-and T21, the per-run cap across a pool, Hermes by mode and the BYO key test. No model is called: provider responses
-are stubbed (httpx.MockTransport), the key endpoint too."""
+and T21, the per-run cap across a pool, Hermes by mode and the BYO key test. Vision, RAG, journal and objects (§1.5-
+§1.7, §3.6, S30-S33, S40-S43, S51): T6, T23, T40, the vision chokepoint, the AI-detection gate, journal and object
+pauses, and Ask's text-only fallback. No model is called: provider responses are stubbed (httpx.MockTransport), the
+key endpoint too."""
+import ast
 import json
 import os
 import threading
@@ -846,3 +849,466 @@ def test_byo_key_test_is_metered_on_the_owners_key(app_client, monkeypatch):
     row, = _events(A.store, "kind='request' AND owner_id=? AND surface='byo.test'", (owner,))
     assert (row["key_kind"], row["pool"], row["desk_id"], row["cost_usd"], row["ref"]) == ("byo", "byo", did, 0.00002, "key:openrouter")
     assert "sk-or-own" not in json.dumps(row)
+
+
+# ---------------------------------------------------------------------------- vision, RAG, journal, objects (step 4)
+GROQ_URL = "https://api.groq.com/openai/v1"
+L2_TEXT = "AI requests Atlas made on its own 125/125"
+
+
+def _vision_chain(monkeypatch, *entries):
+    from atlas import vision as V
+    monkeypatch.setattr(V, "vlm_chain", lambda model="": [dict(e) for e in entries])
+
+
+def _auto_lane_full(U, owner):
+    """The owner's own-work allowance (L2 = 125 at P = 1,000) is used up; the owner's half is untouched."""
+    U.take([U.Row(f"o:{owner}:auto", "req:free", None, "ai_requests_auto_day"),
+            U.Row(f"o:{owner}", "req:free", None, "ai_requests_day")], units=125)
+
+
+def _camera_setup(store, monkeypatch, tmp_path, email, cam, **cfg):
+    """A signed-up owner's desk with one file camera, a fake local detector (one person) and a fresh camera loop."""
+    import atlas.desk.scheduler as S
+    from atlas import journal as JR
+    from atlas import vision as V
+    from test_vision import PERSON, FakeDetector, _jpeg
+    monkeypatch.setattr(V, "vlm_ready", lambda: True)
+    monkeypatch.setattr(V, "DETECTOR", FakeDetector([PERSON]))
+    monkeypatch.setattr(V, "SNAP_DIR", tmp_path / "snaps")
+    monkeypatch.setattr(JR, "JOURNAL_DIR", tmp_path / "journal")
+    JR.reset()
+    for d in (S._last_frame, S._last_seen, S._present, S._noticed):
+        d.clear()
+    u = store.add_user(email, "O", "O", "x")
+    desk = store.add_desk(u["id"], "Cafe", "blank", "free", {})
+    src = _jpeg(tmp_path / f"{cam}.jpg", blob=(40, 30, 120, 220))
+    conn = store.add_connector(desk["id"], "camera", cam, {"source": src, "watch_for": "car", "journal": "1", "objects": "0",
+                                                           **cfg}, False)
+    return S, u["id"], desk, conn
+
+
+def test_vision_chokepoint_meters_every_chain_entry(U, store, monkeypatch):
+    """Spec §3.2 item 2: every vision request goes through vision._vlm_post, one metered request per chain entry tried
+    (each entry its own pool: Groq never counts in the owner's OpenRouter share), with the provider-reported usage and
+    cost, from the last SSE chunk when streaming. A refusal moves the chain on unsent; the last one is raised."""
+    from atlas import vision as V
+    groq = {"name": "groq", "base": GROQ_URL, "key": "gk-test", "model": "qwen/qwen3.8-27b"}
+    orr = {"name": "openrouter", "base": OR_URL, "key": "sk-or-test", "model": FREE}
+    sent, down = [], {"api.groq.com": 503}
+    block = {"prompt_tokens": 900, "completion_tokens": 30, "cost": 0}
+
+    def handler(req):
+        body = json.loads(req.content)
+        sent.append(req.url.host)
+        assert body["model"] in (FREE, groq["model"]) and req.headers["X-Title"].startswith("Atlas Desk")
+        if down.get(req.url.host):
+            return httpx.Response(down[req.url.host], json={"error": {"message": "over capacity"}})
+        if body.get("stream"):
+            chunks = [{"choices": [{"delta": {"content": "Two "}}]}, {"choices": [{"delta": {"content": "people."}}]},
+                      {"choices": [], "usage": block}]
+            return httpx.Response(200, text=_sse(chunks), headers={"Content-Type": "text/event-stream"})
+        return httpx.Response(200, json={"choices": [{"message": {"content": "Two people."}}], "usage": block})
+    mt = httpx.MockTransport(handler)
+    _vision_chain(monkeypatch, groq, orr)
+    m = _meter(owner=70, desk=5, surface="camera.look")
+    assert V.describe(b"\xff\xd8", "Who is there?", transport=mt, meter=m) == "Two people."
+    assert list(V.chat_images_stream("sys", "text", [("NOW", b"\xff\xd8")], transport=mt, meter=m)) == \
+        [{"provider": "openrouter", "model": FREE}, "Two ", "people."]
+    rows = _events(store, "kind='request' AND owner_id=70")
+    assert [(r["provider"], r["pool"], r["status"], r["http_status"]) for r in rows] == \
+        [("groq", "free:groq", "error", 503), ("openrouter", "free:openrouter", "ok", 200)] * 2
+    assert rows[0]["note"] == "HTTP 503: over capacity"
+    for r in (rows[1], rows[3]):                                         # the body's usage, and the last SSE chunk's
+        assert (r["tokens_in"], r["tokens_out"], r["cost_usd"], r["cost_basis"]) == (900, 30, 0, "provider")
+    assert {(r["surface"], r["key_kind"], r["action_id"]) for r in rows} == {("camera.look", "house", m.action_id)}
+    assert U.counter("o:70", "req:free")[0] == 2 and U.counter("o:70", "req:free:groq")[0] == 2
+    # the reader stops early: the request still happened, and says so
+    _vision_chain(monkeypatch, orr)
+    g = V.describe_stream(b"\xff\xd8", "What changed?", transport=mt, meter=_meter(owner=73, surface="theatre.narrate"))
+    assert next(g) == {"provider": "openrouter", "model": FREE} and next(g) == "Two "
+    g.close()
+    row, = _events(store, "kind='request' AND owner_id=73")
+    assert (row["status"], row["note"]) == ("ok", "stream closed by the reader")
+    # a refusal never sends: the chain moves on to the next entry's own pool, and the last one is raised
+    U.set_override(71, "ai_requests_day", 0)
+    down.clear()
+    sent.clear()
+    _vision_chain(monkeypatch, orr, groq)
+    m2 = _meter(owner=71, surface="ask.cameras")
+    assert V.chat_images("sys", "text", [("NOW", b"\xff\xd8")], transport=mt, meter=m2) == "Two people." and sent == ["api.groq.com"]
+    _vision_chain(monkeypatch, orr)
+    with pytest.raises(U.UsageLimit) as e:
+        V.describe(b"\xff\xd8", "Who?", transport=mt, meter=m2)
+    assert e.value.limit_id == "ai_requests_day" and sent == ["api.groq.com"]
+    ref, = _events(store, "kind='refusal' AND owner_id=71")
+    assert (ref["limit_id"], ref["units"]) == ("ai_requests_day", 2)
+    # the provider's daily quota closes the pool (no fallback), as at the text chokepoint
+    quota = httpx.MockTransport(lambda req: httpx.Response(429, json={"error": {"message": "Rate limit exceeded: free-models-per-day"}}))
+    with pytest.raises(U.UsageLimit) as e:
+        V.describe(b"\xff\xd8", "Who?", transport=quota, meter=_meter(owner=72))
+    assert e.value.limit_id == "pool_free_day" and U.pool_exhausted()
+
+
+def test_ai_detection_is_gated_and_never_fakes_counts(U, store, monkeypatch, tmp_path):
+    """Spec §1.7, S30: without a local detector the AI count is asked for only when it is about to be made; paced,
+    paused or refused at the chokepoint it is skipped (backend paced / paused, counts unknown, nothing sent); a count
+    that fails is backend error and never raises. An uncounted frame keeps the motion rule; no count rule judges it."""
+    from atlas import vision as V
+    from test_vision import _jpeg
+
+    class NoDet:
+        available, error = False, ""
+    calls, status = [], {"code": 200}
+
+    def handler(req):
+        calls.append(1)
+        if status["code"] != 200:
+            return httpx.Response(status["code"], json={"error": {"message": "upstream down"}})
+        return httpx.Response(200, json={"choices": [{"message": {"content": '{"person": 2}'}}], "usage": {"cost": 0}})
+    mt = httpx.MockTransport(handler)
+    real = V.vlm_detect
+    monkeypatch.setattr(V, "vlm_detect", lambda jpeg, labels, model="", transport=None, *, meter: real(jpeg, labels, model, mt, meter=meter))
+    monkeypatch.setattr(V, "vlm_ready", lambda: True)
+    _vision_chain(monkeypatch, {"name": "openrouter", "base": OR_URL, "key": "sk-or-test", "model": FREE})
+    src = _jpeg(tmp_path / "door.jpg")
+    cfg = {"watch_for": "person", "alert_on_motion": "0.2"}
+    m = _meter(owner=80, lane="auto", surface="camera.detect", ref="cam:door")
+
+    def look(gate, prev=None):
+        return V.analyse(src, cfg, prev, live_vlm=True, detector=NoDet(), meter=m, detect_vlm=gate)
+    asked = []
+    assert look(lambda: asked.append(1) or "", prev=V.grab(src))["backend"] == "none" and asked == []   # static: not asked
+    for gate in (lambda: "paced", "paused"):
+        res = look(gate)
+        assert res["counts"] == {} and res["backend"] in ("paced", "paused") and calls == []
+    res = look(lambda: "")
+    assert (res["backend"], res["counts"], len(calls)) == ("vlm", {"person": 2}, 1)
+    row, = _events(store, "kind='request' AND owner_id=80")
+    assert (row["surface"], row["lane"], row["ref"], row["pool"]) == ("camera.detect", "auto", "cam:door", "free:openrouter")
+    U.set_override(80, "ai_requests_auto_day", 1)                        # refused between the check and the request
+    res = look(lambda: "")
+    assert res["backend"] == "paused" and len(calls) == 1 and m.held["camera.detect"]["verdict"] == "paused"
+    assert m.held["camera.detect"]["limit"]["limit_id"] == "ai_requests_auto_day"
+    U.clear_override(80, "ai_requests_auto_day")
+    status["code"] = 500
+    res = look(lambda: "")
+    assert res["backend"] == "error" and res["detector_error"].startswith("vision model: RuntimeError: vision model HTTP 500")
+    ok, why = V.evaluate(cfg, [], {}, None, mot=0.5, unknown="AI detection paused")
+    assert ok and why.startswith("scene changed")
+    ok, why = V.evaluate({"watch_for": "person"}, [], {"person": 2}, None, mot=0.5, unknown="AI detection paused")
+    assert not ok and why == "not counted (AI detection paused): count rules wait for a counted frame"
+
+
+def test_camera_journal_pauses_and_logs_once_per_window(U, store, monkeypatch, tmp_path):
+    """T6: with the auto lane full, 50 camera ticks make no VLM request. One `usage` notice and one refusal row
+    (units 50) say so; the notice is never embedded; local detection and the camera tile keep working."""
+    from atlas import vision as V
+    S, owner, desk, conn = _camera_setup(store, monkeypatch, tmp_path, "usage-t6@example.com", "floor")
+    sent = []
+
+    def no_vlm(*a, **k):
+        sent.append(1)
+        raise AssertionError("no vision request may be made")
+    monkeypatch.setattr(V, "_vlm_post", no_vlm)
+    _auto_lane_full(U, owner)
+    for _ in range(50):
+        r = S.camera_tick(store, desk, conn, lambda *a: pytest.fail("the rule must not fire"), True)
+    assert sent == [] and _events(store, "kind='request' AND owner_id=?", (owner,)) == []
+    assert (r["backend"], r["counts"], r["journal"]) == ("yolo", {"person": 1}, "")
+    assert r["journal_status"] == f"Journal paused until 00:00 UTC: {L2_TEXT}"
+    notes = [e for e in store.vision_events(desk["id"], "floor", 0, "", 200) if e["backend"] == "usage"]
+    assert len(notes) == 1 and notes[0]["reason"] == f"Journal paused: {L2_TEXT}. Notes resume after 00:00 UTC."
+    assert store._conn.execute("SELECT COUNT(*) FROM vision_vectors WHERE event_id=?", (notes[0]["id"],)).fetchone()[0] == 0
+    ref, = _events(store, "kind='refusal' AND owner_id=?", (owner,))
+    assert (ref["units"], ref["limit_id"], ref["surface"], ref["ref"]) == (50, "ai_requests_auto_day", "camera.note", "cam:floor")
+    assert store.last_vision_event(desk["id"], "floor", exclude_backends=V.NOT_MEASURED)["backend"] == "yolo"
+
+
+def test_no_detector_camera_keeps_motion_alerts_when_detection_pauses(U, store, monkeypatch, tmp_path):
+    """Spec §1.7: without a local detector the AI count is a paced stream of the auto lane. At the limit nothing is
+    counted or faked: motion alerts still fire, count rules wait, one notice says so, the tile says what is off, and
+    no tick writes an error event."""
+    from atlas import vision as V
+    from test_vision import _jpeg
+
+    class NoDet:
+        available, error = False, ""
+    S, owner, desk, conn = _camera_setup(store, monkeypatch, tmp_path, "usage-nodet@example.com", "gate", journal="0",
+                                         watch_for="person", alert_on_motion="0.2", cooldown_min="0")
+    still = store.add_connector(desk["id"], "camera", "side", {**conn["config"], "alert_on_motion": "0"}, False)
+    monkeypatch.setattr(V, "DETECTOR", NoDet())
+    sent, runs = [], []
+    monkeypatch.setattr(V, "_vlm_post", lambda *a, **k: sent.append(1))
+    _auto_lane_full(U, owner)
+    src = conn["config"]["source"]
+    out = []
+    for i in range(4):                                                    # a person walking left and right
+        _jpeg(src, blob=(40, 30, 120, 220) if i % 2 == 0 else (200, 30, 280, 220))
+        out.append(S.camera_tick(store, desk, conn, lambda d, task, lane: runs.append(task) or f"run{i}", True))
+    assert sent == [] and [r["backend"] for r in out] == ["paused"] * 4 and all(r["counts"] == {} for r in out)
+    assert not out[0]["triggered"] and all(r["triggered"] and r["reason"].startswith("scene changed") for r in out[1:])
+    assert len(runs) == 3 and "Seen: not counted (paused)" in runs[0]
+    assert out[-1]["detect_status"] == f"Detection paused until 00:00 UTC: {L2_TEXT}. Count rules are off; motion alerts still fire."
+    r = S.camera_tick(store, desk, still, lambda *a: pytest.fail("no alert without a motion rule"), True)
+    assert r["detect_status"].endswith("Count rules are off, and with no 'alert on motion' this camera does not alert.")
+    evs = store.vision_events(desk["id"], "gate", 0, "", 100)
+    notes = [e for e in evs if e["backend"] == "usage"]
+    assert len(notes) == 1 and notes[0]["reason"] == (
+        f"Detection paused (no local detector): {L2_TEXT}. Count rules are off until 00:00 UTC; motion alerts fire only "
+        "where 'alert on motion' is set.")
+    assert not [e for e in evs if e["backend"] == "error"] and {e["backend"] for e in evs} == {"paused", "usage"}
+    ref = _events(store, "kind='refusal' AND owner_id=? AND surface='camera.detect' AND ref='cam:gate'", (owner,))
+    assert len(ref) == 1 and ref[0]["units"] == 4
+
+
+def test_journal_refusals_pause_the_camera_and_keep_the_draft(U, store, monkeypatch, tmp_path):
+    """S42: a refused verify pass keeps the draft, marked not verified. S41: a note refused between the check and its
+    request pauses that camera's notes until the reset (no model-error backoff), with one notice."""
+    from atlas import journal as JR
+    from atlas import vision as V
+    lim = U._limit("ai_requests_auto_day", used=125, limit=125, now=U._now())
+
+    def verify_refused(system, text, images, model="", max_tokens=500, transport=None, *, meter):
+        if system == JR.VERIFY_SYSTEM:
+            raise lim
+        return "One adult at the counter."
+    monkeypatch.setattr(V, "chat_images", verify_refused)
+    q = JR.subscribe(91)
+    text = JR.write_note((91, "till"), "till", JR.config({"journal": "1"}), b"\xff\xd8", {"person": 1}, stream=False,
+                         meter=_meter(owner=91, lane="auto", surface="camera.note"))
+    JR.unsubscribe(91, q)
+    verify = [e for e in (q.get_nowait() for _ in range(q.qsize())) if e["kind"] == "note_verify"]
+    assert text == "One adult at the counter." and verify[0]["error"].startswith(f"not verified: {lim.message}"[:60])
+
+    def refused(*a, **k):
+        raise lim
+    S, owner, desk, conn = _camera_setup(store, monkeypatch, tmp_path, "usage-s41@example.com", "till", journal_verify="0")
+    monkeypatch.setattr(V, "chat_images", refused)
+    r = S.camera_tick(store, desk, conn, lambda *a: "x", True)
+    assert r["journal_status"] == f"Journal paused until 00:00 UTC: {L2_TEXT}"
+    key = (desk["id"], "till")
+    assert JR._state[key]["pause_until"] == lim.retry_at and "fail_until" not in JR._state[key]
+    assert JR.due(key, JR.config(conn["config"]), time.time(), 0.9, {"person": 5}) == (False, r["journal_status"])
+    S.camera_tick(store, desk, conn, lambda *a: "x", True)
+    notes = [e for e in store.vision_events(desk["id"], "till", 0, "", 50) if e["backend"] == "usage"]
+    assert len(notes) == 1 and notes[0]["reason"] == f"Journal paused: {L2_TEXT}. Notes resume after 00:00 UTC."
+
+
+def test_object_follow_ups_pace_and_pause(U, store, monkeypatch):
+    """Spec §1.5, S51: a called object's follow-ups are a paced stream in the desk owner's auto lane; at a limit the
+    camera's follow-ups pause until the reset with no error note; any other failure still leaves its note."""
+    import numpy as np
+    from atlas import objects as OBJ
+    u = store.add_user("usage-obj@example.com", "O", "O", "x")
+    desk = store.add_desk(u["id"], "Yard", "blank", "free", {})
+    w = OBJ.ObjectWorker(store, desk["id"], "yard", "unused.mp4")
+    obj = {"id": 5, "desk_id": desk["id"], "watch": 1, "label": "person", "camera": "yard"}
+    w.ds = SimpleNamespace(vision_object=lambda oid: obj)
+    track = SimpleNamespace(obj_id=5, last_ts=0.0)
+    w.tracker.tracks = [track]
+    w._latest[5] = (np.zeros((4, 4, 3), dtype="uint8"), [0, 0, 2, 2])
+    seen, done = [], threading.Event()
+
+    def follow(store_, o, frame, box, model="", transport=None, *, meter):
+        seen.append(meter)
+        done.set()
+        return "walking to the gate"
+    monkeypatch.setattr(OBJ, "follow", follow)
+
+    def tick(ts):
+        track.last_ts = ts
+        w._follow_up(ts)
+    tick(1000.0)
+    assert done.wait(5)
+    assert (seen[0].owner_id, seen[0].lane, seen[0].surface, seen[0].ref, seen[0].scope) == (u["id"], "auto", "objects.follow", "obj:5", "owner")
+    tick(1000.0 + OBJ.FOLLOW_S)                                           # 125 left for one stream: minutes apart
+    assert len(seen) == 1 and w.stats["follow"].startswith("Follow-ups paced: one note every")
+    _auto_lane_full(U, u["id"])
+    tick(1000.0 + 2 * OBJ.FOLLOW_S)
+    assert len(seen) == 1 and w.stats["follow"] == f"Follow-ups paused until 00:00 UTC: {L2_TEXT}"
+    assert w._paused_until == U.day_start(U._now()) + 86400
+    notes = []
+    st = SimpleNamespace(for_desk=lambda d: SimpleNamespace(add_object_note=lambda *a: notes.append(a)))
+    w2 = OBJ.ObjectWorker(store, desk["id"], "gate", "unused.mp4")
+
+    def refused(*a, **k):
+        raise U._limit("ai_requests_auto_day", used=125, limit=125, now=U._now())
+
+    def broken(*a, **k):
+        raise RuntimeError("vision model HTTP 502: upstream")
+    OBJ._safe(refused, st, obj, on_limit=w2.pause)
+    assert notes == [] and w2.stats["follow"] == f"Follow-ups paused until 00:00 UTC: {L2_TEXT}"
+    OBJ._safe(broken, st, obj, on_limit=w2.pause)
+    assert notes == [(5, "error", "vision model unavailable: vision model HTTP 502: upstream")]
+
+
+def test_ask_falls_back_to_text_only_on_the_owners_key(U, store, monkeypatch, tmp_path):
+    """S31: when a limit refuses the Ask's vision re-look, the text answer stands in only on the desk's own model
+    account (BYO) and the grounding says why; on Atlas's account the limit itself is the answer."""
+    from PIL import Image
+    from atlas import rag as R
+    from atlas import vision as V
+    snap = tmp_path / "s.jpg"
+    Image.new("RGB", (32, 24), (120, 30, 30)).save(snap, "JPEG")
+    store.add_vision_event(4, "door", {"person": 1}, reason="person", answer="A courier at the door", snapshot=str(snap),
+                           triggered=True)
+    lim = U._limit("ai_requests_day", used=250, limit=250, now=U._now())
+
+    def refused(*a, **k):
+        raise lim
+    monkeypatch.setattr(V, "chat_images", refused)
+    monkeypatch.setattr(V, "vlm_ready", lambda: True)
+    m = _meter(owner=95, desk=4, surface="ask.cameras", overrun=2)
+    res = R.ask(store, 4, "who came to the door?", mode="live", text_answer=lambda s, p: "A courier, from the log.",
+                meter=m, text_byo=True)
+    assert res["answer"] == "A courier, from the log."
+    assert res["retrieval"]["grounding"] == "text only (vision on Atlas's account is at its limit until 00:00 UTC)"
+    with pytest.raises(U.UsageLimit):
+        R.ask(store, 4, "who came to the door?", mode="live", text_answer=lambda s, p: "x", meter=m)
+
+
+def test_embeddings_are_aggregated_and_degrade_at_l13(U, store, monkeypatch):
+    """T40: the indexer's embeddings are one ledger row per desk per UTC minute (units = requests) and an Ask's one row
+    under its own action id, counted at once; with Atlas's paid cap (L13) full nothing is sent, the Ask still answers
+    on the hashed embedder and says so, and new events wait unindexed."""
+    from atlas import rag as R
+    t = _ts(2026, 10, 9, 12, 0, 5)
+    clock = _clock(monkeypatch, t)
+    sent = []
+
+    def handler(req):
+        body = json.loads(req.content)
+        sent.append(len(body["input"]))
+        assert req.url.path.endswith("/embeddings")
+        return httpx.Response(200, json={"data": [{"index": i, "embedding": [1.0, float(i), 0.5]} for i in range(len(body["input"]))],
+                                         "usage": {"prompt_tokens": 7, "total_tokens": 7, "cost": 0.000002}})
+    api = R.ApiEmbedder(base_url=OR_URL, api_key="sk-or-test", model="openai/text-embedding-3-small",
+                        transport=httpx.MockTransport(handler))
+    monkeypatch.setattr(R, "get_embedder", lambda mode="": R.HashEmbedder() if mode == "hash" else api)
+    u = store.add_user("usage-embed@example.com", "O", "O", "x")
+    desk = store.add_desk(u["id"], "Shop", "blank", "free", {})
+    o, did = u["id"], desk["id"]
+    for i in range(100):
+        store.add_vision_event(did, "door", {"person": 1}, reason=f"visit {i}", answer=f"A person at the door, visit {i}")
+    assert len(sent) == 100
+    row, = _events(store, "surface='embed' AND owner_id=?", (o,))
+    assert (row["units"], row["kind"], row["lane"], row["status"], row["pool"], row["provider"]) == (100, "request", "auto", "ok", "paid", "openrouter")
+    assert (row["tokens_in"], row["ts"], row["ts_end"], row["desk_id"]) == (700, t, t, did)
+    assert row["cost_usd"] == pytest.approx(0.0002) and row["cost_basis"] == "provider"
+    assert U.counter(f"o:{o}", "req:embed")[0] == 100 and U.counter(f"o:{o}:d{did}", "req:embed")[0] == 100
+    assert U.counter(f"o:{o}", "usd:paid", "M")[0] == 200 and U.counter("house", "usd:paid", "M")[0] == 200   # micro-USD
+    assert U.counter(f"o:{o}", "req:free")[0] == 0                       # never in the free allowance
+    clock["t"] = t + 60                                                   # the next minute is its own row
+    store.add_vision_event(did, "door", {}, reason="empty")
+    assert [r["units"] for r in _events(store, "surface='embed' AND owner_id=?", (o,))] == [100, 1]
+    ask = U.desk_meter(desk, "ask.cameras", lane="you", overrun=2)
+    res = R.ask(store, did, "was anyone at the door?", mode="demo", meter=ask)
+    assert res["retrieval"]["embedder"] == api.name and "embedder_note" not in res["retrieval"]
+    asked, = _events(store, "surface='embed' AND action_id=?", (ask.action_id,))
+    assert (asked["units"], asked["lane"]) == (1, "you")                  # the question; the log was indexed already
+    monkeypatch.setattr(U.CFG, "house_paid_usd_month", 0.0)               # Atlas's paid cap is reached
+    n = len(sent)
+    res = R.ask(store, did, "was anyone at the door?", mode="demo", meter=U.desk_meter(desk, "ask.cameras", lane="you"))
+    assert res["answer"].startswith("Demo mode") and res["retrieval"]["embedder"] == "hash-trigram-256"
+    assert res["retrieval"]["embedder_note"].startswith("search embeddings paused: Paid models on Atlas's account this month")
+    ev = store.add_vision_event(did, "door", {"person": 2}, reason="two at the door")
+    assert len(sent) == n and store._conn.execute("SELECT COUNT(*) FROM vision_vectors WHERE event_id=? AND model=?",
+                                                  (ev["id"], api.name)).fetchone()[0] == 0
+    ref, = _events(store, "kind='refusal' AND owner_id=?", (o,))
+    assert (ref["limit_id"], ref["surface"], ref["units"]) == ("house_paid_usd_month", "embed", 2)
+
+
+# T23: the AST audit of every model path (spec §8.1). The metered functions of §3.2 (plus rag.backfill, which indexes)
+# must get `meter=` at every call, never a literal None; ProviderPool / make_provider calls too; every raw model POST
+# sits in one of the chokepoints.
+METERED = {"vision": {"describe", "vlm_detect", "chat_images", "chat_images_stream", "describe_video", "describe_stream",
+                      "analyse"},
+           "rag": {"ask", "retrieve", "index_events", "backfill"},
+           "journal": {"write_note", "verify_note", "maybe_rollup"},
+           "objects": {"call", "follow", "ask"}}
+POST_SITES = {"providers.py": "", "vision.py": "_vlm_post", "rag.py": "ApiEmbedder", "desk/app.py": "_demo_stream",
+              "study.py": "_hermes_browse"}
+# ProviderPool / make_provider calls still built without a meter, each with the step that hands one over. The list is
+# exact: a site that gets its meter must leave it, and a new unmetered call fails.
+POOL_PENDING = {
+    ("browser.py", "run_task"): "step 5: the browse step gets the run's meter",
+    ("desk/app.py", "_design_team_for"): "step 5: team design (S7, S8)",
+    ("desk/app.py", "_sample_leads"): "step 5: sample leads (S9)",
+    ("desk/app.py", "api_design_study.work"): "merge: the study meter (step 8's design-route part)",
+    ("designer.py", "_provider_for"): "merge: the designer track rewrites designer.py",
+    ("designer.py", "_live_turn"): "merge: the designer track rewrites designer.py",
+}
+
+
+def _model_paths() -> dict[str, list]:
+    atlas_dir = Path(usage.__file__).parent
+    found: dict[str, list] = {"meter": [], "pool": set(), "post": []}
+    for p in sorted(atlas_dir.rglob("*.py")):
+        rel = p.relative_to(atlas_dir).as_posix()
+        tree = ast.parse(p.read_text(encoding="utf-8"))
+        where: dict[int, str] = {}
+
+        def walk(node, stack):
+            for ch in ast.iter_child_nodes(node):
+                nested = isinstance(ch, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+                where[id(ch)] = ".".join(stack)
+                walk(ch, stack + [ch.name] if nested else stack)
+        walk(tree, [])
+        alias: dict[str, object] = {}                     # local name -> metered module, or (module, function)
+        docs: set[int] = set()
+        for n in ast.walk(tree):
+            if isinstance(n, ast.ImportFrom):
+                mod = (n.module or "").split(".")[-1]
+                for a in n.names:
+                    if mod in ("", "atlas") and a.name in METERED:
+                        alias[a.asname or a.name] = a.name
+                    elif mod in METERED:
+                        alias[a.asname or a.name] = (mod, a.name)
+            elif isinstance(n, ast.Assign) and isinstance(n.value, ast.Call) and getattr(n.value.func, "attr", "") == "import_module":
+                arg = n.value.args[0] if n.value.args else None
+                mod = str(getattr(arg, "value", "")).split(".")[-1]
+                if mod in METERED:
+                    alias.update({t.id: mod for t in n.targets if isinstance(t, ast.Name)})
+            if isinstance(n, (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) and n.body and \
+                    isinstance(n.body[0], ast.Expr) and isinstance(n.body[0].value, ast.Constant):
+                docs.add(id(n.body[0].value))
+        for n in ast.walk(tree):
+            if isinstance(n, ast.Constant) and isinstance(n.value, str) and id(n) not in docs and \
+                    ("/chat/completions" in n.value or "/embeddings" in n.value):
+                found["post"].append((rel, where.get(id(n), "")))
+            if not isinstance(n, ast.Call):
+                continue
+            f, target = n.func, ""
+            if isinstance(f, ast.Attribute) and isinstance(f.value, ast.Name) and isinstance(alias.get(f.value.id), str):
+                target = f"{alias[f.value.id]}.{f.attr}" if f.attr in METERED[alias[f.value.id]] else ""
+            elif isinstance(f, ast.Name) and p.parent == atlas_dir and p.stem in METERED and f.id in METERED[p.stem]:
+                target = f"{p.stem}.{f.id}"
+            elif isinstance(f, ast.Name) and isinstance(alias.get(f.id), tuple) and alias[f.id][1] in METERED[alias[f.id][0]]:
+                target = ".".join(alias[f.id])
+            meter = next((k.value for k in n.keywords if k.arg == "meter"), None)
+            unmetered = meter is None or (isinstance(meter, ast.Constant) and meter.value is None)
+            if target and unmetered:
+                found["meter"].append((rel, where.get(id(n), ""), n.lineno, target))
+            name = getattr(f, "id", None) or getattr(f, "attr", None)
+            if name in ("ProviderPool", "make_provider") and unmetered:
+                found["pool"].add((rel, where.get(id(n), "")))
+    return found
+
+
+def test_every_model_path_takes_a_meter():
+    """T23 (spec §8.1)."""
+    found = _model_paths()
+    assert found["meter"] == []
+    assert found["pool"] == set(POOL_PENDING), "update POOL_PENDING: " + repr(sorted(found["pool"] ^ set(POOL_PENDING)))
+    stray = [(rel, fn) for rel, fn in found["post"]
+             if rel not in POST_SITES or (POST_SITES[rel] and fn.split(".")[0] != POST_SITES[rel])]
+    assert stray == [] and {rel for rel, _fn in found["post"]} >= {"vision.py", "rag.py", "providers.py"}
+    import inspect
+    from atlas import journal, objects, rag, vision
+    for mod, names in (("vision", METERED["vision"]), ("rag", METERED["rag"]), ("journal", METERED["journal"]),
+                       ("objects", METERED["objects"])):
+        for fn in names:                                  # required and keyword-only: a forgotten meter is a TypeError
+            prm = inspect.signature(getattr({"vision": vision, "rag": rag, "journal": journal, "objects": objects}[mod], fn)).parameters["meter"]
+            assert prm.kind is inspect.Parameter.KEYWORD_ONLY and prm.default is inspect.Parameter.empty, (mod, fn)
+    assert inspect.signature(rag.ApiEmbedder.embed_texts).parameters["meter"].default is inspect.Parameter.empty

@@ -25,6 +25,7 @@ from . import config as cfg
 from . import metrics as MX
 from . import policy as P
 from . import templates
+from . import usage as U
 from .orchestrator import Event, Orchestrator
 from .store import Store
 
@@ -90,7 +91,8 @@ def run_eval(template: str, mode: str, n: int, concurrency: int, tier: str, prov
     def one(item):
         i, L = item
         evs: list[Event] = []
-        orch = Orchestrator(configs, ds, lambda ev: evs.append(ev) if ev.kind != "token" else None)
+        orch = Orchestrator(configs, ds, lambda ev: evs.append(ev) if ev.kind != "token" else None,
+                            meter=U.cli_meter("eval"))
         st = time.time()
         res = orch.run(lead_task(L), "auto")
         row = {"lead": L["name"], "rep": i, "run_id": res.run_id, "status": res.status, "seconds": round(time.time() - st, 1),

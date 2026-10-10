@@ -9,7 +9,7 @@ from pathlib import Path
 import httpx
 import pytest
 
-from atlas import vision
+from atlas import usage, vision
 from atlas.orchestrator import Orchestrator
 from atlas.providers import ToolCall
 
@@ -119,7 +119,7 @@ class TestVideo:
             return httpx.Response(200, json={"choices": [{"message": {"content": "A colour test pattern; counters increment."}}]})
 
         res = vision.describe_video(str(clip), "what is this?", frames=3,
-                                    transport=httpx.MockTransport(handler))
+                                    transport=httpx.MockTransport(handler), meter=usage.cli_meter("tests"))
         assert "test pattern" in res["answer"]
         assert seen["images"] >= 2
         assert res["frames"] and res["duration_s"] > 3

@@ -2669,9 +2669,11 @@ def api_camera_look(cid):
     desk = need_desk()
     c = _camera(cid, desk)
     d = request.get_json(silent=True) or {}
+    meter = U.desk_meter(desk, "camera.look", lane="you", ref=f"cam:{c['name']}", overrun=1)
     try:
         r = scheduler.camera_tick(store, desk, c, _start_run, _mode() != "demo",
-                                  question=str(d.get("question") or "").strip()[:500], force=bool(d.get("trigger")))
+                                  question=str(d.get("question") or "").strip()[:500], force=bool(d.get("trigger")),
+                                  meter=meter)
     except Exception as exc:
         msg = f"{type(exc).__name__}: {str(exc)[:300]}"
         store.update_connector(cid, status="error: " + msg, last_test=time.time())
@@ -2968,7 +2970,8 @@ def api_object_call(oid):
     _require_live(desk)
     frame, box, model = _object_live(desk, o)
     try:
-        res = OBJ.call(store, o, model=model, frame=frame, box=box)
+        res = OBJ.call(store, o, model=model, frame=frame, box=box,
+                       meter=U.desk_meter(desk, "objects.call", lane="you", ref=f"obj:{oid}", overrun=1))
     except Exception as exc:
         ds.add_object_note(oid, "error", f"vision model unavailable: {str(exc)[:200]}")
         return jsonify({"ok": False, "error": str(exc)[:300], "object": _obj_public(ds.vision_object(oid)), "notes": ds.object_notes(oid, 60)}), 502
@@ -2985,7 +2988,8 @@ def api_object_ask(oid):
     _require_live(desk)
     frame, box, model = _object_live(desk, o)
     try:
-        text = OBJ.ask(store, o, q, model=model, frame=frame, box=box)
+        text = OBJ.ask(store, o, q, model=model, frame=frame, box=box,
+                       meter=U.desk_meter(desk, "objects.ask", lane="you", ref=f"obj:{oid}", overrun=1))
     except Exception as exc:
         return jsonify({"ok": False, "error": str(exc)[:300]}), 502
     return jsonify({"ok": True, "answer": text, "notes": store.for_desk(desk["id"]).object_notes(oid, 60)})
@@ -3179,7 +3183,8 @@ def api_vision_video():
             return jsonify({"error": f"refusing to fetch: {why}"}), 400
         label = src.rsplit("/", 1)[-1][:60]
     try:
-        res = V.describe_video(src, question, frames=frames, context=desk.get("name", ""))
+        res = V.describe_video(src, question, frames=frames, context=desk.get("name", ""),
+                               meter=U.desk_meter(desk, "video.describe", lane="you", ref=f"video:{label}"[:120], overrun=1))
     except Exception as exc:
         return jsonify({"error": f"{type(exc).__name__}: {exc}"}), 502
     snap = ""
@@ -3270,12 +3275,14 @@ def api_vision_live():
     context = str(j.get("context", "") or "")
     t = str(j.get("t", "") or "")
     _base, _key, chosen = V._vlm_cfg(model)
+    # built here, used by the stream after the view returned: one narration, the viewer's own action
+    meter = U.desk_meter(desk, "theatre.narrate", lane="you", ref=f"live:{camera}", overrun=1)
 
     def gen():
         parts = []
         try:
             for delta in V.describe_stream(jpeg, "What is happening in this frame? What changed?", model=model,
-                                           context=context):
+                                           context=context, meter=meter):
                 if isinstance(delta, dict):                    # provider/model meta arrives first
                     yield "\x01" + json.dumps(delta) + "\n"
                     continue
@@ -3383,9 +3390,11 @@ def api_vision_snapshot(vid):
     return send_file(e["snapshot"], mimetype="image/jpeg", max_age=3600)
 
 
-def _rag_rows(desk_id: int, question: str, camera: str, hours: float, limit: int = 60) -> list[dict[str, Any]]:
-    """Retrieval for 'ask the cameras' (kept for callers): hybrid semantic + keyword + time-window, see atlas/rag.py."""
-    return RAG.retrieve(store, desk_id, question, hours, camera, k=limit)["rows"]
+def _rag_rows(desk_id: int, question: str, camera: str, hours: float, limit: int = 60, *,
+              meter: "U.Meter") -> list[dict[str, Any]]:
+    """Retrieval for 'ask the cameras' (kept for callers): hybrid semantic + keyword + time-window, see atlas/rag.py.
+    `meter` is what its embeddings count for."""
+    return RAG.retrieve(store, desk_id, question, hours, camera, k=limit, meter=meter)["rows"]
 
 
 def _sse(obj: dict[str, Any]) -> str:
@@ -3580,18 +3589,23 @@ def api_vision_ask():
     except (TypeError, ValueError):
         hours = 24.0
     configs = desk_configs(desk)
+    # one Ask: the vision re-look and the embeddings on Atlas's account; the text fallback on the desk's provider,
+    # which pays with its own key kind (a desk's own model account is BYO)
+    meter = U.desk_meter(desk, "ask.cameras", lane="you", overrun=2)
     text_answer = None
+    text_byo = False
     if _mode() != "demo":
         from ..providers import ProviderPool
         atlas_agent = next((a for a in configs["agents"] if a["id"] == "atlas"), {})
-        prov = ProviderPool(configs["providers"]).get(atlas_agent.get("provider") or "")
+        prov = ProviderPool(configs["providers"], meter=meter).get(atlas_agent.get("provider") or "")
+        text_byo = prov.key_kind == "byo"
 
         def text_answer(system: str, prompt: str) -> str:   # noqa: F811 - text-only fallback on the desk's Atlas model
             return (prov.chat(system, [prov.user_message(prompt)], [], model=atlas_agent.get("model", "")).text or "").strip()
     try:
         vlm = str(d.get("model") or "") or (DS.PAID_VLM if (desk.get("tier") or "free") != "free" else "")
         res = RAG.ask(store, desk["id"], q, hours, str(d.get("camera") or ""), configs["business"], mode=_mode(),
-                      text_answer=text_answer, vlm_model=vlm)
+                      text_answer=text_answer, vlm_model=vlm, meter=meter, text_byo=text_byo)
     except Exception as exc:
         return jsonify({"error": f"model error: {type(exc).__name__}: {str(exc)[:200]}"}), 502
     scores = res.get("scores") or {}
@@ -5256,6 +5270,7 @@ C.START_RUN = _start_run
 C.RUN_STATUS = _run_status
 C.NOTIFY = lambda desk_id, text: I.notify(store.connectors(desk_id), text)
 scheduler.BASE_URL = lambda: os.environ.get("PUBLIC_URL", "").strip()
+U.OPEN_MODE = lambda: OPEN                        # desks of user 0 count as public only while accounts are on
 U.start(store)                                    # the usage ledger + the provider key snapshot thread
 scheduler.start(store, _start_run, store.desk)
 threading.Thread(target=_watchdog_loop, daemon=True, name="atlas-watchdog").start()

@@ -426,7 +426,8 @@ def test_camera(cfg: dict[str, Any]) -> str:
     src = str(cfg.get("source") or "").strip()
     if not src:
         raise RuntimeError("camera connector needs a source (webcam index, rtsp:// or http:// URL, or file)")
-    res = V.analyse(src, cfg, None, live_vlm=False)
+    from . import usage as U
+    res = V.analyse(src, cfg, None, live_vlm=False, meter=U.house_meter("camera.test", lane="you"))   # no model call
     w, h = res["size"]
     det = ("yolo: " + V.counts_text(res["counts"])) if res["backend"] == "yolo" else           ("no local detector (" + (res["detector_error"] or "ultralytics missing") + ") — vision model will count on motion")
     return f"frame {w}x{h} from {V.source_kind(src)} · {det}"

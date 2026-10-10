@@ -52,7 +52,8 @@ class Embedder:
     floor_text = 0.12          # cosine below which a text match is noise for this embedder (strict mode)
     floor_image = 0.22         # same for question -> snapshot (CLIP); unused when images=False
 
-    def embed_texts(self, texts: list[str]) -> np.ndarray:  # (n, dim) L2-normalised float32
+    def embed_texts(self, texts: list[str], *, meter: Any = None) -> np.ndarray:  # (n, dim) L2-normalised float32
+        """`meter` (a usage.Meter) is what a remote embedder's requests count for; local embedders ignore it."""
         raise NotImplementedError
 
     def embed_images(self, jpegs: list[bytes]) -> np.ndarray | None:
@@ -86,7 +87,7 @@ class HashEmbedder(Embedder):
             feats += [f"t:{ww[i:i + 3]}" for i in range(len(ww) - 2)]
         return feats
 
-    def embed_texts(self, texts: list[str]) -> np.ndarray:
+    def embed_texts(self, texts: list[str], *, meter: Any = None) -> np.ndarray:
         out = np.zeros((len(texts), self.dim), dtype=np.float32)
         for i, txt in enumerate(texts):
             for f in self._feats(txt):
@@ -126,7 +127,7 @@ class ClipEmbedder(Embedder):
             with torch.no_grad():
                 self.dim = int(m.encode_text(self._tok(["x"])).shape[1])
 
-    def embed_texts(self, texts: list[str]) -> np.ndarray:
+    def embed_texts(self, texts: list[str], *, meter: Any = None) -> np.ndarray:
         self.warm()
         import torch  # type: ignore
         with torch.no_grad():
@@ -149,32 +150,54 @@ class ClipEmbedder(Embedder):
 
 
 class ApiEmbedder(Embedder):
-    """OpenAI-compatible /embeddings endpoint (OpenRouter by default). Text only; runs anywhere with a key."""
+    """OpenAI-compatible /embeddings endpoint (OpenRouter by default). Text only; runs anywhere with a key.
+    Every request is metered on Atlas's account (usage spec §3.6): only the paid-model cap on Atlas's account (L13)
+    can refuse it, and the ledger keeps one row per desk per minute (per Ask for an Ask)."""
     images = False
     floor_text = 0.35
+    metered = True
 
     def __init__(self, base_url: str = "", api_key: str = "", model: str = "", transport=None):
         from . import vision as V
+        from .providers import provider_id
         base, key, _ = V._vlm_cfg()
         self.base = (base_url or os.environ.get("EMBED_BASE_URL") or base).rstrip("/")
         self.key = api_key or os.environ.get("EMBED_API_KEY") or key
         self.model = model or os.environ.get("EMBED_MODEL", "openai/text-embedding-3-small")
         self.name = "api-" + re.sub(r"[^a-z0-9]+", "-", self.model.lower()).strip("-")
+        self.provider = provider_id(self.base)
         self.dim = 0
         self._transport = transport
 
-    def embed_texts(self, texts: list[str]) -> np.ndarray:
+    def embed_texts(self, texts: list[str], *, meter: Any) -> np.ndarray:
         import httpx
+        from . import usage as U
         vecs: list[list[float]] = []
         headers = {"Authorization": f"Bearer {self.key}", "Content-Type": "application/json",
                    "HTTP-Referer": "https://atlas-ops.onrender.com", "X-Title": "Atlas Desk vision RAG"}
         with httpx.Client(timeout=60, transport=self._transport) as c:
             for i in range(0, len(texts), 64):
                 chunk = [t[:2000] or " " for t in texts[i:i + 64]]
-                r = c.post(self.base + "/embeddings", headers=headers, json={"model": self.model, "input": chunk})
+                tk = U.embed_before(meter, provider=self.provider, model=self.model)   # L13: raises, nothing sent
+                try:
+                    r = c.post(self.base + "/embeddings", headers=headers, json={"model": self.model, "input": chunk})
+                except Exception as exc:
+                    U.embed_after(tk, error=f"{type(exc).__name__}: {str(exc)[:200]}")
+                    raise
+                try:
+                    j = r.json()
+                except Exception:
+                    j = None
+                body = j if isinstance(j, dict) else {}
                 if r.status_code >= 400:
+                    err = body.get("error")
+                    msg = err.get("message") if isinstance(err, dict) else err
+                    U.embed_after(tk, http_status=r.status_code,
+                                  error=f"HTTP {r.status_code}" + (f": {str(msg)[:200]}" if msg else ""))
                     raise RuntimeError(f"embeddings HTTP {r.status_code}: {r.text[:200]}")
-                data = sorted(r.json().get("data") or [], key=lambda d: d.get("index", 0))
+                U.embed_after(tk, http_status=r.status_code, usage=body.get("usage"),
+                              error="" if body.get("data") else "provider returned no embeddings")
+                data = sorted(body.get("data") or [], key=lambda d: d.get("index", 0))
                 vecs += [d["embedding"] for d in data]
         m = _l2(np.asarray(vecs, dtype=np.float32))
         self.dim = int(m.shape[1])
@@ -215,7 +238,11 @@ def get_embedder(mode: str = "") -> Embedder:
                     a = ApiEmbedder()
                     if not a.key:
                         continue
-                    a.embed_texts(["warm up"])
+                    from . import usage as U
+                    try:                            # one metered request on Atlas's account, for no owner
+                        a.embed_texts(["warm up"], meter=U.house_meter("embed", ref="warm-up"))
+                    except U.UsageLimit:            # the key is there; a cap reached now is no reason to hash for good
+                        pass
                     emb = a
                 else:
                     emb = HashEmbedder()
@@ -270,12 +297,15 @@ def _snapshot_bytes(ev: dict[str, Any], max_side: int = 512) -> bytes | None:
         return None
 
 
-def index_events(store, events: list[dict[str, Any]], emb: Embedder | None = None, with_images: bool = True) -> int:
-    """Embed and store vectors for `events` (rows from the vision_events table). Returns rows written."""
+def index_events(store, events: list[dict[str, Any]], emb: Embedder | None = None, with_images: bool = True, *,
+                 meter: Any) -> int:
+    """Embed and store vectors for `events` (rows from the vision_events table). Returns rows written. `usage`
+    notices are never embedded. `meter` is what the embeddings requests count for."""
+    events = [e for e in events if e.get("backend") != "usage"]
     if not events:
         return 0
     emb = emb or get_embedder()
-    texts = emb.embed_texts([event_text(e) for e in events])
+    texts = emb.embed_texts([event_text(e) for e in events], meter=meter)
     imgs: list[np.ndarray | None] = [None] * len(events)
     if with_images and emb.images:
         jpegs, idx = [], []
@@ -302,22 +332,46 @@ def index_events(store, events: list[dict[str, Any]], emb: Embedder | None = Non
 
 class _Indexer:
     """Background indexer: `add_vision_event` hands each new event over; the worker embeds it off the request path.
-    VISION_INDEX_SYNC=1 embeds inline (tests, CLI)."""
+    VISION_INDEX_SYNC=1 embeds inline (tests, CLI). Its embeddings count for the desk's owner in lane auto (one
+    meter per desk); at a usage limit the event simply stays unindexed and retrieval embeds it later (usage spec
+    §1.6). `usage` notices are never indexed."""
 
     def __init__(self):
         self.q: queue.Queue = queue.Queue()
         self._t: threading.Thread | None = None
         self._lock = threading.Lock()
         self.errors = 0
+        self._meters: dict[tuple[int, int], tuple[float, Any]] = {}    # (store, desk) -> (read at, meter)
+
+    def meter_for(self, store, desk_id: int):
+        """The desk's indexer meter (lane auto, surface embed), re-read from the desk at most once a minute."""
+        from . import usage as U
+        key = (id(store), int(desk_id))
+        hit = self._meters.get(key)
+        if hit and time.time() - hit[0] < 60:
+            return hit[1]
+        try:
+            desk = store.desk(int(desk_id)) if hasattr(store, "desk") else None
+        except Exception:
+            desk = None
+        m = U.desk_meter(desk or {"id": int(desk_id), "owner_id": 0}, "embed", lane="auto")
+        self._meters[key] = (time.time(), m)
+        return m
+
+    def _index(self, store, ev: dict[str, Any]) -> None:
+        from . import usage as U
+        try:
+            index_events(store, [ev], meter=self.meter_for(store, int(ev.get("desk_id") or 0)))
+        except U.UsageLimit:                # held at a limit: unindexed for now, not an error (S33)
+            pass
+        except Exception:
+            self.errors += 1
 
     def submit(self, store, ev: dict[str, Any]) -> None:
-        if os.environ.get("VISION_EMBED", "").strip().lower() == "off":
+        if os.environ.get("VISION_EMBED", "").strip().lower() == "off" or (ev or {}).get("backend") == "usage":
             return
         if os.environ.get("VISION_INDEX_SYNC", "").strip() in ("1", "true", "yes"):
-            try:
-                index_events(store, [ev])
-            except Exception:
-                self.errors += 1
+            self._index(store, ev)
             return
         self.q.put((store, ev))
         with self._lock:
@@ -332,9 +386,7 @@ class _Indexer:
             except queue.Empty:
                 return
             try:
-                index_events(store, [ev])
-            except Exception:
-                self.errors += 1
+                self._index(store, ev)
             finally:
                 self.q.task_done()
 
@@ -355,7 +407,8 @@ def on_event(store, ev: dict[str, Any] | None) -> None:
         INDEXER.submit(store, ev)
 
 
-def backfill(store, desk_id: int, emb: Embedder | None = None, limit: int = 5000, budget_s: float = 0) -> int:
+def backfill(store, desk_id: int, emb: Embedder | None = None, limit: int = 5000, budget_s: float = 0, *,
+             meter: Any) -> int:
     """Index every event on the desk that has no vector for the current embedder. Bounded by `budget_s` if > 0."""
     emb = emb or get_embedder()
     done = 0
@@ -364,7 +417,7 @@ def backfill(store, desk_id: int, emb: Embedder | None = None, limit: int = 5000
         batch = store.unindexed_vision_events(desk_id, emb.name, min(32, limit - done))
         if not batch:
             break
-        done += index_events(store, batch, emb)
+        done += index_events(store, batch, emb, meter=meter)
         if budget_s and time.time() - t0 > budget_s:
             break
     return done
@@ -492,22 +545,39 @@ def _signal(sim: dict[int, float], floor: float) -> set[int]:
     return {eid for eid, v in sim.items() if v >= floor or v >= hi}
 
 
+def _hashed_note(exc: Any) -> str:
+    return f"search embeddings paused: {exc.message}"
+
+
 def retrieve(store, desk_id: int, question: str, hours: float = 24, camera: str = "", k: int = 40,
              alerts_only: bool = False, emb: Embedder | None = None, now: float | None = None,
-             index_budget_s: float = 2.5, strict: bool = False) -> dict[str, Any]:
+             index_budget_s: float = 2.5, strict: bool = False, *, meter: Any) -> dict[str, Any]:
     """Hybrid retrieval over the desk's vision log. Returns {rows (chronological top-k), scores, why, window, matched, ...}.
     `matched` = ids with a real relevance signal (keyword hit or similarity above the embedder's floor); strict=True
     returns only those, which is what the agent's camera_events(query=...) wants; the ask pipeline keeps the best
-    context regardless and tells the model how strong the match was."""
+    context regardless and tells the model how strong the match was.
+
+    `meter` is what the embeddings requests count for (usage spec §3.6). When Atlas's paid-model cap (L13) refuses
+    them, this query runs on the hashed embedder instead and `embedder_note` says why (S32). `usage` notices are not
+    camera observations and are never retrieved."""
+    from . import usage as U
     now = now if now is not None else time.time()
     emb = emb or get_embedder()
+    held = ""
+    if getattr(emb, "metered", False):                 # an API embedder: ask the cap before any request is made
+        try:
+            U.embed_precheck(meter, provider=getattr(emb, "provider", ""), model=getattr(emb, "model", ""))
+        except U.UsageLimit as exc:
+            emb, held = get_embedder("hash"), _hashed_note(exc)
     window = parse_time_window(question, now)
     since, until, label = window if window else (now - float(hours) * 3600, now, f"last {hours:g}h")
-    rows = [r for r in store.vision_events(desk_id, camera, since, "", 1500) if r["ts"] <= until + 1]
+    rows = [r for r in store.vision_events(desk_id, camera, since, "", 1500, exclude_backends=("usage",)) if r["ts"] <= until + 1]
     if alerts_only:
         rows = [r for r in rows if r.get("triggered")]
     out: dict[str, Any] = {"rows": [], "scores": {}, "why": {}, "window": label, "since": since, "until": until,
                            "embedder": emb.name, "considered": len(rows), "indexed": 0, "channels": [], "matched": []}
+    if held:
+        out["embedder_note"] = held
     if not rows:
         return out
     by_id = {int(r["id"]): r for r in rows}
@@ -518,7 +588,9 @@ def retrieve(store, desk_id: int, question: str, hours: float = 24, camera: str 
         t0 = time.time()
         for i in range(0, len(missing), 16):
             try:
-                index_events(store, missing[i:i + 16], emb)
+                index_events(store, missing[i:i + 16], emb, meter=meter)
+            except U.UsageLimit:                       # S32: the rest stays unindexed for now, as on any error
+                break
             except Exception:
                 break
             if index_budget_s and time.time() - t0 > index_budget_s:
@@ -527,7 +599,13 @@ def retrieve(store, desk_id: int, question: str, hours: float = 24, camera: str 
                 break
         vecs = {int(v["event_id"]): v for v in store.vision_vectors(desk_id, since, emb.name, 3000)}
     out["indexed"] = sum(1 for eid in by_id if eid in vecs)
-    qv = emb.embed_texts([question])[0]
+    try:
+        qv = emb.embed_texts([question], meter=meter)[0]
+    except U.UsageLimit as exc:                         # S32: refused after the check: this query hashed, said so
+        alt = retrieve(store, desk_id, question, hours, camera, k, alerts_only, get_embedder("hash"), now,
+                       index_budget_s, strict, meter=meter)
+        alt["embedder_note"] = _hashed_note(exc)
+        return alt
     lists: list[tuple[float, list[int]]] = []
     channels = []
     # text semantic
@@ -628,14 +706,22 @@ def _system(business: dict[str, Any] | None, window: str) -> str:
 
 def ask(store, desk_id: int, question: str, hours: float = 24, camera: str = "", business: dict[str, Any] | None = None,
         mode: str = "live", text_answer: Callable[[str, str], str] | None = None, vlm_model: str = "",
-        look_frames: int = 4, k: int = 30, emb: Embedder | None = None, transport=None, now: float | None = None) -> dict[str, Any]:
+        look_frames: int = 4, k: int = 30, emb: Embedder | None = None, transport=None, now: float | None = None, *,
+        meter: Any, text_byo: bool = False) -> dict[str, Any]:
     """Retrieve, re-look at the best frames, answer with citations. `text_answer(system, prompt)` is the text-only
-    fallback (the desk's Atlas model) when no vision model key exists or no snapshots survived."""
+    fallback (the desk's Atlas model) when no vision model key exists or no snapshots survived.
+
+    `meter` is what the Ask counts for: its embeddings and the vision re-look, on Atlas's account. When a usage limit
+    refuses the re-look, the text fallback answers only if it runs on the desk's own model account (`text_byo`), and
+    the grounding says so; otherwise the limit is raised to the asker (usage spec §4.6 S31)."""
+    from . import usage as U
     from . import vision as V
-    ret = retrieve(store, desk_id, question, hours, camera, k=k, emb=emb, now=now)
+    ret = retrieve(store, desk_id, question, hours, camera, k=k, emb=emb, now=now, meter=meter)
     rows = ret["rows"]
     meta = {"method": "hybrid-rrf", "embedder": ret["embedder"], "window": ret["window"], "considered": ret["considered"],
             "indexed": ret["indexed"], "channels": ret["channels"], "matched": len(ret["matched"]), "looked_at": [], "grounding": "none"}
+    if ret.get("embedder_note"):
+        meta["embedder_note"] = ret["embedder_note"]
     if not rows:
         return {"answer": f"The camera log has nothing for {ret['window']}" + (f" on {camera}" if camera else "") + ".",
                 "evidence": [], "retrieval": meta, "events_considered": 0}
@@ -668,8 +754,16 @@ def ask(store, desk_id: int, question: str, hours: float = 24, camera: str = "",
         meta["grounding"] = "demo"
     elif frames and V.vlm_ready():
         try:
-            answer = V.chat_images(_system(business, ret["window"]), prompt, frames, model=vlm_model, max_tokens=1000, transport=transport)
+            answer = V.chat_images(_system(business, ret["window"]), prompt, frames, model=vlm_model, max_tokens=1000,
+                                   transport=transport, meter=meter)
             meta["grounding"] = f"vision model re-looked at {len(frames)} frame(s)"
+        except U.UsageLimit as exc:
+            if not (text_answer and text_byo):      # Atlas's text model is on the same allowance: the limit is the answer
+                raise
+            answer = text_answer(_system(business, ret["window"]), prompt)
+            until = U.until_text(exc)
+            meta["grounding"] = ("text only (vision on Atlas's account is at its limit"
+                                 + (f" until {until}" if until else "") + ")")
         except Exception as exc:
             if not text_answer:
                 raise
@@ -717,6 +811,9 @@ def main(argv: list[str] | None = None) -> int:
     from .config import DATA_DIR
     db_path = Path(args.db) if getattr(args, "db", "") else (DATA_DIR / "desk.db" if (DATA_DIR / "desk.db").exists() else None)
     store = Store(db_path, url=os.environ.get("DATABASE_URL") or None) if db_path else Store(url=os.environ.get("DATABASE_URL") or None)
+    from . import usage as U
+    U.init(store)                                   # the portal's ledger: this tool's requests count on Atlas's account
+    cli = U.cli_meter("rag")
     emb = get_embedder()
     if args.cmd in (None, "status"):
         print(f"embedder: {emb.name} (dim {emb.dim}, images={emb.images})")
@@ -730,21 +827,21 @@ def main(argv: list[str] | None = None) -> int:
         desks = [d["id"] for d in store.all_desks() if not args.desk or d["id"] == args.desk]
         for did in desks:
             t0 = time.time()
-            n = backfill(store, did, emb, args.limit)
+            n = backfill(store, did, emb, args.limit, meter=cli)
             print(f"desk {did}: indexed {n} event(s) in {time.time() - t0:.1f}s with {emb.name}")
         return 0
     if args.cmd == "ask":
         desk = store.desk(args.desk)
         business = ((desk or {}).get("config") or {}).get("business") or {}
         from .providers import ProviderPool
-        pool = ProviderPool(cfg.load("providers", cfg.DEFAULT_PROVIDERS))
+        pool = ProviderPool(cfg.load("providers", cfg.DEFAULT_PROVIDERS), meter=cli)
 
         def text_answer(system: str, prompt: str) -> str:
             prov = pool.get()
             return prov.chat(system, [prov.user_message(prompt)], [], "").text or ""
 
         res = ask(store, args.desk, args.question, args.hours, args.camera, business,
-                  mode="demo" if args.demo else "live", text_answer=text_answer)
+                  mode="demo" if args.demo else "live", text_answer=text_answer, meter=cli)
         if args.json:
             print(json.dumps({k: v for k, v in res.items() if k != "scores"}, default=str, indent=2, ensure_ascii=False))
             return 0

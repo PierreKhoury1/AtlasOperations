@@ -6,8 +6,11 @@ import pytest
 
 from atlas import journal as JR
 from atlas import rag as RAG
+from atlas import usage as U
 from atlas import vision as V
 from test_vision import PERSON, FakeDetector, _jpeg
+
+M = U.cli_meter("tests")          # a house meter: what these direct calls count for
 
 
 @pytest.fixture(autouse=True)
@@ -28,7 +31,7 @@ class FakeVLM:
     def notes(self):
         return [c for c in self.calls if c["system"] == JR.NOTE_SYSTEM]
 
-    def __call__(self, system, text, images, model="", max_tokens=500, transport=None):
+    def __call__(self, system, text, images, model="", max_tokens=500, transport=None, *, meter):
         self.calls.append({"system": system, "text": text, "labels": [l for l, _ in images]})
         if system == JR.ROLLUP_SYSTEM:
             return "Quiet window. 12:00 one adult in a red coat waited at the counter, served after 2 minutes."
@@ -71,11 +74,11 @@ def test_note_uses_previous_frame_and_note(monkeypatch, tmp_path):
     monkeypatch.setattr(V, "chat_images", vlm)
     jc = JR.config({"journal": "1", "journal_focus": "queue at the counter"})
     key = (1, "counter")
-    first = JR.write_note(key, "counter", jc, b"\xff\xd8one", {"person": 1}, notes="Till and counter", now=1000.0)
+    first = JR.write_note(key, "counter", jc, b"\xff\xd8one", {"person": 1}, notes="Till and counter", now=1000.0, meter=M)
     assert first.startswith("note 1") and vlm.notes()[0]["labels"][0].startswith("NOW")
     assert len(vlm.notes()[0]["labels"]) == 1 and "first note" in vlm.notes()[0]["text"]
     assert "queue at the counter" in vlm.notes()[0]["text"] and "Till and counter" in vlm.notes()[0]["text"]
-    JR.write_note(key, "counter", jc, b"\xff\xd8two", {"person": 2}, now=1030.0)
+    JR.write_note(key, "counter", jc, b"\xff\xd8two", {"person": 2}, now=1030.0, meter=M)
     c = vlm.notes()[1]
     assert c["labels"][0].startswith("EARLIER") and "30s ago" in c["labels"][0] and c["labels"][1].startswith("NOW")
     assert "Previous note (30s ago): note 1" in c["text"] and "2 people" in c["text"]
@@ -92,11 +95,11 @@ def test_rollup_condenses_notes_into_a_digest_event(store, monkeypatch):
     for i, n in enumerate((1, 3, 2)):
         ds.add_vision_event("counter", {"person": n}, backend="yolo", answer=f"journal text {i}", source="journal")
     ds.add_vision_event("counter", {"person": 9}, backend="yolo", reason="plain change event")   # not a note: ignored
-    ev = JR.maybe_rollup(ds, 7, "counter", jc, b"\xff\xd8end", now=time.time())
+    ev = JR.maybe_rollup(ds, 7, "counter", jc, b"\xff\xd8end", now=time.time(), meter=M)
     assert ev and ev["source"] == "digest" and ev["counts"] == {"person": 3} and "3 notes" in ev["reason"]
     assert "journal text 0" in vlm.calls[-1]["text"] and "journal text 2" in vlm.calls[-1]["text"]
     assert "plain change event" not in vlm.calls[-1]["text"]
-    assert JR.maybe_rollup(ds, 7, "counter", jc, None) is None                 # window just reset
+    assert JR.maybe_rollup(ds, 7, "counter", jc, None, meter=M) is None        # window just reset
     diary = JR.diary_read(7)
     assert "Summary" in diary and "counter" in diary and f"[#{ev['id']}]" in diary
 
@@ -129,8 +132,10 @@ def test_video_file_plays_as_a_live_camera(tmp_path, monkeypatch):
 
 
 def test_camera_tick_writes_journal_notes(store, tmp_path, monkeypatch):
-    """The watch loop writes a note on the first tick, stays quiet on an unchanged scene, notes again on change."""
+    """The watch loop writes a note on the first tick, stays quiet on an unchanged scene, notes again on change.
+    Meter-only mode (USAGE_ENFORCE=0): this is about the journal's own cadence, not the allowance's pacing."""
     import atlas.desk.scheduler as S
+    monkeypatch.setattr(U, "CFG", U.load_config({"USAGE_ENFORCE": "0"}))
     vlm = FakeVLM()
     monkeypatch.setattr(V, "chat_images", vlm)
     monkeypatch.setattr(V, "vlm_ready", lambda: True)
@@ -321,8 +326,8 @@ def test_verify_pass_audits_the_note_against_the_current_frames(monkeypatch):
     monkeypatch.setattr(JR, "publish", lambda desk_id, kind, camera, **kw: seen.append((kind, kw)))
     jc = JR.config({"journal": "1"})
     key = (2, "door")
-    JR.write_note(key, "door", jc, b"\xff\xd8one", {"person": 1}, now=1000.0)
-    text = JR.write_note(key, "door", jc, b"\xff\xd8two", {"person": 1}, now=1040.0)
+    JR.write_note(key, "door", jc, b"\xff\xd8one", {"person": 1}, now=1000.0, meter=M)
+    text = JR.write_note(key, "door", jc, b"\xff\xd8two", {"person": 1}, now=1040.0, meter=M)
     assert "holding something, unclear what" in text
     audit = [c for c in vlm.calls if c["system"] == JR.VERIFY_SYSTEM][-1]
     assert audit["labels"][0].startswith("EARLIER") and audit["labels"][1].startswith("NOW (")        # both frames: change claims need both
@@ -334,9 +339,9 @@ def test_verify_pass_audits_the_note_against_the_current_frames(monkeypatch):
     vlm.audit = lambda d: "not json"
     monkeypatch.setattr(V, "chat_images", lambda system, text, images, **k: "???" if system == JR.VERIFY_SYSTEM else vlm(system, text, images, **k))
     JR._state.pop(key, None)
-    kept = JR.write_note(key, "door", jc, b"\xff\xd8three", {"person": 1}, now=1100.0)
+    kept = JR.write_note(key, "door", jc, b"\xff\xd8three", {"person": 1}, now=1100.0, meter=M)
     assert kept.startswith("note ") and [kw for kind, kw in seen if kind == "note_verify"][-1]["error"]
     # journal_verify=0: one call per note
     off = FakeVLM(); monkeypatch.setattr(V, "chat_images", off)
-    JR.write_note((3, "x"), "x", JR.config({"journal": "1", "journal_verify": "0"}), b"\xff\xd8a", {}, now=1.0)
+    JR.write_note((3, "x"), "x", JR.config({"journal": "1", "journal_verify": "0"}), b"\xff\xd8a", {}, now=1.0, meter=M)
     assert [c["system"] for c in off.calls] == [JR.NOTE_SYSTEM]

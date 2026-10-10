@@ -368,6 +368,9 @@ class Meter:
     run_cap: int = 0                # L4 for runs and link studies, 0 otherwise
     requests: int = 0
     limited: dict[str, dict] = field(default_factory=dict)   # tool surfaces refused in this run -> limit body
+    # what allow() last answered per surface when it held the work: {"verdict": "paced", "why": "pace", "gap_s": ...},
+    # {"verdict": "paced", "why": "minute", "retry_s": ...} or {"verdict": "paused", "limit": <limit body>}
+    held: dict[str, dict] = field(default_factory=dict, repr=False, compare=False)
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False, compare=False)
 
     def count(self, n: int = 1) -> int:
@@ -437,6 +440,8 @@ _pool: dict[str, Any] = {}
 _minute: dict[str, deque] = {}
 _streams: dict[tuple[int, str], dict[str, float]] = {}
 _refusals: dict[tuple, int] = {}
+_embed_lock = threading.Lock()
+_embed_rows: dict[tuple, tuple[int, float]] = {}       # embeddings aggregation key -> (usage_events.id, last write)
 _ov_cache: dict[int, tuple[float, dict[str, Any]]] = {}
 _email_cache: dict[int, tuple[float, str]] = {}
 _reserve_cache: dict[str, int] = {}
@@ -472,6 +477,8 @@ def reset() -> None:
         _hermes_warn.update(ts=0.0, message="", logged=0.0)
     with _dedup_lock:
         _refusals.clear()
+    with _embed_lock:
+        _embed_rows.clear()
 
 
 def init(store) -> None:
@@ -1340,9 +1347,10 @@ def pace_gap(owner_id: int, now: float | None = None, *, per_action: int = 1, sc
         gap = (resets_at - now) / max(1, floor(remaining / per_action / streams))
 
     remaining = the auto lane's remaining (capped by the owner's), streams = the owner's paced streams active in the
-    last 10 min. 0 when no Atlas limit applies. Counts the free:openrouter pool only."""
+    last 10 min. 0 when no Atlas limit applies, or with no ledger bound (a CLI tool, a unit test: nothing to spread).
+    Counts the free:openrouter pool only."""
     now = _now() if now is None else now
-    if not CFG.enforce:
+    if not CFG.enforce or _store is None:
         return 0.0
     ds = day_start(now)
     rem: list[int] = []
@@ -1368,14 +1376,15 @@ def pace_gap(owner_id: int, now: float | None = None, *, per_action: int = 1, sc
 def allow(meter: Meter, *, surface: str = "", stream: str = "", per_action: int = 1,
           pool: str = "free:openrouter") -> str:
     """The background check (never raises): "" = go, "paced" = skip this tick (pacing or a full minute window),
-    "paused" = a lane, owner, pool or money limit is full; one deduplicated refusal row per window records it."""
+    "paused" = a lane, owner, pool or money limit is full; one deduplicated refusal row per window records it.
+    Why it held is left on `meter.held[surface]` for the caller's status line (see held_text())."""
     now = _now()
     surface = surface or meter.surface
     if stream:
         stream_seen(meter.owner_id, stream, now)
     kk = meter.key_kind
     if not CFG.enforce or kk == "byo" or (kk == "demo" and CFG.demo != "enforce"):
-        return _go(meter, stream, now)
+        return _go(meter, surface, stream, now)
     try:
         if meter.run_cap and meter.requests >= meter.run_cap:
             raise _limit("run_requests", used=meter.requests, limit=meter.run_cap, now=now)
@@ -1392,26 +1401,64 @@ def allow(meter: Meter, *, surface: str = "", stream: str = "", per_action: int 
             _check_paid(meter, "", "", kk, now)
     except UsageLimit as exc:
         _refuse_quietly(meter, exc, surface=surface)
+        meter.held[surface] = {"verdict": "paused", "limit": exc.body()}
         return "paused"
     if pool.startswith("free:"):
         cap = _minute_cap(pool, meter.lane)
         if cap:
             with _mem_lock:
-                if _minute_state(pool, cap, now)[1] > 0:
-                    return "paced"
+                wait = _minute_state(pool, cap, now)[1]
+            if wait > 0:
+                meter.held[surface] = {"verdict": "paced", "why": "minute", "retry_s": int(math.ceil(wait))}
+                return "paced"
         if stream and pool == "free:openrouter":
             gap = pace_gap(meter.owner_id, now, per_action=per_action, scope=meter.scope)
             with _mem_lock:
                 last = _streams.get((int(meter.owner_id or 0), stream), {}).get("go", 0.0)
             if gap > 0 and last and now - last < gap:
+                meter.held[surface] = {"verdict": "paced", "why": "pace", "gap_s": int(round(gap))}
                 return "paced"
-    return _go(meter, stream, now)
+    return _go(meter, surface, stream, now)
 
 
-def _go(meter: Meter, stream: str, now: float) -> str:
+def _go(meter: Meter, surface: str, stream: str, now: float) -> str:
+    meter.held.pop(surface, None)
     if stream:
         with _mem_lock:
             _streams.setdefault((int(meter.owner_id or 0), stream), {})["go"] = now
+    return ""
+
+
+def brief(limit: "UsageLimit | dict[str, Any]") -> str:
+    """'<label> <used>/<limit>' for a status line: numbers first (spec §4.9)."""
+    b = limit.body() if isinstance(limit, UsageLimit) else (limit or {})
+    unit = b.get("unit") or "requests"
+    return f"{b.get('label', '')} {_fmt(b.get('used'), unit)}/{_fmt(b.get('limit'), unit)}"
+
+
+def until_text(limit: "UsageLimit | dict[str, Any]", now: float | None = None) -> str:
+    """When held work runs again, as 'HH:MM UTC' (plus the date when that is over a day away); '' when nothing
+    retries it automatically (the per-run cap, storage)."""
+    b = limit.body() if isinstance(limit, UsageLimit) else (limit or {})
+    when = b.get("retry_at") or b.get("resets_at")
+    if not when:
+        return ""
+    now = _now() if now is None else now
+    d = datetime.fromtimestamp(float(when), timezone.utc)
+    return d.strftime("%H:%M") + " UTC" + (f" on {d.day} {d.strftime('%b')}" if float(when) - now > DAY else "")
+
+
+def held_text(meter: Meter, surface: str, what: str, *, unit: str = "") -> str:
+    """The camera tile's line for work allow() held, e.g. "AI counts paced: one every 12 min", "Journal paced: one
+    note every 23 min", "Detection paused until 00:00 UTC: AI requests Atlas made on its own 125/125". '' = not held."""
+    h = meter.held.get(surface) or {}
+    if h.get("verdict") == "paused":
+        until = until_text(h.get("limit") or {})
+        return f"{what} paused" + (f" until {until}" if until else "") + ": " + brief(h.get("limit") or {})
+    if h.get("verdict") == "paced":
+        if h.get("why") == "pace":
+            return f"{what} paced: one {unit + ' ' if unit else ''}every {max(1, round(h.get('gap_s', 0) / 60))} min"
+        return f"{what} paced: the shared per-minute limit is full, next try in {max(1, int(h.get('retry_s') or 1))} s"
     return ""
 
 
@@ -1785,6 +1832,166 @@ def bound_lane() -> str:
 def cli_meter(module: str) -> Meter:
     """Command-line tools on the house key: scope house, surface cli:<module>."""
     return Meter(owner_id=0, desk_id=0, scope="house", lane="you", surface=f"cli:{module}")
+
+
+def house_meter(surface: str, *, lane: str = "auto", ref: str = "") -> Meter:
+    """Work Atlas does for no account (the embedder's warm-up): scope house, limited only by the house limits."""
+    return Meter(owner_id=0, desk_id=0, scope="house", lane=lane, surface=surface, ref=str(ref or "")[:120])
+
+
+# Accounts on or off (DESK_OPEN=1: no accounts, everything is owner 0's). The app replaces it so a test that flips
+# app.OPEN is seen here too.
+OPEN_MODE: Callable[[], bool] = lambda: str(os.environ.get("DESK_OPEN", "")).strip() in ("1", "true", "yes")
+
+
+def desk_scope(owner_id: int) -> str:
+    """owner, or public for a desk owned by user 0 while accounts are on: the demo desk and the showroom count in the
+    website's share (spec §7.3)."""
+    return "owner" if int(owner_id or 0) or OPEN_MODE() else "public"
+
+
+def desk_meter(desk: dict[str, Any] | None, surface: str, *, lane: str = "auto", ref: str = "", overrun: int = 0,
+               key_kind: str = "house") -> Meter:
+    """The meter for one action on a desk: its owner's allowance (or the public share, desk_scope())."""
+    owner = int((desk or {}).get("owner_id") or 0)
+    return Meter(owner_id=owner, desk_id=int((desk or {}).get("id") or 0), scope=desk_scope(owner), lane=lane,
+                 surface=surface, key_kind=key_kind, ref=str(ref or "")[:120], overrun=int(overrun or 0))
+
+
+def derive(meter: Meter, surface: str) -> Meter:
+    """The same action on another surface (a camera tick's detection, note and rollup): owner, desk, scope, lane, key
+    kind, action id and ref are shared; its request count is its own and it has no overrun."""
+    return Meter(owner_id=meter.owner_id, desk_id=meter.desk_id, scope=meter.scope, lane=meter.lane, surface=surface,
+                 key_kind=meter.key_kind, action_id=meter.action_id, ref=meter.ref)
+
+
+# ---------------------------------------------------------------------------- embeddings (spec §1.3 L3/L13, §3.6)
+# Search-index embeddings are paid house requests that only L13 blocks (never L3, never the free pools). They are
+# metered per request but written aggregated: the background indexer as one `embed` row per (owner, desk, UTC minute),
+# an Ask as one row under its own action id. Each request adds to its row and to the counters at once, so L13 never
+# lags. A row per status: a failed request is never folded into an ok one.
+@dataclass
+class EmbedTicket:
+    meter: Meter
+    provider: str
+    model: str
+    pool: str
+    t0: float
+    day_start: int
+    month_start: int
+    done: bool = False
+
+
+def _embed_check(pool: str, now: float) -> None:
+    if not CFG.enforce or pool != "paid":
+        return
+    l13 = limit_value(0, "house_paid_usd_month")
+    if l13 is not None:
+        used = house_paid_used(now)
+        if used >= l13:
+            raise _limit("house_paid_usd_month", used=used, limit=l13, now=now)
+
+
+def embed_precheck(meter: Meter | None, *, provider: str = "", model: str = "") -> None:
+    """Would an embeddings request be refused now (L13)? Raises UsageLimit and records the deduplicated refusal; takes
+    nothing. Retrieval asks before it starts, so a refused Ask searches with the hashed embedder instead."""
+    m = resolve(meter)
+    now = _now()
+    try:
+        _embed_check(classify(provider, model, "house"), now)
+    except UsageLimit as exc:
+        _refuse_quietly(m, exc, surface="embed")
+        raise
+
+
+def embed_before(meter: Meter | None, *, provider: str = "", model: str = "") -> EmbedTicket:
+    """One embeddings request: L13 only (a refusal raises UsageLimit and nothing is sent). Not an AI request in the
+    allowance sense: it never counts in L1/L2, L3's cap or a run's cap (L4), only in its own column and in money."""
+    m = resolve(meter)
+    now = _now()
+    pool = classify(provider, model, "house")
+    try:
+        _embed_check(pool, now)
+    except UsageLimit as exc:
+        _refuse_quietly(m, exc, surface="embed")
+        raise
+    return EmbedTicket(meter=m, provider=(provider or "").lower(), model=model or "", pool=pool, t0=now,
+                       day_start=day_start(now), month_start=month_start(now))
+
+
+def embed_after(ticket: EmbedTicket | None, *, http_status: int = 0, usage: Any = None, error: str = "") -> None:
+    """Record one embeddings request into its aggregated row and the counters. Never raises."""
+    if ticket is None or ticket.done:
+        return
+    ticket.done = True
+    try:
+        _embed_after(ticket, int(http_status or 0), usage, str(error or ""))
+    except Exception as exc:
+        print(f"usage: embedding not recorded: {type(exc).__name__}: {str(exc)[:160]}")
+
+
+def _embed_after(t: EmbedTicket, http_status: int, usage: Any, err: str) -> None:
+    if _store is None:
+        return
+    m, now = t.meter, _now()
+    status = "error" if (err or http_status >= 400) else "ok"
+    tin = _tokens(usage)[0]
+    cost = _cost(usage)
+    D, M = t.day_start, t.month_start
+    ok = _okey(m)
+    did = int(m.desk_id or 0)
+    dk = f"{ok}:d{did}" if m.scope == "owner" else None
+    rows: list[tuple] = [(sk, "req:embed", "D", D, 1, None) for sk in (ok, dk, "house") if sk]
+    cm = _micro(cost)
+    if t.pool == "paid" and cm:
+        l3 = limit_value(m.owner_id, "paid_usd_month") if m.scope == "owner" else None
+        l13 = limit_value(0, "house_paid_usd_month")
+        rows += [(sk, "usd:paid", "D", D, cm, None) for sk in (ok, dk, "house") if sk]
+        if ok:
+            rows.append((ok, "usd:paid", "M", M, cm, _micro(l3) if l3 is not None else None))
+        rows.append(("house", "usd:paid", "M", M, cm, _micro(l13) if l13 is not None else None))
+        if t.provider == "openrouter":
+            with _mem_lock:                         # on top of the provider's usage_monthly until the next poll
+                if _pool["since_month"] != M:
+                    _pool["since_usd"], _pool["since_month"] = 0.0, M
+                _pool["since_usd"] += cost
+    if m.lane == "you":                             # an Ask: one row under the Ask's own action id
+        key: tuple = ("act", m.action_id, status)
+        action_id = m.action_id
+    else:                                           # the background indexer: one row per desk per UTC minute
+        minute = int(now // 60) * 60
+        key = ("min", int(m.owner_id or 0), did, m.scope, minute, status)
+        action_id = f"embed-d{did}-{minute}"
+    note = err.split(" [", 1)[0][:200] if err else ""
+    with _embed_lock:
+        hit = _embed_rows.get(key)
+        with _tx() as c:
+            rid = None
+            if hit:
+                sets = "units = units + 1, tokens_in = tokens_in + ?, ts_end = ?, http_status = ?"
+                args: list[Any] = [tin, now, http_status]
+                if cost is not None:
+                    sets += ", cost_usd = COALESCE(cost_usd, 0) + ?, cost_basis = 'provider'"
+                    args.append(float(cost))
+                if note:
+                    sets += ", note = ?"
+                    args.append(note)
+                cur = c.execute(f"UPDATE usage_events SET {sets} WHERE id = ?", (*args, hit[0]))
+                rid = hit[0] if cur.rowcount == 1 else None
+            if not rid:
+                rid = _insert_event(c, {**_meter_fields(m), "surface": "embed", "action_id": action_id, "ts": now,
+                                        "ts_end": now, "kind": "request", "units": 1, "key_kind": "house",
+                                        "provider": t.provider[:40], "model": t.model[:120], "pool": t.pool,
+                                        "status": status, "http_status": http_status, "tokens_in": tin,
+                                        "cost_usd": cost, "cost_basis": "provider" if cost is not None else "",
+                                        "note": note})
+            for sk, metric, period, ws, n, lim in rows:
+                if sk and n:
+                    c.execute(_UPSERT, (sk, metric, period, int(ws), int(n), lim, now))
+        _embed_rows[key] = (int(rid), now)
+        if len(_embed_rows) > 256:                  # minutes and Asks that are over
+            for k in [k for k, (_rid, ts) in _embed_rows.items() if now - ts > 180]:
+                _embed_rows.pop(k, None)
 
 
 # ---------------------------------------------------------------------------- Hermes calls in flight (spec §1.8)

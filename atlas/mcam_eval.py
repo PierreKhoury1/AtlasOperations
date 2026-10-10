@@ -495,6 +495,7 @@ VLM_PROMPT = ('{"distinct_people": <integer: your best estimate of how many diff
 
 
 def score_vlm(D: dict[str, Any], model: str, n: int = 8, log=print) -> dict[str, Any]:
+    from . import usage as U
     from . import vision as V
     idx = np.linspace(0, len(D["frames"]) - 1, n).astype(int).tolist()
     rows = []
@@ -502,7 +503,7 @@ def score_vlm(D: dict[str, Any], model: str, n: int = 8, log=print) -> dict[str,
         imgs = [(f"[camera {c}]", D["paths"][fi][ci].read_bytes()) for ci, c in enumerate(CAMS)]
         t0 = time.time()
         try:
-            txt = V.chat_images(VLM_SYSTEM, VLM_PROMPT, imgs, model=model, max_tokens=500)
+            txt = V.chat_images(VLM_SYSTEM, VLM_PROMPT, imgs, model=model, max_tokens=500, meter=U.cli_meter("mcam_eval"))
             j = json.loads(txt[txt.find("{"): txt.rfind("}") + 1])
             est = int(j.get("distinct_people"))
             pc = j.get("per_camera") or {}

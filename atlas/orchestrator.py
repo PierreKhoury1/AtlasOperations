@@ -110,11 +110,14 @@ PARALLEL_SAFE = {"delegate", "camera_look", "camera_events", "camera_ask", "web_
 
 
 class Orchestrator:
-    def __init__(self, configs: dict[str, Any], store: Store | None, emit: Callable[[Event], None]):
+    def __init__(self, configs: dict[str, Any], store: Store | None, emit: Callable[[Event], None], meter: Any = None):
         self.configs = configs
         self.store = store
         self._emit = emit
-        self.pool = ProviderPool(configs["providers"])
+        # the run's usage.Meter: every model request of the run counts for it, its tools' vision and search requests
+        # too (handed over explicitly: parallel tool calls run on pool threads). None = the bound one, else house.
+        self.meter = meter
+        self.pool = ProviderPool(configs["providers"], meter=meter)
         self.business = configs["business"]
         self.agents: dict[str, dict[str, Any]] = {a["id"]: a for a in configs["agents"] if a.get("enabled", True)}
         self.workflows: dict[str, dict[str, Any]] = {w["id"]: w for w in configs["workflows"]}
@@ -474,7 +477,7 @@ class Orchestrator:
             if why:
                 return f"ERROR: refusing to fetch {source}: {why}"
         self.emit("tool", agent["id"], f"video_describe {source} ({question[:80] or 'describe'})")
-        res = V.describe_video(src, question, frames=frames, context=self.business.get("name", ""))
+        res = V.describe_video(src, question, frames=frames, context=self.business.get("name", ""), meter=self.meter)
         stamp = time.strftime("%H%M%S")
         for i, fr in enumerate(res["frames"][:4]):    # contact sheet: first sampled frames as run deliverables
             fp = self.run_dir / f"video_{stamp}_f{i}_{fr['t']:.0f}s.jpg"
@@ -966,7 +969,8 @@ class Orchestrator:
             live = (self.configs.get("mode") or "") != "demo"
             prev = self.store.last_vision_event(conn["name"]) if hasattr(self.store, "last_vision_event") else None
             try:
-                res = V.analyse(str(conn["config"].get("source", "")), conn["config"], None, live_vlm=live, question=question)
+                res = V.analyse(str(conn["config"].get("source", "")), conn["config"], None, live_vlm=live, question=question,
+                                meter=self.meter)
             except Exception as exc:
                 return f"camera {conn['name']} unavailable: {str(exc)[:200]}"
             snap = V.save_snapshot(self.configs.get("desk_id", 0), conn["name"], res["annotated"])
@@ -1011,8 +1015,12 @@ class Orchestrator:
                 return r.text or ""
 
             try:
+                text_byo = self.pool.get(agent.get("provider") or "").key_kind == "byo"
+            except Exception:
+                text_byo = False
+            try:
                 res = rag.ask(self.store.s, self.store.desk_id, q, hours, str(args.get("camera", "") or ""), self.business,
-                              mode="demo" if demo else "live", text_answer=text_answer)
+                              mode="demo" if demo else "live", text_answer=text_answer, meter=self.meter, text_byo=text_byo)
             except Exception as exc:
                 return f"ERROR: camera_ask failed: {type(exc).__name__}: {str(exc)[:200]}"
             m = res["retrieval"]
@@ -1040,7 +1048,7 @@ class Orchestrator:
                 from . import rag
                 try:
                     ret = rag.retrieve(self.store.s, self.store.desk_id, query, hours, str(args.get("camera", "") or ""),
-                                       k=limit, alerts_only=bool(args.get("alerts_only")), strict=True)
+                                       k=limit, alerts_only=bool(args.get("alerts_only")), strict=True, meter=self.meter)
                     rows = list(reversed(ret["rows"]))
                 except Exception:
                     rows = self.store.vision_events(str(args.get("camera", "") or ""), time.time() - hours * 3600, query, limit, bool(args.get("alerts_only")))

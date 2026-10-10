@@ -14,6 +14,10 @@ Pipeline per camera tick (see desk/scheduler.py `camera_watch`):
 
 Everything degrades: no ultralytics → VLM or motion-only; no model key → detections only; no cv2 → RTSP via
 ffmpeg, webcams unavailable. Nothing here decides what to *do* — the orchestrator and approvals do that.
+
+Every vision-model request goes through `_vlm_post`, the vision chokepoint of the usage ledger: each function that
+can reach a model takes a required `meter` (the usage.Meter of the action it counts for), and a limit refuses the
+request before anything is sent (atlas/usage.py).
 """
 from __future__ import annotations
 
@@ -635,13 +639,188 @@ def vlm_ready() -> bool:
     return bool(_vlm_cfg()[1])
 
 
-def describe(jpeg: bytes, question: str, model: str = "", context: str = "", max_tokens: int = 400,
-             transport: httpx.BaseTransport | None = None) -> str:
-    """Ask the vision model one question about the frame. Plain-text answer, never invents what it can't see."""
+def _json_or_none(r) -> Any:
+    try:
+        return r.json()
+    except Exception:
+        return None
+
+
+def _vlm_error(r, j: Any) -> str:
+    """The ledger's error text for one vision response: '' when it answered. The provider's own message only, never
+    the request (usage spec §3.7)."""
+    def msg_of(x: Any) -> str:
+        err = x.get("error") if isinstance(x, dict) else None
+        m = err.get("message") if isinstance(err, dict) else err
+        return str(m or "")[:200]
+    if r.status_code >= 400:
+        m = msg_of(j)
+        return f"HTTP {r.status_code}: {m}" if m else f"HTTP {r.status_code}"
+    if not isinstance(j, dict):
+        return "provider returned no JSON"
+    if not j.get("choices"):
+        m = msg_of(j)
+        return "provider returned no choices" + (f": {m}" if m else "")
+    return ""
+
+
+def _vlm_post(chain: list[dict[str, str]], payload: dict[str, Any], *, stream: bool = False, meter: Any,
+              timeout: float = 90.0, transport: httpx.BaseTransport | None = None, client: httpx.Client | None = None,
+              title: str = "Atlas Desk vision", extras: bool = True):
+    """The vision chokepoint (usage spec §3.2 item 2, §4.1): every vision-model request leaves Atlas here, down the
+    free-first chain. Each entry tried is one metered request on Atlas's key: usage.before() first (a refusal raises
+    UsageLimit and nothing is sent; while entries remain the chain moves on, since each entry is its own pool), then
+    usage.after() with the status, the provider-reported usage and cost (from the last SSE chunk when streaming) or
+    the error. Any other failure (a transport error, HTTP >= 400) moves to the next entry, as before. The provider's
+    daily free-model quota error comes back as UsageLimit(pool_free_day).
+
+    `payload` is the request without its model; each entry's model is added (with its extras unless extras=False).
+    stream=False returns (entry, response, json) of the last entry tried; the caller decides what an error status
+    means. stream=True returns a generator: a meta dict {provider, model} first, then the text deltas."""
+    from . import usage as U
+    from .providers import provider_id
+
+    def request(e: dict[str, str]) -> tuple[str, dict[str, str], dict[str, Any]]:
+        body = {"model": e["model"], **payload}
+        if stream:
+            body["stream"] = True
+        if extras:
+            body.update(_extras(e["model"]))
+        headers = {"Authorization": f"Bearer {e['key']}", "Content-Type": "application/json",
+                   "HTTP-Referer": "https://atlas-ops.onrender.com", "X-Title": title}
+        return e["base"] + "/chat/completions", headers, body
+
+    def take(e: dict[str, str]):
+        # vision always runs on Atlas's keys, even on a desk with its own model account (spec §2)
+        return U.before(meter, provider=provider_id(e["base"]), model=e["model"], key_kind="house")
+
+    def streamed():
+        c = client or httpx.Client(timeout=timeout, transport=transport)
+        try:
+            for i, e in enumerate(chain):
+                last = i + 1 >= len(chain)
+                try:
+                    tk = take(e)
+                except U.UsageLimit:
+                    if last:
+                        raise
+                    continue
+                url, headers, body = request(e)
+                seen: dict[str, Any] = {"status": 0, "usage": None, "error": ""}
+                try:
+                    with c.stream("POST", url, headers=headers, json=body) as r:
+                        seen["status"] = r.status_code
+                        if r.status_code >= 400:
+                            r.read()
+                            U.after(tk, http_status=r.status_code, error=_vlm_error(r, _json_or_none(r)))
+                            if tk.limit is not None:
+                                raise tk.limit
+                            if not last:
+                                continue
+                            raise RuntimeError(f"vision model HTTP {r.status_code}: {r.text[:200]}")
+                        yield {"provider": e["name"], "model": e["model"]}       # meta first, then text deltas
+                        for line in r.iter_lines():
+                            if not line.startswith("data: "):
+                                continue
+                            data = line[6:].strip()
+                            if data == "[DONE]":
+                                break
+                            try:
+                                ch = json.loads(data)
+                            except json.JSONDecodeError:
+                                continue
+                            if not isinstance(ch, dict):
+                                continue
+                            if ch.get("usage"):
+                                seen["usage"] = ch["usage"]
+                            if ch.get("error"):                     # an error after the stream started is a chunk
+                                err = ch["error"]
+                                seen["error"] = "stream error: " + str((err.get("message") if isinstance(err, dict) else err) or "")[:200]
+                            try:
+                                delta = ch["choices"][0].get("delta", {}).get("content") or ""
+                            except (KeyError, IndexError, TypeError, AttributeError):
+                                continue
+                            if isinstance(delta, list):
+                                delta = "".join(p.get("text", "") for p in delta if isinstance(p, dict))
+                            if delta:
+                                yield delta
+                    U.after(tk, http_status=seen["status"], usage=seen["usage"], error=seen["error"])
+                    if tk.limit is not None:
+                        raise tk.limit
+                    return
+                except httpx.HTTPError as exc:
+                    U.after(tk, http_status=seen["status"], usage=seen["usage"], error=f"{type(exc).__name__}: {str(exc)[:200]}")
+                    if not last:
+                        continue
+                    raise
+                finally:                                    # the reader stopped early: the request still happened
+                    U.after(tk, http_status=seen["status"], usage=seen["usage"], meta={"note": "stream closed by the reader"})
+        finally:
+            if client is None:
+                c.close()
+
+    if stream:
+        return streamed()
+    c = client or httpx.Client(timeout=timeout, transport=transport)
+    used, r, j = None, None, None
+    try:
+        for i, e in enumerate(chain):
+            last = i + 1 >= len(chain)
+            try:
+                tk = take(e)
+            except U.UsageLimit:
+                if last:
+                    raise
+                continue
+            url, headers, body = request(e)
+            try:
+                r = c.post(url, headers=headers, json=body)
+            except httpx.HTTPError as exc:
+                U.after(tk, error=f"{type(exc).__name__}: {str(exc)[:200]}")
+                if not last:
+                    continue
+                raise
+            used, j = e, _json_or_none(r)
+            U.after(tk, http_status=r.status_code, usage=j.get("usage") if isinstance(j, dict) else None,
+                    error=_vlm_error(r, j))
+            if tk.limit is not None:
+                raise tk.limit
+            if _retryable(r.status_code) and not last:
+                continue
+            break
+    finally:
+        if client is None:
+            c.close()
+    return used, r, j
+
+
+def _answer(r, j: Any) -> str:
+    """The text of a non-streamed vision answer, or the same RuntimeError the chain always raised."""
+    if r is None or r.status_code >= 400:
+        raise RuntimeError(f"vision model HTTP {r.status_code if r is not None else '?'}: "
+                           f"{r.text[:200] if r is not None else 'no provider reachable'}")
+    try:
+        msg = j["choices"][0]["message"]["content"]
+    except (KeyError, IndexError, TypeError) as exc:
+        raise RuntimeError(f"vision model returned no answer: {json.dumps(j)[:200]}") from exc
+    if isinstance(msg, list):
+        msg = " ".join(p.get("text", "") for p in msg if isinstance(p, dict))
+    return (msg or "").strip()
+
+
+def _chain_or_raise(model: str) -> list[dict[str, str]]:
     chain = [e for e in vlm_chain(model) if e["key"]]
     if not chain:
         raise RuntimeError("no vision model key (set OPENROUTER_API_KEY / GROQ_API_KEY / GEMINI_API_KEY)")
-    system = ("You are the vision analyst of a small business's operations desk. You look at one camera frame and "
+    return chain
+
+
+def describe(jpeg: bytes, question: str, model: str = "", context: str = "", max_tokens: int = 400,
+             transport: httpx.BaseTransport | None = None, *, meter: Any) -> str:
+    """Ask the vision model one question about the frame. Plain-text answer, never invents what it can't see.
+    `meter` (a usage.Meter) is the action the request counts for."""
+    chain = _chain_or_raise(model)
+    system =("You are the vision analyst of a small business's operations desk. You look at one camera frame and "
               "answer the owner's question precisely. State only what is visible; say 'not visible' rather than guess. "
               "Count carefully. Keep it under 80 words unless asked for detail. Plain text only — no markdown, no headings, no asterisks. "
               "Never identify people by name.")
@@ -654,31 +833,9 @@ def describe(jpeg: bytes, question: str, model: str = "", context: str = "", max
             {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64," + base64.b64encode(jpeg).decode()}},
         ]},
     ]
-    r = None
-    with httpx.Client(timeout=90, transport=transport) as c:
-        for i, e in enumerate(chain):
-            headers = {"Authorization": f"Bearer {e['key']}", "Content-Type": "application/json",
-                       "HTTP-Referer": "https://atlas-ops.onrender.com", "X-Title": "Atlas Desk vision"}
-            try:
-                r = c.post(e["base"] + "/chat/completions", headers=headers,
-                           json={"model": e["model"], "max_tokens": max_tokens, "temperature": 0.1, "messages": msgs, **_extras(e["model"])})
-            except httpx.HTTPError:
-                if i + 1 < len(chain):
-                    continue
-                raise
-            if _retryable(r.status_code) and i + 1 < len(chain):
-                continue
-            break
-    if r is None or r.status_code >= 400:
-        raise RuntimeError(f"vision model HTTP {r.status_code if r is not None else '?'}: {r.text[:200] if r is not None else 'no provider reachable'}")
-    j = r.json()
-    try:
-        msg = j["choices"][0]["message"]["content"]
-    except (KeyError, IndexError, TypeError) as exc:
-        raise RuntimeError(f"vision model returned no answer: {json.dumps(j)[:200]}") from exc
-    if isinstance(msg, list):
-        msg = " ".join(p.get("text", "") for p in msg if isinstance(p, dict))
-    return (msg or "").strip()
+    _e, r, j = _vlm_post(chain, {"max_tokens": max_tokens, "temperature": 0.1, "messages": msgs}, meter=meter,
+                         timeout=90, transport=transport)
+    return _answer(r, j)
 
 
 def _extras(model: str) -> dict[str, Any]:
@@ -686,13 +843,14 @@ def _extras(model: str) -> dict[str, Any]:
     return model_extras(model)
 
 
-def vlm_detect(jpeg: bytes, labels: list[str], model: str = "", transport: httpx.BaseTransport | None = None) -> list[dict[str, Any]]:
+def vlm_detect(jpeg: bytes, labels: list[str], model: str = "", transport: httpx.BaseTransport | None = None, *,
+               meter: Any) -> list[dict[str, Any]]:
     """Detector fallback when ultralytics is not installed: the vision model counts the watched labels.
     Boxes are unknown (empty); confidence is nominal."""
     want = ", ".join(labels) or "person"
     q = (f"Count how many of each of these are visible: {want}. Reply with JSON only, like "
          f'{{"person": 2, "car": 0}} — one integer per label, nothing else.')
-    txt = describe(jpeg, q, model=model, max_tokens=120, transport=transport)
+    txt = describe(jpeg, q, model=model, max_tokens=120, transport=transport, meter=meter)
     m = re.search(r"\{.*\}", txt, re.S)
     out: list[dict[str, Any]] = []
     if not m:
@@ -764,7 +922,7 @@ def rule_config(config: dict[str, Any]) -> dict[str, Any]:
 
 def evaluate(config: dict[str, Any], dets: list[dict[str, Any]], prev_counts: dict[str, int] | None,
              last_trigger_ts: float | None, now_ts: float | None = None, mot: float = 0.0,
-             present_since: float | None = None) -> tuple[bool, str]:
+             present_since: float | None = None, unknown: str = "") -> tuple[bool, str]:
     """Should this frame wake the desk? Returns (triggered, reason).
 
     Fires when the watched count reaches min_count inside the hours window. Repeats are governed by `repeat`:
@@ -773,7 +931,9 @@ def evaluate(config: dict[str, Any], dets: list[dict[str, Any]], prev_counts: di
       always             after the cooldown even if nothing changed (the old behaviour)
       once               only when the count crosses min_count from below
     `dwell_min` > 0 turns the rule into "N present for at least M minutes" (a queue that has been waiting):
-    the caller tracks `present_since` (when the count first reached min_count) and the rule fires once per stay."""
+    the caller tracks `present_since` (when the count first reached min_count) and the rule fires once per stay.
+    `unknown` (e.g. "AI detection paced") says this frame was not counted: only `alert_on_motion` can fire, and the
+    count rules are not judged on a fake 0 (usage spec §1.7)."""
     r = rule_config(config)
     now_ts = now_ts or time.time()
     c = counts(dets)
@@ -785,6 +945,8 @@ def evaluate(config: dict[str, Any], dets: list[dict[str, Any]], prev_counts: di
     if r["alert_on_motion"] and mot >= r["alert_on_motion"] and prev_counts is not None \
             and in_hours(r["hours"], datetime.fromtimestamp(now_ts)) and cooled:
         return True, f"scene changed (motion {mot:.2f} ≥ {r['alert_on_motion']:g})"
+    if unknown:
+        return False, f"not counted ({unknown}): count rules wait for a counted frame"
     if n < r["min_count"]:
         return False, f"{n} {lab} (< {r['min_count']})"
     if not in_hours(r["hours"], datetime.fromtimestamp(now_ts)):
@@ -840,31 +1002,61 @@ def event_text(camera: str, c: dict[str, int], mot: float, reason: str, answer: 
     return s + (f". Analyst: {answer}" if answer else "")
 
 
+# Backends of a tick that counted nothing: the AI count was held at a usage limit or failed. Their counts are unknown,
+# never 0; NOT_MEASURED also covers the `usage` notices, and the next tick compares against a measured event instead.
+NOT_COUNTED = ("paced", "paused", "error")
+NOT_MEASURED = ("paced", "paused", "usage", "error")
+
+
 def analyse(source: str, config: dict[str, Any], prev_jpeg: bytes | None = None, live_vlm: bool = False,
-            question: str = "", detector: Detector | None = None) -> dict[str, Any]:
-    """Grab + motion + detect (+ optional VLM answer). Pure function of the inputs; the caller decides what to store."""
+            question: str = "", detector: Detector | None = None, *, meter: Any,
+            detect_vlm: Any = None) -> dict[str, Any]:
+    """Grab + motion + detect (+ optional VLM answer). Pure function of the inputs; the caller decides what to store.
+
+    Without a local detector the vision model counts on a moving frame, one AI request each. `detect_vlm` gates it
+    (usage spec §1.7): a callable asked only when that count is about to be made (or its answer): "paced" / "paused"
+    skip the request, and so does a refusal at the chokepoint ("paused"); the counts are then unknown (backend
+    "paced" / "paused"), never a fake 0. A detection that fails is backend "error" with `detector_error`, not an
+    exception. The answer to `question` counts for `meter` too; a limit on it is raised to the asker."""
+    from . import usage as U
     det = detector or DETECTOR
     jpeg = grab(source)
     mot = motion(prev_jpeg, jpeg)
     r = rule_config(config)
     dets: list[dict[str, Any]] = []
     backend = "none"
+    det_error = det.error
     if det.available:
         dets, backend = det.detect(jpeg), "yolo"
     elif live_vlm and vlm_ready() and mot >= r["motion_min"]:
-        dets, backend = vlm_detect(jpeg, r["labels"], model=str(config.get("vlm_model") or "")), "vlm"
+        verdict = detect_vlm() if callable(detect_vlm) else (detect_vlm or "")
+        if verdict in ("paced", "paused"):
+            backend = verdict
+        else:
+            try:
+                dets, backend = vlm_detect(jpeg, r["labels"], model=str(config.get("vlm_model") or ""), meter=meter), "vlm"
+            except U.UsageLimit as exc:                 # refused between the check and the request: held, not failed
+                if isinstance(meter, U.Meter):
+                    meter.held[meter.surface] = {"verdict": "paused", "limit": exc.body()}
+                backend = "paused"
+            except Exception as exc:
+                backend, det_error = "error", f"vision model: {type(exc).__name__}: {str(exc)[:160]}"
     c = counts(dets)
     answer = ""
     q = question or ""
     if q and live_vlm and vlm_ready():
         try:
-            answer = describe(jpeg, q, model=str(config.get("vlm_model") or ""), context=str(config.get("notes") or ""))
+            answer = describe(jpeg, q, model=str(config.get("vlm_model") or ""), context=str(config.get("notes") or ""),
+                              meter=meter)
+        except U.UsageLimit:
+            raise
         except Exception as exc:
             answer = f"(vision model unavailable: {str(exc)[:120]})"
     w, h = frame_size(jpeg)
-    return {"jpeg": jpeg, "annotated": annotate(jpeg, dets, f"{time.strftime('%d %b %H:%M:%S')}  {counts_text(c)}"),
+    shown = counts_text(c) if backend not in NOT_COUNTED else f"not counted ({backend})"
+    return {"jpeg": jpeg, "annotated": annotate(jpeg, dets, f"{time.strftime('%d %b %H:%M:%S')}  {shown}"),
             "detections": dets, "counts": c, "motion": round(mot, 3), "backend": backend, "answer": answer,
-            "size": [w, h], "detector_error": det.error}
+            "size": [w, h], "detector_error": det_error}
 
 
 # ---------------------------------------------------------------------------- video understanding
@@ -907,95 +1099,37 @@ def sample_video_frames(source: str, n: int = 8) -> tuple[list[tuple[float, byte
     return frames, dur
 
 
-def chat_images(system: str, text: str, images: list[tuple[str, bytes]], model: str = "", max_tokens: int = 500,
-                transport: httpx.BaseTransport | None = None) -> str:
-    """One vision-model call with several labelled frames (RAG re-look, comparisons). Same free-first provider
-    chain as describe(); each image is preceded by its label so the model can cite it."""
-    chain = [e for e in vlm_chain(model) if e["key"]]
-    if not chain:
-        raise RuntimeError("no vision model key (set OPENROUTER_API_KEY / GROQ_API_KEY / GEMINI_API_KEY)")
+def _frames_content(text: str, images: list[tuple[str, bytes]]) -> list[dict[str, Any]]:
     content: list[dict[str, Any]] = [{"type": "text", "text": text}]
     for label, jpeg in images:
         content.append({"type": "text", "text": f"Frame {label}:"})
         content.append({"type": "image_url", "image_url": {"url": "data:image/jpeg;base64," + base64.b64encode(jpeg).decode()}})
-    msgs = [{"role": "system", "content": system}, {"role": "user", "content": content}]
-    r = None
-    with httpx.Client(timeout=120, transport=transport) as c:
-        for i, e in enumerate(chain):
-            headers = {"Authorization": f"Bearer {e['key']}", "Content-Type": "application/json",
-                       "HTTP-Referer": "https://atlas-ops.onrender.com", "X-Title": "Atlas Desk vision"}
-            try:
-                r = c.post(e["base"] + "/chat/completions", headers=headers,
-                           json={"model": e["model"], "max_tokens": max_tokens, "temperature": 0.1, "messages": msgs, **_extras(e["model"])})
-            except httpx.HTTPError:
-                if i + 1 < len(chain):
-                    continue
-                raise
-            if _retryable(r.status_code) and i + 1 < len(chain):
-                continue
-            break
-    if r is None or r.status_code >= 400:
-        raise RuntimeError(f"vision model HTTP {r.status_code if r is not None else '?'}: {r.text[:200] if r is not None else 'no provider reachable'}")
-    j = r.json()
-    try:
-        msg = j["choices"][0]["message"]["content"]
-    except (KeyError, IndexError, TypeError) as exc:
-        raise RuntimeError(f"vision model returned no answer: {json.dumps(j)[:200]}") from exc
-    if isinstance(msg, list):
-        msg = " ".join(p.get("text", "") for p in msg if isinstance(p, dict))
-    return (msg or "").strip()
+    return content
+
+
+def chat_images(system: str, text: str, images: list[tuple[str, bytes]], model: str = "", max_tokens: int = 500,
+                transport: httpx.BaseTransport | None = None, *, meter: Any) -> str:
+    """One vision-model call with several labelled frames (RAG re-look, comparisons). Same free-first provider
+    chain as describe(); each image is preceded by its label so the model can cite it."""
+    chain = _chain_or_raise(model)
+    msgs = [{"role": "system", "content": system}, {"role": "user", "content": _frames_content(text, images)}]
+    _e, r, j = _vlm_post(chain, {"max_tokens": max_tokens, "temperature": 0.1, "messages": msgs}, meter=meter,
+                         timeout=120, transport=transport)
+    return _answer(r, j)
 
 
 def chat_images_stream(system: str, text: str, images: list[tuple[str, bytes]], model: str = "", max_tokens: int = 500,
-                       transport: httpx.BaseTransport | None = None):
+                       transport: httpx.BaseTransport | None = None, *, meter: Any):
     """Streaming twin of chat_images(): yields a meta dict {provider, model} first, then text deltas as the vision
     model produces them. Same free-first provider chain and retry rules."""
-    chain = [e for e in vlm_chain(model) if e["key"]]
-    if not chain:
-        raise RuntimeError("no vision model key (set OPENROUTER_API_KEY / GROQ_API_KEY / GEMINI_API_KEY)")
-    content: list[dict[str, Any]] = [{"type": "text", "text": text}]
-    for label, jpeg in images:
-        content.append({"type": "text", "text": f"Frame {label}:"})
-        content.append({"type": "image_url", "image_url": {"url": "data:image/jpeg;base64," + base64.b64encode(jpeg).decode()}})
-    msgs = [{"role": "system", "content": system}, {"role": "user", "content": content}]
-    with httpx.Client(timeout=120, transport=transport) as c:
-        for i, e in enumerate(chain):
-            headers = {"Authorization": f"Bearer {e['key']}", "Content-Type": "application/json",
-                       "HTTP-Referer": "https://atlas-ops.onrender.com", "X-Title": "Atlas Desk vision"}
-            try:
-                with c.stream("POST", e["base"] + "/chat/completions", headers=headers,
-                              json={"model": e["model"], "max_tokens": max_tokens, "temperature": 0.1, "stream": True,
-                                    "messages": msgs, **_extras(e["model"])}) as r:
-                    if r.status_code >= 400:
-                        r.read()
-                        if _retryable(r.status_code) and i + 1 < len(chain):
-                            continue
-                        raise RuntimeError(f"vision model HTTP {r.status_code}: {r.text[:200]}")
-                    yield {"provider": e["name"], "model": e["model"]}
-                    for line in r.iter_lines():
-                        if not line.startswith("data: "):
-                            continue
-                        data = line[6:].strip()
-                        if data == "[DONE]":
-                            break
-                        try:
-                            j = json.loads(data)
-                            delta = j["choices"][0].get("delta", {}).get("content") or ""
-                        except (KeyError, IndexError, json.JSONDecodeError, TypeError):
-                            continue
-                        if isinstance(delta, list):
-                            delta = "".join(p.get("text", "") for p in delta if isinstance(p, dict))
-                        if delta:
-                            yield delta
-                    return
-            except httpx.HTTPError:
-                if i + 1 < len(chain):
-                    continue
-                raise
+    chain = _chain_or_raise(model)
+    msgs = [{"role": "system", "content": system}, {"role": "user", "content": _frames_content(text, images)}]
+    yield from _vlm_post(chain, {"max_tokens": max_tokens, "temperature": 0.1, "messages": msgs}, stream=True,
+                         meter=meter, timeout=120, transport=transport)
 
 
 def describe_video(source: str, question: str = "", model: str = "", frames: int = 8, context: str = "",
-                   transport: httpx.BaseTransport | None = None) -> dict[str, Any]:
+                   transport: httpx.BaseTransport | None = None, *, meter: Any) -> dict[str, Any]:
     """Watch a video: sample frames evenly, send them all to the vision model in one call, get a timeline
     description + an answer to the question. Returns {answer, duration_s, frames:[{t, jpeg}]}."""
     sampled, dur = sample_video_frames(source, frames)
@@ -1013,31 +1147,20 @@ def describe_video(source: str, question: str = "", model: str = "", frames: int
     for t, jpeg in sampled:
         content.append({"type": "text", "text": f"[frame at {t:.1f}s]"})
         content.append({"type": "image_url", "image_url": {"url": "data:image/jpeg;base64," + base64.b64encode(jpeg).decode()}})
-    payload = {"model": model, "max_tokens": 700, "temperature": 0.1,
-               "messages": [{"role": "system", "content": system}, {"role": "user", "content": content}], **_extras(model)}
-    headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json",
-               "HTTP-Referer": "https://atlas-ops.onrender.com", "X-Title": "Atlas Desk vision"}
-    with httpx.Client(timeout=180, transport=transport) as c:
-        r = c.post(base + "/chat/completions", headers=headers, json=payload)
-    if r.status_code >= 400:
-        raise RuntimeError(f"vision model HTTP {r.status_code}: {r.text[:200]}")
-    j = r.json()
-    try:
-        msg = j["choices"][0]["message"]["content"]
-    except (KeyError, IndexError, TypeError) as exc:
-        raise RuntimeError(f"vision model returned no answer: {json.dumps(j)[:200]}") from exc
-    if isinstance(msg, list):
-        msg = " ".join(p.get("text", "") for p in msg if isinstance(p, dict))
-    return {"answer": (msg or "").strip(), "duration_s": dur,
+    entry = {"name": "openrouter", "base": base, "key": key, "model": model}
+    payload = {"max_tokens": 700, "temperature": 0.1,
+               "messages": [{"role": "system", "content": system}, {"role": "user", "content": content}]}
+    _e, r, j = _vlm_post([entry], payload, meter=meter, timeout=180, transport=transport)
+    return {"answer": _answer(r, j), "duration_s": dur,
             "frames": [{"t": t, "jpeg": jpeg} for t, jpeg in sampled]}
 
 
-def describe_stream(jpeg: bytes, question: str, model: str = "", context: str = "", max_tokens: int = 220):
-    """Streaming variant of describe(): yields text deltas as the vision model produces them.
-    Used by the live theatre page."""
-    chain = [e for e in vlm_chain(model) if e["key"]]
-    if not chain:
-        raise RuntimeError("no vision model key (set OPENROUTER_API_KEY / GROQ_API_KEY / GEMINI_API_KEY)")
+def describe_stream(jpeg: bytes, question: str, model: str = "", context: str = "", max_tokens: int = 220,
+                    transport: httpx.BaseTransport | None = None, *, meter: Any):
+    """Streaming variant of describe(): yields a meta dict {provider, model} first, then text deltas as the vision
+    model produces them. Used by the live theatre page; `meter` is bound when the generator is made, so the
+    narration counts for the viewer even though it runs after the view returned."""
+    chain = _chain_or_raise(model)
     system = ("You are the live vision commentator of a small business's operations desk. You get one CCTV frame every "
               "few seconds from a feed you are watching continuously. In 1-2 short sentences, log what is happening NOW "
               "and what CHANGED since your previous notes (given as context). Count people carefully. State only what "
@@ -1051,35 +1174,5 @@ def describe_stream(jpeg: bytes, question: str, model: str = "", context: str = 
             {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64," + base64.b64encode(jpeg).decode()}},
         ]},
     ]
-    with httpx.Client(timeout=120) as c:
-        for i, e in enumerate(chain):
-            headers = {"Authorization": f"Bearer {e['key']}", "Content-Type": "application/json",
-                       "HTTP-Referer": "https://atlas-ops.onrender.com", "X-Title": "Atlas Desk live vision"}
-            try:
-                with c.stream("POST", e["base"] + "/chat/completions", headers=headers,
-                              json={"model": e["model"], "max_tokens": max_tokens, "temperature": 0.1,
-                                    "stream": True, "messages": msgs}) as r:
-                    if r.status_code >= 400:
-                        r.read()
-                        if _retryable(r.status_code) and i + 1 < len(chain):
-                            continue
-                        raise RuntimeError(f"vision model HTTP {r.status_code}: {r.text[:200]}")
-                    yield {"provider": e["name"], "model": e["model"]}     # meta first, then text deltas
-                    for line in r.iter_lines():
-                        if not line.startswith("data: "):
-                            continue
-                        data = line[6:].strip()
-                        if data == "[DONE]":
-                            break
-                        try:
-                            j = json.loads(data)
-                            delta = j["choices"][0].get("delta", {}).get("content") or ""
-                        except (KeyError, IndexError, json.JSONDecodeError):
-                            continue
-                        if delta:
-                            yield delta
-                    return
-            except httpx.HTTPError:
-                if i + 1 < len(chain):
-                    continue
-                raise
+    yield from _vlm_post(chain, {"max_tokens": max_tokens, "temperature": 0.1, "messages": msgs}, stream=True,
+                         meter=meter, timeout=120, transport=transport, title="Atlas Desk live vision", extras=False)

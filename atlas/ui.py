@@ -408,7 +408,8 @@ class App(ctk.CTk):
         self._render_deliverables()
         self.usage_var.set("")
         self.configs = cfg.load_all()   # pick up any saved edits
-        self.orch = Orchestrator(self.configs, self.store, self.events.put)
+        from . import usage as U
+        self.orch = Orchestrator(self.configs, self.store, self.events.put, meter=U.cli_meter("ui"))
         self._append_log("user", "owner", task)
         self.run_btn.configure(state="disabled")
         self.toast("running…")
@@ -944,7 +945,8 @@ class App(ctk.CTk):
 
             def work():
                 try:
-                    msg = make_provider(pcfg).test()
+                    from . import usage as U
+                    msg = make_provider(pcfg, meter=U.cli_meter("ui")).test()
                     self.after(0, lambda: self.toast(f"{name}: {msg}"))
                 except Exception as exc:
                     self.after(0, lambda: self.toast(f"{name}: {type(exc).__name__}: {exc}", error=True))

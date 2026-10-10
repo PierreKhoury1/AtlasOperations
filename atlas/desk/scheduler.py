@@ -32,6 +32,7 @@ from .. import cases as C
 from .. import config as CONF
 from .. import integrations as I
 from .. import journal as JR
+from .. import usage as U
 from .. import vision as V
 
 TICK = 20.0
@@ -60,46 +61,125 @@ _last_frame: dict[tuple[int, str], bytes] = {}          # (desk_id, camera) -> l
 _last_seen: dict[tuple[int, str], dict[str, Any]] = {}  # (desk_id, camera) -> last analysis (portal "live" tile)
 _present: dict[tuple[int, str], tuple[float, float]] = {}  # (desk_id, camera) -> (since, last seen) while the rule's count holds
 DWELL_GRACE_S = 45.0                                        # one missed detection does not reset the dwell timer
+_noticed: dict[tuple, float] = {}                         # (desk, camera, stream, limit id, window) -> when the `usage` notice went in
+_notice_lock = threading.Lock()
 
 
 def last_seen(desk_id: int, camera: str) -> dict[str, Any] | None:
     return _last_seen.get((desk_id, camera))
 
 
+def _notice(ds, desk_id: int, camera: str, parts: list[str], limit: dict[str, Any]) -> None:
+    """One `usage` vision event per paused stream per camera per limit window (usage spec §1.7): what stopped, the
+    numbers, until when, and what still works. Never indexed, never the baseline of the next comparison. A tick
+    where detection and the journal pause together writes one."""
+    now = time.time()
+    lid = str(limit.get("limit_id") or "")
+    w = (U.LIMITS.get(lid) or {}).get("window", "D")
+    ws = U.month_start(now) if w == "M" else U.day_start(now)
+    with _notice_lock:
+        parts = [p for p in parts if (desk_id, camera, p, lid, ws) not in _noticed]
+        if not parts:
+            return
+        for p in parts:
+            _noticed[(desk_id, camera, p, lid, ws)] = now
+        for k in [k for k, ts in _noticed.items() if now - ts > 40 * 86400]:
+            _noticed.pop(k, None)
+    until = U.until_text(limit, now) or "the reset"
+    if "detect" in parts:
+        head = "Detection" + (" and journal" if "journal" in parts else "") + " paused (no local detector)"
+        tail = f"Count rules are off until {until}; motion alerts fire only where 'alert on motion' is set."
+    else:
+        head, tail = "Journal paused", f"Notes resume after {until}."
+    try:
+        ds.add_vision_event(camera, {}, backend="usage", reason=f"{head}: {U.brief(limit)}. {tail}", source="usage")
+    except Exception:
+        traceback.print_exc()
+
+
 def camera_tick(store, desk: dict[str, Any], conn: dict[str, Any], start_run: Callable, live: bool,
-                question: str = "", force: bool = False) -> dict[str, Any]:
-    """One camera pass: grab → motion → detect → rule → event → (maybe) run. Returns the analysis + event + run id."""
+                question: str = "", force: bool = False, meter: "U.Meter | None" = None) -> dict[str, Any]:
+    """One camera pass: grab → motion → detect → rule → event → (maybe) run. Returns the analysis + event + run id.
+
+    Usage (spec §1.5-§1.7, §3.2). One meter per tick, lane auto, or the route's meter (lane you) for a camera look.
+    Every AI step counts for it and is gated before it is made: AI detection without a local detector and the journal
+    are paced streams, so the day's allowance lasts until 00:00 UTC; the rule question and the summary are checked.
+    A step held at a limit is skipped, never faked: an uncounted frame keeps motion alerts but no count rule judges it
+    as 0, and one `usage` event per camera and window says what paused. Local work (grab, motion, YOLO, rules,
+    alerts) never waits for the allowance."""
     ds = store.for_desk(desk["id"])
     key = (desk["id"], conn["name"])
     cfg = conn["config"]
     rule = V.rule_config(cfg)
+    base = meter or U.desk_meter(desk, "camera.watch", lane="auto", ref=f"cam:{conn['name']}")
+    you = base.lane == "you"
+    m_detect = U.derive(base, "camera.detect")
+    gate = None if you else (lambda: U.allow(m_detect, surface="camera.detect", stream=f"detect:{conn['name']}"))
     prev_jpeg = _last_frame.get(key)
-    res = V.analyse(str(cfg.get("source", "")), cfg, prev_jpeg, live_vlm=live, question="")
+    res = V.analyse(str(cfg.get("source", "")), cfg, prev_jpeg, live_vlm=live, question="", meter=m_detect, detect_vlm=gate)
     _last_frame[key] = res["jpeg"]
-    prev_ev = ds.last_vision_event(conn["name"])
+    counted = res["backend"] not in V.NOT_COUNTED
+    detect_status = ""                                 # the camera tile's line about AI counts
+    if res["backend"] == "paced":
+        detect_status = U.held_text(m_detect, "camera.detect", "AI counts")
+    elif res["backend"] == "paused":                   # numbers first, then what still works (spec §1.7, §4.9)
+        detect_status = U.held_text(m_detect, "camera.detect", "Detection") + ". " + (
+            "Count rules are off; motion alerts still fire." if rule["alert_on_motion"]
+            else "Count rules are off, and with no 'alert on motion' this camera does not alert.")
+    elif res["backend"] == "error":
+        detect_status = f"AI count failed: {res['detector_error'][:120]}"
+    paused: dict[str, dict[str, Any]] = {}            # stream -> the limit that paused it this tick
+    if res["backend"] == "paused":
+        paused["detect"] = (m_detect.held.get("camera.detect") or {}).get("limit") or {}
+    prev_ev = ds.last_vision_event(conn["name"], exclude_backends=V.NOT_MEASURED)
+    # the first frame is logged: the first counted one, or for an uncounted tick the camera's first event of any kind
+    first = prev_ev is None and (counted or ds.last_vision_event(conn["name"]) is None)
     last_alert = ds.last_vision_event(conn["name"], triggered_only=True)
     now = time.time()
-    n_watch = sum(res["counts"].get(l, 0) for l in rule["labels"])
-    if n_watch >= rule["min_count"]:
-        since = _present.get(key, (now, now))[0]
-        _present[key] = (since, now)
-    elif key in _present and now - _present[key][1] > DWELL_GRACE_S:
-        _present.pop(key, None)
+    if counted:                                        # an uncounted frame neither starts nor ends a stay
+        n_watch = sum(res["counts"].get(l, 0) for l in rule["labels"])
+        if n_watch >= rule["min_count"]:
+            since = _present.get(key, (now, now))[0]
+            _present[key] = (since, now)
+        elif key in _present and now - _present[key][1] > DWELL_GRACE_S:
+            _present.pop(key, None)
     present_since = _present[key][0] if key in _present else None
-    triggered, reason = V.evaluate(cfg, res["detections"], (prev_ev or {}).get("counts"), (last_alert or {}).get("ts"),
-                                   mot=res["motion"], present_since=present_since)
+    prev_counts = (prev_ev or {}).get("counts")
+    if not counted and prev_counts is None and prev_jpeg is not None:
+        prev_counts = {}                               # a motion baseline exists: a motion rule may fire
+    triggered, reason = V.evaluate(cfg, res["detections"], prev_counts, (last_alert or {}).get("ts"),
+                                   mot=res["motion"], present_since=present_since,
+                                   unknown="" if counted else f"AI detection {res['backend']}")
     if triggered and not rule["alerts"]:                   # document-only camera: log it, never wake the agents
         triggered, reason = False, f"{reason} (alerts off)"
     if force:
         triggered, reason = True, "manual trigger"
-    changed = (prev_ev or {}).get("counts") != res["counts"] or res["motion"] >= max(rule["motion_min"], 0.08)
+    moved = res["motion"] >= max(rule["motion_min"], 0.08)
+    changed = moved if not counted else ((prev_ev or {}).get("counts") != res["counts"] or moved)
     answer = ""
     q = question or (rule["question"] if triggered else "")
     if q and live and V.vlm_ready():
-        try:
-            answer = V.describe(res["jpeg"], q, model=str(cfg.get("vlm_model") or ""), context=str(cfg.get("notes") or ""))
-        except Exception as exc:
-            answer = f"(vision model unavailable: {str(exc)[:120]})"
+        model, notes = str(cfg.get("vlm_model") or ""), str(cfg.get("notes") or "")
+        if you and question:                           # the person's own question: their meter, their limit (429)
+            try:
+                answer = V.describe(res["jpeg"], q, model=model, context=notes, meter=base)
+            except U.UsageLimit:
+                raise
+            except Exception as exc:
+                answer = f"(vision model unavailable: {str(exc)[:120]})"
+        else:                                          # the rule's question when it fires (S40)
+            m_q = U.derive(base, "camera.describe")
+            if U.allow(m_q, surface="camera.describe"):  # held: the alert still goes out, unanswered
+                h = m_q.held.get("camera.describe") or {}
+                answer = "(not asked: " + ((h.get("limit") or {}).get("message")
+                                           or U.held_text(m_q, "camera.describe", "Rule question")) + ")"
+            else:
+                try:
+                    answer = V.describe(res["jpeg"], q, model=model, context=notes, meter=m_q)
+                except U.UsageLimit as exc:
+                    answer = f"(not asked: {exc.message})"
+                except Exception as exc:
+                    answer = f"(vision model unavailable: {str(exc)[:120]})"
     elif q and not live:
         answer = "demo mode: " + V.counts_text(res["counts"]) + " in frame"
     res["answer"] = answer
@@ -112,13 +192,25 @@ def camera_tick(store, desk: dict[str, Any], conn: dict[str, Any], start_run: Ca
             OBJ.ensure_worker(store, desk["id"], conn, live=live)
         except Exception:
             traceback.print_exc()
-    # journal: a detailed written note when the scene changed or the max gap passed (the RAG log's real content)
+    # journal: a detailed written note when the scene changed or the max gap passed (the RAG log's real content),
+    # paced so the allowance lasts the day, paused at a limit
     jc = JR.config(cfg)
     note, note_why = "", ""
     known: list[dict[str, Any]] = []
+    pace = 0.0
+    m_note = U.derive(base, "camera.note")
     if jc["on"] and live and V.vlm_ready():
-        is_due, note_why = JR.due(key, jc, time.time(), res["motion"], res["counts"])
-        if is_due:
+        stream = f"journal:{conn['name']}"
+        per = 2 if jc["verify"] else 1                 # note + verify
+        U.stream_seen(base.owner_id, stream)
+        pace = U.pace_gap(base.owner_id, per_action=per, scope=base.scope)
+        is_due, note_why = JR.due(key, jc, time.time(), res["motion"], res["counts"] if counted else None, pace=pace)
+        held = U.allow(m_note, surface="camera.note", stream=stream, per_action=per) if is_due else ""
+        if held:
+            note_why = U.held_text(m_note, "camera.note", "Journal", unit="note")
+            if held == "paused":
+                paused["journal"] = (m_note.held.get("camera.note") or {}).get("limit") or {}
+        elif is_due:
             try:
                 known = []
                 if OBJ is not None:
@@ -126,13 +218,21 @@ def camera_tick(store, desk: dict[str, Any], conn: dict[str, Any], start_run: Ca
                         known = OBJ.known_in_view(store, desk["id"], conn["name"])
                     except Exception:
                         known = []
-                note = JR.write_note(key, conn["name"], jc, res["jpeg"], res["counts"], notes=str(cfg.get("notes") or ""),
-                                     model=str(cfg.get("vlm_model") or ""), why=note_why, dets=res.get("detections"), known=known)
+                note = JR.write_note(key, conn["name"], jc, res["jpeg"], res["counts"] if counted else None,
+                                     notes=str(cfg.get("notes") or ""), model=str(cfg.get("vlm_model") or ""),
+                                     why=note_why, dets=res.get("detections"), known=known, meter=m_note)
+            except U.UsageLimit as exc:                # S41: refused between the check and the request: pause
+                body = exc.body()
+                note_why = "Journal paused" + (f" until {U.until_text(body)}" if U.until_text(body) else "") + ": " + U.brief(body)
+                JR.pause(key, float(exc.retry_at or (time.time() + 60)), note_why)
+                paused["journal"] = body
             except Exception as exc:
                 JR.failed(key)
                 note_why = f"journal failed: {str(exc)[:140]}"
+    if paused:
+        _notice(ds, desk["id"], conn["name"], sorted(paused), next(iter(paused.values())))
     event = None
-    if triggered or changed or prev_ev is None or question or note:
+    if triggered or changed or first or question or note:
         snap = V.save_snapshot(desk["id"], conn["name"], res["annotated"])
         ev_answer = (answer + "\nJournal: " + note) if (answer and note) else (answer or note)
         ev_reason = reason if (triggered or question or not note) else f"journal: {note_why}"
@@ -141,8 +241,12 @@ def camera_tick(store, desk: dict[str, Any], conn: dict[str, Any], start_run: Ca
                                     source="journal" if note else "camera")
         if note:
             JR.diary_append(desk["id"], event["ts"], conn["name"], ("ALERT: " + reason) if triggered else "note", note, event["id"])
+            m_roll = U.derive(base, "camera.rollup")
             try:
-                JR.maybe_rollup(ds, desk["id"], conn["name"], jc, res["jpeg"], snapshot=snap, model=str(cfg.get("vlm_model") or ""))
+                JR.maybe_rollup(ds, desk["id"], conn["name"], jc, res["jpeg"], snapshot=snap, model=str(cfg.get("vlm_model") or ""),
+                                meter=m_roll, pace=pace, gate=lambda: U.allow(m_roll, surface="camera.rollup"))
+            except U.UsageLimit:                       # S43: skipped; the refusal is on the ledger once; no event
+                pass
             except Exception as exc:
                 ds.add_vision_event(conn["name"], {}, backend="error", reason=f"journal summary failed: {str(exc)[:160]}")
     rid = ""
@@ -167,9 +271,10 @@ def camera_tick(store, desk: dict[str, Any], conn: dict[str, Any], start_run: Ca
             ds.set_vision_run(event["id"], f"action:{row['id']}")
     if triggered and event and (AL.config(desk)["run"]) and notified in ("", "pending", "sent", "failed"):
         when = time.strftime("%A %d %B %H:%M")
+        seen_txt = V.counts_text(res["counts"]) if counted else f"not counted ({res['backend']})"
         task = (rule["task"] or "Assess this camera alert, log it, and tell the right person only if it matters.") + "\n\n"
         task += (f"CAMERA ALERT — {conn['name']} at {when}\n"
-                 f"Seen: {V.counts_text(res['counts'])} (detector: {res['backend']}); motion {res['motion']:.2f}; rule: {reason}.\n"
+                 f"Seen: {seen_txt} (detector: {res['backend']}); motion {res['motion']:.2f}; rule: {reason}.\n"
                  + (f"Watching for: {', '.join(rule['labels'])}" + (f" during {rule['hours']}" if rule["hours"] else "") + ".\n")
                  + (f"Analyst answer to '{q}': {answer}\n" if answer else "")
                  + (f"Camera notes: {cfg.get('notes')}\n" if cfg.get("notes") else "")
@@ -189,10 +294,11 @@ def camera_tick(store, desk: dict[str, Any], conn: dict[str, Any], start_run: Ca
             rid = ""
     JR.publish(desk["id"], "tick", conn["name"], counts=res["counts"], motion=res["motion"], backend=res["backend"],
                triggered=triggered, reason=reason if triggered else "", journal=bool(note), journal_status=note_why if jc["on"] else "",
-               event_id=(event or {}).get("id"), run_id=rid, answer=answer[:600] if answer else "", notified=notified)
+               detect_status=detect_status, event_id=(event or {}).get("id"), run_id=rid,
+               answer=answer[:600] if answer else "", notified=notified)
     seen = {"ts": time.time(), "counts": res["counts"], "motion": res["motion"], "backend": res["backend"], "reason": reason,
             "present_s": round(time.time() - present_since) if present_since else 0,
-            "journal": note[:400], "journal_status": note_why if jc["on"] else "",
+            "journal": note[:400], "journal_status": note_why if jc["on"] else "", "detect_status": detect_status,
             "triggered": triggered, "answer": answer, "event_id": (event or {}).get("id"), "run_id": rid, "size": res["size"],
             "detections": res["detections"], "detector_error": res["detector_error"]}
     _last_seen[key] = {**seen, "annotated": res["annotated"]}

@@ -75,8 +75,9 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.cmd == "test":
         from . import config as cfg
+        from . import usage as U
         from .providers import ProviderPool
-        reg = ProviderPool(cfg.load("providers", cfg.DEFAULT_PROVIDERS))
+        reg = ProviderPool(cfg.load("providers", cfg.DEFAULT_PROVIDERS), meter=U.cli_meter("providers-test"))
         names = [args.provider] if args.provider else list(reg.cfg.get("providers", {}))
         rc = 0
         for n in names:
@@ -102,7 +103,8 @@ def main(argv: list[str] | None = None) -> int:
                 return
             print(f"[{ev.agent}] {ev.kind}: {ev.text}", flush=True)
 
-        res = Orchestrator(cfg.load_all(), Store(), emit).run(args.task, args.mode)
+        from . import usage as U
+        res = Orchestrator(cfg.load_all(), Store(), emit, meter=U.cli_meter("run")).run(args.task, args.mode)
         print(f"\n== {res.status} == tokens in {res.tokens_in} out {res.tokens_out}\n{res.run_dir}")
         return 0 if res.status == "done" else 1
 
