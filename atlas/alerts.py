@@ -13,6 +13,10 @@ once when the desk says so), with the snapshot, the note and the reason:
 Nothing here sends by itself: an action is queued; the owner approves it, or `auto` sends it straight away through
 the same connectors the agents use (I.deliver). Budget and quiet-hour decisions are recorded on the event's reason,
 so the day's report still shows every firing.
+
+An `auto` send counts as one action sent without approval (usage spec §1.3 L8). Over the desk's daily cap, or held by
+the channel's own rules (WhatsApp's and Instagram's 24-hour reply window, the day's SMS segments), it stays pending
+for the owner with a note on its reason line: never dropped, never marked failed.
 """
 from __future__ import annotations
 
@@ -21,6 +25,7 @@ import time
 from typing import Any
 
 from . import integrations as I
+from . import usage as U
 from . import vision as V
 
 CHANNELS = ("whatsapp", "sms", "email", "slack")
@@ -152,14 +157,25 @@ def digest_message(camera: str, muted: dict[str, Any], per_hour: int) -> tuple[s
 
 def queue(store, desk: dict[str, Any], kind: str, to: str, subject: str, body: str, reason: str, auto: bool,
           dispatch=None) -> dict[str, Any]:
-    """One outbound action. Pending for approval, or sent at once when `auto` and a dispatcher is given."""
+    """One outbound action. Pending for approval, or sent at once when `auto` and a dispatcher is given (S52): it
+    takes one of the desk's sends without approval today first (L8); over that cap, or held by the channel's own
+    rule while sending (the reply window, SMS segments), it stays pending with the note instead."""
     ds = store.for_desk(desk["id"])
     aid = ds.add_action("", "cameras", kind, to, subject, body, reason)
     row = ds.action(aid)
     if auto and dispatch is not None:
+        meter = U.desk_meter(desk, f"send.{kind}", lane="auto", ref=f"action:{aid}")
+        held = U.auto_action(meter, kind)
+        if held is not None:                             # over the cap: the owner approves it (L8 counts no approval)
+            note = U.paused_note(held)
+            return {**(ds.hold_action(aid, note) or row), "held": note}
         try:
             result = dispatch(desk, row)
             row = ds.decide_action(aid, "sent", by="auto", note=result)
+        except U.UsageLimit as exc:                      # the channel's rule held it: nothing went out
+            U.auto_undo(meter, kind)
+            note = U.send_held_note(exc)
+            return {**(ds.hold_action(aid, note) or row), "held": note}
         except Exception as exc:
             row = ds.decide_action(aid, "failed", by="auto", note=f"send failed: {type(exc).__name__}: {str(exc)[:200]}")
         if kind in ("email", "whatsapp", "sms"):         # auto-sent alerts belong on the customer-facing thread too

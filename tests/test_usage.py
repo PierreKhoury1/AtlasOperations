@@ -5,7 +5,9 @@ and T21, the per-run cap across a pool, Hermes by mode and the BYO key test. Vis
 §1.7, §3.6, S30-S33, S40-S43, S51): T6, T23, T40, the vision chokepoint, the AI-detection gate, journal and object
 pauses, and Ask's text-only fallback. Runs and the engine's catch sites (§1.3 L1 headroom, L4, L5, L8, §4.5, §4.6
 S1-S9, S16, S20-S27, S53): T11 (run side), T13, T22, T24, T31, T33, T37, T41, T42, the typed LIMIT tool result, the
-seed, the browser's limit stop and the site's live run. No model is called: provider responses are stubbed
+seed, the browser's limit stop and the site's live run. Background work (§1.6, S12, S13, S44-S52): T5, T18, T25, T26,
+T36, T39's case part, a camera alert's refused run, the watch job and a detection's run at a limit, the sensor hook,
+the scheduler's deferred starts and the Leads list's note. No model is called: provider responses are stubbed
 (httpx.MockTransport), the key endpoint too."""
 import ast
 import json
@@ -1761,10 +1763,6 @@ CATCH_PENDING = {
     ("desk/app.py", "api_message_send"): "S15, step 7: W1 and L7 before the send",
     ("desk/app.py", "api_design_say.work"): "S10, merge: the designer track's turn and the limit turn (spec §4.7)",
     ("desk/app.py", "api_design_study.work"): "S11, merge: the study's done event carries the limit",
-    ("desk/scheduler.py", "camera_tick"): "S44, step 6: a refused alert run updates its event",
-    ("desk/scheduler.py", "_cy_trigger"): "S48, step 6: held until retry_at",
-    ("desk/scheduler.py", "_run_job"): "S45, step 6: a deduplicated refusal, no 'grab failed' event",
-    ("cases.py", "kick"): "S49, step 6: run_starts after success, wake at retry_at",
     ("study.py", "study"): "S35, merge: model_error is the limit message",
     ("designer.py", "_live_turn"): "S36, merge: the fixed limit turn, no retry",
 }
@@ -2015,3 +2013,396 @@ def test_showrun_needs_two_requests_of_the_public_share(U, store, monkeypatch):
     assert len(built) == 1 and sr.limited is None and sr.offline_reason() == ""
     m = built[0]
     assert (m.scope, m.surface, m.lane, m.owner_id, m.run_cap) == ("public", "show.run", "auto", 0, 120)
+
+
+# ---------------------------------------------------------------------------- background work (step 6)
+def _no_cases(A, did):
+    conf = A.store.desk(did).get("config") or {}
+    conf.setdefault("ops", {})["cases"] = False
+    A.store.update_desk(did, config=conf)
+
+
+def test_background_lane_cannot_eat_the_interactive_half(app_client, monkeypatch):
+    """T5 (spec §1.3 L2, §1.6, S47): with Atlas's own share of today spent, a task job's run is refused: the job is
+    skipped with a "limit:" result and waits for the reset instead of the hourly backoff, a one-shot job stays on for
+    that retry, and a run the owner starts still goes."""
+    import atlas.desk.scheduler as S
+    A, did, owner = _signed_in(app_client, monkeypatch, "usage-t5@example.com")
+    monkeypatch.setattr(usage.CFG, "demo", "enforce")                   # the scripted desk counts like a house one
+    monkeypatch.setattr(A, "Orchestrator", _SlowOrch)
+    _SlowOrch.gate.set()
+    hourly = A.store.add_job(did, "task", "Hourly check", "Check the inbox and say what came in", 60, time.time())
+    once = A.store.add_job(did, "task", "Once", "Send the weekly summary", 0, time.time())
+    usage.set_override(owner, "ai_requests_auto_day", 0)
+    try:
+        for j in (hourly, once):
+            S._finish_job(A.store, A.store.job(j["id"]), A._start_run, A.store.desk)
+        reset = usage.day_start(time.time()) + 86400
+        for j in (hourly, once):
+            row = A.store.job(j["id"])
+            assert (row["last_status"], row["enabled"]) == ("skipped", 1), row
+            assert row["last_result"] == "limit: AI requests Atlas made on its own 0/0; resumes 00:00 UTC"
+            assert row["next_run"] >= reset
+        assert A.store.job(once["id"])["next_run"] == reset
+        r = app_client.post("/api/runs", json={"task": "What came in today?"}, headers={"X-Desk": str(did)})
+        assert r.status_code == 200, r.get_json()
+    finally:
+        usage.clear_override(owner, "ai_requests_auto_day")
+        for j in (hourly, once):
+            A.store.delete_job(j["id"])
+    assert _wait_runs(A, did)
+    starts = _events(A.store, "kind='action' AND desk_id=? AND surface IN ('run.you', 'run.auto')", (did,))
+    assert [s["surface"] for s in starts] == ["run.you"]
+    ref, = _events(A.store, "kind='refusal' AND owner_id=?", (owner,))
+    assert (ref["limit_id"], ref["surface"], ref["units"]) == ("ai_requests_auto_day", "run.auto", 2)
+
+
+def test_auto_send_over_cap_waits_for_approval(U, store):
+    """T18 (spec §1.3 L8, §1.6, S52): with one send without approval allowed today, the second auto alert stays
+    pending with the "auto-send paused" note: neither sent nor failed. A send the channel's own rule holds (the reply
+    window, the day's SMS) stays pending with that rule's words and gives its unit back; a send that fails was an
+    attempt and counts."""
+    from atlas import alerts as AL
+    desk = store.add_desk(92, "Alert desk", "site_watch", "free", {})
+    did = desk["id"]
+    sent = []
+
+    def dispatch(d, row):
+        sent.append(row["id"])
+        return "[slack ok]"
+
+    def alert(kind, to, dispatcher):
+        return AL.queue(store, desk, kind, to, "door: person", "Camera door: 1 person.", "camera alert on door: person",
+                        True, dispatcher)
+    U.set_override(92, "auto_sends_day", 1)
+    a1, a2 = alert("slack", "", dispatch), alert("slack", "", dispatch)
+    note = "auto-send paused: Sent without approval today 1/1; approve to send"
+    assert a1["status"] == "sent" and sent == [a1["id"]]
+    assert (a2["status"], a2["held"], a2["reason"]) == ("pending", note, "camera alert on door: person · " + note)
+    assert store.action(a2["id"])["status"] == "pending" and not store.action(a2["id"])["decided_by"]
+    assert U.counter(f"d{did}", "send:auto")[0] == 1
+    ref, = _events(store, "kind='refusal' AND owner_id=92")
+    assert (ref["limit_id"], ref["surface"], ref["units"]) == ("auto_sends_day", "send.slack", 1)
+    U.set_override(92, "auto_sends_day", 10)
+
+    def window(d, row):
+        raise U.ChannelWindow("whatsapp")
+
+    def sms_cap(d, row):
+        raise U._limit("sms_segments_day", used=50, limit=50, now=U._now())
+    a3, a4 = alert("whatsapp", "+447700900123", window), alert("sms", "+447700900123", sms_cap)
+    assert a3["status"] == "pending" and a3["held"] == ("Outside WhatsApp's 24-hour reply window: a template message "
+                                                       "is needed, which Atlas can't send yet.")
+    assert a4["status"] == "pending" and a4["held"] == "auto-send paused: SMS sent today 50/50; resets 00:00 UTC"
+    assert U.counter(f"d{did}", "send:auto")[0] == 1                    # nothing went out: their units came back
+    acts = _events(store, "kind='action' AND owner_id=92")
+    assert [(a["surface"], a["status"]) for a in acts] == [("send.slack", "ok"), ("send.whatsapp", "not_sent"),
+                                                            ("send.sms", "not_sent")]
+    assert store.for_desk(did).messages("+447700900123") == []          # nothing out on the customer's thread
+
+    def boom(d, row):
+        raise RuntimeError("webhook 500")
+    a5 = alert("slack", "", boom)
+    assert a5["status"] == "failed" and "webhook 500" in a5["note"] and U.counter(f"d{did}", "send:auto")[0] == 2
+    assert [a["status"] for a in store.for_desk(did).actions()].count("pending") == 3
+
+
+def test_hook_lead_is_saved_and_deferred_when_the_run_is_refused(app_client, monkeypatch):
+    """T25 (spec §1.6, S12): with Atlas's own share spent and cases off, the web-form hook still answers 200 ok. The
+    lead is stored, waiting, with no run; a deferred start is on the ledger and the Leads list says why. After the
+    reset the scheduler's deferred pass starts its run, in lane auto."""
+    import atlas.desk.scheduler as S
+    A, did, owner = _signed_in(app_client, monkeypatch, "usage-t25@example.com")
+    _no_cases(A, did)
+    monkeypatch.setattr(usage.CFG, "demo", "enforce")
+    monkeypatch.setattr(A, "Orchestrator", _SlowOrch)
+    _SlowOrch.gate.set()
+    token = A.store.ensure_hook_token(did)
+    usage.set_override(owner, "ai_requests_auto_day", 0)
+    try:
+        r = app_client.post(f"/hook/{token}", json={"name": "Rae", "email": "rae@example.com",
+                                                     "notes": "A quote for a new boiler?"})
+        b = r.get_json()
+        assert r.status_code == 200 and b["ok"] is True and b["run_id"] == "", b
+        lead = A.store.lead(b["lead_id"])
+        assert lead["status"] == "waiting" and not lead["run_id"]
+        row, = usage.deferred(owner)
+        reset = usage.day_start(time.time()) + 86400
+        assert (row["ref_id"], row["kind"], row["limit_id"], row["retry_at"]) == (b["lead_id"], "lead",
+                                                                                 "ai_requests_auto_day", reset)
+        listed = next(x for x in app_client.get("/api/leads", headers={"X-Desk": str(did)}).get_json()
+                      if x["id"] == b["lead_id"])
+        assert listed["waiting"] == "Not worked yet: AI requests Atlas made on its own 0/0; runs after 00:00 UTC"
+        assert S.deferred_pass(A.store, time.time()) == 0 and len(usage.deferred(owner)) == 1   # not before the reset
+    finally:
+        usage.clear_override(owner, "ai_requests_auto_day")
+    assert S.deferred_pass(A.store, reset + 1) == 1                      # the reset: Atlas's share has room again
+    assert _wait_runs(A, did)
+    lead = A.store.lead(b["lead_id"])
+    assert lead["status"] == "processed" and lead["run_id"].startswith("slow-")
+    assert usage.deferred(owner) == [] and usage.deferred(owner, "started")[0]["tries"] == 1
+    start, = _events(A.store, "kind='action' AND desk_id=? AND surface='run.auto'", (did,))
+    assert (start["ref"], start["lane"]) == (lead["run_id"], "auto")
+
+
+def test_case_waits_for_retry_at_and_keeps_its_run_budget(U, store, monkeypatch):
+    """T26 (spec §1.6, S49): a case step refused at a limit wakes within 5 minutes after the limit's retry time, uses
+    none of the case's daily run budget, says so once on its timeline and keeps the lead and instructions it was
+    started with; the clock's start after the reset carries them, in lane auto."""
+    from atlas import cases as C
+    from atlas import records as R
+    desk = store.add_desk(93, "Case desk", "sales_desk", "free", {})
+    tried = []
+
+    def refused(desk_, task, mode, lead_id=None, case_id=None):
+        tried.append((lead_id, case_id, U.bound_lane()))
+        raise U._limit("ai_requests_auto_day", used=125, limit=125, now=U._now())
+    monkeypatch.setattr(C, "START_RUN", refused)
+    monkeypatch.setattr(C, "RUN_STATUS", lambda rid: "done")
+    c = C.open_case(store, desk["id"], "enquiry", "Boiler quote", 0)
+    assert C.kick(store, desk, c, extra="Reply by email (queue_action kind=email).", lead_id=7) == ""
+    with pytest.raises(U.UsageLimit):                                  # refused again, raised for a caller that reports it
+        C.kick(store, desk, C.get(store, c["id"]), raise_limit=True)
+    held = C.get(store, c["id"])
+    retry = U.day_start(U._now()) + 86400
+    assert retry <= held["wake_at"] <= retry + 300 and (held["waiting_for"], held["active_run"]) == ("atlas", "")
+    assert not held["data"].get("run_starts") and tried == [(7, c["id"], ""), (7, c["id"], "")]
+    assert held["data"]["limit"]["limit_id"] == "ai_requests_auto_day"
+    assert C.held_leads(store, desk["id"]) == {7: held["data"]["limit"]}
+    lines = [t["text"] for t in R.timeline_for(store, case_ids=[c["id"]]) if t["kind"] == "paused"]
+    assert lines == ["Paused: AI requests Atlas made on its own 125/125; resumes after 00:00 UTC"]
+    started = []
+
+    def start(desk_, task, mode, lead_id=None, case_id=None):
+        started.append((task, lead_id, U.bound_lane()))
+        return "r-1"
+    monkeypatch.setattr(C, "START_RUN", start)
+    C._set(store, c["id"], wake_at=time.time() - 1)                      # the reset
+    assert C.tick(store)["woke"] == 1
+    task, lead_id, lane = started[0]
+    assert (lead_id, lane) == (7, "auto") and "Reply by email (queue_action kind=email)." in task
+    data = C.get(store, c["id"])["data"]
+    assert len(data["run_starts"]) == 1 and not {"lead_id", "limit", "held_extra"} & set(data)
+
+
+def test_busy_runs_and_inbox_lose_nothing(app_client, monkeypatch):
+    """T36 (spec §1.6, S12, S46, S49): with no room for another run at once (L5), a web-form lead's case waits about
+    a minute (the busy retry), not until 00:00, and keeps its run budget; the owner pressing Run on it gets the 429.
+    An inbox pass of 5 mails stores all 5 messages and leads before any run, and with cases off defers every run
+    after one refused try."""
+    import atlas.desk.scheduler as S
+    from atlas import cases as C
+    from atlas import integrations as I
+    A, did, owner = _signed_in(app_client, monkeypatch, "usage-t36@example.com")
+    monkeypatch.setattr(usage.CFG, "demo", "enforce")
+    token = A.store.ensure_hook_token(did)
+    hdr = {"X-Desk": str(did)}
+    usage.set_override(owner, "runs_at_once", 0)
+    case, job = None, None
+    t0 = time.time()
+    try:
+        b = app_client.post(f"/hook/{token}", json={"name": "Ivo", "email": "ivo@example.com",
+                                                     "notes": "Can you fit a boiler this week?"}).get_json()
+        assert b["ok"] is True and b["run_id"] == "" and A.store.lead(b["lead_id"])["status"] == "waiting", b
+        case = next(c for c in C.list_cases(A.store, did, open_only=True) if c["data"].get("lead_id") == b["lead_id"])
+        assert t0 + 60 <= case["wake_at"] <= time.time() + 61 + 300 and case["waiting_for"] == "atlas"
+        assert not case["data"].get("run_starts") and usage.deferred(owner) == []
+        listed = next(x for x in app_client.get("/api/leads", headers=hdr).get_json() if x["id"] == b["lead_id"])
+        assert listed["waiting"] == "Not worked yet: 0 runs are going; starts when one finishes"
+        _is_limit(app_client.post(f"/api/cases/{case['id']}/run", json={}, headers=hdr), "runs_at_once")
+        again = C.get(A.store, case["id"])
+        assert not again["data"].get("run_starts") and again["wake_at"] >= t0 + 60 and again["active_run"] == ""
+        # the inbox, cases off: every mail is stored before any run; the first refusal defers all five
+        _no_cases(A, did)
+        mails = [{"from_email": f"mail{i}@example.com", "from_name": f"Mail {i}", "subject": f"Quote {i}",
+                  "body": f"Hello, a quote please ({i})"} for i in range(5)]
+        A.store.add_connector(did, "imap", "inbox", {"host": "imap.example.com", "user": "u", "password": "p"}, False)
+        monkeypatch.setattr(I, "fetch_unseen", lambda cfg, limit=5: [dict(m) for m in mails])
+        job = A.store.add_job(did, "inbox_watch", "Inbox", "", 5, time.time())
+        S._finish_job(A.store, A.store.job(job["id"]), A._start_run, A.store.desk)
+        row = A.store.job(job["id"])
+        assert row["last_status"] == "ok", row
+        assert row["last_result"].startswith("5 new email(s); 5 waiting: Runs at the same time 0/0, runs after ")
+        leads = [x for x in A.store.for_desk(did).leads() if x["source"] == "email"]
+        assert len(leads) == 5 and {x["status"] for x in leads} == {"waiting"}
+        n_in = A.store._conn.execute("SELECT COUNT(*) FROM messages WHERE desk_id=? AND channel='email' AND dir='in'",
+                                     (did,)).fetchone()[0]
+        assert n_in == 5
+        rows = usage.deferred(owner)
+        assert sorted(r["ref_id"] for r in rows) == sorted(x["id"] for x in leads)
+        assert {r["limit_id"] for r in rows} == {"runs_at_once"}
+        assert all(t0 + 60 <= r["retry_at"] <= time.time() + 61 for r in rows)
+        refusals = {(r["surface"], r["limit_id"]): r["units"]
+                    for r in _events(A.store, "kind='refusal' AND owner_id=?", (owner,))}
+        assert refusals == {("run.auto", "runs_at_once"): 2, ("run.you", "runs_at_once"): 1}   # one try each, no more
+    finally:
+        usage.clear_override(owner, "runs_at_once")
+        for r in usage.deferred(owner):                                 # keep the session's scheduler off this desk
+            usage._set_deferred(r["id"], status="dropped")
+        if case:
+            C._set(A.store, case["id"], wake_at=None)
+        if job:
+            A.store.delete_job(job["id"])
+
+
+def test_case_run_stopped_at_a_limit(U, store, monkeypatch):
+    """T39's case part (spec §1.6, §5.5, S50): a step whose run stopped at the per-run cap goes to the owner and the
+    clock never re-runs it; one stopped at the day's allowance runs again after the reset. The run's line on the
+    timeline is a limit, not a failure."""
+    from atlas import cases as C
+    from atlas import records as R
+    runs = []
+
+    def start(desk_, task, mode, lead_id=None, case_id=None):
+        runs.append(case_id)
+        return f"r{len(runs)}"
+    monkeypatch.setattr(C, "START_RUN", start)
+    monkeypatch.setattr(C, "RUN_STATUS", lambda rid: "limit")
+    desk = store.add_desk(94, "Limit desk", "sales_desk", "free", {})
+    capped = C.open_case(store, desk["id"], "task", "Reconcile the invoices", 0)
+    rid = C.kick(store, desk, capped)
+    cap = U._limit("run_requests", used=120, limit=120, now=U._now()).body()
+    C.run_finished(store, capped["id"], rid, "limit", "Stopped: " + cap["message"], limit=cap)
+    c = C.get(store, capped["id"])
+    assert (c["waiting_for"], c["wake_at"], c["active_run"]) == ("owner", None, "")
+    tl = R.timeline_for(store, case_ids=[capped["id"]], limit=2)
+    assert tl[0]["text"] == "the step stopped at the per-run cap (120 AI requests): check it or press Run again"
+    assert tl[1]["kind"] == "run_limit" and tl[1]["text"].startswith("Stopped: This run made 120 AI requests")
+    daily = C.open_case(store, desk["id"], "task", "Chase the supplier", 0)
+    rid = C.kick(store, desk, daily)
+    day = U._limit("ai_requests_auto_day", used=125, limit=125, now=U._now()).body()
+    C.run_finished(store, daily["id"], rid, "limit", "Stopped: " + day["message"], limit=day)
+    d = C.get(store, daily["id"])
+    reset = U.day_start(U._now()) + 86400
+    assert d["waiting_for"] == "atlas" and reset <= d["wake_at"] <= reset + 300
+    assert C.tick(store)["woke"] == 0 and runs == [capped["id"], daily["id"]]     # neither is re-run now
+    assert (C.lane(c), C.lane(d)) == ("you", "atlas")
+
+
+def test_a_refused_alert_run_is_one_event_per_window(U, store, monkeypatch, tmp_path):
+    """S44 (spec §1.6): a camera alert whose run is refused at a limit keeps its own event (the alert needs no AI);
+    one more event per camera and limit window says why no run started, and later refusals in that window update it
+    instead of adding events. Nothing retries the run."""
+    import atlas.desk.scheduler as S
+    from atlas import alerts as AL
+    from atlas import vision as V
+    from test_vision import PERSON, FakeDetector, _jpeg
+    AL.reset(); S._last_frame.clear(); S._last_seen.clear(); S._present.clear(); S._run_held.clear()
+    monkeypatch.setattr(V, "DETECTOR", FakeDetector([PERSON]))
+    monkeypatch.setattr(V, "vlm_ready", lambda: False)
+    desk = store.add_desk(95, "Gate desk", "blank", "free", {"ops": {"camera_cases": False}})
+    conn = store.add_connector(desk["id"], "camera", "gate", {"source": _jpeg(tmp_path / "gate.jpg", blob=(40, 30, 120, 220)),
+                                                             "watch_for": "person", "min_count": 1, "cooldown_min": 0,
+                                                             "repeat": "always"}, False)
+    tries = []
+
+    def refused(d, task, mode):
+        tries.append(task)
+        raise U._limit("ai_requests_auto_day", used=125, limit=125, now=U._now())
+    for _ in range(3):
+        r = S.camera_tick(store, desk, conn, refused, True, force=True)
+        assert r["triggered"] and r["run_id"] == ""
+    evs = store.for_desk(desk["id"]).vision_events(camera="gate", limit=50)
+    why = [e for e in evs if "desk refused" in (e.get("reason") or "")]
+    assert len(tries) == 3 and len(why) == 1 and len([e for e in evs if e["triggered"]]) == 3
+    assert why[0]["reason"].startswith("desk refused 3 alert runs since ")
+    assert "AI requests Atlas made on its own: 125 of 125 used." in why[0]["reason"]
+
+
+def test_watch_job_and_detection_runs_hold_at_a_limit(U, store, monkeypatch):
+    """S45, S48 (spec §1.6): a limit that escapes a camera tick is one refusal row and no "grab failed" event; a
+    security detection's run refused at a limit stays queued, says why, and is tried again at the limit's retry time
+    (not a minute later), started in lane auto."""
+    import atlas.desk.scheduler as S
+    from test_cyber_engine import _det
+    desk = store.add_desk(96, "Watch desk", "site_watch", "free", {})
+    did = desk["id"]
+    store.add_connector(did, "camera", "gate", {"source": "gate.jpg"}, False)
+
+    def tick(*a, **k):
+        raise U._limit("ai_requests_auto_day", used=125, limit=125, now=U._now())
+    monkeypatch.setattr(S, "camera_tick", tick)
+    job = store.add_job(did, "camera_watch", "Watch the gate", json.dumps({"connector": "gate"}), 0, time.time())
+    for _ in range(2):
+        out = S._run_job(store, store.job(job["id"]), lambda *a: "", store.desk)
+        assert out == "gate: paused: AI requests Atlas made on its own 125/125"
+    assert not [e for e in store.for_desk(did).vision_events(camera="gate") if "grab failed" in (e.get("reason") or "")]
+    ref, = _events(store, "kind='refusal' AND owner_id=96")
+    assert (ref["surface"], ref["ref"], ref["units"], ref["lane"]) == ("camera.watch", "cam:gate", 2, "auto")
+    store.for_desk(did).upsert_sec_detection(_det("ssh_bruteforce:203.0.113.9", severity="high"))
+    lanes = []
+
+    def start(d, task, mode):
+        lanes.append(U.bound_lane())
+        raise U._limit("ai_requests_auto_day", used=125, limit=125, now=U._now())
+    S.cyber_forget(did)
+    try:
+        assert S._cy_trigger(store, desk, start, ["ssh_bruteforce:203.0.113.9"], "", None) == ""
+        assert lanes == ["auto"] and S.CYBER_PENDING[did] == ["ssh_bruteforce:203.0.113.9"]
+        reset = U.day_start(U._now()) + 86400
+        assert S._cy_retry[did]["after"] == reset
+        assert S.CYBER_STATUS[did]["text"].startswith("desk refused the run: AI requests Atlas made on its own: 125 of 125 used.")
+        store.for_desk(did).upsert_sec_detection(_det("scan:198.51.100.4", rule="scan", severity="high"))
+        assert S._cy_trigger(store, desk, start, ["scan:198.51.100.4"], "", None) == ""   # a later pass queues, no try
+        assert len(lanes) == 1 and len(S.CYBER_PENDING[did]) == 2 and S._cy_retry[did]["after"] == reset
+        S._cy_retry[did]["after"] = 0.0                                  # the retry time came: the flush tries again
+        S.cyber_flush(store, start, store.desk)
+        assert len(lanes) == 2 and S._cy_retry[did]["after"] == reset and len(S.CYBER_PENDING[did]) == 2
+    finally:
+        S.cyber_forget(did)
+
+
+def test_sensor_event_is_kept_when_its_run_is_refused(app_client, monkeypatch):
+    """S13 (spec §1.6, §4.6): an external sensor's event at a limit is stored and answered 200 with `limited` (the
+    sensor is not made to retry); with camera cases on, the incident case is open and held for its clock."""
+    from atlas import cases as C
+    from atlas import records as R
+    A, did, owner = _signed_in(app_client, monkeypatch, "usage-s13@example.com", template="site_watch")
+    monkeypatch.setattr(usage.CFG, "demo", "enforce")
+    token = A.store.ensure_hook_token(did)
+    usage.set_override(owner, "ai_requests_auto_day", 0)
+    case = None
+    try:
+        r = app_client.post(f"/hook/{token}/vision", json={"camera": "gate", "labels": {"person": 1}, "note": "PIR at the gate"})
+        b = r.get_json()
+        assert r.status_code == 200 and b["ok"] is True and b["run_id"] == "", b
+        assert b["limited"].startswith("AI requests Atlas made on its own: 0 of 0 used.")
+        ev = A.store.vision_event(b["event_id"])
+        assert ev["triggered"] and ev["reason"] == "PIR at the gate" and not ev["run_id"]
+        case = next(c for c in C.list_cases(A.store, did, open_only=True) if c["type"] == "incident")
+        reset = usage.day_start(time.time()) + 86400
+        assert case["waiting_for"] == "atlas" and reset <= case["wake_at"] <= reset + 300
+        assert R.timeline_for(A.store, case_ids=[case["id"]], limit=1)[0]["text"] == (
+            "Paused: AI requests Atlas made on its own 0/0; resumes after 00:00 UTC")
+    finally:
+        usage.clear_override(owner, "ai_requests_auto_day")
+        if case:
+            C._set(A.store, case["id"], wake_at=None)
+
+
+def test_scheduler_starts_deferred_leads_for_its_own_ledger_only(U, store, monkeypatch):
+    """Deferred starts (spec §1.6): the scheduler's pass starts due rows only for the ledger its own store holds (the
+    app's scheduler never starts a test's or a tool's rows), and a lead its case took over meanwhile leaves the
+    queue instead of being retried."""
+    import atlas.desk.scheduler as S
+    t = time.time()
+    desk = store.add_desk(97, "Defer desk", "sales_desk", "free", {})
+    m = _meter(owner=97, desk=desk["id"], lane="auto", surface="run.auto")
+    busy = U._limit("runs_at_once", used=3, limit=3, now=t)
+    lid = store.add_lead("Ana", "", "ana@example.com", "", "web form", "Need a quote", desk_id=desk["id"])
+    lid2 = store.add_lead("Bo", "", "bo@example.com", "", "web form", "Need a quote", desk_id=desk["id"])
+    U.defer(m, "lead", lid, busy)
+    U.defer(m, "lead", lid2, busy)
+    calls = []
+
+    def start(d, lead_id):
+        calls.append(lead_id)
+        if lead_id == lid2:                                              # its case is open now and holds the step
+            exc = U._limit("ai_requests_auto_day", used=125, limit=125, now=U._now())
+            exc.case_id = 5
+            raise exc
+        return "r-1"
+    monkeypatch.setattr(U, "LEAD_RUN", start)
+    assert S.deferred_pass(object(), t + 120) == 0 and calls == []
+    assert S.deferred_pass(store, t + 120) == 1 and calls == [lid, lid2]
+    assert U.deferred(97) == [] and [r["ref_id"] for r in U.deferred(97, "dropped")] == [lid2]

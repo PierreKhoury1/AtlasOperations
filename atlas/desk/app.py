@@ -1494,7 +1494,8 @@ def _start_run(desk: dict[str, Any], task: str, mode: str, lead_id: int | None =
     except BaseException:
         U.run_end(meter)                           # nothing started: the runs-at-once slot goes back
         raise
-    holder: dict[str, Any] = {"events": events, "orch": orch, "task": task, "desk_id": desk["id"], "started": time.time()}
+    holder: dict[str, Any] = {"events": events, "orch": orch, "task": task, "desk_id": desk["id"], "started": time.time(),
+                              "lead_lock": threading.Lock()}
 
     def work():
         res = None
@@ -1512,13 +1513,15 @@ def _start_run(desk: dict[str, Any], task: str, mode: str, lead_id: int | None =
             _push_feed(orch.run_id, desk["id"], Event(kind="done", agent="system", text=msg, data={"status": "error"}))
         finally:
             U.run_end(meter)                       # L5: no longer going, before the case may start its next step
-        holder["ended"] = time.time()
-        if lead_id is not None:
-            dstore.set_lead(lead_id, status=("processed" if status == "done" else status), run_id=orch.run_id)
+        with holder["lead_lock"]:                  # a run that ends before its start returns keeps its lead's final status
+            holder["ended"] = time.time()
+            if lead_id is not None:
+                dstore.set_lead(lead_id, status=("processed" if status == "done" else status), run_id=orch.run_id)
         cid = orch.case_id or case_id
-        if cid:                                    # the case decides what happens next (atlas/cases.py)
+        if cid:                                    # the case decides what happens next (atlas/cases.py), by limit too
             try:
-                C.run_finished(store, int(cid), orch.run_id, status, res.summary if res else "")
+                C.run_finished(store, int(cid), orch.run_id, status, res.summary if res else "",
+                               limit=getattr(res, "limit", None) if res else None)
             except Exception:
                 import traceback as _tb
                 _tb.print_exc()
@@ -1539,7 +1542,9 @@ def _start_run(desk: dict[str, Any], task: str, mode: str, lead_id: int | None =
         _prune_runs()
     U.run_started(meter, orch.run_id)              # the run's start on the ledger (runs, runs:auto), under its id
     if lead_id is not None:
-        dstore.set_lead(lead_id, status="running", run_id=orch.run_id)
+        with holder["lead_lock"]:
+            if not holder.get("ended"):
+                dstore.set_lead(lead_id, status="running", run_id=orch.run_id)
     return orch.run_id
 
 
@@ -1556,7 +1561,10 @@ def _run_status(run_id: str) -> str:
 
 def _lead_case_run(desk: dict[str, Any], lid: int, mode: str = "auto", extra: str = "") -> str:
     """A lead is worked as an enquiry case: replies, follow-ups and bookings continue the same case. A workflow mode, or
-    a desk with cases switched off, gets the plain one-off run it always had."""
+    a desk with cases switched off, gets the plain one-off run it always had. A first start refused at a usage limit
+    raises UsageLimit either way; with a case, the case is open and held first (its clock starts the step after the
+    limit's retry time), the lead reads `waiting` and the exception carries `case_id`. A lead that continues a case
+    already open leaves a refusal to that case's clock."""
     lead = store.lead(lid)
     task = _lead_task(lead) + (("\n\n" + extra.strip()) if extra else "")
     if mode != "auto" or not C.enabled(desk, "lead_cases"):
@@ -1575,12 +1583,44 @@ def _lead_case_run(desk: dict[str, Any], lid: int, mode: str = "auto", extra: st
     title = first or f"Enquiry from {lead.get('name') or lead.get('email') or lead.get('phone') or 'unknown'}"
     c = C.open_case(store, desk["id"], "enquiry", title, (person or {}).get("id") or 0, source=lead.get("source") or "lead",
                     brief=task, desk=desk)
-    return C.kick(store, desk, c, lead_id=lid)
+    try:
+        return C.kick(store, desk, c, lead_id=lid, raise_limit=True)
+    except U.UsageLimit as exc:                          # the case holds the step until the retry time
+        store.set_lead(lid, status="waiting")
+        exc.case_id = c["id"]
+        raise
+
+
+def _lead_run_or_wait(desk: dict[str, Any], lid: int, extra: str = "") -> str:
+    """S12 (usage spec §1.6): a lead from outside (a web form, a message, a mail) is saved before any run is tried,
+    and a refused start never fails the sender. The lead waits instead: its case's clock retries it (cases on), or a
+    deferred start does after the limit's retry time (cases off). Returns the run id, or ""."""
+    try:
+        return _lead_case_run(desk, lid, extra=extra)
+    except U.UsageLimit as exc:
+        if not getattr(exc, "case_id", None):
+            U.defer(U.desk_meter(desk, "run.auto"), "lead", lid, exc)
+        return ""
+
+
+def _waiting_notes(desk: dict[str, Any], leads: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Leads whose run waits for a usage limit carry `waiting`: the limit as it stands and when they run (§1.6)."""
+    if not any(l.get("status") == "waiting" for l in leads):
+        return leads
+    held = {lid: (lim.get("limit_id") or "", lim.get("retry_at")) for lid, lim in C.held_leads(store, desk["id"]).items()}
+    held.update(U.deferred_leads(desk["id"]))
+    owner = int(desk.get("owner_id") or 0)
+    out = []
+    for l in leads:
+        hit = held.get(int(l["id"])) if l.get("status") == "waiting" else None
+        out.append({**l, "waiting": U.lead_note(owner, hit[0], hit[1])} if hit else l)
+    return out
 
 
 @app.get("/api/leads")
 def api_leads():
-    return jsonify(ds().leads())
+    desk = need_desk()
+    return jsonify(_waiting_notes(desk, store.for_desk(desk["id"]).leads()))
 
 
 @app.post("/api/leads")
@@ -3196,8 +3236,10 @@ def api_report_day_send():
     biz = ((desk.get("config") or {}).get("business") or {}).get("name") or desk.get("name") or ""
     subj, body = AL.report_message(desk, date, REP.markdown(data, biz), channel)
     row = AL.queue(store, desk, channel, to, subj, body, f"daily camera report {date}", nc["auto"], _dispatch)
+    held = row.get("held") or ""                      # an auto send held at a limit or by the channel's rule says why
     return jsonify({"ok": True, "status": row["status"], "action_id": row["id"],
-                    "note": "sent" if row["status"] == "sent" else ("queued for your approval" if row["status"] == "pending" else row.get("note") or row["status"])})
+                    "note": "sent" if row["status"] == "sent" else (("queued for your approval" + (f": {held}" if held else ""))
+                                                                   if row["status"] == "pending" else row.get("note") or row["status"])})
 
 
 @app.get("/api/report/day")
@@ -3837,20 +3879,25 @@ def hook_vision(token):
     dstore = store.for_desk(desk["id"])
     ev = dstore.add_vision_event(camera, counts, motion=float(d.get("motion") or 0), backend=backend,
                                  reason=note or "external event", snapshot=snap, triggered=trigger, source="hook", ts=ts)
-    rid = ""
+    rid, limited = "", ""
     if trigger:
         when = time.strftime("%A %d %B %H:%M", time.localtime(ts) if ts is not None else time.localtime())
         task = ("Assess this sensor/camera event, log it, and tell the right person only if it matters.\n\n"
                 f"EXTERNAL EVENT — {camera} at {when}\n"
                 f"Reported: {V.counts_text(counts) if counts else 'no object counts'}" + (f"; note: {note}" if note else "") + "\n"
                 f"Event id: {ev['id']}." + (" Snapshot attached." if snap else "") + " Use camera_events for history; camera_look works only for cameras the desk can reach itself.")
-        if C.enabled(desk, "camera_cases"):
-            _preflight(desk)
-            rid = C.camera_alert(store, desk, camera, "CAMERA ALERT (external sensor)\n" + task, note or "external event", ev["id"])
-        else:
-            rid = _start_run(desk, task, "auto")
+        try:
+            with U.bind_lane("auto"):
+                if C.enabled(desk, "camera_cases"):
+                    _preflight(desk)
+                    rid = C.camera_alert(store, desk, camera, "CAMERA ALERT (external sensor)\n" + task, note or "external event",
+                                         ev["id"], raise_limit=True)
+                else:
+                    rid = _start_run(desk, task, "auto")
+        except U.UsageLimit as exc:                   # S13: the event is kept and the sensor told why no run started;
+            rid, limited = "", exc.message            # no deferral (a run hours later is stale; a case's clock may retry)
         dstore.set_vision_run(ev["id"], rid)
-    return jsonify({"ok": True, "event_id": ev["id"], "run_id": rid})
+    return jsonify({"ok": True, "event_id": ev["id"], "run_id": rid, **({"limited": limited} if limited else {})})
 
 
 # ---------------------------------------------------------------------------- security desk (cyber)
@@ -4824,7 +4871,9 @@ def api_case_run(cid):
     d = request.get_json(silent=True) or {}
     _preflight(desk)
     extra = str(d.get("instruction") or "").strip()
-    rid = C.kick(store, desk, c, extra=("The owner asks: " + extra) if extra else "The owner asked Atlas to work this step now.")
+    # a start refused at a usage limit holds the step for the case clock, then answers 429 with the limit (§1.6)
+    rid = C.kick(store, desk, c, extra=("The owner asks: " + extra) if extra else "The owner asked Atlas to work this step now.",
+                 raise_limit=True)
     if not rid and c.get("active_run"):
         return jsonify({"error": "Atlas is already working this case", "run_id": c["active_run"]}), 409
     return jsonify({"case": C.public(store, C.get(store, cid), desk, detail=True), "run_id": rid})
@@ -5291,7 +5340,8 @@ def hook(token):
         dstore.add_message("form", "in", email_ or name, notes or "(no message)", actor=name or email_)
     if email_ and not dstore.contact_for(email_):
         dstore.upsert_contact(email_, {"name": name, "company": company, "email": email_, "phone": phone, "stage": "New", "notes": "Inbound via webhook"})
-    rid = _lead_case_run(desk, lid)
+    with U.bind_lane("auto"):                        # Atlas works what came in on its own (usage spec §1.1)
+        rid = _lead_run_or_wait(desk, lid)
     return jsonify({"ok": True, "lead_id": lid, "run_id": rid})
 
 
@@ -5315,7 +5365,7 @@ def _inbound_message(desk: dict[str, Any], phone: str, name: str, text: str, sou
     else:
         dstore.upsert_contact(name if name != phone else phone, {"name": name if name != phone else "", "phone": phone,
                                                                  "stage": "New", "notes": f"First contact via {source}"})
-    return _lead_case_run(desk, lid, extra=how)
+    return _lead_run_or_wait(desk, lid, extra=how)
 
 
 def _meta_unsigned(desk_id: int, kind: str, label: str):
@@ -5351,7 +5401,8 @@ def hook_whatsapp(token):
     if refused:
         return refused
     msgs = I.parse_whatsapp_webhook(request.get_json(silent=True) or {})
-    runs = [_inbound_message(desk, m["from"], m["name"], m["text"], "whatsapp") for m in msgs if m.get("from")]
+    with U.bind_lane("auto"):
+        runs = [_inbound_message(desk, m["from"], m["name"], m["text"], "whatsapp") for m in msgs if m.get("from")]
     return jsonify({"ok": True, "messages": len(msgs), "runs": runs})
 
 
@@ -5372,13 +5423,14 @@ def hook_instagram(token):
     msgs = I.parse_instagram_webhook(request.get_json(silent=True) or {})
     dstore = store.for_desk(desk["id"])
     runs = []
-    for m in msgs:
+    for m in msgs:                                   # each is stored before its run is tried; a refused run waits
         dstore.add_message("instagram", "in", "ig:" + m["from"], m["text"], actor=m["name"] or ("ig " + m["from"]))
         name = m["name"] or f"Instagram user {m['from'][-4:]}"
         lid = dstore.add_lead(name, "", "", "", "instagram", m["text"])
         how = (f"This arrived as an Instagram DM. Reply on the same channel "
                f"(queue_action kind=instagram, to={m['from']}) — keep it short and warm.")
-        runs.append(_lead_case_run(desk, lid, extra=how))
+        with U.bind_lane("auto"):
+            runs.append(_lead_run_or_wait(desk, lid, extra=how))
     return jsonify({"ok": True, "messages": len(msgs), "runs": runs})
 
 
@@ -5419,7 +5471,8 @@ def hook_sms(token):
     if not frm:
         return jsonify({"error": "From required"}), 400
     source = "twilio whatsapp" if frm.startswith("whatsapp:") else "sms"
-    rid = _inbound_message(desk, frm.replace("whatsapp:", ""), f.get("ProfileName") or "", body, source)
+    with U.bind_lane("auto"):
+        rid = _inbound_message(desk, frm.replace("whatsapp:", ""), f.get("ProfileName") or "", body, source)
     return Response("<?xml version=\"1.0\" encoding=\"UTF-8\"?><Response></Response>", mimetype="application/xml", headers={"X-Atlas-Run": rid})
 
 
@@ -5436,6 +5489,7 @@ if not OPEN and AUTH.two_factor_problem():
 scheduler.LIVE = lambda desk=None: _mode() != "demo" and not _live_reason(desk)
 scheduler.DISPATCH = _dispatch
 scheduler.LEAD_RUN = _lead_case_run
+U.LEAD_RUN = _lead_case_run                      # deferred lead starts (usage.deferred_tick, once per scheduler pass)
 C.START_RUN = _start_run
 C.RUN_STATUS = _run_status
 C.NOTIFY = lambda desk_id, text: I.notify(store.connectors(desk_id), text)

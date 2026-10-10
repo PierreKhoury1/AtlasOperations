@@ -1288,7 +1288,7 @@ async function addLead(){
 }
 async function loadLeads(){
   const L = await api('/leads');
-  $('#leads-table').innerHTML = L.length ? `<table><tr><th>When</th><th>Lead</th><th>Source</th><th>Status</th><th></th></tr>` + L.map(l=>`<tr><td>${when(l.created)}</td><td><b>${esc(l.name)}</b><br><span style="color:var(--muted)">${esc(l.company||'')} ${esc(l.email)}</span><br><span style="color:var(--muted);font-size:12px">${esc(l.notes).slice(0,110)}</span></td><td>${esc(l.source)}</td><td><span class="tag ${l.status}">${l.status}</span></td><td>${l.run_id?`<button class="btn sm" onclick="curRun=${jsa(l.run_id)};go('runs')">run</button>`:''} <button class="btn sm" onclick="rerun(${l.id})">re-run</button></td></tr>`).join('') + '</table>' : '<div class="empty">No leads yet</div>';
+  $('#leads-table').innerHTML = L.length ? `<table><tr><th>When</th><th>Lead</th><th>Source</th><th>Status</th><th></th></tr>` + L.map(l=>`<tr><td>${when(l.created)}</td><td><b>${esc(l.name)}</b><br><span style="color:var(--muted)">${esc(l.company||'')} ${esc(l.email)}</span><br><span style="color:var(--muted);font-size:12px">${esc(l.notes).slice(0,110)}</span></td><td>${esc(l.source)}</td><td><span class="tag ${l.status}">${l.status}</span>${l.waiting?`<div class="hint" style="max-width:240px;margin-top:4px">${esc(l.waiting)}</div>`:''}</td><td>${l.run_id?`<button class="btn sm" onclick="curRun=${jsa(l.run_id)};go('runs')">run</button>`:''} <button class="btn sm" onclick="rerun(${l.id})">re-run</button></td></tr>`).join('') + '</table>' : '<div class="empty">No leads yet</div>';
 }
 async function rerun(id){ const r = await api(`/leads/${id}/run`, {method:'POST', body:{mode:'auto'}}); curRun=r.run_id; liveWant=r.run_id; go('live'); }
 

@@ -1209,6 +1209,15 @@ class Store:
             self._conn.commit()
         return self.action(aid)
 
+    def hold_action(self, aid: int, note: str) -> dict[str, Any] | None:
+        """An unattended send that did not go out (a usage limit or the channel's own rule held it): it stays pending
+        for the owner, and its reason line says why ("... · auto-send paused: ...")."""
+        with self._lock:
+            self._conn.execute("UPDATE actions SET reason = CASE WHEN COALESCE(reason, '') = '' THEN ? "
+                               "ELSE reason || ' · ' || ? END WHERE id=? AND status='pending'", (note, note, aid))
+            self._conn.commit()
+        return self.action(aid)
+
     def tag_action_case(self, aid: int, case_id: int) -> None:
         with self._lock:
             self._conn.execute("UPDATE actions SET case_id=? WHERE id=?", (int(case_id or 0), aid))
@@ -1375,6 +1384,7 @@ class DeskStore:
     def actions(self, status="", limit=200): return self.s.actions(status, limit, self.desk_id)
     def action(self, aid): return self.s.action(aid)
     def decide_action(self, *a, **k): return self.s.decide_action(*a, **k)
+    def hold_action(self, aid, note): return self.s.hold_action(aid, note)
     def tag_action_case(self, aid, case_id): return self.s.tag_action_case(aid, case_id)
     def set_run_case(self, run_id, case_id): return self.s.set_run_case(run_id, case_id)
     def add_lead(self, name, company, email, phone, source, notes):

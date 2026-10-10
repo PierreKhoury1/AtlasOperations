@@ -1519,6 +1519,38 @@ def auto_action(meter: Meter, kind: str) -> UsageLimit | None:
     return None
 
 
+def auto_undo(meter: Meter, kind: str) -> None:
+    """The unattended action auto_action() let through did not go out after all: the channel's own rule held it (the
+    reply window, the day's SMS segments). Its L8 unit goes back and its ledger row (this meter's) reads not_sent.
+    Never raises."""
+    if _store is None:
+        return
+    now = _now()
+    surface = ("send." if kind in _CHANNELS else "action.") + kind
+    try:
+        with _tx() as c:
+            c.execute(f"UPDATE usage_counters SET n = n - 1, updated = ? WHERE {_PK} AND n > 0",
+                      (now, f"d{int(meter.desk_id or 0)}", "send:auto", "D", day_start(now)))
+            row = c.execute("SELECT MAX(id) FROM usage_events WHERE kind='action' AND surface=? AND action_id=? "
+                            "AND status='ok'", (surface, meter.action_id)).fetchone()
+            if row and row[0]:
+                c.execute("UPDATE usage_events SET status='not_sent', note=? WHERE id=?",
+                          ("held before sending: approval needed", int(row[0])))
+    except Exception as exc:
+        print(f"usage: auto action not given back: {type(exc).__name__}: {str(exc)[:120]}")
+
+
+def send_held_note(exc: UsageLimit) -> str:
+    """Why an unattended send waits in the approval queue (spec §1.6): L8's paused note, the reply-window copy (W1),
+    or a channel limit with its reset (L7: approving it before then is refused too)."""
+    if isinstance(exc, ChannelWindow):
+        return exc.message
+    if exc.limit_id == "auto_sends_day":
+        return paused_note(exc)
+    until = until_text(exc)
+    return f"auto-send paused: {brief(exc)}" + (f"; resets {until}" if until else "")
+
+
 def _contact_key(kind: str, to: str) -> str:
     """The `messages.contact_key` of a recipient: ig:<id> for Instagram, else store.message_key."""
     if kind == "instagram":
@@ -1827,6 +1859,51 @@ def run_started(meter: Meter, run_id: str = "") -> None:
     action(meter, "action", metric="runs", surface=f"run.{meter.lane or 'you'}", ref=meter.ref, note="run started")
 
 
+def limit_state(owner_id: int, limit_id: str, now: float | None = None) -> tuple[Any, Any]:
+    """(used, limit) of one of the limits a run start can meet, in the limit's own unit, as the ledger and the
+    provider snapshot read now; (None, limit) for a limit without a single counter here."""
+    now = _now() if now is None else now
+    o = int(owner_id or 0)
+    lim = limit_value(o, limit_id)
+    ds = day_start(now)
+    if limit_id == "ai_requests_day":
+        used: Any = counter_n(f"o:{o}", "req:free", "D", ds)
+    elif limit_id == "ai_requests_auto_day":
+        used = counter_n(f"o:{o}:auto", "req:free", "D", ds)
+    elif limit_id == "public_requests_day":
+        used = counter_n("pub", "req:free", "D", ds)
+    elif limit_id == "pool_free_day":
+        used = max(pool_used(now), int(lim or 0) if pool_exhausted(now) else 0)
+    elif limit_id == "paid_usd_month":
+        used = owner_paid_used(o, now)
+    elif limit_id == "house_paid_usd_month":
+        used = house_paid_used(now)
+    elif limit_id == "runs_at_once":
+        used = runs_going(o)
+    else:
+        used = None
+    return used, lim
+
+
+def lead_note(owner_id: int, limit_id: str, retry_at: float | None, now: float | None = None) -> str:
+    """The Leads list's line for a lead whose run waits for a limit (spec §1.6): the numbers as they stand now, then
+    when it runs. Owners see the shared pool's state, never the whole account's counts (§5.1)."""
+    now = _now() if now is None else now
+    if limit_id == "runs_at_once":
+        n = runs_going(owner_id)
+        return f"Not worked yet: {n} run{' is' if n == 1 else 's are'} going; starts when one finishes"
+    meta = LIMITS.get(limit_id) or {"label": limit_id or "a usage limit", "unit": "requests"}
+    used, lim = limit_state(owner_id, limit_id, now)
+    if limit_id == "pool_free_day":
+        head = "Shared free-model pool today: full"
+    elif used is None or lim is None:
+        head = meta["label"]
+    else:
+        head = f"{meta['label']} {_fmt(used, meta['unit'])}/{_fmt(lim, meta['unit'])}"
+    when = until_text({"retry_at": retry_at}, now) if retry_at else ""
+    return f"Not worked yet: {head}" + (f"; runs after {when}" if when else "")
+
+
 def tool_limit_text(limit: "UsageLimit | dict[str, Any]", tool: str) -> str:
     """The typed result of a tool call refused at a limit (spec §4.6 S22): the model reads that the tool is out for
     the rest of the run, so it stops calling it."""
@@ -1877,12 +1954,24 @@ def _set_deferred(rid: int, **f: Any) -> None:
         c.execute(f"UPDATE usage_deferred SET {', '.join(f'{k}=?' for k in f)} WHERE id=?", (*f.values(), rid))
 
 
-def deferred_tick(now: float | None = None, *, start: Callable[..., Any] | None = None, batch: int = 5) -> int:
+def deferred_leads(desk_id: int) -> dict[int, tuple[str, float]]:
+    """The desk's leads waiting for a deferred start: lead id -> (limit id, retry_at)."""
+    if _store is None:
+        return {}
+    rows = _store._conn.execute("SELECT ref_id, limit_id, retry_at FROM usage_deferred WHERE desk_id=? AND kind='lead' "
+                                "AND status='waiting'", (int(desk_id),)).fetchall()
+    return {int(r[0]): (str(r[1] or ""), float(r[2])) for r in rows}
+
+
+def deferred_tick(now: float | None = None, *, start: Callable[..., Any] | None = None, batch: int = 5,
+                  store: Any = None) -> int:
     """Once per scheduler pass: start up to `batch` due deferred leads, oldest first, through LEAD_RUN in lane auto.
     A new refusal moves the row's retry_at on (and that owner's other due rows with it); a lead worked or deleted in
-    the meantime drops its row. Returns how many runs started."""
+    the meantime drops its row, and so does one whose case now holds it (cases switched on meanwhile: the case clock
+    retries it). `store`: the caller's store; nothing runs unless the ledger is bound to it (a test or a tool that
+    bound the ledger elsewhere never gets its rows started by the app's scheduler). Returns how many runs started."""
     start = start or LEAD_RUN
-    if _store is None or start is None:
+    if _store is None or start is None or (store is not None and store is not _store):
         return 0
     now = _now() if now is None else now
     due = _store._conn.execute("SELECT id, owner_id, desk_id, kind, ref_id FROM usage_deferred WHERE status='waiting' "
@@ -1901,6 +1990,9 @@ def deferred_tick(now: float | None = None, *, start: Callable[..., Any] | None 
             with bind_lane("auto"):
                 start(desk, int(ref_id))
         except UsageLimit as exc:
+            if getattr(exc, "case_id", None):        # its case is open and paused now: the case clock retries it
+                _set_deferred(rid, status="dropped")
+                continue
             blocked[oid] = float(exc.retry_at or (now + CFG.busy_retry_s))
             with _tx() as c:
                 c.execute("UPDATE usage_deferred SET retry_at=?, limit_id=?, tries=tries+1 WHERE id=?",
