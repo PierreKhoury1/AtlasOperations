@@ -2805,3 +2805,62 @@ def test_17_the_build_writes_the_journal_cadence_the_facts_describe(web, monkeyp
     finally:
         for j in jobs:                                                         # the scheduler never tries the stand-in clip
             A.store.delete_job(j["id"])
+
+
+# ================================================================== step 8: what the Tier 0 smoke and replay found
+REDIRECT = {"intent": "design", "changes": [
+    {"op": "remove_agent", "id": "door_watcher", "why": "you want bookings first"}, {"op": "remove_agent", "id": "till_watcher"},
+    {"op": "remove_camera", "name": "door"}, {"op": "remove_camera", "name": "till"},
+    {"op": "add_agent", "agent": {"name": "Booking Agent", "role": "Answers WhatsApp bookings", "goal": "Book each request",
+                                  "tools": ["calendar_free_slots", "record_save"]}, "why": "you want WhatsApp bookings"}]}
+
+
+def _watchers():
+    s = DS.new_session("live")
+    s.blueprint = DS.normalise({"agents": [_cam_agent("door_watcher", "Door Watcher"), _cam_agent("till_watcher", "Till Watcher")],
+                                "cameras": [{"name": "door"}, {"name": "till"}]})
+    return s
+
+
+def test_8_a_sentence_1_the_server_rebuilt_states_the_proposal_once(monkeypatch):
+    # the model said it removed them; the server proposes it instead and says so once, in sentence 1
+    s = _watchers()
+    SC.install(monkeypatch, SC.Scripted("Removed the camera watchers and added a Booking Agent.\n" + SC.block(REDIRECT)))
+    r = SC.say(s, "forget the cameras, focus on WhatsApp bookings")
+    assert r["text"] == ("Added Booking Agent; proposed parking Door Watcher, Till Watcher and cameras door, till "
+                         "(waiting for your OK).")
+    assert DST.pending_proposal(s.design)["kind"] == "park"
+    # no prose at all: the ledger's sentence, once too
+    s = _watchers()
+    SC.install(monkeypatch, SC.Scripted(SC.block(REDIRECT)))
+    r = SC.say(s, "forget the cameras, focus on WhatsApp bookings")
+    assert r["text"].count("waiting for your OK") == 1 and OPS.WAITING_HEAD not in r["text"]
+    # the model's own sentence names the proposal in its words: the note gives the exact names
+    s, prov, r = _merge_turn(monkeypatch)
+    assert r["text"].startswith("Proposed merging the five monitors") and OPS.WAITING_HEAD + "merge Camera 1 Monitor" in r["text"]
+
+
+def test_8_a_turn_refused_before_it_starts_leaves_undo_as_it_was(web, monkeypatch):
+    c, A, uid = web
+    s = _owned(A, uid, _cams5().blueprint)
+    prov = SC.install(monkeypatch, SC.Scripted(MERGE_REPLY))
+    first = _events(c.post(f"/api/design/{s.id}/say", json={"text": "i have 5 camera"}))[-1]
+    acc = _events(c.post(f"/api/design/{s.id}/say", json={"text": first["next"][0]["say"]}))[-1]
+    undo = acc["next"][0]
+    assert undo["label"].startswith("Undo: put back") and [a["id"] for a in s.blueprint["agents"]] == ["floor_watcher"]
+    monkeypatch.setattr(A, "_design_precheck", _refuse)
+    assert c.post(f"/api/design/{s.id}/say", json={"text": "make the watcher stricter"}).status_code == 429
+    back = _events(c.post(f"/api/design/{s.id}/say", json={"text": undo["say"]}))
+    assert [e["t"] for e in back] == ["done"] and back[0]["text"].startswith("Put back Camera 1 Monitor")
+    assert [a["id"] for a in s.blueprint["agents"]] == [f"cam{i}" for i in range(1, 6)] and len(prov.calls) == 1
+
+
+def test_8_a_loaded_draft_offers_no_undo_and_a_stale_undo_says_why(monkeypatch):
+    s, prov, _ = _merge_turn(monkeypatch)
+    undo = SC.say(s, "yes")["next"][0]
+    assert undo["label"].startswith("Undo: put back")
+    loaded = DS.DesignSession.from_dict(_roundtrip(s.to_dict()))          # a restart or another worker: Undo is not saved
+    assert not any(x["label"].startswith("Undo") for x in loaded.next) and len(loaded.next) == 3
+    late = SC.say(loaded, undo["say"])                                    # a tab still showing the step
+    assert late["text"] == DS.UNDO_GONE_TEXT and [a["id"] for a in loaded.blueprint["agents"]] == ["floor_watcher"]
+    assert late["meta"]["requests"] == 0 and len(prov.calls) == 1 and loaded.transcript[-1]["k"] == "server"

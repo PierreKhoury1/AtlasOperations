@@ -80,6 +80,8 @@ REMOVE_OPS = {"remove_agent": "agent", "remove_workflow": "workflow", "remove_ca
 LEDGER_KINDS = ("add", "update", "remove", "merge", "park", "keep", "queue", "build", "propose", "accept", "decline",
                 "default", "answer", "undo")
 NOT_NAMED = "not named in your message"
+WAITING_HEAD = "_Waiting for your OK: "    # the note under a reply that made a proposal (6.13)
+WAITING_TAIL = " (waiting for your OK)"     # how the ledger's sentence states the same proposal (6.9)
 _MONEY = re.compile(r"money|pric|figure", re.I)      # the owner's words that name the no-money-figures rule
 
 
@@ -748,7 +750,7 @@ def ledger_sentence(applied: list[dict[str, Any]]) -> str:
     clauses += ["noted your answer: " + plain_md(e["name"]) for e in by.get("answer", [])]
     clauses += ["used the default: " + plain_md(e["name"]) for e in by.get("default", [])]
     if by.get("propose"):
-        clauses.append("proposed " + plain_md(by["propose"][-1]["name"]) + " (waiting for your OK)")
+        clauses.append("proposed " + plain_md(by["propose"][-1]["name"]) + WAITING_TAIL)
     if not clauses:
         return "No change to the sketch."
     s = "; ".join(clauses)
@@ -1831,7 +1833,7 @@ class _Work:
                 self.changes["converted"] = names
             self.changes["proposed"] = proposal_phrase(x, self.bp)
             self.log("propose", proposal_phrase(x, self.bp, 1), x["reason"], what="proposal")
-            self.notes.append(f"_Waiting for your OK: {plain_md(proposal_phrase(x, self.bp))}._")
+            self.notes.append(f"{WAITING_HEAD}{plain_md(proposal_phrase(x, self.bp))}._")
         return fresh
 
     def expire(self) -> None:

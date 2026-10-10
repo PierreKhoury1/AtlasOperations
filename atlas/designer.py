@@ -399,8 +399,10 @@ class DesignSession:
         s.design = DST.load(d.get("design"))
         s.bp_rev = DST.whole(d.get("bp_rev"))
         s.model_ready = s.ready is True
-        # sessions saved before next steps carry only the legacy chips: derive the steps from them
-        s.refresh_next(d["next"] if isinstance(d.get("next"), list) else d.get("suggestions") or [])
+        # sessions saved before next steps carry only the legacy chips: derive the steps from them. Undo is held in
+        # memory only, so a loaded draft has nothing to put back: its Undo step goes and the fallback fills the gap
+        items = d["next"] if isinstance(d.get("next"), list) else d.get("suggestions") or []
+        s.refresh_next([st for st in items if not (isinstance(st, dict) and _offered(s.design, st)[0] == "undo")])
         return s
 
     def refresh_next(self, items: Any = None) -> list[dict[str, Any]]:
@@ -1115,6 +1117,7 @@ MINUTE_TEXT = "The model is busy for a moment (per-minute limit). Try again shor
 DEADLINE_TEXT = "Atlas took too long; nothing changed. Try again, or build from the sketch as it is."
 EMPTY_TEXT = "No reply came back from the model that time; nothing changed. Say that again, or switch to the paid model."
 APPLY_ERROR_TEXT = "The change could not be applied; nothing changed. Try again."
+UNDO_GONE_TEXT = "Nothing to undo: Undo lasts only until the next message after a change."
 UNREAD_NOTE = "_The change list could not be read, so the sketch did not change._"
 LIMIT_NOTE = "_The sketch did not change: the AI allowance ran out before the change list was read._"
 DEADLINE_NOTE = "_Atlas took too long on the change list; nothing changed._"
@@ -1165,13 +1168,15 @@ def _main_key(st: dict[str, Any]) -> str:
 class Decided:
     """Phase A's outcome. `server`: the result of a server-only turn (accept, decline, skip, undo, Continue on queued
     agents), already committed. Otherwise the model turn's inputs: the owner's text, the snapshot it is built from and
-    applied against (bp0, rev0, the view the model is shown), and what Phase A wrote to the ledger (an answer)."""
+    applied against (bp0, rev0, the view the model is shown), what Phase A wrote to the ledger (an answer), and what
+    Undo held before this message (`undo`: a turn refused before it starts never happened, so it gives Undo back)."""
     text: str
     server: dict[str, Any] | None = None
     bp0: dict[str, Any] | None = None
     rev0: int = 0
     view: dict[str, Any] | None = None
     ledger: list[dict[str, Any]] = field(default_factory=list)
+    undo: dict[str, Any] | None = None
 
 
 _AFFIRM = re.compile(r"(?:yes|yeah|yep|ok|okay|sure|go ahead|do it|agreed|fine|please do|confirm)\b")
@@ -1211,7 +1216,14 @@ def decide(session: DesignSession, user_text: str) -> Decided:
                     it["touched_dturn"] = session.design["dturn"]
         bp0 = copy.deepcopy(session.blueprint) if isinstance(session.blueprint, dict) else None
         return Decided(text, bp0=bp0, rev0=session.bp_rev, ledger=ledger,
-                       view=DST.view(bp0, session.design, session.turn, OPS.facts(bp0)))
+                       view=DST.view(bp0, session.design, session.turn, OPS.facts(bp0)), undo=saved_undo)
+
+
+def restore_undo(session: DesignSession, dec: Decided) -> None:
+    """A model turn refused before it started (the spend cap, a usage limit) never happened: Undo still puts back what
+    the last accept took, as it did before the message. Lock held."""
+    if session.undo is None and isinstance(dec.undo, dict):
+        session.undo = dec.undo
 
 
 def _picked(session: DesignSession, text: str) -> tuple[str, str, dict[str, Any] | None]:
@@ -1312,8 +1324,12 @@ def _skip_turn(session: DesignSession, text: str, ref: str) -> dict[str, Any] | 
 
 
 def _undo_turn(session: DesignSession, text: str, saved: dict[str, Any] | None) -> dict[str, Any]:
-    """Undo puts the team back only while nothing changed the sketch since the accept (the same bp_rev)."""
-    res = OPS.undo(saved) if isinstance(saved, dict) and saved.get("rev") == session.bp_rev else None
+    """Undo puts the team back only while nothing changed the sketch since the accept (the same bp_rev), and only until
+    the next message: Undo is held in memory for one turn (never saved), so a step from before that, or from before a
+    restart, finds nothing to put back and says why."""
+    if not isinstance(saved, dict):
+        return _server_turn(session, text, session.blueprint, session.design, [], reply=UNDO_GONE_TEXT)
+    res = OPS.undo(saved) if saved.get("rev") == session.bp_rev else None
     if res is None:
         return _server_turn(session, text, session.blueprint, session.design, [],
                             reply="Nothing to undo: the sketch has changed since that change.")
@@ -1810,6 +1826,7 @@ def _apply_turn(session: DesignSession, dec: Decided, call: _Call) -> dict[str, 
     canvas edits included) without changing it: the block applied (design_ops), the prose (opener strip, a re-asked
     question removed, sentence 1 checked against the ledger), the notes and the question line, the steps, `ready`."""
     block = call.block
+    server_s1 = False                          # sentence 1 is the server's own, written from the ledger (6.9)
     if block is None:                          # nothing readable came back: the prose stands, nothing is applied
         answer, t = False, None
         prose = strip_opener(call.prose)
@@ -1825,7 +1842,8 @@ def _apply_turn(session: DesignSession, dec: Decided, call: _Call) -> dict[str, 
         prose = strip_opener(call.prose, answer=answer)
         prose = OPS.drop_reask(prose, t.design, ask.get("text") if isinstance(ask, dict) and isinstance(ask.get("text"), str) else "")
         if not answer:
-            prose = OPS.check_sentence1(prose, t)
+            checked = OPS.check_sentence1(prose, t)
+            server_s1, prose = checked != prose, checked
         notes = list(t.notes) + ([UNREAD_NOTE] if call.repaired and not _usable(block) else [])
         blueprint, design, changed = t.blueprint, t.design, t.changed
         changes = {**t.changes, "applied": list(dec.ledger) + list(t.changes["applied"])}
@@ -1833,7 +1851,9 @@ def _apply_turn(session: DesignSession, dec: Decided, call: _Call) -> dict[str, 
         asked = t.asked is not None
         model_ready = t.ready if t.ready is not None else session.model_ready
     if not prose.strip():
-        prose = OPS.ledger_sentence(changes["applied"])
+        prose, server_s1 = OPS.ledger_sentence(changes["applied"]), True
+    if server_s1 and OPS.WAITING_TAIL in OPS.split_first(prose)[0]:   # it already says what waits for the OK
+        notes = [n for n in notes if not n.startswith(OPS.WAITING_HEAD)]
     ready = OPS.compute_ready(model_ready, blueprint, design)
     steps, offered = _compose_next(session, blueprint, design, ready, intent, "model", model_steps=steps_in, asked=asked)
     design = DST.clamp({**design, "offered": offered})

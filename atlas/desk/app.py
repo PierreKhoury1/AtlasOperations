@@ -5021,6 +5021,8 @@ def api_design_say(sid):
             return _design_stream(q)
         refused = _design_refusal(s)
         if refused is not None:
+            with s.lock:                               # no turn happened, so Undo still holds what it held
+                DS.restore_undo(s, dec)
             _save_design(s)                            # Phase A's writes stay: the plan seeded, an option's answer
             return refused
         providers = None if s.mode == "demo" else _providers_cfg()
