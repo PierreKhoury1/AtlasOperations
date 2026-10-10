@@ -2,6 +2,59 @@
    Each page keeps its own content; this adds the frame around it. Pages opt in with shell.css + this script.
    A page can register window.shellPage = {ask(mode, text), commands(), replaces: [...]} before this script boots:
    the rail's Ask Atlas then opens that page's own Atlas, and its commands lead the Ctrl K palette. */
+
+/* Usage limits, one formatter for every page that loads this script (usage spec §4.8): numbers first, then the reset
+   as "00:00 UTC (in 6 h 27 min)" with the viewer's local time in the tooltip, then a link to the Usage page. A 429
+   usage_limit, a 409 outside_window (a channel's 24-hour reply window) and a 429 rate_limited body all read the same.
+   .text(body) for toasts and plain lines, .html(body) for a line with the link, .link(body) for the reset and the link
+   alone, .map(body) for an api() helper: the formatted text in `error`, `limited: true`, the original code in `code`. */
+(() => {
+  if (window.atlasLimit) return;
+  const KINDS = ['usage_limit', 'outside_window', 'rate_limited'];
+  const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const pad = n => String(n).padStart(2, '0');
+  const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
+  // a body as the server sent it, or as an api() helper mapped it (the formatted text in `error`, the code in `code`)
+  const kindOf = b => !b || typeof b !== 'object' ? '' : KINDS.includes(b.error) ? b.error : b.limited && KINDS.includes(b.code) ? b.code : '';
+  const is = b => !!kindOf(b);
+  function dur(s) {
+    s = Math.max(0, Math.ceil(s));
+    if (s < 60) return s + ' s';
+    const m = Math.floor(s / 60); if (m < 60) return m + ' min';
+    const h = Math.floor(m / 60), r = m % 60; if (h < 48) return r ? h + ' h ' + r + ' min' : h + ' h';
+    const d = Math.floor(h / 24), rh = h % 24; return rh ? d + ' d ' + rh + ' h' : d + ' d';
+  }
+  function reset(b) {                                    // when it works again, from the body's own times
+    const now = Date.now() / 1000;
+    if (kindOf(b) === 'rate_limited') return b.retry_after_s ? {lead: 'Try again', in: dur(b.retry_after_s), soon: true} : null;
+    if (b.limit_id === 'pool_free_min' && b.retry_at) return {lead: 'Try again', in: dur(b.retry_at - now), soon: true};
+    const ts = b.resets_at; if (!ts) return null;        // the per-run cap, files, a reply window: nothing resets by itself
+    const d = new Date(ts * 1000), far = ts - now > 86400;
+    let local = '';
+    try { local = d.toLocaleString([], {weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit'}) + ' your time'; } catch (e) {}
+    return {lead: 'Resets', utc: pad(d.getUTCHours()) + ':' + pad(d.getUTCMinutes()) + ' UTC' + (far ? ' on ' + d.getUTCDate() + ' ' + MON[d.getUTCMonth()] : ''),
+            in: dur(ts - now), local};
+  }
+  // the server's message without its own reset sentence: that one was true when it was written, this one is now
+  const strip = m => String(m || '').replace(/\s*Resets \d\d:\d\d UTC[^.]*\./, '').replace(/\s*Try again in [^.]*\./, '').trim();
+  const msg = b => strip(b.message) || b.label || 'A usage limit stopped this.';
+  function text(b) {
+    if (!is(b)) return String((b && (b.message || b.error)) || '');
+    const r = reset(b);
+    return msg(b) + (r ? (r.soon ? ' ' + r.lead + ' in ' + r.in + '.' : ' ' + r.lead + ' ' + r.utc + ' (in ' + r.in + ').') : '');
+  }
+  function link(b) {
+    const r = is(b) ? reset(b) : null, out = [];
+    if (r) out.push(r.soon ? '<span class="al-reset">' + esc(r.lead) + ' in ' + esc(r.in) + '</span>'
+                           : '<span class="al-reset" title="' + esc(r.local) + '">' + esc(r.lead) + ' ' + esc(r.utc) + ' (in ' + esc(r.in) + ')</span>');
+    if (kindOf(b) !== 'rate_limited') out.push('<a class="al-link" href="/desk/usage">See usage</a>');
+    return out.join(' · ');
+  }
+  const html = b => '<span class="al-msg">' + esc(is(b) ? msg(b) : text(b)) + '</span> ' + link(b);
+  const map = b => is(b) && !b.limited ? {...b, code: b.error, error: text(b), limited: true} : b;
+  window.atlasLimit = {is, text, html, link, map};
+})();
+
 (() => {
   if (window.__shell || new URLSearchParams(location.search).has('embed')) return;
   window.__shell = true;
@@ -22,6 +75,7 @@
     side: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/>', plus: '<path d="M12 5v14M5 12h14"/>', out: '<path d="M15 4h4v16h-4M10 8l-4 4 4 4M6 12h11"/>',
     moon: '<path d="M20 14.5A8 8 0 0 1 9.5 4 8 8 0 1 0 20 14.5z"/>', tick: '<path d="m5 12.5 4.5 4.5L19 7.5"/>',
     play: '<path d="M7 4.5v15l12-7.5z"/>', x: '<path d="M6 6l12 12M18 6 6 18"/>',
+    gauge: '<path d="M4 15a8 8 0 1 1 16 0"/><path d="m12 15 4-5"/>',
   };
   const svg = k => `<svg viewBox="0 0 24 24">${IC[k] || ''}</svg>`;
   const NAV = [
@@ -32,10 +86,12 @@
     ['Team', [['team', 'Agents', '/desk#team', 'team'], ['design', 'Atlas workspace', '/desk/workspace', 'spark'], ['automations', 'Automations', '/desk#automations', 'clock'],
               ['runs', 'Run history', '/desk#runs', 'list']]],
     ['Connect', [['integrations', 'Integrations', '/desk#integrations', 'link'], ['audit', 'Audit log', '/desk#audit', 'doc'], ['report', 'Reports', '/desk#report', 'chart'],
-                 ['setup', 'Desk setup', '/desk#setup', 'gear']]],
+                 ['usage', 'Usage', '/desk/usage', 'gauge'], ['setup', 'Desk setup', '/desk#setup', 'gear']]],
   ];
   // an owner with no desk yet: the same frame, with only the way in (Atlas drafts the first desk in the workspace)
-  const NAV_SETUP = [['Start', [['design', 'Atlas workspace', '/desk/workspace', 'spark'], ['home', 'Other ways to start', '/desk', 'grid']]]];
+  // (design chat counts against the account's allowance before any desk exists, so Usage is here too)
+  const NAV_SETUP = [['Start', [['design', 'Atlas workspace', '/desk/workspace', 'spark'], ['home', 'Other ways to start', '/desk', 'grid'],
+                                ['usage', 'Usage', '/desk/usage', 'gauge']]]];
   let SETUP = false;
   const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
   const isIndex = () => location.pathname === '/desk' || location.pathname === '/desk/';
@@ -46,6 +102,7 @@
     if (p === '/desk/review') return 'review';
     if (p === '/desk/cyber' || p === '/desk/static/cyber.html') return 'security';
     if (p === '/desk/workspace') return 'design';
+    if (p === '/desk/usage') return 'usage';
     const h = location.hash.slice(1) || 'dash';
     return h === 'dash' ? 'home' : h;
   }
@@ -60,7 +117,7 @@
     const r = await fetch('/api' + path, {method: opt.method || 'GET', headers, credentials: 'same-origin',
                                            body: opt.body ? JSON.stringify(opt.body) : undefined});
     if (r.status === 401) return null;
-    try { return await r.json(); } catch (e) { return null; }
+    try { return window.atlasLimit.map(await r.json()); } catch (e) { return null; }   // usage_limit / outside_window -> the formatted message
   }
   const store = (k, v) => { try { if (v === undefined) return localStorage.getItem(k); localStorage.setItem(k, v); } catch (e) {} return null; };
   const S = {desks: [], cur: null, me: null, stats: null, cams: 0, agents: [], cameras: [], cases: []};
@@ -113,8 +170,15 @@
     const b = document.getElementById('sh-b-' + id); if (!b) return;
     b.hidden = !n; b.textContent = n > 99 ? '99+' : n; b.className = 'sh-badge' + (cls ? ' ' + cls : '');
   }
+  // the usage badge (usage spec §4.8): "!" in the warn colour from 80% of any of the account's limits, hot at 100%
+  async function usageBadge() {
+    const b = await api('/usage/brief'), el = document.getElementById('sh-b-usage'); if (!el || !b || !b.state) return;
+    el.hidden = b.state === 'ok'; el.textContent = '!'; el.className = 'sh-badge ' + (b.state === 'full' ? 'hot' : 'warn');
+    const w = b.worst; el.title = w ? (w.used == null ? w.label : w.label + ': ' + w.used + ' of ' + w.limit + (w.unit && w.unit !== 'requests' ? ' ' + w.unit : '')) : '';
+  }
   async function refreshBadges() {
-    if (SETUP) return;
+    if (SETUP) return usageBadge();                        // no desk yet: design chat still uses the account's allowance
+    usageBadge();
     const s = await api('/stats'); if (!s || s.needs_desk) return; S.stats = s;
     badge('approvals', s.pending || 0, 'hot');
     badge('cases', (s.cases && s.cases.you) || 0, 'hot');
@@ -308,12 +372,13 @@
       try {
         if (this.mode === 'job') {
           const r = await api('/runs', {method: 'POST', body: {task: t, mode: 'auto'}});
-          if (!r || r.error) this.say('sys', esc((r && r.error) || 'Could not start the job.'));
+          if (!r || r.error) this.say('sys', r && r.limited ? window.atlasLimit.html(r) : esc((r && r.error) || 'Could not start the job.'));
           else { const m = this.say('at', `On it. Atlas is planning the job and briefing the team.<br><a href="/desk#live">Watch it live</a> · <a href="/desk#runs">Run history</a>`); this.watch(r.run_id || r.id, m); refreshBadges(); }
         } else if (this.mode === 'ask') {
           const m = this.say('sys', 'Reading the camera journal…');
           const r = await api('/vision/ask', {method: 'POST', body: {question: t, hours: 24}});
-          m.className = 'msg at'; m.innerHTML = r && !r.error ? esc(r.answer || 'Nothing in the journal answers that yet.') + (r.evidence && r.evidence.length ? `<br><small style="color:var(--sh-muted)">from ${r.evidence.length} logged moment${r.evidence.length === 1 ? '' : 's'} · <a href="/desk#cameras">Cameras</a></small>` : '') : esc((r && r.error) || 'Could not read the journal.');
+          m.className = 'msg at'; m.innerHTML = r && !r.error ? esc(r.answer || 'Nothing in the journal answers that yet.') + (r.evidence && r.evidence.length ? `<br><small style="color:var(--sh-muted)">from ${r.evidence.length} logged moment${r.evidence.length === 1 ? '' : 's'} · <a href="/desk#cameras">Cameras</a></small>` : '')
+            : r && r.limited ? window.atlasLimit.html(r) : esc((r && r.error) || 'Could not read the journal.');
         } else {
           this.say('at', `Opening the team canvas: Atlas proposes the team for this, and nothing changes until you apply it…`);
           setTimeout(() => { this.close(); pal.go({href: '/desk#team', after: 'teamDesignFor:' + encodeURIComponent(t)}); }, 600);
@@ -326,9 +391,10 @@
         await new Promise(r => setTimeout(r, 3000));
         const r = await api('/runs/' + id); if (!r || r.error) return;
         const st = r.status || (r.run && r.run.status) || '';
-        if (/done|completed|finished|error|failed/i.test(st)) {
+        if (/done|completed|finished|error|failed|limit/i.test(st)) {
           const pend = (r.actions || []).filter(a => a.status === 'pending').length;
-          el.insertAdjacentHTML('beforeend', `<br><b>${/error|failed/i.test(st) ? 'Stopped: ' + esc(st) : 'Done.'}</b>${pend ? ` ${pend} message${pend === 1 ? '' : 's'} waiting for <a href="/desk#approvals">your approval</a>.` : ''} <a href="/desk#runs">See the result</a>`);
+          const lim = /limit/i.test(st), why = lim ? String(r.summary || '').replace(/^Stopped:\s*/, '').split('\n')[0] : '';
+          el.insertAdjacentHTML('beforeend', `<br><b>${lim ? 'Stopped at a limit: ' + esc(why) : /error|failed/i.test(st) ? 'Stopped: ' + esc(st) : 'Done.'}</b>${pend ? ` ${pend} message${pend === 1 ? '' : 's'} waiting for <a href="/desk#approvals">your approval</a>.` : ''}${lim ? ' <a href="/desk/usage">See usage</a> ·' : ''} <a href="/desk#runs">See the result</a>`);
           refreshBadges(); return;
         }
       }
@@ -357,11 +423,9 @@
   let keysWired = false, polling = false;
   function mount(first) {
     rail(); mbar();
-    if (SETUP) { loadMe(); if (first) runAfter(); }                  // an action asked for on another page (e.g. the template form) still runs
-    else {
-      loadMeta(); refreshBadges(); if (first) runAfter();
-      if (!polling) { polling = true; setInterval(() => { if (!document.hidden) refreshBadges(); }, 12000); }
-    }
+    if (SETUP) { loadMe(); refreshBadges(); if (first) runAfter(); }   // an action asked for on another page (e.g. the template form) still runs
+    else { loadMeta(); refreshBadges(); if (first) runAfter(); }
+    if (!polling) { polling = true; setInterval(() => { if (!document.hidden) refreshBadges(); }, 12000); }
     if (!keysWired) {
       keysWired = true;
       document.addEventListener('keydown', e => {

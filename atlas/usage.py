@@ -463,6 +463,7 @@ _hermes: dict[str, dict[str, Any]] = {}      # Atlas->Hermes calls in flight (pr
 _hermes_warn: dict[str, Any] = {}
 _hermes_stats: dict[str, Any] = {}           # the metering proxy: inner requests seen, requests in flight, busy answers
 _live_runs: dict[int, dict[str, float]] = {}  # owner -> {run meter's action id: start}: runs going on a house provider (L5)
+_byo_views: dict[str, dict[str, Any]] = {}     # 'byo:<desk>:<entry>' -> the provider's view of an owner's key
 _poller: dict[str, Any] = {"thread": None}
 _unattr_log = [0.0]
 LEAD_RUN: Callable[..., str] | None = None   # app._lead_case_run(desk, lead_id); deferred_tick starts runs through it
@@ -494,6 +495,7 @@ def reset() -> None:
         _hermes_stats.clear()
         _hermes_stats.update(seen=0, inflight=0, busy=0, last={})
         _live_runs.clear()
+        _byo_views.clear()
     with _dedup_lock:
         _refusals.clear()
     with _embed_lock:
@@ -505,6 +507,7 @@ def init(store) -> None:
     global _store
     _store = store
     reset()
+    _poller["since"] = _now()                  # "counting since" while the ledger is still empty (spec §3.6)
 
 
 def start(store) -> None:
@@ -2497,3 +2500,920 @@ def hermes_view(now: float | None = None) -> dict[str, Any]:
     return {"mode": CFG.hermes_meter, "proxy_ready": proxy_token_ok(), "calls_in_flight": calls,
             "requests_in_flight": inflight, "max_in_flight": CFG.proxy_max_inflight, "today": today,
             "busy_since_boot": busy, "warning": hermes_warning(), "last_request": last}
+
+
+# ---------------------------------------------------------------------------- the Usage page and its API (spec §5, §6)
+# Reads only: the counters, the ledger rows and the provider snapshot. An owner sees their own rows; the shared pool's
+# counts are the whole account's demand, not theirs, so they are in the operator view only (spec §5.1, §5.4).
+SURFACE_LABELS: dict[str, str] = {
+    "design.say": "Design chat", "design.study": "Read your links", "ask.cameras": "Ask the cameras",
+    "camera.look": "Camera look", "theatre.narrate": "Live view narration", "video.describe": "Video watched",
+    "objects.call": "Object check", "objects.ask": "Object question", "objects.follow": "Object follow-up",
+    "team.design": "Team design", "seed.leads": "Sample leads", "byo.test": "Key test",
+    "run.you": "Runs you started", "run.auto": "Runs Atlas started on its own", "run.step": "Agent step",
+    "browse.step": "Browser step", "hermes.call": "Hermes delegation", "hermes.inner": "Hermes agent steps",
+    "hermes.unattributed": "Hermes, not attributed", "camera.watch": "Camera tick", "camera.tick": "Camera tick",
+    "camera.detect": "AI counts (no local detector)", "camera.describe": "Camera rule question",
+    "camera.note": "Camera journal", "camera.rollup": "Journal summary", "camera.test": "Camera test",
+    "embed": "Search index", "site.demo": "Website vision demo", "site.ask": "Website demo question",
+    "show.run": "Website live run", "send.email": "Email", "send.whatsapp": "WhatsApp", "send.sms": "SMS",
+    "send.instagram": "Instagram", "send.slack": "Slack message", "action.calendar": "Booking",
+    "action.http": "API call", "action.mcp": "Tool call", "action.higgsfield": "Higgsfield generation",
+    "action.browser": "Browser submit", "action.containment": "Containment", "notify.slack": "Slack ping",
+    "mail.ops": "Ops alert email", "upload.camera": "Recording uploaded", "upload.video": "Video uploaded",
+    "upload.cyber": "Log file uploaded", "upload.recording": "Saved recording uploaded", "upload.file": "File uploaded",
+    "unattributed": "Not attributed",
+}
+# one line of Recent usage is one action: the singular labels of spec §1.4 (the table above groups them)
+ITEM_LABELS: dict[str, str] = {
+    "design.say": "Design chat message", "run.you": "Run you started", "run.auto": "Run Atlas started on its own",
+    "camera.detect": "AI object count", "camera.note": "Camera journal note", "hermes.inner": "Hermes agent step",
+    "send.email": "Email sent", "send.whatsapp": "WhatsApp sent", "send.sms": "SMS sent", "send.instagram": "Instagram sent",
+    "send.slack": "Slack message sent",
+}
+# a refusal says what did not happen: background work pauses, a person's request is refused, a run does not start
+REFUSED_LABELS: dict[str, str] = {
+    "run.you": "Run not started", "run.auto": "Run not started", "camera.detect": "AI counts paused",
+    "camera.note": "Camera journal paused", "camera.rollup": "Journal summaries paused",
+    "camera.describe": "Rule question not asked", "objects.follow": "Object follow-ups paused",
+    "embed": "Search index paused", "hermes.inner": "Hermes agent step refused",
+}
+HOUSE_ONLY = ("Design chat", "Link studies", "Camera vision", "Search index")   # always on Atlas's account (spec §2)
+HERMES_NOTES = {                                                                # spec §1.8, one line per mode
+    "off": "Hermes specialists are off on Atlas's account; your specialists run on the built-in engine.",
+    "proxy": "Hermes specialists: their model requests run on Atlas's shared account and count in your AI requests.",
+    "unmetered": "Hermes specialists: their internal model requests are not counted per account yet. They still "
+                 "count in the shared pool.",
+}
+SEND_CHANNELS = ("email", "whatsapp", "sms", "instagram", "slack")
+_RUN_STEP_SURFACES = ("run.step", "browse.step", "hermes.inner")
+_WINDOW_NAMES = {"D": "utc_day", "M": "utc_month", "T": "running_total", "run": "per_run", "now": "now",
+                 "60s": "rolling_minute", "rule": "rule"}
+_IN_RE = re.compile(r"\s*\(in [^)]*\)")
+# one item per action (a run, a turn, a camera tick); every refusal row is an item of its own (its units = how many
+# times it was refused); a row with no action id stands alone. '#' never occurs in an action id.
+_GK = ("CASE WHEN kind='refusal' THEN '#r' || CAST(id AS TEXT) WHEN action_id='' THEN '#e' || CAST(id AS TEXT) "
+       "ELSE action_id END")
+_ROW_COLS = ("id",) + _EV_COLS
+
+
+def surface_label(surface: str) -> str:
+    s = str(surface or "")
+    if s in SURFACE_LABELS:
+        return SURFACE_LABELS[s]
+    if s.startswith("cli:"):
+        return f"Command line ({s[4:]})"
+    if "." in s and s.split(".", 1)[0] in ("send", "action", "upload", "inbound", "notify"):
+        return s.split(".", 1)[1].replace("_", " ").capitalize()
+    return s or "Other"
+
+
+def ref_label(ref: str) -> str:
+    """A row's ref as the page shows it: the camera's name, the object, the run id. A recipient is a keyed hash
+    (spec §3.7) and is never shown."""
+    r = str(ref or "")
+    for prefix, fmt in (("cam:", "{}"), ("live:", "{}"), ("obj:", "object #{}"), ("action:", "action #{}"),
+                        ("key:", "{} key")):
+        if r.startswith(prefix):
+            return fmt.format(r[len(prefix):])
+    return "" if r.startswith("to:") else r
+
+
+def clean_note(note: str) -> str:
+    """A stored refusal message without its "(in 6 h 27 min)": that was true when it was written, not when read."""
+    return _IN_RE.sub("", str(note or "")).strip()
+
+
+def _shown(unit: str, v: Any) -> Any:
+    if v is None:
+        return None
+    f = float(v)
+    if unit == "usd":
+        return round(f, 2)
+    if unit == "MB":
+        return round(f, 1)
+    return int(f) if f.is_integer() else round(f, 1)
+
+
+def _state(used: Any, limit: Any) -> str:
+    """ok below 80%, warn from 80%, full at 100% (now refusing), off when the limit does not apply."""
+    if limit is None or used is None:
+        return "off"
+    u, lim = float(used), float(limit)
+    if lim <= 0 or u >= lim:
+        return "full"
+    return "warn" if u >= 0.8 * lim else "ok"
+
+
+def _entry(limit_id: str, group: str, *, used: Any, limit: Any, now: float, refused: int = 0,
+           basis: dict[str, str] | None = None, override: dict[str, Any] | None = None, state: str = "",
+           **extra: Any) -> dict[str, Any]:
+    """One row of the page's limits table (spec §5.1): the numbers in the limit's own unit, its reset and the basis
+    text built from the values actually enforced."""
+    meta = LIMITS[limit_id]
+    w, unit = meta["window"], meta["unit"]
+    resets = day_start(now) + DAY if w == "D" else next_month_start(now) if w == "M" else None
+    pct = None
+    if w not in ("now", "run", "rule") and limit is not None and used is not None:
+        pct = 100.0 if float(limit) <= 0 else round(100.0 * float(used) / float(limit), 1)
+    rem = None if limit is None or used is None else max(0.0, float(limit) - float(used))
+    return {"id": limit_id, "group": group, "label": meta["label"], "unit": unit, "window": _WINDOW_NAMES.get(w, w),
+            "scope": meta["scope"], "used": _shown(unit, used), "limit": _shown(unit, limit),
+            "remaining": _shown(unit, rem), "pct": pct, "state": state or _state(used, limit), "binding": None,
+            "resets_at": resets, "retry_at": resets if w in ("D", "M") else None, "refused": int(refused or 0),
+            "basis": basis, "override": override, **extra}
+
+
+def _hm(ts: float | None, now: float) -> str:
+    if not ts:
+        return ""
+    d = datetime.fromtimestamp(float(ts), timezone.utc)
+    return d.strftime("%H:%M") + " UTC" + ("" if day_start(ts) == day_start(now) else f" on {d.day} {d.strftime('%b')}")
+
+
+def _pct_text(x: float) -> str:
+    return f"{float(x) * 100:g}%"
+
+
+def _pool_source(now: float) -> str:
+    s = snapshot()
+    if s.get("ts") and s.get("free_limit"):
+        return f"OpenRouter's figure for Atlas's key, read {_hm(s['ts'], now)}"
+    return "USAGE_POOL_FREE_DAY until OpenRouter's own figure for the key has been read"
+
+
+def basis(owner_id: int, limit_id: str, now: float | None = None,
+          ovs: dict[str, dict[str, Any]] | None = None) -> dict[str, str]:
+    """Where a limit's number comes from, in plain words, built from the live values (spec §7.1): an operator
+    override, a share of the provider's pool, an operator setting, a constant of the code."""
+    now = _now() if now is None else now
+    o = int(owner_id or 0)
+    ovs = {r["limit_id"]: r for r in overrides(o)} if ovs is None else ovs
+    if limit_id in ovs:
+        r = ovs[limit_id]
+        text = ("No Atlas limit for your account (operator); still counted" if r.get("value") is None
+                else "Set for your account by the operator")
+        return {"kind": "override", "text": text + (f": {r['note']}" if r.get("note") else "")}
+    if limit_id in _UNLIMITED_IDS and is_unlimited(o):
+        return {"kind": "override", "text": "No Atlas limit on this account (operator)"}
+    p = pool_size()
+    if limit_id == "ai_requests_day":
+        return {"kind": "derived", "text": f"{_pct_text(CFG.owner_share)} of Atlas's shared free-model pool: {p:,} "
+                                           f"requests a UTC day ({_pool_source(now)})"}
+    if limit_id == "ai_requests_auto_day":
+        l1, l2 = limit_value(o, "ai_requests_day") or 0, limit_value(o, "ai_requests_auto_day") or 0
+        return {"kind": "derived", "text": f"{_pct_text(CFG.auto_share)} of your {l1:,} AI requests a day: what Atlas "
+                                           f"does on its own (schedules, incoming messages, camera journals) stops "
+                                           f"here, so at least {max(0, l1 - l2):,} stay for what you ask"}
+    if limit_id == "paid_usd_month":
+        if CFG.owner_paid_usd_month is not None:
+            return {"kind": "decision", "text": f"Operator setting: ${CFG.owner_paid_usd_month:,.2f} a UTC month "
+                                                "(USAGE_OWNER_PAID_USD_MONTH). Costs as the provider reports them; "
+                                                "estimates are labelled"}
+        return {"kind": "derived", "text": f"{_pct_text(CFG.owner_paid_share)} of the ${CFG.house_paid_usd_month:,.2f} "
+                                           "a UTC month paid models may cost on Atlas's account. Costs as the "
+                                           "provider reports them; estimates are labelled"}
+    if limit_id == "run_requests":
+        return {"kind": "decision", "text": f"Runaway guard (operator setting): one run or link study stops after "
+                                            f"{CFG.run_max_requests:,} AI requests, on any key, your own included. "
+                                            "Nothing retries it automatically"}
+    if limit_id == "runs_at_once":
+        return {"kind": "decision", "text": "Operator setting: runs that use Atlas's account at the same time. The "
+                                            f"shared account allows {CFG.pool_min.get('free:openrouter')} free-model "
+                                            "requests a minute (OpenRouter)"}
+    if limit_id == "reply_window":
+        return {"kind": "rule", "text": "Meta's rule for WhatsApp and Instagram: free-form replies only within 24 h "
+                                        "of the person's last message. Atlas sends no templates, so it holds the "
+                                        f"send ({CFG.window_margin_s // 60} min margin)"}
+    if limit_id == "sms_segments_day":
+        n = CFG.sms_segments_day
+        return {"kind": "decision", "text": f"Operator setting: {n:,} segments a day per desk, about ${n * 0.056:,.2f} "
+                                            "at Twilio's list price of $0.056 per segment to GB numbers (9 Oct 2026; "
+                                            "an estimate, not your bill)"}
+    if limit_id == "auto_sends_day":
+        n = CFG.auto_sends_day
+        text = ("One camera's full day of alerts at Atlas's default of 6 an hour (6 x 24)" if n == 144
+                else f"Operator setting: {n:,} a day")
+        return {"kind": "decision", "text": text + " per desk. Over it, actions wait for your approval"}
+    if limit_id == "storage_mb":
+        n = CFG.storage_mb
+        return {"kind": "decision", "text": "Twice the largest camera recording Atlas accepts (2 x 2,048 MB)"
+                if n == 4096 else f"Operator setting: {n:,} MB"}
+    if limit_id == "disk_floor":
+        return {"kind": "decision", "text": f"Uploads must leave {CFG.disk_floor_pct:g}% of Atlas's data disk free, "
+                                            "measured at each upload (operator setting)"}
+    if limit_id == "pool_free_day":
+        return {"kind": "doc", "text": f"OpenRouter's free-model limit for Atlas's account: {p:,} requests a UTC day, "
+                                       f"shared by every account and every server on the key ({_pool_source(now)})"}
+    if limit_id == "pool_free_min":
+        n = CFG.pool_min.get("free:openrouter") or 0
+        return {"kind": "doc", "text": f"OpenRouter: {n} free-model requests a minute for the account; {_min_reserve()} "
+                                       "of them are kept for people, so Atlas's own work takes at most "
+                                       f"{max(1, n - _min_reserve())}"}
+    if limit_id == "public_requests_day":
+        return {"kind": "derived", "text": f"{_pct_text(CFG.public_share)} of the shared pool ({p:,} a day) for the "
+                                           "public website: the vision demo, its questions and the live run"}
+    if limit_id == "house_paid_usd_month":
+        return {"kind": "decision", "text": f"USAGE_HOUSE_PAID_USD_MONTH (else SPEND_CAP_USD): "
+                                            f"${CFG.house_paid_usd_month:,.2f} a UTC month. Used = the larger of the "
+                                            "ledger's provider-reported cost and OpenRouter's usage_monthly for the key"}
+    return {"kind": "", "text": ""}
+
+
+def pool_view(now: float | None = None, *, operator: bool = False) -> dict[str, Any]:
+    """The shared pool (L10): owners see its state and reset only; the operator also sees the provider's count,
+    this server's and "elsewhere on this key" (spec §5.1, §5.4)."""
+    now = _now() if now is None else now
+    ds = day_start(now)
+    p, used = pool_size(), pool_used(now)
+    out: dict[str, Any] = {"state": "full" if pool_exhausted(now) or used >= p else "ok", "resets_at": ds + DAY}
+    if operator:
+        s = snapshot()
+        read_today = bool(s.get("ts")) and day_start(s["ts"]) == ds
+        here = counter_n("house", "req:free", "D", ds)
+        with _mem_lock:
+            since = _pool["since_free"] if _pool["since_day"] == ds else 0
+        provider = s.get("free_used") if read_today else None
+        out.update(limit=p, used=used, used_provider=provider, used_here=here, read_at=s.get("ts") or None,
+                   elsewhere=None if provider is None else max(0, int(provider) - max(0, here - since)),
+                   exhausted_at=s.get("exhausted_at"), error=s.get("error") or "")
+    return out
+
+
+def _refusals_by(owner_id: int, now: float) -> dict[tuple[str, int], tuple[int, int]]:
+    """(limit id, desk) -> (refusals today, refusals this UTC month), from the deduplicated refusal rows."""
+    if _store is None:
+        return {}
+    ds, ms = day_start(now), month_start(now)
+    rows = _store._conn.execute(
+        "SELECT limit_id, desk_id, SUM(CASE WHEN ts >= ? THEN units ELSE 0 END), SUM(units) FROM usage_events "
+        "WHERE owner_id=? AND scope='owner' AND kind='refusal' AND ts >= ? GROUP BY limit_id, desk_id",
+        (ds, int(owner_id or 0), min(ds, ms))).fetchall()
+    return {(str(r[0] or ""), int(r[1] or 0)): (int(r[2] or 0), int(r[3] or 0)) for r in rows}
+
+
+def _display_surface(surface: str, lane: str) -> str:
+    """A run's own requests (its agents' steps, its browser steps, its Hermes specialists' steps) count under the run."""
+    if surface in _RUN_STEP_SURFACES:
+        return "run.auto" if lane == "auto" else "run.you"
+    return surface
+
+
+def _l1_breakdown(owner_id: int, now: float, names: dict[int, str]) -> tuple[list, list]:
+    """L1's by_desk (the o:<owner>:d<desk> counters) and by_surface (today's free-pool request rows)."""
+    if _store is None:
+        return [], []
+    o, ds = int(owner_id or 0), day_start(now)
+    by_desk = []
+    for sk, n in _store._conn.execute("SELECT scope_key, n FROM usage_counters WHERE scope_key LIKE ? AND "
+                                      "metric='req:free' AND period='D' AND window_start=?", (f"o:{o}:d%", ds)).fetchall():
+        try:
+            did = int(str(sk).rsplit(":d", 1)[1])
+        except (IndexError, ValueError):
+            continue
+        if n:
+            by_desk.append({"desk_id": did, "used": int(n),
+                            "name": names.get(did) or ("No desk yet (design chat)" if did == 0 else f"Desk {did}")})
+    by_desk.sort(key=lambda r: -r["used"])
+    agg: dict[str, list] = {}
+    # what L1 counts: the free pool, and the scripted agents' requests while USAGE_DEMO=enforce makes them count
+    pools = ("free:openrouter", "demo") if _demo_enforced() else ("free:openrouter", "free:openrouter")
+    for surface, lane, aid, n in _store._conn.execute(
+            "SELECT surface, lane, action_id, SUM(units) FROM usage_events WHERE owner_id=? AND ts>=? AND "
+            "kind='request' AND pool IN (?, ?) AND scope='owner' GROUP BY surface, lane, action_id",
+            (o, ds, *pools)).fetchall():
+        s = _display_surface(str(surface or ""), str(lane or ""))
+        a = agg.setdefault(s, [set(), 0])
+        a[0].add(aid)
+        a[1] += int(n or 0)
+    by_surface = sorted(({"surface": s, "label": surface_label(s), "actions": len(v[0]), "used": v[1]}
+                         for s, v in agg.items()), key=lambda r: -r["used"])
+    return by_desk, by_surface
+
+
+def limits_view(owner_id: int, *, desks: list[dict[str, Any]] | None = None, now: float | None = None,
+                operator: bool = False) -> list[dict[str, Any]]:
+    """The page's limits table (spec §5.1, §6.2), in its groups: AI on Atlas's shared account (L1, L2, L3, L4, L5),
+    the channels (L7 and L8 per desk; W1 is a rule, in `rules`), storage (L9 and the disk), the shared pool (L10, a
+    state for owners). `desks`: [{id, name, sms}] of the owner."""
+    now = _now() if now is None else now
+    o, ds = int(owner_id or 0), day_start(now)
+    desks = desks or []
+    names = {int(d["id"]): str(d.get("name") or f"Desk {d['id']}") for d in desks}
+    ovs = {r["limit_id"]: r for r in overrides(o)}
+    ref = _refusals_by(o, now)
+
+    def refused(lid: str, desk: int | None = None, month: bool = False) -> int:
+        i = 1 if month else 0
+        if desk is not None:
+            return (ref.get((lid, desk)) or (0, 0))[i]
+        return sum(v[i] for (k, _d), v in ref.items() if k == lid)
+
+    def ov(lid: str) -> dict[str, Any] | None:
+        r = ovs.get(lid)
+        return {"value": r["value"], "note": r["note"]} if r else None
+
+    def entry(lid: str, group: str, used: Any, lim: Any, **kw: Any) -> dict[str, Any]:
+        return _entry(lid, group, used=used, limit=lim, now=now, basis=basis(o, lid, now, ovs), override=ov(lid), **kw)
+
+    pool = pool_view(now, operator=operator)
+    pool_bind = ({"id": "pool_free_day", "label": "Shared pool full", "resets_at": pool["resets_at"]}
+                 if pool["state"] == "full" else None)
+    by_desk, by_surface = _l1_breakdown(o, now, names)
+    l1 = entry("ai_requests_day", "ai", counter_n(f"o:{o}", "req:free", "D", ds), limit_value(o, "ai_requests_day"),
+               refused=refused("ai_requests_day"), by_desk=by_desk, by_surface=by_surface)
+    l2 = entry("ai_requests_auto_day", "ai", counter_n(f"o:{o}:auto", "req:free", "D", ds),
+               limit_value(o, "ai_requests_auto_day"), refused=refused("ai_requests_auto_day"))
+    for e in (l1, l2):
+        if pool_bind and e["state"] not in ("full", "off"):
+            e["binding"] = dict(pool_bind)
+    if not l2["binding"] and l1["state"] == "full" and l2["state"] not in ("full", "off"):
+        l2["binding"] = {"id": "ai_requests_day", "label": "AI requests today: full", "resets_at": l1["resets_at"]}
+    ms = month_start(now)
+    l3 = entry("paid_usd_month", "ai", owner_paid_used(o, now), limit_value(o, "paid_usd_month"),
+               refused=refused("paid_usd_month", month=True),
+               estimated=round(counter_n(f"o:{o}", "usd:est", "M", ms) / 1e6, 4))
+    l13 = limit_value(0, "house_paid_usd_month")
+    if l13 is not None and house_paid_used(now) >= l13 and l3["state"] not in ("full", "off"):
+        l3["binding"] = {"id": "house_paid_usd_month", "label": "Atlas's paid cap for the month reached",
+                         "resets_at": next_month_start(now)}
+    l4v = limit_value(o, "run_requests")
+    l4 = entry("run_requests", "ai", None, l4v, refused=refused("run_requests"), state="ok" if l4v else "off")
+    l5 = entry("runs_at_once", "ai", runs_going(o), limit_value(o, "runs_at_once"), refused=refused("runs_at_once"))
+    if l5["state"] == "full":
+        l5["retry_at"] = int(now + CFG.busy_retry_s)
+    out: list[dict[str, Any]] = [l1, l2, l3, l4, l5]
+    for d in desks:
+        did = int(d["id"])
+        extra = {"desk_id": did, "desk": names[did]}
+        sms = entry("sms_segments_day", "channels", counter_n(f"d{did}", "seg:sms", "D", ds),
+                    limit_value(o, "sms_segments_day"), refused=refused("sms_segments_day", did), **extra)
+        if not d.get("sms"):
+            sms["state"] = "off"                    # no SMS connector on this desk
+        out.append(sms)
+        out.append(entry("auto_sends_day", "channels", counter_n(f"d{did}", "send:auto", "D", ds),
+                         limit_value(o, "auto_sends_day"), refused=refused("auto_sends_day", did), **extra))
+    out.append(entry("storage_mb", "storage", counter_n(f"o:{o}", "storage", "T", 0) / MB, limit_value(o, "storage_mb"),
+                     refused=refused("storage_mb")))
+    out.append(disk_entry(now, owner_id=o, refused=refused("disk_floor")))
+    out.append(_entry("pool_free_day", "pool", used=pool.get("used") if operator else None,
+                      limit=pool.get("limit") if operator else None, now=now, refused=refused("pool_free_day"),
+                      basis=basis(o, "pool_free_day", now, ovs), state=pool["state"]))
+    return out
+
+
+def disk_entry(now: float, *, owner_id: int = 0, refused: int = 0) -> dict[str, Any]:
+    """The disk floor as a row: used = what is not free, limit = how full an upload may make the disk."""
+    pct = float(CFG.disk_floor_pct or 0)
+    try:
+        total, _u, free = _disk_usage(str(cfg.DATA_DIR))
+    except OSError:
+        total = free = 0
+    b = basis(owner_id, "disk_floor", now, {})
+    if not total:
+        return _entry("disk_floor", "storage", used=None, limit=None, now=now, refused=refused, basis=b, state="off",
+                      free_mb=None, total_mb=None, floor_pct=pct)
+    used, lim = (total - free) / MB, total * (1 - pct / 100) / MB
+    return _entry("disk_floor", "storage", used=used, limit=lim, now=now, refused=refused, basis=b,
+                  state="off" if pct <= 0 else "", free_mb=round(free / MB, 1), total_mb=round(total / MB, 1),
+                  floor_pct=pct)
+
+
+def _today_key(surface: str, ref: str, lane: str, key_kind: str, desk_id: int) -> tuple[str, str, str, int]:
+    kclass = "byo" if key_kind == "byo" else "demo" if key_kind == "demo" else "house"
+    s = _display_surface(surface, lane)
+    if s.startswith("camera.") and str(ref or "").startswith("cam:"):
+        return s, str(ref)[4:], kclass, int(desk_id or 0)
+    return s, "", kclass, 0
+
+
+def today_view(owner_id: int, *, desk_id: int | None = None, now: float | None = None) -> list[dict[str, Any]]:
+    """Where today's (UTC) requests went (spec §6.2 item 4): one row per surface, a camera's rows per camera, a
+    run's own steps (and its Hermes specialists' steps) under the run, embeddings in their own column (an Ask's
+    under the Ask), the owner's own key and the scripted demo agents apart from Atlas's account."""
+    if _store is None:
+        return []
+    now = _now() if now is None else now
+    o, ds = int(owner_id or 0), day_start(now)
+    sql = ("SELECT surface, ref, lane, key_kind, pool, desk_id, action_id, SUM(units), SUM(tokens_in), "
+           "SUM(tokens_out), SUM(cost_usd), SUM(est_usd), SUM(CASE WHEN cost_usd IS NULL AND est_usd IS NULL "
+           "AND pool <> 'demo' THEN units ELSE 0 END) FROM usage_events WHERE owner_id=? AND scope='owner' AND ts>=? "
+           "AND kind='request'")
+    args: list[Any] = [o, ds]
+    if desk_id:
+        sql += " AND desk_id=?"
+        args.append(int(desk_id))
+    rows = _store._conn.execute(sql + " GROUP BY surface, ref, lane, key_kind, pool, desk_id, action_id", args).fetchall()
+    groups: dict[tuple, dict[str, Any]] = {}
+    owner_of: dict[str, tuple] = {}
+    embeds = []
+
+    def grp(k: tuple) -> dict[str, Any]:
+        g = groups.get(k)
+        if g is None:
+            s, cam, kclass, did = k
+            label = (surface_label(s) + (f" · {cam}" if cam else "") + (" · your key" if kclass == "byo" else "")
+                     + (" · scripted (demo)" if kclass == "demo" else ""))
+            g = groups[k] = {"surface": s, "label": label, "camera": cam or None, "desk_id": did or None, "key": kclass,
+                             "_actions": set(), "requests": 0, "embed_requests": 0, "hermes_requests": 0,
+                             "tokens_in": 0, "tokens_out": 0, "cost_usd": None, "est_usd": None, "cost_unreported": 0}
+        return g
+
+    def add(g: dict[str, Any], n: Any, tin: Any, tout: Any, cost: Any, est: Any, unrep: Any, *, embed: bool) -> None:
+        g["embed_requests" if embed else "requests"] += int(n or 0)
+        g["tokens_in"] += int(tin or 0)
+        g["tokens_out"] += int(tout or 0)
+        if cost is not None:
+            g["cost_usd"] = (g["cost_usd"] or 0.0) + float(cost)
+        if est is not None:
+            g["est_usd"] = (g["est_usd"] or 0.0) + float(est)
+        g["cost_unreported"] += int(unrep or 0)
+
+    for surface, ref, lane, kk, _pool, did, aid, n, tin, tout, cost, est, unrep in rows:
+        if surface == "embed":
+            embeds.append((aid, n, tin, tout, cost, est, unrep))
+            continue
+        k = _today_key(str(surface or ""), str(ref or ""), str(lane or ""), str(kk or ""), int(did or 0))
+        g = grp(k)
+        g["_actions"].add(aid)
+        if surface == "hermes.inner":
+            g["hermes_requests"] += int(n or 0)
+        add(g, n, tin, tout, cost, est, unrep, embed=False)
+        owner_of.setdefault(aid, k)
+    for aid, n, tin, tout, cost, est, unrep in embeds:
+        k = owner_of.get(aid) or ("embed", "", "house", 0)     # an Ask's embeddings go under the Ask
+        add(grp(k), n, tin, tout, cost, est, unrep, embed=True)
+    out = []
+    for g in groups.values():
+        acts = g.pop("_actions")
+        g["actions"] = len(acts) if acts else None
+        for f in ("cost_usd", "est_usd"):
+            if g[f] is not None:
+                g[f] = round(g[f], 6)
+        out.append(g)
+    out.sort(key=lambda g: -(g["requests"] + g["embed_requests"]))
+    return out
+
+
+def history(owner_id: int, now: float | None = None, days: int = 30) -> list[dict[str, Any]]:
+    """The last `days` UTC days of AI requests (free pool) from the D counters: yours and Atlas's own, with each
+    day's limit as it stood that day (the counter's `lim`); a day with no row has no limit on record."""
+    now = _now() if now is None else now
+    o, ds = int(owner_id or 0), day_start(now)
+    since = ds - (days - 1) * DAY
+    tot: dict[int, int] = {}
+    auto: dict[int, int] = {}
+    lim: dict[int, Any] = {}
+    if _store is not None:
+        for sk, ws, n, lv in _store._conn.execute(
+                "SELECT scope_key, window_start, n, lim FROM usage_counters WHERE scope_key IN (?, ?) AND "
+                "metric='req:free' AND period='D' AND window_start>=?", (f"o:{o}", f"o:{o}:auto", since)).fetchall():
+            if str(sk).endswith(":auto"):
+                auto[int(ws)] = int(n or 0)
+            else:
+                tot[int(ws)] = int(n or 0)
+                lim[int(ws)] = lv
+    out = []
+    for i in range(days):
+        d = since + i * DAY
+        t, a = tot.get(d, 0), auto.get(d, 0)
+        lv = lim.get(d)
+        if lv is None and d == ds:
+            lv = limit_value(o, "ai_requests_day")
+        out.append({"day": d, "you": max(0, t - a), "auto": a, "limit": None if lv is None else int(lv)})
+    return out
+
+
+def sends_view(owner_id: int, now: float | None = None) -> dict[str, Any]:
+    """Messages sent today (UTC) on the owner's channels, and the sends the reply window held."""
+    now = _now() if now is None else now
+    o, ds = int(owner_id or 0), day_start(now)
+    by = {ch: counter_n(f"o:{o}", f"send:{ch}", "D", ds) for ch in SEND_CHANNELS}
+    return {"today": sum(by.values()), "by_channel": {k: v for k, v in by.items() if v},
+            "held_today": counter_n(f"o:{o}", "held:window", "D", ds)}
+
+
+def counting_since() -> int:
+    """When the ledger started counting: its oldest row (retention keeps 35 days), else when it was bound."""
+    if _store is not None:
+        r = _store._conn.execute("SELECT MIN(ts) FROM usage_events").fetchone()
+        if r and r[0]:
+            return int(r[0])
+    return int(_poller.get("since") or _now())
+
+
+def _parse_cursor(cursor: str) -> tuple[float, int] | None:
+    m = re.fullmatch(r"c_(-?[0-9.eE+]+)_(\d+)", str(cursor or "").strip())
+    if not m:
+        return None
+    try:
+        return float(m.group(1)), int(m.group(2))
+    except ValueError:
+        return None
+
+
+def _group_anchors(owner_id: int, desk_id: int | None, status: str, after: tuple[float, int] | None,
+                   n: int) -> list[tuple[str, float, int]]:
+    """The newest `n` items' keys with their anchors (newest ts, highest id), older than `after`: keyset paging."""
+    sql = (f"SELECT gk, MAX(ts), MAX(id) FROM (SELECT {_GK} AS gk, ts, id, kind, status FROM usage_events "
+           "WHERE owner_id=? AND scope='owner'")
+    args: list[Any] = [int(owner_id or 0)]
+    if desk_id:
+        sql += " AND desk_id=?"
+        args.append(int(desk_id))
+    sql += ") t GROUP BY gk"
+    having = []
+    if after:
+        having.append("(MAX(ts) < ? OR (MAX(ts) = ? AND MAX(id) < ?))")
+        args += [after[0], after[0], after[1]]
+    if status == "refused":
+        having.append("SUM(CASE WHEN kind='refusal' THEN 1 ELSE 0 END) > 0")
+    elif status == "error":
+        having.append("SUM(CASE WHEN kind<>'refusal' AND status IN ('error','provider_limit','not_sent') "
+                      "THEN 1 ELSE 0 END) > 0")
+    if having:
+        sql += " HAVING " + " AND ".join(having)
+    sql += " ORDER BY MAX(ts) DESC, MAX(id) DESC LIMIT ?"
+    args.append(int(n))
+    return [(str(g), float(ts), int(i)) for g, ts, i in _store._conn.execute(sql, args).fetchall()]
+
+
+def _rows_of(owner_id: int, gks: list[str], cap: int = 2000) -> dict[str, list[dict[str, Any]]]:
+    """The ledger rows of the given item keys (an action's rows; one refusal row; one row with no action id)."""
+    o = int(owner_id or 0)
+    ids = [int(g[2:]) for g in gks if g.startswith("#") and g[2:].isdigit()]
+    aids = [g for g in gks if not g.startswith("#")]
+    cols = ",".join(_ROW_COLS)
+    raw: list[tuple] = []
+    for i in range(0, len(aids), 200):
+        part = aids[i:i + 200]
+        raw += _store._conn.execute(f"SELECT {cols} FROM usage_events WHERE owner_id=? AND scope='owner' AND "
+                                    "kind<>'refusal' AND "
+                                    f"action_id IN ({','.join('?' * len(part))}) ORDER BY ts, id LIMIT ?",
+                                    (o, *part, cap)).fetchall()
+    for i in range(0, len(ids), 200):
+        part = ids[i:i + 200]
+        raw += _store._conn.execute(f"SELECT {cols} FROM usage_events WHERE owner_id=? AND scope='owner' AND id IN "
+                                    f"({','.join('?' * len(part))})", (o, *part)).fetchall()
+    out: dict[str, list[dict[str, Any]]] = {}
+    for r in raw:
+        row = dict(zip(_ROW_COLS, r))
+        gk = (f"#r{row['id']}" if row["kind"] == "refusal" else f"#e{row['id']}" if not row["action_id"]
+              else row["action_id"])
+        out.setdefault(gk, []).append(row)
+    for v in out.values():
+        v.sort(key=lambda x: (x["ts"], x["id"]))
+    return out
+
+
+def _item(gk: str, rows: list[dict[str, Any]], names: dict[int, str]) -> dict[str, Any] | None:
+    """One line of Recent usage (spec §5.2) from an action's rows."""
+    if not rows:
+        return None
+    first = rows[0]
+    reqs = [r for r in rows if r["kind"] == "request"]
+    ai = [r for r in reqs if r["surface"] != "embed"]
+    starts = [r for r in rows if r["kind"] == "action" and r["surface"] in RUN_START_SURFACES]
+    surfaces = [r["surface"] for r in (ai or rows)]
+    if first["kind"] == "refusal":
+        surface = first["surface"]
+    elif starts:
+        surface = starts[0]["surface"]
+    elif ai and all(s in _RUN_STEP_SURFACES for s in surfaces):
+        surface = _display_surface(surfaces[0], first["lane"])
+    elif len(set(surfaces)) > 1 and all(s.startswith("camera.") for s in surfaces):
+        surface = "camera.tick"
+    else:
+        surface = max(set(surfaces), key=surfaces.count)
+    ref = (starts[0]["ref"] if starts else "") or next((r["ref"] for r in rows if r["ref"]), "")
+    did = next((int(r["desk_id"]) for r in rows if r["desk_id"]), 0)
+    label, rl = ITEM_LABELS.get(surface) or surface_label(surface), ref_label(ref)
+    if first["kind"] == "refusal":
+        status = first["status"] or "refused"
+        if surface in REFUSED_LABELS:
+            what = REFUSED_LABELS[surface]
+        elif surface.startswith("send."):
+            what = f"{surface_label(surface)} not sent"
+        elif surface.startswith("action."):
+            what = f"{label}: waiting for approval"
+        elif surface.startswith("upload."):
+            what = "Upload refused"
+        else:
+            what = f"{label} {'paused' if first['lane'] == 'auto' else 'refused'}"
+        unit, units, count, requests = "refusals", int(first["units"] or 1), int(first["units"] or 1), 0
+    else:
+        status = ("error" if any(r["status"] in ("error", "provider_limit") for r in rows) else
+                  "not_sent" if any(r["status"] == "not_sent" for r in rows) else "ok")
+        what = label
+        requests = sum(int(r["units"] or 0) for r in ai)
+        kinds = {r["kind"] for r in rows}
+        if ai:
+            unit, units = "requests", requests
+        elif reqs:
+            unit, units = "embeddings", sum(int(r["units"] or 0) for r in reqs)
+        elif kinds == {"send"}:
+            unit, units = ("segments" if surface == "send.sms" else "messages"), sum(int(r["units"] or 0) for r in rows)
+        elif kinds == {"upload"}:
+            unit, units = "bytes", sum(int(r["units"] or 0) for r in rows)
+        else:
+            unit, units = "actions", len(rows)
+        count = 1
+    cost = [r["cost_usd"] for r in rows if r["kind"] in ("request", "send") and r["cost_usd"] is not None]
+    est = [r["est_usd"] for r in reqs if r["est_usd"] is not None]
+    kks = sorted({r["key_kind"] for r in (reqs or rows) if r["key_kind"]})
+    models: list[str] = []
+    for r in ai:
+        if r["model"] and r["model"] not in models:
+            models.append(r["model"])
+    return {"id": gk, "ids": [gk], "ts": float(first["ts"]),
+            "ts_end": float(max((r["ts_end"] or r["ts"]) for r in rows)), "desk_id": did or None,
+            "desk": names.get(did) if did else None, "surface": surface, "what": what + (f" · {rl}" if rl else ""),
+            "ref": ref, "lane": first["lane"] or "", "requests": requests, "units": units, "unit": unit,
+            "embed_requests": sum(int(r["units"] or 0) for r in reqs if r["surface"] == "embed"),
+            "key": kks[0] if len(kks) == 1 else ("mixed" if kks else ""),
+            "hermes_requests": sum(int(r["units"] or 0) for r in ai if r["surface"] == "hermes.inner"),
+            "models": models[:4], "tokens_in": sum(int(r["tokens_in"] or 0) for r in reqs),
+            "tokens_out": sum(int(r["tokens_out"] or 0) for r in reqs),
+            "cost_usd": round(sum(cost), 6) if cost else None, "est_usd": round(sum(est), 6) if est else None,
+            "cost_unreported": sum(int(r["units"] or 0) for r in reqs if r["cost_usd"] is None and r["est_usd"] is None
+                                   and r["pool"] != "demo"),
+            "status": status, "limit_id": first["limit_id"] if first["kind"] == "refusal" else "",
+            "note": clean_note(first["note"]) if first["kind"] == "refusal" else "", "count": count,
+            "rows": len(rows)}
+
+
+def _collapses(a: dict[str, Any], b: dict[str, Any]) -> bool:
+    """b (older) folds into a: same surface, desk, ref, status, key and limit, within 10 minutes of each other. Runs
+    never fold: each is its own line."""
+    return (a["surface"] == b["surface"] and a["desk_id"] == b["desk_id"] and a["ref"] == b["ref"]
+            and a["status"] == b["status"] and a["limit_id"] == b["limit_id"] and a["key"] == b["key"]
+            and not a["surface"].startswith("run.") and a["ts"] - b["ts_end"] <= 600)
+
+
+def _merge(a: dict[str, Any], b: dict[str, Any]) -> None:
+    for f in ("requests", "units", "embed_requests", "hermes_requests", "tokens_in", "tokens_out", "cost_unreported",
+              "count", "rows"):
+        a[f] += b[f]
+    for f in ("cost_usd", "est_usd"):
+        if b[f] is not None:
+            a[f] = round((a[f] or 0.0) + b[f], 6)
+    a["ts"] = min(a["ts"], b["ts"])
+    a["ts_end"] = max(a["ts_end"], b["ts_end"])
+    if len(a["ids"]) < 20:
+        a["ids"] = a["ids"] + b["ids"][:20 - len(a["ids"])]
+    for m in b["models"]:
+        if m not in a["models"] and len(a["models"]) < 4:
+            a["models"].append(m)
+    a["_anchor"] = b["_anchor"]
+
+
+def events_page(owner_id: int, *, cursor: str = "", desk_id: int | None = None, status: str = "all", limit: int = 50,
+                names: dict[int, str] | None = None) -> dict[str, Any]:
+    """GET /api/usage/events (spec §5.2): items grouped by action, consecutive alike items within 10 minutes folded
+    into one with a count, newest first, keyset paging over each item's (newest ts, highest id)."""
+    if _store is None:
+        return {"events": [], "next": None}
+    limit = max(1, min(200, int(limit or 50)))
+    status = status if status in ("refused", "error") else "all"
+    names = names or {}
+    after = _parse_cursor(cursor)
+    items: list[dict[str, Any]] = []
+    nxt: tuple[float, int] | None = None
+    batch = limit * 2 + 10
+    full = False
+    while not full:
+        groups = _group_anchors(owner_id, desk_id, status, after, batch)
+        if not groups:
+            break
+        rows = _rows_of(owner_id, [g for g, _t, _i in groups])
+        for gk, ts, i in groups:
+            it = _item(gk, rows.get(gk, []), names)
+            if it is None:
+                continue
+            it["_anchor"] = (ts, i)
+            if items and _collapses(items[-1], it):
+                _merge(items[-1], it)
+            elif len(items) >= limit:
+                nxt, full = items[-1]["_anchor"], True
+                break
+            else:
+                items.append(it)
+        if full or len(groups) < batch:
+            break
+        after = groups[-1][1:]
+    for it in items:
+        it.pop("_anchor", None)
+    return {"events": items, "next": f"c_{nxt[0]!r}_{nxt[1]}" if nxt else None}
+
+
+def event_counts(owner_id: int, desk_id: int | None = None) -> dict[str, int]:
+    """How many items the Refused and Errors tabs hold (the ledger keeps 35 days)."""
+    if _store is None:
+        return {"refused": 0, "error": 0}
+    where, args = "owner_id=? AND scope='owner'", [int(owner_id or 0)]
+    if desk_id:
+        where += " AND desk_id=?"
+        args.append(int(desk_id))
+    r = _store._conn.execute(f"SELECT COUNT(*) FROM usage_events WHERE {where} AND kind='refusal'", args).fetchone()
+    e = _store._conn.execute(f"SELECT COUNT(DISTINCT {_GK}) FROM usage_events WHERE {where} AND kind<>'refusal' AND "
+                             "status IN ('error','provider_limit','not_sent')", args).fetchone()
+    return {"refused": int((r or [0])[0] or 0), "error": int((e or [0])[0] or 0)}
+
+
+def event_detail(owner_id: int, ids: list[str]) -> list[dict[str, Any]]:
+    """An item's individual rows (the page expands a line): model, status, HTTP status, tokens and cost of each
+    request. The owner's own rows only."""
+    if _store is None:
+        return []
+    gks = [str(g)[:80] for g in ids if g][:20]
+    rows = [r for v in _rows_of(owner_id, gks, cap=400).values() for r in v]
+    rows.sort(key=lambda r: (r["ts"], r["id"]))
+    return [{"ts": r["ts"], "ts_end": r["ts_end"], "surface": r["surface"],
+             "what": ITEM_LABELS.get(r["surface"]) or surface_label(r["surface"]),
+             "kind": r["kind"], "lane": r["lane"], "key": r["key_kind"], "provider": r["provider"], "model": r["model"],
+             "pool": r["pool"], "status": r["status"], "http_status": r["http_status"], "units": r["units"],
+             "tokens_in": r["tokens_in"], "tokens_out": r["tokens_out"], "tokens_cached": r["tokens_cached"],
+             "cost_usd": r["cost_usd"], "est_usd": r["est_usd"], "cost_basis": r["cost_basis"],
+             "limit_id": r["limit_id"], "note": clean_note(r["note"]), "ref": r["ref"]} for r in rows[:400]]
+
+
+def page(owner_id: int, *, desks: list[dict[str, Any]] | None = None, desk_id: int | None = None,
+         operator: bool = False, now: float | None = None) -> dict[str, Any]:
+    """GET /api/usage (spec §5.1), the ledger's part. `desks`: [{id, name, sms}] of the owner; `desk_id` filters the
+    breakdowns, today's table and the events (the limits stay the owner's). The app adds what lives outside the
+    ledger: the cameras, the model keys, the channel rule and the mode."""
+    now = _now() if now is None else now
+    o = int(owner_id or 0)
+    names = {int(d["id"]): str(d.get("name") or f"Desk {d['id']}") for d in (desks or [])}
+    waiting = 0
+    if _store is not None:
+        r = _store._conn.execute("SELECT COUNT(*) FROM usage_deferred WHERE owner_id=? AND status='waiting'",
+                                 (o,)).fetchone()
+        waiting = int((r or [0])[0] or 0)
+    ev = events_page(o, desk_id=desk_id, names=names)
+    return {"as_of": int(now), "enforced": CFG.enforce, "counting_since": counting_since(),
+            "owner": {"id": o, "unlimited": is_unlimited(o)}, "operator": bool(operator), "windows": windows(now),
+            "limits": limits_view(o, desks=desks, now=now, operator=operator),
+            "today": today_view(o, desk_id=desk_id, now=now), "history": history(o, now),
+            "pool": pool_view(now, operator=operator), "deferred": {"waiting": waiting}, "sends": sends_view(o, now),
+            "house_only": list(HOUSE_ONLY),
+            "hermes": {"mode": CFG.hermes_meter, "note": HERMES_NOTES.get(CFG.hermes_meter, HERMES_NOTES["off"])},
+            "events": ev["events"], "events_next": ev["next"], "event_counts": event_counts(o, desk_id)}
+
+
+def brief_view(owner_id: int, now: float | None = None) -> dict[str, Any]:
+    """GET /api/usage/brief (spec §5.3), for the rail badge: the owner's limit nearest to full, from at most 6
+    counter rows (AI requests, on its own, paid this month (two rows), files) plus the pool's state in memory."""
+    now = _now() if now is None else now
+    o, ds = int(owner_id or 0), day_start(now)
+    cands: list[dict[str, Any]] = []
+
+    def add(lid: str, used: Any, lim: Any, resets: int | None) -> None:
+        if lim is None or used is None:
+            return
+        unit = LIMITS[lid]["unit"]
+        pct = 100.0 if float(lim) <= 0 else 100.0 * float(used) / float(lim)
+        cands.append({"id": lid, "label": LIMITS[lid]["label"], "used": _shown(unit, used), "limit": _shown(unit, lim),
+                      "unit": unit, "pct": round(pct, 1), "resets_at": resets})
+    add("ai_requests_day", counter_n(f"o:{o}", "req:free", "D", ds), limit_value(o, "ai_requests_day"), ds + DAY)
+    add("ai_requests_auto_day", counter_n(f"o:{o}:auto", "req:free", "D", ds), limit_value(o, "ai_requests_auto_day"),
+        ds + DAY)
+    add("paid_usd_month", owner_paid_used(o, now), limit_value(o, "paid_usd_month"), next_month_start(now))
+    add("storage_mb", counter_n(f"o:{o}", "storage", "T", 0) / MB, limit_value(o, "storage_mb"), None)
+    if pool_view(now)["state"] == "full":
+        cands.append({"id": "pool_free_day", "label": "Shared free-model pool today: full", "used": None, "limit": None,
+                      "unit": "requests", "pct": 100.0, "resets_at": ds + DAY})
+    worst = max(cands, key=lambda c: c["pct"]) if cands else None
+    pct = worst["pct"] if worst else 0.0
+    return {"state": "full" if pct >= 100 else "warn" if pct >= 80 else "ok", "worst": worst}
+
+
+def house_view(now: float | None = None) -> dict[str, Any]:
+    """GET /api/usage/house (spec §5.4), operator only: the provider's key snapshots of the last 24 h, the pool's
+    counts (the provider's, this server's, elsewhere on the key), the per-minute window, the website's share (L12)
+    and Atlas's paid cap (L13), the Hermes engine, and one row per owner with today's numbers."""
+    now = _now() if now is None else now
+    ds, ms = day_start(now), month_start(now)
+    snaps = []
+    ref: dict[str, int] = {}
+    owners: dict[int, dict[str, Any]] = {}
+    if _store is not None:
+        for ts, data in _store._conn.execute("SELECT ts, data FROM usage_provider WHERE account='house' AND ts>=? "
+                                             "ORDER BY ts", (now - DAY,)).fetchall():
+            try:
+                d = json.loads(data or "{}")
+            except ValueError:
+                d = {}
+            snaps.append({"ts": ts, **{k: d.get(k) for k in ("free_used", "free_limit", "usage_daily", "usage_monthly",
+                                                              "limit", "limit_remaining")}})
+        for lid, n in _store._conn.execute("SELECT limit_id, SUM(units) FROM usage_events WHERE kind='refusal' AND "
+                                           "ts>=? AND scope='public' GROUP BY limit_id", (ds,)).fetchall():
+            ref[str(lid or "")] = int(n or 0)
+        for sk, metric, n in _store._conn.execute(
+                "SELECT scope_key, metric, n FROM usage_counters WHERE scope_key LIKE ? AND ((metric='req:free' AND "
+                "period='D' AND window_start=?) OR (metric IN ('usd:paid','usd:est') AND period='M' AND "
+                "window_start=?))", ("o:%", ds, ms)).fetchall():
+            parts = str(sk).split(":")
+            if len(parts) > 3 or (len(parts) == 3 and parts[2] != "auto") or not parts[1].isdigit():
+                continue
+            row = owners.setdefault(int(parts[1]), {"ai": 0, "auto": 0, "paid": 0.0, "refused": 0})
+            if metric == "req:free":
+                row["auto" if len(parts) == 3 else "ai"] = int(n or 0)
+            else:
+                row["paid"] += int(n or 0) / 1e6
+        for oid, n in _store._conn.execute("SELECT owner_id, SUM(units) FROM usage_events WHERE kind='refusal' AND "
+                                           "ts>=? AND scope='owner' GROUP BY owner_id", (ds,)).fetchall():
+            owners.setdefault(int(oid or 0), {"ai": 0, "auto": 0, "paid": 0.0, "refused": 0})["refused"] = int(n or 0)
+    cap = CFG.pool_min.get("free:openrouter")
+    minute: dict[str, Any] = {"limit": cap, "used": 0, "auto_limit": _minute_cap("free:openrouter", "auto") if cap else None}
+    if cap:
+        with _mem_lock:
+            minute["used"] = _minute_state("free:openrouter", int(cap), now)[0]
+    table = [{"owner_id": oid, "email": _owner_email(oid) if oid else "", "ai_requests_day": r["ai"],
+              "ai_requests_auto_day": r["auto"], "paid_usd_month": round(r["paid"], 4), "refused_today": r["refused"],
+              "limits": {lid: limit_value(oid, lid) for lid in ("ai_requests_day", "ai_requests_auto_day", "paid_usd_month")}}
+             for oid, r in sorted(owners.items())]
+    pub = _entry("public_requests_day", "house", used=counter_n("pub", "req:free", "D", ds),
+                 limit=limit_value(0, "public_requests_day"), now=now, refused=ref.get("public_requests_day", 0),
+                 basis=basis(0, "public_requests_day", now, {}))
+    l13 = _entry("house_paid_usd_month", "house", used=house_paid_used(now), limit=limit_value(0, "house_paid_usd_month"),
+                 now=now, basis=basis(0, "house_paid_usd_month", now, {}))
+    return {"as_of": int(now), "enforced": CFG.enforce, "snapshot": snapshot(), "snapshots": snaps,
+            "pool": pool_view(now, operator=True), "pool_basis": basis(0, "pool_free_day", now, {}),
+            "minute": {**minute, "basis": basis(0, "pool_free_min", now, {})}, "limits": [pub, l13],
+            "hermes": hermes_view(now), "owners": table, "spend": spend_view(now)}
+
+
+# ---------------------------------------------------------------------------- the owner's own keys on the page (spec §2)
+_BYO_KEEP = ("usage_daily", "usage_monthly", "limit", "limit_remaining", "limit_reset", "is_free_tier", "free_used",
+             "free_limit")
+
+
+def byo_today(owner_id: int, desk_id: int, provider: str, now: float | None = None) -> dict[str, Any]:
+    """Today's (UTC) requests on one of the owner's own keys, as the ledger counted them from each response."""
+    now = _now() if now is None else now
+    r = None
+    if _store is not None:
+        r = _store._conn.execute(
+            "SELECT SUM(units), SUM(tokens_in), SUM(tokens_out), SUM(cost_usd), SUM(CASE WHEN cost_usd IS NULL THEN "
+            "units ELSE 0 END) FROM usage_events WHERE owner_id=? AND desk_id=? AND key_kind='byo' AND kind='request' "
+            "AND provider=? AND ts>=?", (int(owner_id or 0), int(desk_id or 0), str(provider or ""), day_start(now))
+        ).fetchone()
+    r = r or (None,) * 5
+    return {"requests": int(r[0] or 0), "tokens_in": int(r[1] or 0), "tokens_out": int(r[2] or 0),
+            "cost_usd": None if r[3] is None else round(float(r[3]), 6), "cost_unreported": int(r[4] or 0)}
+
+
+def _byo_read(account: str, key: str, transport=None) -> None:
+    err, vals = "", None
+    try:
+        import httpx
+        with httpx.Client(transport=transport, timeout=10) as client:
+            r = client.get(KEY_URL, headers={"Authorization": f"Bearer {key}"})
+        if r.status_code >= 400:
+            err = f"HTTP {r.status_code}"
+        else:
+            data = (r.json() or {}).get("data")
+            if isinstance(data, dict):
+                vals = parse_key_data(data)
+            else:
+                err = "no data in the key response"
+    except Exception as exc:
+        err = type(exc).__name__
+    now = _now()
+    with _mem_lock:
+        cur = _byo_views.setdefault(account, {})
+        if vals is not None:
+            cur.update({k: vals.get(k) for k in _BYO_KEEP})
+            cur.update(seen_at=now, error="")
+        else:
+            cur.update(error=err, error_at=now)
+    if vals is not None and _store is not None:
+        try:
+            with _tx() as c:
+                c.execute("INSERT INTO usage_provider(account, ts, data) VALUES(?,?,?)",
+                          (account, now, json.dumps({k: vals.get(k) for k in _BYO_KEEP})))
+        except Exception as exc:
+            print(f"usage: key view not stored: {type(exc).__name__}")
+
+
+def byo_key_view(account: str, key: str, *, transport=None, wait: bool = False) -> dict[str, Any]:
+    """The provider's own view of an owner's OpenRouter key (spec §2 rule 3): GET /api/v1/key with the decrypted key,
+    asked only while serving the holder's own /api/usage, at most once per USAGE_KEY_POLL_S (5 min) per entry, off
+    the request thread (`wait` reads it in line). Only the numeric fields are kept; never the key, label or ids.
+    {} until the first answer; {"error": ...} when the provider refused."""
+    now = _now()
+    with _mem_lock:
+        hit = _byo_views.get(account)
+        due = bool(key) and (hit is None or now - hit.get("asked", 0) >= max(60, CFG.key_poll_s))
+        if due:
+            _byo_views[account] = {**(hit or {}), "asked": now}
+    if due:
+        if wait:
+            _byo_read(account, key, transport)
+        else:
+            threading.Thread(target=_byo_read, args=(account, key, transport), daemon=True, name="atlas-usage-byo").start()
+    with _mem_lock:
+        v = dict(_byo_views.get(account) or {})
+    v.pop("asked", None)
+    return v

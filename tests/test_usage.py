@@ -11,8 +11,10 @@ the scheduler's deferred starts and the Leads list's note. Channels and uploads 
 S14-S15): T19, T38, Twilio's segments and price, the approved actions _dispatch counts and the storage
 reconcile. Next steps (§5.5): T39's next-steps part, the steps of a run stopped at a limit and /api/next for one. The
 Hermes metering proxy (§1.8, §8.2): T32, the attribution rules, a refusal ending the delegation, the operator view's
-Hermes block and setup.sh's wiring. No model is called and nothing is sent: provider responses are stubbed
-(httpx.MockTransport), the key endpoint, the channel APIs and Hermes too."""
+Hermes block and setup.sh's wiring. The page's API (§5, §6.2): T20, events grouped by action and paged, today's
+table, what binds and the rail's brief, the 30-day history, the owner's own key read from the provider, keys, cameras
+and the reply window on the page, and the per-address limiters' shape. No model is called and nothing is sent:
+provider responses are stubbed (httpx.MockTransport), the key endpoint, the channel APIs and Hermes too."""
 import ast
 import io
 import json
@@ -3142,3 +3144,338 @@ def test_setup_wires_new_installs_through_the_metering_proxy():
     caddy = sh.split("cat > /etc/caddy/Caddyfile <<EOT", 1)[1].split("\nEOT\n", 1)[0]
     assert caddy.index("respond /internal/* 404") < caddy.index("reverse_proxy 127.0.0.1:8094")
     assert "-w 1 --threads 32" in sh                      # one worker: the calls in flight and the proxy share a process
+
+
+# ---------------------------------------------------------------------------- the page and its API (§5, §6)
+def _ev(cn, **f):
+    """One ledger row written straight into the table (a test that needs exact times and action ids)."""
+    usage._insert_event(cn, {"owner_id": 7, "desk_id": 3, "scope": "owner", "lane": "you", "key_kind": "house",
+                             "pool": "free:openrouter", "model": FREE, "kind": "request", **f})
+
+
+def test_events_group_by_action_fold_alike_and_page(U, store):
+    """Spec §5.2: one item per action (a run with its steps and Hermes steps is one line), consecutive alike items
+    within 10 minutes fold into one with a count, a deduplicated refusal is one item whose count is its units, keyset
+    paging never repeats or skips an item, the Refused and Errors filters, an item's own rows; another owner's rows
+    never show."""
+    t0 = time.time() - 3600
+    with U._tx() as cn:
+        _ev(cn, ts=t0, surface="run.you", kind="action", action_id="run1", ref="r-1", key_kind="none", pool="", model="")
+        for i in range(4):
+            _ev(cn, ts=t0 + 10 + i, surface="run.step", action_id="run1", tokens_in=100, tokens_out=10, cost_usd=0.0,
+                cost_basis="provider")
+        for i in range(2):
+            _ev(cn, ts=t0 + 20 + i, surface="hermes.inner", action_id="run1", pool="paid", model=PAID, cost_usd=0.002,
+                cost_basis="provider")
+        for i, aid in enumerate(("a1", "a2", "a3")):
+            _ev(cn, ts=t0 + 100 * (i + 1), surface="ask.cameras", action_id=aid, cost_usd=0.0, cost_basis="provider")
+        _ev(cn, ts=t0 + 500, ts_end=t0 + 1500, surface="camera.note", lane="auto", ref="cam:Door", kind="refusal",
+            action_id="tick9", units=50, status="refused", limit_id="ai_requests_auto_day", pool="", model="",
+            note="AI requests Atlas made on its own: 125 of 125 used. Resets 00:00 UTC (in 6 h 27 min).")
+        _ev(cn, ts=t0 + 2000, surface="ask.cameras", action_id="a4", cost_usd=0.0, cost_basis="provider")
+        _ev(cn, ts=t0 + 2500, surface="camera.look", action_id="e1", status="error", http_status=502, ref="cam:Gate")
+        _ev(cn, ts=t0 + 2600, owner_id=8, desk_id=9, surface="ask.cameras", action_id="other")
+    names = {3: "Harbour Physio"}
+    page = U.events_page(7, names=names)
+    items = page["events"]
+    assert [i["what"] for i in items] == ["Camera look · Gate", "Ask the cameras", "Camera journal paused · Door",
+                                          "Ask the cameras", "Run you started · r-1"] and page["next"] is None
+    look, ask4, ref, asks, run = items
+    assert (look["status"], look["cost_usd"], look["cost_unreported"], look["desk"]) == ("error", None, 1, "Harbour Physio")
+    assert (ask4["count"], asks["count"], asks["requests"], asks["ids"]) == (1, 3, 3, ["a3", "a2", "a1"])
+    assert (ref["count"], ref["units"], ref["unit"], ref["status"], ref["limit_id"]) == (50, 50, "refusals", "refused",
+                                                                                       "ai_requests_auto_day")
+    assert ref["note"] == "AI requests Atlas made on its own: 125 of 125 used. Resets 00:00 UTC."   # no stale "(in ...)"
+    assert (run["surface"], run["requests"], run["hermes_requests"], run["models"]) == ("run.you", 6, 2, [FREE, PAID])
+    assert run["cost_usd"] == pytest.approx(0.004) and run["key"] == "house" and run["lane"] == "you"
+    seen, cursor, pages = [], "", 0
+    while True:                                                         # keyset paging, two items a page
+        p = U.events_page(7, cursor=cursor, limit=2, names=names)
+        seen += [i["what"] for i in p["events"]]
+        pages += 1
+        if not p["next"]:
+            break
+        cursor = p["next"]
+    assert seen == [i["what"] for i in items] and pages == 3
+    assert [i["what"] for i in U.events_page(7, status="refused")["events"]] == ["Camera journal paused · Door"]
+    assert [i["what"] for i in U.events_page(7, status="error")["events"]] == ["Camera look · Gate"]
+    assert U.event_counts(7) == {"refused": 1, "error": 1}
+    rows = U.event_detail(7, asks["ids"])
+    assert len(rows) == 3 and {r["surface"] for r in rows} == {"ask.cameras"}
+    assert U.event_detail(8, asks["ids"]) == [] and U.event_detail(7, ["other"]) == []     # owners read their own rows only
+    assert [i["what"] for i in U.events_page(8)["events"]] == ["Ask the cameras"]
+    assert U.events_page(7, desk_id=4)["events"] == []
+
+
+def test_today_counts_steps_under_their_run_and_embeddings_under_their_action(U, store):
+    """Spec §6.2 item 4: a run's own steps and its Hermes specialists' steps count under the run, by lane; an Ask's
+    embeddings under the Ask, the background indexer's in Search index; a camera's rows per camera; the owner's own
+    key apart from Atlas's account; costs as reported, unreported ones counted."""
+    t = time.time()
+    with U._tx() as cn:
+        for i in range(3):
+            _ev(cn, ts=t - 50 + i, surface="run.step", action_id="r1", tokens_in=1000, tokens_out=100, cost_usd=0.0)
+        for i in range(2):
+            _ev(cn, ts=t - 40 + i, surface="hermes.inner", action_id="r1", cost_usd=0.0)
+        _ev(cn, ts=t - 30, surface="run.step", action_id="r2", lane="auto", cost_usd=0.0)
+        _ev(cn, ts=t - 20, surface="ask.cameras", action_id="k1", cost_usd=0.0)
+        _ev(cn, ts=t - 19, surface="embed", action_id="k1", units=12, pool="paid", model="openai/text-embedding-3-small",
+            tokens_in=2400, cost_usd=0.00005)
+        _ev(cn, ts=t - 18, surface="embed", action_id="embed-d3-1", lane="auto", units=100, pool="paid", model="e")
+        for i in range(2):
+            _ev(cn, ts=t - 10 + i, surface="camera.note", action_id=f"n{i}", lane="auto", ref="cam:Door", cost_usd=0.0)
+        _ev(cn, ts=t - 5, surface="run.step", action_id="r3", key_kind="byo", pool="byo", model="anthropic/claude", cost_usd=0.01)
+        _ev(cn, ts=t - 86400 * 2, surface="ask.cameras", action_id="old")          # two days ago: not today
+    rows = {r["label"]: r for r in U.today_view(7)}
+    assert set(rows) == {"Runs you started", "Runs Atlas started on its own", "Ask the cameras", "Search index",
+                         "Camera journal · Door", "Runs you started · your key"}
+    you = rows["Runs you started"]
+    assert (you["actions"], you["requests"], you["hermes_requests"], you["tokens_in"], you["cost_usd"]) == (1, 5, 2, 3000, 0.0)
+    assert (rows["Ask the cameras"]["requests"], rows["Ask the cameras"]["embed_requests"]) == (1, 12)
+    idx = rows["Search index"]
+    assert (idx["requests"], idx["embed_requests"], idx["cost_usd"], idx["cost_unreported"]) == (0, 100, None, 100)
+    cam = rows["Camera journal · Door"]
+    assert (cam["camera"], cam["desk_id"], cam["requests"], cam["actions"]) == ("Door", 3, 2, 2)
+    assert rows["Runs you started · your key"]["key"] == "byo" and rows["Runs you started · your key"]["cost_usd"] == 0.01
+    assert U.today_view(7, desk_id=4) == []
+
+
+def test_limits_say_what_binds_and_the_brief_follows(U, store, monkeypatch):
+    """Spec §5.1, §5.3: each limit's numbers, state and basis; `binding` names a full limit that stops one below its
+    own (the shared pool, the owner's daily allowance, Atlas's paid cap); an override says it is the account's own;
+    an unlimited owner's limits are off; the rail's brief tracks the worst; the disk floor reads the disk."""
+    clock = _clock(monkeypatch, float(_ts(2026, 10, 9, 17, 33, 0)))
+    U.set_override(1, "ai_requests_day", 10, note="pilot until 31 Oct")
+    monkeypatch.setattr(U.CFG, "owner_paid_usd_month", 5.0)
+    monkeypatch.setattr(U.CFG, "disk_floor_pct", 10.0)
+    monkeypatch.setattr(U, "_disk_usage", lambda p: (1000 * U.MB, 450 * U.MB, 550 * U.MB))
+    desks = [{"id": 3, "name": "Harbour Physio", "sms": False}, {"id": 4, "name": "Bay Clinic", "sms": True}]
+    view = lambda: {(l["id"], l.get("desk_id")): l for l in U.limits_view(1, desks=desks)}
+    U.take([U.Row("o:1", "req:free", 10, "ai_requests_day")], units=8)
+    L = view()
+    l1 = L[("ai_requests_day", None)]
+    for k in ("id", "label", "unit", "window", "used", "limit", "resets_at", "retry_at", "basis", "state", "pct", "binding"):
+        assert k in l1
+    assert (l1["used"], l1["limit"], l1["pct"], l1["state"], l1["window"]) == (8, 10, 80.0, "warn", "utc_day")
+    assert l1["override"] == {"value": 10.0, "note": "pilot until 31 Oct"} and l1["basis"]["kind"] == "override"
+    assert l1["basis"]["text"] == "Set for your account by the operator: pilot until 31 Oct"
+    assert (l1["resets_at"], l1["retry_at"]) == (_ts(2026, 10, 10), _ts(2026, 10, 10))
+    assert L[("ai_requests_auto_day", None)]["limit"] == 5 and L[("ai_requests_auto_day", None)]["binding"] is None
+    assert L[("runs_at_once", None)]["pct"] is None and L[("run_requests", None)]["limit"] == 120
+    assert L[("sms_segments_day", 3)]["state"] == "off" and L[("sms_segments_day", 4)]["state"] == "ok"
+    assert L[("auto_sends_day", 3)]["desk"] == "Harbour Physio" and L[("auto_sends_day", 3)]["limit"] == 144
+    disk = L[("disk_floor", None)]
+    assert (disk["used"], disk["limit"], disk["free_mb"], disk["state"]) == (450.0, 900.0, 550.0, "ok")
+    assert L[("pool_free_day", None)]["used"] is None and L[("pool_free_day", None)]["state"] == "ok"   # owners: the state only
+    assert U.brief_view(1)["state"] == "warn" and U.brief_view(1)["worst"]["id"] == "ai_requests_day"
+    U.mark_exhausted()                                                  # the provider said free-models-per-day
+    L = view()
+    assert L[("ai_requests_day", None)]["binding"]["id"] == "pool_free_day"
+    assert L[("ai_requests_auto_day", None)]["binding"]["label"] == "Shared pool full"
+    assert U.brief_view(1)["state"] == "full" and U.brief_view(1)["worst"]["id"] == "pool_free_day"
+    clock["t"] += 86400                                                 # a new UTC day: the pool is open again
+    U.take([U.Row("o:1", "req:free", 10, "ai_requests_day")], units=10)
+    L = view()
+    assert L[("ai_requests_day", None)]["state"] == "full" and L[("ai_requests_day", None)]["binding"] is None
+    assert L[("ai_requests_auto_day", None)]["binding"]["id"] == "ai_requests_day"
+    monkeypatch.setattr(U.CFG, "house_paid_usd_month", 0.0)             # Atlas's paid cap is spent: the owner's $5 is not usable
+    assert view()[("paid_usd_month", None)]["binding"]["id"] == "house_paid_usd_month"
+    for e in ("owner-one@example.com", "boss@example.com"):         # owner 1 above is the first account; the boss another
+        store.add_user(e, "B", "B", "x")
+    boss = store.user_by_email("boss@example.com")["id"]
+    assert boss != 1
+    monkeypatch.setattr(U.CFG, "unlimited_emails", frozenset({"boss@example.com"}))
+    b = {(l["id"], l.get("desk_id")): l for l in U.limits_view(boss, desks=[])}
+    assert (b[("ai_requests_day", None)]["limit"], b[("ai_requests_day", None)]["state"]) == (None, "off")
+    assert b[("ai_requests_day", None)]["basis"]["text"] == "No Atlas limit on this account (operator)"
+    assert U.brief_view(boss)["worst"]["id"] != "ai_requests_day"
+
+
+def test_history_keeps_each_days_limit(U, store, monkeypatch):
+    """Spec §5.1: 30 UTC days from the D counters, yours and Atlas's own, each day's limit as it stood (`lim`)."""
+    _clock(monkeypatch, float(_ts(2026, 10, 9, 12, 0, 0)))
+    for day, (tot, auto, lim) in {_ts(2026, 10, 7): (40, 10, 250), _ts(2026, 10, 8): (60, 30, 200)}.items():
+        U.take([U.Row("o:1", "req:free", lim, "ai_requests_day", window_start=day)], units=tot)
+        U.take([U.Row("o:1:auto", "req:free", 125, "ai_requests_auto_day", window_start=day)], units=auto)
+    h = U.history(1)
+    assert len(h) == 30 and h[-1]["day"] == _ts(2026, 10, 9) and h[0]["day"] == _ts(2026, 9, 10)
+    by = {x["day"]: x for x in h}
+    assert by[_ts(2026, 10, 7)] == {"day": _ts(2026, 10, 7), "you": 30, "auto": 10, "limit": 250}
+    assert by[_ts(2026, 10, 8)] == {"day": _ts(2026, 10, 8), "you": 30, "auto": 30, "limit": 200}
+    assert by[_ts(2026, 10, 1)]["limit"] is None and h[-1]["limit"] == 250       # no row on record; today's is the live one
+
+
+def test_byo_key_view_reads_the_owners_key_at_most_every_five_minutes(U, store, monkeypatch):
+    """Spec §2 rule 3: the provider's own figures for an owner's OpenRouter key, read with that key, at most once per
+    5 minutes per entry; only the numbers are kept, never the key, its label or account ids; a refusal is shown."""
+    clock = _clock(monkeypatch, 1_000_000.0)
+    calls = []
+
+    def handler(req):
+        calls.append(req.headers["Authorization"])
+        return httpx.Response(200, json={"data": {"label": "my key", "creator_user_id": "u_1", "usage": 9.0, "usage_daily": 0.12,
+                                                  "usage_monthly": 1.23, "limit": 5.0, "limit_remaining": 3.77,
+                                                  "limit_reset": "monthly", "is_free_tier": False,
+                                                  "free_model_daily_requests": {"used": 3, "limit": 1000}}})
+    t = httpx.MockTransport(handler)
+    v = U.byo_key_view("byo:3:openrouter", "sk-or-own-1234", transport=t, wait=True)
+    assert (v["usage_monthly"], v["limit"], v["limit_remaining"], v["limit_reset"], v["seen_at"]) == (1.23, 5.0, 3.77, "monthly", 1_000_000.0)
+    assert calls == ["Bearer sk-or-own-1234"]
+    stored = store._conn.execute("SELECT data FROM usage_provider WHERE account='byo:3:openrouter'").fetchone()[0]
+    assert json.loads(stored)["usage_monthly"] == 1.23 and "sk-or-own" not in stored and "creator_user_id" not in stored
+    assert "label" not in stored and "my key" not in stored
+    clock["t"] += 120
+    assert U.byo_key_view("byo:3:openrouter", "sk-or-own-1234", transport=t, wait=True)["usage_monthly"] == 1.23
+    assert len(calls) == 1                                              # read at most every 5 minutes
+    clock["t"] += 300
+    U.byo_key_view("byo:3:openrouter", "sk-or-own-1234", transport=t, wait=True)
+    assert len(calls) == 2
+    bad = U.byo_key_view("byo:4:openrouter", "sk-or-bad", transport=httpx.MockTransport(lambda r: httpx.Response(401)), wait=True)
+    assert bad["error"] == "HTTP 401" and "seen_at" not in bad
+
+
+def _dname(A, did):
+    """A desk's name as every page shows it: its business name, else the desk's own."""
+    d = A.store.desk(did)
+    return ((d.get("config") or {}).get("business") or {}).get("name") or d["name"]
+
+
+def test_usage_api_shape_and_owner_isolation(app_client, monkeypatch):
+    """T20 (spec §5.1-§5.4): two owners each see only their own rows; every limit carries id, label, unit, window,
+    used, limit, resets_at, retry_at, basis and state; events carry ts, desk, what, units and cost_usd (null when
+    the provider reported none); an owner's pool is its state and reset only; another owner's usage, desk and rows
+    are out of reach (403 / 404 / nothing); the operator reads any account, the pool's counts and the house view;
+    the rail's brief; /desk/usage is the page."""
+    c = app_client
+    A, da, oa = _signed_in(c, monkeypatch, "usage-api-a@example.com")
+    usage.reset()                                                       # no minute window left over from other tests
+    _guard_models(monkeypatch)
+
+    def rows(did, asks):
+        desk = A.store.desk(did)
+        for _ in range(asks):
+            m = usage.desk_meter(desk, "ask.cameras", lane="you")
+            usage.after(usage.before(m, provider="openrouter", model=FREE), http_status=200,
+                        usage={"prompt_tokens": 100, "completion_tokens": 10, "cost": 0})
+        m = usage.desk_meter(desk, "camera.note", lane="auto", ref="cam:Door")
+        usage.after(usage.before(m, provider="openrouter", model=FREE), http_status=200,
+                    usage={"prompt_tokens": 50, "completion_tokens": 5})              # no cost reported
+    rows(da, 3)
+    usage.refuse(usage.desk_meter(A.store.desk(da), "camera.note", lane="auto", ref="cam:Door"),
+                 usage._limit("ai_requests_auto_day", used=125, limit=125, now=time.time()), background=True)
+    c.get("/logout")
+    c.post("/signup", json={"name": "U", "company": "U", "email": "usage-api-b@example.com", "password": "password1"})
+    db = c.post("/api/desks", json={"name": "Usage api B", "template": "sales_desk", "tier": "free"}).get_json()["id"]
+    ob = int(A.store.desk(db)["owner_id"])
+    rows(db, 5)
+    rb = c.get("/api/usage").get_json()
+    assert rb["owner"] == {"id": ob, "unlimited": False} and {e["desk_id"] for e in rb["events"]} == {db}
+    assert {l["id"]: l for l in rb["limits"] if not l.get("desk_id")}["ai_requests_day"]["used"] == 6
+    c.get("/logout")
+    c.post("/login", json={"email": "usage-api-a@example.com", "password": "password1"})
+    r = c.get("/api/usage")
+    assert r.status_code == 200 and r.headers["Cache-Control"] == "no-store"
+    d = r.get_json()
+    for k in ("as_of", "mode", "enforced", "counting_since", "owner", "windows", "limits", "rules", "today", "cameras",
+              "history", "pool", "hermes", "deferred", "byo", "house_only", "events", "events_next", "sends", "desks"):
+        assert k in d, k
+    assert d["owner"]["id"] == oa and d["desks"] == [{"id": da, "name": _dname(A, da)}]
+    for lim in d["limits"]:
+        for k in ("id", "label", "unit", "window", "used", "limit", "resets_at", "retry_at", "basis", "state"):
+            assert k in lim, (lim["id"], k)
+        assert lim["state"] in ("ok", "warn", "full", "off")
+    L = {l["id"]: l for l in d["limits"] if not l.get("desk_id")}
+    assert (L["ai_requests_day"]["used"], L["ai_requests_day"]["limit"], L["ai_requests_auto_day"]["used"]) == (4, 250, 1)
+    assert L["ai_requests_day"]["by_desk"] == [{"desk_id": da, "used": 4, "name": _dname(A, da)}]
+    assert {s["surface"]: s["used"] for s in L["ai_requests_day"]["by_surface"]} == {"ask.cameras": 3, "camera.note": 1}
+    assert set(d["pool"]) == {"state", "resets_at"} and d["pool"]["state"] == "ok"
+    assert d["rules"][0]["id"] == "reply_window" and d["rules"][0]["channels"] == [] and d["rules"][0]["basis"]["text"]
+    assert d["hermes"]["mode"] == "off" and d["house_only"] == ["Design chat", "Link studies", "Camera vision", "Search index"]
+    for e in d["events"]:
+        for k in ("ts", "desk", "what", "units", "cost_usd"):
+            assert k in e, k
+    ev = {e["what"]: e for e in d["events"]}
+    assert ev["Camera journal paused · Door"]["count"] == 1 and ev["Camera journal paused · Door"]["status"] == "refused"
+    assert ev["Camera journal note · Door"]["cost_usd"] is None and ev["Camera journal note · Door"]["cost_unreported"] == 1
+    assert ev["Ask the cameras"]["cost_usd"] == 0.0 and ev["Ask the cameras"]["count"] == 3     # three asks, one line
+    assert {e["desk_id"] for e in d["events"]} == {da} and d["event_counts"] == {"refused": 1, "error": 0}
+    assert sum(t["requests"] for t in d["today"]) == 4
+    b_item = rb["events"][0]["ids"]
+    assert c.get("/api/usage/detail?ids=" + ",".join(b_item)).get_json()["rows"] == []       # B's rows: not A's to read
+    assert len(c.get("/api/usage/detail?ids=" + ",".join(ev["Ask the cameras"]["ids"])).get_json()["rows"]) == 3
+    assert c.get(f"/api/usage?owner={ob}").status_code == 403 and c.get("/api/usage/house").status_code == 403
+    assert c.get(f"/api/usage?desk={db}").status_code == 404 and c.get(f"/api/usage/events?desk={db}").status_code == 404
+    assert c.get(f"/api/usage?desk={da}").status_code == 200
+    page = c.get("/api/usage/events?status=refused").get_json()
+    assert [e["what"] for e in page["events"]] == ["Camera journal paused · Door"] and page["next"] is None
+    brief = c.get("/api/usage/brief").get_json()
+    assert brief["state"] == "ok" and brief["worst"]["id"] in ("ai_requests_day", "ai_requests_auto_day")
+    assert c.get("/desk/usage").status_code == 200
+    monkeypatch.setattr(usage.CFG, "operator_emails", frozenset({"usage-api-a@example.com"}))
+    other = c.get(f"/api/usage?owner={ob}").get_json()
+    assert other["owner"]["id"] == ob and {l["id"]: l for l in other["limits"] if not l.get("desk_id")}["ai_requests_day"]["used"] == 6
+    assert {"used_provider", "used_here", "elsewhere", "limit"} <= set(other["pool"])
+    house = c.get("/api/usage/house").get_json()
+    owners = {o["owner_id"]: o for o in house["owners"]}
+    assert owners[oa]["ai_requests_day"] == 4 and owners[ob]["ai_requests_day"] == 6 and owners[oa]["refused_today"] == 1
+    assert owners[oa]["email"] == "usage-api-a@example.com"
+    assert [l["id"] for l in house["limits"]] == ["public_requests_day", "house_paid_usd_month"]
+    assert {"mode", "today", "warning"} <= set(house["hermes"]) and "snapshots" in house
+    c.get("/logout")
+    assert c.get("/api/usage").status_code == 401 and c.get("/desk/usage").status_code == 302
+
+
+def test_usage_page_lists_keys_cameras_and_the_reply_window(app_client, monkeypatch):
+    """Spec §2 rule 4, §1.5, §1.7, §6.2: a desk's own OpenRouter key with today's requests on it and the provider's
+    own figures (read in the background with the owner's key), a key whose provider gives none says so; a camera
+    without a local detector, with its journal's cadence; WhatsApp alerts and the reply window."""
+    from atlas import secure as SEC
+    from atlas import vision as V
+    A, did, owner = _signed_in(app_client, monkeypatch, "usage-api-keys@example.com")
+    usage.reset()
+    key_reads = []
+
+    def handler(req):
+        if req.url.path == "/api/v1/key":
+            key_reads.append(req.headers["Authorization"])
+            return httpx.Response(200, json={"data": {"usage_daily": 0.0, "usage_monthly": 1.23, "limit": 5.0,
+                                                      "limit_remaining": 3.77, "limit_reset": "monthly"}})
+        return httpx.Response(500)
+    _guard_models(monkeypatch, handler)
+    monkeypatch.setattr(SEC, "vetted_ips", lambda host, scope="public": ["93.184.216.34"])
+    hdr = {"X-Desk": str(did)}
+    assert app_client.post(f"/api/desks/{did}/providers", json={"preset": "openrouter", "api_key": "sk-or-own-5555-6666"}).status_code == 200
+    assert app_client.post(f"/api/desks/{did}/providers", json={"preset": "anthropic", "api_key": "sk-ant-own-7777-8888"}).status_code == 200
+    A.store.add_connector(did, "camera", "Door", {"source": "rtsp://cam.local/1", "journal": "on", "journal_every_s": 30})
+    A.store.add_connector(did, "whatsapp", "wa", {"phone_number_id": "1", "token": "t"})
+    conf = A.store.desk(did).get("config") or {}
+    conf["notify"] = {"channel": "whatsapp", "to": "+447700900123"}
+    A.store.update_desk(did, config=conf)
+    monkeypatch.setattr(type(V.DETECTOR), "available", property(lambda self: False))
+    d = app_client.get("/api/usage", headers=hdr).get_json()
+    keys = {k["name"]: k for k in d["byo"]}
+    assert set(keys) == {"openrouter", "anthropic"} and keys["openrouter"]["key_hint"] == "…6666"
+    assert keys["anthropic"]["provider_view"] is None and keys["anthropic"]["provider_note"].startswith("Usage not available from")
+    assert keys["openrouter"]["today"] == {"requests": 0, "tokens_in": 0, "tokens_out": 0, "cost_usd": None, "cost_unreported": 0}
+    t0 = time.time()
+    while time.time() - t0 < 5 and not (keys["openrouter"]["provider_view"] or {}).get("seen_at"):
+        time.sleep(0.05)
+        keys = {k["name"]: k for k in app_client.get("/api/usage", headers=hdr).get_json()["byo"]}
+    assert keys["openrouter"]["provider_view"]["usage_monthly"] == 1.23 and key_reads == ["Bearer sk-or-own-5555-6666"]
+    cam, = d["cameras"]
+    assert (cam["name"], cam["detector"], cam["journal"], cam["journal_every_s"], cam["alert_on_motion"]) == ("Door", "vlm", True, 30, False)
+    rule, = d["rules"]
+    assert rule["channels"] == ["whatsapp"] and rule["alerts_on_whatsapp"] is True and rule["held_today"] == 0
+
+
+def test_rate_limits_answer_in_the_limit_shape(app_client, monkeypatch):
+    """Spec §4.5: the per-address limiters keep their purpose (abuse) and answer like a usage limit: error
+    rate_limited, the message, retry_after_s and Retry-After."""
+    from atlas import secure as SEC
+    import atlas.desk.app as A
+    monkeypatch.setattr(A, "_RL_HOOK", SEC.RateLimiter(1, 60))
+    app_client.post("/hook/no-such-token", json={})
+    r = app_client.post("/hook/no-such-token", json={})
+    b = r.get_json()
+    assert r.status_code == 429 and b["error"] == "rate_limited" and b["message"] and 1 <= b["retry_after_s"] <= 60
+    assert r.headers["Retry-After"] == str(b["retry_after_s"])

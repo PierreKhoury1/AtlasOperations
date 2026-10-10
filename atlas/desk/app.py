@@ -494,17 +494,25 @@ def _client_ip() -> str:
     return peer
 
 
+def _rate_limited(limiter: Any, key: str, message: str) -> Response:
+    """A per-address limiter's 429 (abuse, not usage): the same shape as a usage limit's (usage spec §4.5), so every
+    page shows the message and when to try again."""
+    ra = max(1, int(-(-limiter.retry_after(key) // 1)))
+    return Response(json.dumps({"error": "rate_limited", "message": message, "retry_after_s": ra}), 429,
+                    mimetype="application/json", headers={"Retry-After": str(ra)})
+
+
 @app.before_request
 def _rate_limits():
     ip = _client_ip()
     p = request.path
     if p.startswith("/hook/") and not _RL_HOOK.allow(f"{p}:{ip}"):
-        return Response(json.dumps({"error": "rate limited"}), 429, mimetype="application/json")
+        return _rate_limited(_RL_HOOK, f"{p}:{ip}", "Too many requests to this hook from one address.")
     if ((request.method == "POST" and p in ("/login", "/signup", "/desk/login", "/login/verify"))
             or (request.method == "PATCH" and p == "/api/me")) and not _RL_AUTH.allow(ip):
-        return Response(json.dumps({"error": "too many attempts - wait a few minutes"}), 429, mimetype="application/json")
+        return _rate_limited(_RL_AUTH, ip, "Too many sign-in attempts from this address: wait a few minutes.")
     if request.method == "POST" and p.startswith("/api/design/") and (p.endswith("/say") or p.endswith("/study")) and not _RL_MODEL.allow(ip):
-        return Response(json.dumps({"error": "rate limited - slow down a little"}), 429, mimetype="application/json")
+        return _rate_limited(_RL_MODEL, ip, "Too many design messages from this address in a minute.")
     return None
 
 
@@ -1378,8 +1386,8 @@ def api_stats():
     tin, tout = int(s.get("tokens_in") or 0), int(s.get("tokens_out") or 0)
     # the one model-cost figure Home and the workspace both show, with the same words: this desk's tokens, all time,
     # priced at paid-model rates ($5 in / $25 out per million, in GBP). An estimate, not a bill - runs on free models cost
-    # nothing, and the runs do not record which tier they used - so "at paid rates" always leads the line; the provider's
-    # own total for the whole API key lives in Desk setup.
+    # nothing, and the runs do not record which tier they used - so "at paid rates" always leads the line; what the
+    # provider reported for each request is on the Usage page (usage spec §5.5).
     tier, tok = str(desk.get("tier") or "free"), tin + tout
     compact = f"{tok / 1e6:.1f}M" if tok >= 1_000_000 else f"{tok / 1e3:.1f}K" if tok >= 1000 else str(tok)
     gbp = round((tin * 5 + tout * 25) / 1e6 * 0.78, 2)
@@ -1396,7 +1404,7 @@ def api_stats():
                            + (" This desk runs on free models, which cost nothing; the runs do not record which tier they used."
                               if tier == "free" else "")
                            + (" Demo mode: the agents are scripted and their token counts are simulated." if _mode() == "demo" else "")
-                           + " The provider's own total for your API key is in Desk setup.")}
+                           + " Provider-reported costs are on the Usage page.")}
     try:
         s["cases"] = C.counts(store, desk["id"])
     except Exception:
@@ -2129,6 +2137,203 @@ def _spend_blocked() -> str:
     """Non-empty when paid models on Atlas's account are refused: L13, the house's paid cap for this UTC month
     (USAGE_HOUSE_PAID_USD_MONTH, else SPEND_CAP_USD, else $10). Free-model work is never blocked by it."""
     return U.house_paid_blocked()
+
+
+# ---------------------------------------------------------------------------- usage: the page and its API (usage spec §5, §6)
+def _usage_who() -> tuple[int, bool]:
+    """Whose usage a request reads, and whether the caller has the operator view (spec §5.4): the signed-in account
+    (owner 0 in open test mode, where the operator view is open too). ?owner=<id> reads another account: operator
+    only, 403 for anyone else."""
+    u = current_user()
+    operator = OPEN or U.is_operator(u)
+    owner = int(u["id"]) if u else 0
+    raw = request.args.get("owner")
+    if raw not in (None, ""):
+        if not operator:
+            abort(Response(json.dumps({"error": "operator_only", "message": "Only the operator can read another "
+                                                                            "account's usage."}), 403, mimetype="application/json"))
+        try:
+            owner = int(raw)
+        except ValueError:
+            abort(Response(json.dumps({"error": "bad_owner"}), 400, mimetype="application/json"))
+    return owner, operator
+
+
+def _usage_desks(owner: int) -> list[dict[str, Any]]:
+    """The owner's desks, with what the page needs from each: its name, its connectors, whether it can send SMS."""
+    out = []
+    for d in store.desks_for(owner):
+        cons = store.connectors(d["id"])
+        name = ((d.get("config") or {}).get("business") or {}).get("name") or d["name"]
+        out.append({"id": int(d["id"]), "name": str(name), "desk": d, "cons": cons,
+                    "sms": any(c["kind"] == "twilio" for c in cons)})
+    return out
+
+
+def _usage_desk_filter(desks: list[dict[str, Any]]) -> int | None:
+    """?desk=<id>: one of the owner's desks (404 otherwise); none = all desks."""
+    raw = request.args.get("desk")
+    if raw in (None, "", "0", "all"):
+        return None
+    try:
+        did = int(raw)
+    except ValueError:
+        did = -1
+    if not any(d["id"] == did for d in desks):
+        abort(Response(json.dumps({"error": "no_such_desk"}), 404, mimetype="application/json"))
+    return did
+
+
+def _usage_cameras(owner: int, desks: list[dict[str, Any]], desk_id: int | None) -> list[dict[str, Any]]:
+    """Each camera's AI work as the page shows it (spec §1.5, §1.7): local detector or AI counts, the last tick's
+    state (paced, paused), the pacing gaps that make the day's allowance last until 00:00 UTC, and the journal's own
+    cadence beside them."""
+    from .. import journal as JR
+    out: list[dict[str, Any]] = []
+    cams = [(d, c) for d in desks if not desk_id or d["id"] == desk_id for c in d["cons"] if c["kind"] == "camera"]
+    if not cams:
+        return out
+    local = bool(V.DETECTOR.available)
+    scope = U.desk_scope(owner)
+    gap1 = U.pace_gap(owner, per_action=1, scope=scope)
+    gap2 = U.pace_gap(owner, per_action=2, scope=scope)
+    jobs: dict[int, list[dict[str, Any]]] = {}
+    for d, c in cams:
+        conf = c.get("config") or {}
+        jc, rule = JR.config(conf), V.rule_config(conf)
+        seen = scheduler.last_seen(d["id"], c["name"]) or {}
+        js = jobs.setdefault(d["id"], store.jobs(d["id"]))
+        job = next((j for j in js if j["kind"] == "camera_watch" and (j["task"] or "").find(f'"connector": "{c["name"]}"') >= 0), None)
+        jgap = gap2 if jc["verify"] else gap1
+        backend = str(seen.get("backend") or "")
+        out.append({"desk_id": d["id"], "desk": d["name"], "name": c["name"], "watching": bool(job and job.get("enabled")),
+                    "detector": "local" if local else "vlm",
+                    "detect": backend if backend in ("paced", "paused", "error") else ("ok" if seen else ""),
+                    "detect_status": str(seen.get("detect_status") or ""),
+                    "detect_gap_s": round(gap1) if not local and gap1 else None,
+                    "journal": jc["on"], "journal_every_s": jc["every_s"],
+                    "journal_status": str(seen.get("journal_status") or "") if jc["on"] else "",
+                    "journal_gap_s": round(jgap) if jc["on"] and jgap > jc["min_gap_s"] else None,
+                    "alert_on_motion": bool(rule.get("alert_on_motion")), "last_tick": seen.get("ts")})
+    return out
+
+
+def _usage_byo(owner: int, desks: list[dict[str, Any]], desk_id: int | None, now: float) -> list[dict[str, Any]]:
+    """The owner's own model keys (spec §2 rule 4): today's requests on each as the ledger counted them, and for an
+    OpenRouter key the provider's own figures for it, read with the owner's key while serving this request (at most
+    every 5 minutes per key)."""
+    from ..providers import provider_id
+    out: list[dict[str, Any]] = []
+    for d in desks:
+        if desk_id and d["id"] != desk_id:
+            continue
+        byo = _desk_byo(d["desk"])
+        for name, blob in (byo.get("entries") or {}).items():
+            e = SEC.decrypt_config(blob)
+            pub = _byo_public(name, e)
+            pid = "anthropic" if e.get("type") == "anthropic" else provider_id(str(e.get("base_url") or ""))
+            view = U.byo_key_view(f"byo:{d['id']}:{name}", str(e.get("api_key") or "")) if pid == "openrouter" else None
+            lt = pub.get("last_test") or {}
+            out.append({"desk_id": d["id"], "desk": d["name"], "name": name, "label": pub["label"], "provider": pid,
+                        "key_hint": pub["key_hint"], "default": byo.get("default") == name,
+                        "last_test": {"ok": bool(lt.get("ok")), "ts": lt.get("ts")} if lt else None,
+                        "today": U.byo_today(owner, d["id"], pid, now), "provider_view": view,
+                        "provider_note": "" if pid == "openrouter" else
+                        f"Usage not available from {pub['label']}; Atlas counts tokens from each response."})
+    return out
+
+
+def _usage_rules(owner: int, desks: list[dict[str, Any]], held_today: int) -> list[dict[str, Any]]:
+    """W1, the reply window (spec §1.3): which of the owner's channels it holds, how many sends it held today, and
+    whether camera alerts go by WhatsApp (they reach the owner only inside the window too)."""
+    from .. import alerts as AL
+    chans: set[str] = set()
+    for d in desks:
+        for c in d["cons"]:
+            if c["kind"] == "whatsapp" or (c["kind"] == "twilio" and (c.get("config") or {}).get("whatsapp_from")):
+                chans.add("whatsapp")
+            elif c["kind"] == "instagram":
+                chans.add("instagram")
+    return [{"id": "reply_window", "label": "WhatsApp and Instagram: 24-hour reply window",
+             "channels": sorted(chans), "held_today": held_today,
+             "alerts_on_whatsapp": any(AL.config(d["desk"])["channel"] == "whatsapp" for d in desks),
+             "basis": U.basis(owner, "reply_window")}]
+
+
+@app.get("/desk/usage")
+def desk_usage_page():
+    """The Usage page (spec §6): limits with their bars and resets, where today's requests went, recent usage, keys."""
+    if not current_user() and not OPEN:
+        return redirect(_login_next())
+    return send_from_directory(STATIC_DIR, "usage.html")
+
+
+@app.get("/api/usage")
+def api_usage():
+    """GET /api/usage[?desk=<id>] (spec §5.1): the caller's own limits, today's usage, the last 30 days and the newest
+    events. ?owner=<id> is the operator's."""
+    owner, operator = _usage_who()
+    desks = _usage_desks(owner)
+    did = _usage_desk_filter(desks)
+    now = time.time()
+    data = U.page(owner, desks=[{"id": d["id"], "name": d["name"], "sms": d["sms"]} for d in desks], desk_id=did,
+                  operator=operator, now=now)
+    cams = _usage_cameras(owner, desks, did)
+    paced = {(c["desk_id"], c["name"]): c for c in cams}
+    for t in data["today"]:                            # a camera's rows carry its pacing (one note every N s)
+        c = paced.get((t.get("desk_id"), t.get("camera")))
+        gap = c and (c["journal_gap_s"] if t["surface"] == "camera.note" else c["detect_gap_s"] if t["surface"] == "camera.detect" else None)
+        if gap:
+            t["paced"] = {c["name"]: gap}
+    data.update(mode=_mode(), open=OPEN, desk_filter=did, desks=[{"id": d["id"], "name": d["name"]} for d in desks],
+                cameras=cams, byo=_usage_byo(owner, desks, did, now),
+                rules=_usage_rules(owner, desks, data["sends"]["held_today"]))
+    resp = jsonify(data)
+    resp.headers["Cache-Control"] = "no-store"
+    return resp
+
+
+@app.get("/api/usage/events")
+def api_usage_events():
+    """GET /api/usage/events?cursor=&desk=&status=all|refused|error&limit=50 (spec §5.2): grouped, newest first."""
+    owner, _operator = _usage_who()
+    desks = _usage_desks(owner)
+    did = _usage_desk_filter(desks)
+    return jsonify(U.events_page(owner, cursor=request.args.get("cursor") or "", desk_id=did,
+                                 status=request.args.get("status") or "all", limit=request.args.get("limit", type=int) or 50,
+                                 names={d["id"]: d["name"] for d in desks}))
+
+
+@app.get("/api/usage/detail")
+def api_usage_detail():
+    """One Recent usage line, expanded: ?ids=<item ids> (as /api/usage/events gives them) -> each request with its
+    model, status, HTTP status, tokens and cost, and where to see the run."""
+    owner, _operator = _usage_who()
+    ids = [x for x in str(request.args.get("ids") or "").split(",") if x.strip()][:20]
+    rows = U.event_detail(owner, ids)
+    links = []
+    if any(r["kind"] != "refusal" and (r["surface"] in U.RUN_START_SURFACES or r["surface"] in ("run.step", "browse.step",
+                                                                                                  "hermes.inner")) for r in rows):
+        links.append({"href": "/desk#runs", "label": "Run history"})        # a run that started: its result is there
+    if any(str(r["surface"]).startswith("design.") for r in rows):
+        links.append({"href": "/desk/workspace", "label": "Atlas workspace"})
+    return jsonify({"rows": rows, "links": links})
+
+
+@app.get("/api/usage/brief")
+def api_usage_brief():
+    """GET /api/usage/brief (spec §5.3): the rail badge's state and the limit nearest to full."""
+    u = current_user()
+    return jsonify(U.brief_view(int(u["id"]) if u else 0))
+
+
+@app.get("/api/usage/house")
+def api_usage_house():
+    """GET /api/usage/house (spec §5.4), operator only (USAGE_OPERATOR_EMAILS, or open test mode)."""
+    _owner, operator = _usage_who()
+    if not operator:
+        return jsonify({"error": "operator_only", "message": "The house view is for the operator."}), 403
+    return jsonify(U.house_view())
 
 
 _last_prune = [0.0]

@@ -94,6 +94,15 @@ class RateLimiter:
                     self._hits.pop(k, None)
             return True
 
+    def retry_after(self, key: str) -> float:
+        """Seconds until `key` may act again: 0 when it may now (for the 429's Retry-After)."""
+        now = time.time()
+        with self._lock:
+            live = [t for t in self._hits.get(key, []) if t >= now - self.window]
+            if len(live) < self.limit:
+                return 0.0
+            return max(0.0, live[len(live) - self.limit] + self.window - now)
+
 
 # ---------------------------------------------------------------------------- SSRF guard
 _ALLOW_PRIVATE = os.environ.get("ALLOW_PRIVATE_FETCH", "").strip() in ("1", "true", "yes")

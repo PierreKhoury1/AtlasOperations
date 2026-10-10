@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Atlas Desk · Usage</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<script>try{var t=localStorage.getItem("atlas-theme");document.documentElement.dataset.theme=t||"light"}catch(e){document.documentElement.dataset.theme="light"}</script>
+<script>try{if(localStorage.getItem("sh-mini")==="1")document.documentElement.classList.add("sh-mini-pre")}catch(e){}</script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/desk/static/usage.css">
+<link rel="stylesheet" href="/desk/static/shell.css">
+<script src="/desk/static/shell.js" defer></script>
+</head>
+<body>
+<!-- Atlas Usage (usage spec §6): what this account used against each real limit, where today's requests went, the
+     ledger's recent rows and the model keys. Numbers come from /api/usage; nothing on this page is computed for show. -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></symbol>
+  <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v6"/><path d="M12 7.5h.01"/></symbol>
+  <symbol id="i-moon" viewBox="0 0 24 24"><path d="M20 14.5A8 8 0 0 1 9.5 4 8 8 0 1 0 20 14.5z"/></symbol>
+  <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></symbol>
+  <symbol id="i-chev" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></symbol>
+  <symbol id="i-alert" viewBox="0 0 24 24"><path d="M12 3 2 20h20L12 3Z"/><path d="M12 10v4"/><path d="M12 17h.01"/></symbol>
+  <symbol id="i-key" viewBox="0 0 24 24"><circle cx="8" cy="15" r="4"/><path d="m11 12 9-9M17 6l3 3M14 9l2 2"/></symbol>
+  <symbol id="i-gauge" viewBox="0 0 24 24"><path d="M4 15a8 8 0 1 1 16 0"/><path d="m12 15 4-5"/></symbol>
+  <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></symbol>
+</svg>
+
+<main class="up" id="up" aria-busy="true">
+  <header class="uh">
+    <div class="uh-t">
+      <h1><svg class="i" aria-hidden="true"><use href="#i-gauge"/></svg>Usage</h1>
+      <p class="sub" id="u-sub">Reading the ledger…</p>
+    </div>
+    <div class="uh-c">
+      <label class="sel" for="u-desk"><span class="vh">Desk</span><select id="u-desk"><option value="">All desks</option></select></label>
+      <span class="upd mono" id="u-upd" aria-live="polite"></span>
+      <button class="btn sm ic" id="u-refresh" type="button" title="Refresh now (R)" aria-label="Refresh now"><svg class="i"><use href="#i-refresh"/></svg></button>
+      <button class="btn sm ic" id="u-theme" type="button" title="Dark theme" aria-label="Switch to the dark theme"><svg class="i"><use href="#i-moon"/></svg></button>
+    </div>
+  </header>
+
+  <div class="errbar hide" id="u-err" role="alert"><svg class="i"><use href="#i-alert"/></svg><span id="u-err-t">Could not load usage.</span><button class="btn sm" id="u-retry" type="button">Retry</button></div>
+  <div class="banners" id="u-banners"></div>
+
+  <div class="kpis" id="u-stats" aria-label="Today at a glance">
+    <div class="kpi sk"><span class="l">AI requests</span><span class="v">&nbsp;</span><span class="s">&nbsp;</span></div>
+    <div class="kpi sk"><span class="l">On its own</span><span class="v">&nbsp;</span><span class="s">&nbsp;</span></div>
+    <div class="kpi sk"><span class="l">Paid</span><span class="v">&nbsp;</span><span class="s">&nbsp;</span></div>
+    <div class="kpi sk"><span class="l">Runs now</span><span class="v">&nbsp;</span><span class="s">&nbsp;</span></div>
+    <div class="kpi sk"><span class="l">Sent today</span><span class="v">&nbsp;</span><span class="s">&nbsp;</span></div>
+    <div class="kpi sk"><span class="l">Files</span><span class="v">&nbsp;</span><span class="s">&nbsp;</span></div>
+  </div>
+
+  <div class="cols">
+    <div class="col">
+      <section class="panel" id="p-limits" aria-labelledby="h-limits">
+        <div class="ph"><h2 id="h-limits">Limits</h2><span class="meta" id="lim-meta"></span></div>
+        <div id="u-limits"><div class="skrows"><i></i><i></i><i></i><i></i><i></i></div></div>
+      </section>
+      <section class="panel" id="p-today" aria-labelledby="h-today">
+        <div class="ph"><h2 id="h-today">Where today's requests went</h2><span class="meta mono" id="today-meta">UTC day</span></div>
+        <div id="u-today"><div class="skrows"><i></i><i></i><i></i></div></div>
+        <div id="u-cams"></div>
+      </section>
+    </div>
+    <div class="col">
+      <section class="panel" id="p-recent" aria-labelledby="h-recent">
+        <div class="ph"><h2 id="h-recent">Recent usage</h2>
+          <div class="utabs" role="tablist" aria-label="Filter recent usage">
+            <button type="button" role="tab" class="on" aria-selected="true" data-tab="all">All</button>
+            <button type="button" role="tab" aria-selected="false" data-tab="refused">Refused<span class="n mono" id="n-refused"></span></button>
+            <button type="button" role="tab" aria-selected="false" data-tab="error">Errors<span class="n mono" id="n-error"></span></button>
+          </div>
+        </div>
+        <div id="u-events"><div class="skrows"><i></i><i></i><i></i><i></i></div></div>
+        <div class="pf"><span class="meta mono" id="ev-meta"></span><button class="btn sm hide" id="u-older" type="button">Older<svg class="i"><use href="#i-arrow"/></svg></button></div>
+      </section>
+      <section class="panel" id="p-keys" aria-labelledby="h-keys">
+        <div class="ph"><h2 id="h-keys">Model keys</h2><a class="link" href="/desk#setup">Add your own key</a></div>
+        <div id="u-keys"></div>
+      </section>
+      <details class="panel what" id="p-what">
+        <summary class="ph"><svg class="i chev" aria-hidden="true"><use href="#i-chev"/></svg><h2>What counts</h2><span class="meta">how each number is made</span></summary>
+        <div id="u-what"></div>
+      </details>
+    </div>
+  </div>
+</main>
+<div class="pop" id="u-pop" role="tooltip" hidden></div>
+<script src="/desk/static/usage.js" defer></script>
+</body>
+</html>
