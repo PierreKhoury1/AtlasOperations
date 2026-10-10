@@ -24,6 +24,7 @@ import math
 import re
 import time
 import unicodedata
+from datetime import datetime, timezone
 from typing import Any, Iterable
 
 SWITCH_TO_PAID = "Switch to the paid model"
@@ -467,13 +468,55 @@ def camera_answer(question: str = "", evidence: list[dict[str, Any]] | None = No
 
 
 _ENDED = {"error": "with an error", "failed": "with an error", "cancelled": "cancelled", "interrupted": "interrupted",
-          "lost": "without finishing"}
+          "lost": "without finishing", "limit": "at a usage limit"}
+# the usage limits the owner's own model key lifts for the desk's agents (usage spec §2: Atlas limits requests on the
+# owner's key with none of L1, L2, L3, L5, L10, L11, L13, and an unpriced paid model is refused only on Atlas's key).
+# The per-run cap (L4, run_requests) holds on any key, and an unknown limit is not claimed: neither gets the key step.
+_KEY_LIFTS = frozenset({"ai_requests_day", "ai_requests_auto_day", "paid_usd_month", "runs_at_once", "pool_free_day",
+                        "pool_free_min", "house_paid_usd_month", "paid_unpriced"})
+_MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
 
 
-def run_done(status: str = "done", task: str = "", pending: int = 0, camera_names: list[str] | None = None) -> list[dict[str, Any]]:
-    """After a job run (run mode, never "say"): the approvals it left, a follow-up job, or a retry when it failed."""
+def _again_at(limit: dict[str, Any], now: float) -> str:
+    """When a run stopped at `limit` can go again, from the limit's own retry or reset time: "00:00 UTC", plus
+    " on 1 Nov" when that is over a day away. Rounded up to the minute, so a retry 40 s away never reads "after 14:05"
+    at 14:05:10. "" when nothing resets the limit (the per-run cap), the time is unreadable or it has passed."""
+    try:
+        when = float(limit.get("retry_at") or limit.get("resets_at") or 0)
+        if not math.isfinite(when) or when <= now:
+            return ""
+        when = math.ceil(when / 60) * 60
+        d = datetime.fromtimestamp(when, timezone.utc)
+    except (TypeError, ValueError, OverflowError, OSError):
+        return ""
+    return f"{d:%H:%M} UTC" + (f" on {d.day} {_MONTHS[d.month - 1]}" if when - now > 86400 else "")
+
+
+def _stopped(task: str, limit: Any, now: float) -> list[dict[str, Any]]:
+    """A run stopped at a usage limit (usage spec §5.5), from the limit's 429 body (`limit`, None when unknown): what
+    was used, the job again once the limit resets ("Run it again" alone when nothing resets, as at the per-run cap),
+    and the owner's own model key when it lifts that limit, else the run log. The detail is the first sentence of the
+    limit's message, its numbers, without the relative reset time after it, which would go stale on screen."""
+    lim = limit if isinstance(limit, dict) else {}
+    first = _text(lim.get("message")).split(". ", 1)[0].rstrip(".")
+    at = _again_at(lim, now)
+    key = _text(lim.get("limit_id")) in _KEY_LIFTS
+    return [_st("See what was used", first or "Every limit, what used it and when it resets", "open", href="/desk/usage"),
+            _st(f"Run it again after {at}" if at else "Run it again", f"The last run ended {_ENDED['limit']}; prefilled, {_DEPLOY}",
+                "job", job=task),
+            _st("Use your own model key", "The desk's agents then run and bill on your own account instead of Atlas's", "open",
+                href="/desk#setup") if key else
+            _st("See how far it got", "Every step, tool call and result on the Runs page", "open", href="/desk#runs")]
+
+
+def run_done(status: str = "done", task: str = "", pending: int = 0, camera_names: list[str] | None = None, *,
+             limit: dict[str, Any] | None = None, now: float | None = None) -> list[dict[str, Any]]:
+    """After a job run (run mode, never "say"): the approvals it left, a follow-up job, or a retry when it failed. A
+    run stopped at a usage limit (status "limit") gets that limit's own three steps; `limit` is its 429 body."""
     st = _text(status).lower() or "done"
     t = _fit(_text(task), LIMITS["job"], _ELL)
+    if st == "limit":
+        return _stopped(t, limit, time.time() if now is None else now)
     cams = _names(camera_names)
     appr = _approvals(pending) if pending > 0 else None
     look = _st("Ask what the cameras saw meanwhile", "A recap of the last hour from the camera journal", "ask",

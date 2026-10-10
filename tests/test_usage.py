@@ -9,8 +9,9 @@ seed, the browser's limit stop and the site's live run. Background work (§1.6, 
 T36, T39's case part, a camera alert's refused run, the watch job and a detection's run at a limit, the sensor hook,
 the scheduler's deferred starts and the Leads list's note. Channels and uploads (§1.3 W1, L7, L9, §3.4, §4.6
 S14-S15): T19, T38, Twilio's segments and price, the approved actions _dispatch counts and the storage
-reconcile. No model is called and nothing is sent: provider responses are stubbed (httpx.MockTransport), the key
-endpoint and the channel APIs too."""
+reconcile. Next steps (§5.5): T39's next-steps part, the steps of a run stopped at a limit and /api/next for one. No
+model is called and nothing is sent: provider responses are stubbed (httpx.MockTransport), the key endpoint and the
+channel APIs too."""
 import ast
 import io
 import json
@@ -2278,6 +2279,81 @@ def test_case_run_stopped_at_a_limit(U, store, monkeypatch):
     assert d["waiting_for"] == "atlas" and reset <= d["wake_at"] <= reset + 300
     assert C.tick(store)["woke"] == 0 and runs == [capped["id"], daily["id"]]     # neither is re-run now
     assert (C.lane(c), C.lane(d)) == ("you", "atlas")
+
+
+def _limit_steps(limit, now, task="Chase the Jones invoice"):
+    from atlas import nextsteps as NS
+    steps = NS.normalise([], NS.run_done("limit", task, 2, ["till"], limit=limit, now=now), allow=NS.RUN)
+    assert len(steps) == 3 and all(s["action"] in NS.RUN for s in steps)
+    assert steps[0]["href"] == usage.USAGE_URL and steps[1]["action"] == "job" and steps[1]["job"] == task
+    assert steps[1]["detail"] == "The last run ended at a usage limit; prefilled, runs only when you press Deploy"
+    return steps
+
+
+def test_run_done_at_a_limit_gives_the_limits_own_steps(U, monkeypatch):
+    """T39's next-steps part (spec §5.5): a run stopped at a limit gets three RUN steps of its own (never a say step,
+    never the approvals or camera steps of a failed run): what was used on /desk/usage, the job again after the limit's
+    UTC reset (rounded up to the minute; "Run it again" alone when nothing resets it, as at the per-run cap, or the
+    reset has passed), and the owner's own key on /desk#setup only for a limit that key lifts. The numbers come from
+    the limit's own message, without its relative reset time."""
+    from atlas import nextsteps as NS
+    now = _ts(2026, 10, 9, 14, 5, 10)
+    _clock(monkeypatch, now)
+    assert NS._ENDED["limit"] == "at a usage limit" and NS._KEY_LIFTS <= set(U.LIMITS) and "run_requests" not in NS._KEY_LIFTS
+    bare = NS.normalise([], NS.run_done("limit"), allow=NS.RUN)          # the spec's T39 call, as it stands
+    assert len(bare) == 3 and "/desk/usage" in [s.get("href") for s in bare] and not any(s["action"] == "say" for s in bare)
+    day = _limit_steps(U._limit("ai_requests_day", used=250, limit=250, now=now).body(), now)
+    assert [s["label"] for s in day] == ["See what was used", "Run it again after 00:00 UTC", "Use your own model key"]
+    assert day[0]["detail"] == "AI requests today: 250 of 250 used" and day[2] == {
+        "label": "Use your own model key", "detail": "The desk's agents then run and bill on your own account instead of Atlas's",
+        "action": "open", "href": "/desk#setup"}
+    month = _limit_steps(U._limit("paid_usd_month", used=2.5, limit=2.5, now=now).body(), now)
+    assert month[1]["label"] == "Run it again after 00:00 UTC on 1 Nov"
+    assert month[0]["detail"] == "Paid models this month: $2.50 of $2.50 used"
+    minute = U._limit("pool_free_min", used=20, limit=20, now=now, retry_at=now + 40)    # 14:05:50: not "after 14:05"
+    assert _limit_steps(minute.body(), now)[1]["label"] == "Run it again after 14:06 UTC"
+    assert _limit_steps(minute.body(), now + 120)[1]["label"] == "Run it again"         # that time has passed
+    cap = _limit_steps(U._limit("run_requests", used=120, limit=120, now=now).body(), now)
+    assert [s["label"] for s in cap] == ["See what was used", "Run it again", "See how far it got"]
+    assert cap[0]["detail"] == "This run made 120 AI requests (per-run cap 120)" and cap[2]["href"] == "/desk#runs"
+    unknown = _limit_steps(None, now, task="")                       # no body (the client said "limit"): nothing claimed
+    assert [s["label"] for s in unknown] == ["See what was used", "Run it again", "See how far it got"]
+    assert unknown[0]["detail"] == "Every limit, what used it and when it resets" and unknown[1]["job"] == ""
+    for junk in ({"retry_at": "soon", "message": 5, "limit_id": ["ai_requests_day"]}, {"resets_at": float("nan")},
+                 {"retry_at": float("inf")}, {"resets_at": 1e300}, {"retry_at": True}, "ai_requests_day"):
+        assert [s["label"] for s in _limit_steps(junk, now)][1:] == ["Run it again", "See how far it got"], junk
+    assert NS.run_done("error", "x", 0, [], limit=U._limit("ai_requests_day", used=1, limit=1, now=now).body())[0][
+        "label"] == "Run the job again"                              # a limit only changes a run stopped at one
+
+
+def test_api_next_after_a_run_stopped_at_a_limit(app_client, monkeypatch):
+    """T39's next-steps part, end to end (spec §5.5): a desk run that stops at the owner's daily allowance halfway
+    is stored with status `limit`; POST /api/next for it answers the limit's three steps, built from the run's own
+    done event (the reset, the numbers, the owner's key). A client's word alone ("limit", no run id) gets the steps
+    that claim nothing."""
+    A, did, owner = _signed_in(app_client, monkeypatch, "usage-next-limit@example.com")
+    monkeypatch.setattr(usage.CFG, "demo", "enforce")                   # the scripted desk counts like a house one
+    hdr = {"X-Desk": str(did)}
+    task = "Draft a two-line hello to a new customer"
+    usage.set_override(owner, "ai_requests_day", 2)                     # the start's headroom, then a stop halfway
+    try:
+        rid = app_client.post("/api/runs", json={"task": task}, headers=hdr).get_json()["run_id"]
+        assert _wait_runs(A, did)
+    finally:
+        usage.clear_override(owner, "ai_requests_day")
+    run = A.store.run(rid)
+    assert run["status"] == "limit" and run["summary"].startswith("Stopped: AI requests today: 2 of 2 used."), run
+    assert A._run_limit(rid)["limit_id"] == "ai_requests_day"
+    r = app_client.post("/api/next", json={"context": "run_done", "run_id": rid, "status": "done", "task": "ignored"},
+                        headers=hdr).get_json()
+    assert r["next"] == [
+        {"label": "See what was used", "detail": "AI requests today: 2 of 2 used", "action": "open", "href": "/desk/usage"},
+        {"label": "Run it again after 00:00 UTC", "detail": "The last run ended at a usage limit; prefilled, runs only when "
+         "you press Deploy", "action": "job", "job": task},
+        {"label": "Use your own model key", "detail": "The desk's agents then run and bill on your own account instead of "
+         "Atlas's", "action": "open", "href": "/desk#setup"}]
+    said = app_client.post("/api/next", json={"context": "run_done", "status": "limit", "task": task}, headers=hdr).get_json()
+    assert [s["label"] for s in said["next"]] == ["See what was used", "Run it again", "See how far it got"]
 
 
 def test_a_refused_alert_run_is_one_event_per_window(U, store, monkeypatch, tmp_path):

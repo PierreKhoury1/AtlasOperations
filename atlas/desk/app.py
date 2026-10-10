@@ -5469,11 +5469,23 @@ def api_design_connect(sid):
     return jsonify(_connect_plan(store.desk(s.desk_id), s.blueprint or {}))
 
 
+def _run_limit(run_id: str) -> dict[str, Any] | None:
+    """The usage limit that stopped a run: its done event's 429 body (usage spec §5.5), while this server still holds
+    the run's events (an hour after it ends). The stored run keeps only its "Stopped: ..." summary, so then None."""
+    h = _runs.get(run_id)
+    for e in reversed(list((h or {}).get("events") or [])):
+        if e.get("kind") == "done":
+            lim = (e.get("data") or {}).get("limit")
+            return lim if isinstance(lim, dict) else None
+    return None
+
+
 @app.post("/api/next")
 def api_next():
     """Three ways to proceed in run mode, from the desk's real state (no model call): {context: "desk_open"} when a desk
     opens, {context: "run_done", run_id?, status?, task?} after a job. Never a "say" step: typed text is a job here.
-    A run_id must be a run of this desk (else 404); once it has finished, its stored status and task win."""
+    A run_id must be a run of this desk (else 404); once it has finished, its stored status and task win. A run stopped
+    at a usage limit gets that limit's steps, from the run's own done event; a limit is never taken from the body."""
     desk = need_desk()
     d = request.get_json(silent=True)
     d = d if isinstance(d, dict) else {}
@@ -5492,6 +5504,7 @@ def api_next():
     else:
         rid = str(d.get("run_id") or "").strip()
         status, task = str(d.get("status") or ""), str(d.get("task") or "")
+        limit = None
         if rid:
             row, live = store.run(rid), _runs.get(rid)
             if row and row.get("desk_id") == desk["id"]:
@@ -5501,7 +5514,8 @@ def api_next():
                 task = live.get("task") or task
             else:
                 return jsonify({"error": "no such run on this desk"}), 404
-        steps = NS.run_done(status or "done", task, pending, cams)
+            limit = _run_limit(rid)                                # used only when the run stopped at a limit
+        steps = NS.run_done(status or "done", task, pending, cams, limit=limit)
     return jsonify({"context": ctx, "next": NS.normalise([], steps, allow=NS.RUN), "pending": pending})
 
 
