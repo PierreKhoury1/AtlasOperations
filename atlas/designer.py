@@ -985,7 +985,10 @@ def blueprint_to_desk(bp: dict[str, Any], tier: str = "free", name: str = "") ->
     stands in when the blueprint names no business, so no prompt ever carries the template's placeholder name."""
     bp = normalise(bp) or {}
     biz_in = bp.get("business") or {}
-    base = json.loads(json.dumps(T.CONSULTANCY["business"]))
+    # the profile is only what the owner told Atlas, never another business's: it used to start from the consultancy
+    # template's, so a physio clinic reached every agent as a "boutique consultancy" with day rates and retainers
+    base = {"name": "", "tagline": "", "description": "", "services": [], "target_clients": "", "tone": "", "currency": "GBP",
+            "pricing_notes": "", "extra_context": ""}
     b = {**base, **biz_in}
     if not str(biz_in.get("name") or "").strip():
         b["name"] = name.strip() or "this business"

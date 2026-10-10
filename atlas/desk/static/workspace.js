@@ -26,8 +26,13 @@ const W = {
   camPoll: null, evSince: 0,
   manual: new Map(), pan: {x: 0, y: 0}, uz: 1,
   addedCams: new Map(),
-  modeSel: 'job', apCount: null, apOldest: '', runs: [], desks: [], notes24: null, lastNoteTs: 0, cost: null, activeRuns: 0,
+  modeSel: 'job', apCount: null, apOldest: '', runs: null, desks: [], notes24: null, lastNoteTs: 0, cost: null, activeRuns: 0,
+  // what has answered at least once on a built desk: until then its figures read "–" and no line claims anything from it
+  // (W.apCount stays null until /actions answers, W.runs until /runs does)
+  ld: {cams: false, last: false, stats: false},
 };
+// a built desk's own sources: true once the page has read them (a draft has nothing to wait for)
+const known = k => !(W.deskId || W.pin) || W.ld[k];
 
 // every API call names this page's desk (X-Desk), so another tab switching desk never changes what this page reads
 const deskOf = () => W.deskId || W.pin || 0;
@@ -90,6 +95,7 @@ async function boot(){
   const q = new URLSearchParams(location.search);
   W.pin = parseInt(q.get('desk') || '', 10) || 0;
   W.phase = $('#wk').dataset.phase || 'meet';                              // 'load' for a desk link: never a flash of the new-desk copy
+  if (W.phase === 'load') { $('#say').placeholder = 'Loading the desk…'; setState('loading'); }
   try { W.exClosed = new Set(JSON.parse(localStorage.getItem('ws_ex_closed') || '[]')); } catch (_) { W.exClosed = new Set(); }
   applySize();
   applyTeamView();
@@ -99,6 +105,9 @@ async function boot(){
   if (window.ResizeObserver) new ResizeObserver(() => { cancelAnimationFrame(W.sizeRaf); W.sizeRaf = requestAnimationFrame(applySize); }).observe($('#wk'));
   else window.addEventListener('resize', applySize);
   setTimeout(() => { if (!document.getElementById('sh-rail')) document.body.classList.add('no-frame'); }, 3000);
+  // the mono font arriving widens every chip: the fitted cards count theirs again
+  const refitChips = () => { document.querySelectorAll('#nodes .node:not(.ghost)').forEach(fitChips); if (W.phase === 'meet' && W.tpls) renderOthers(); };   // (and the list under the steps)
+  if (document.fonts) { document.fonts.ready.then(refitChips); document.fonts.addEventListener && document.fonts.addEventListener('loadingdone', refitChips); }
   renderAll();
   const cfg = await api('/config') || {};
   W.mode = cfg.mode || 'demo'; W.liveReason = cfg.live_reason || '';
@@ -108,7 +117,7 @@ async function boot(){
     return openBuiltDesk(cfg);
   }
   if (W.pin) { W.pin = 0; history.replaceState(null, '', '/desk/workspace'); }
-  W.phase = 'meet'; setPhaseAttr(); setPhase('brief');
+  W.phase = 'meet'; setPhaseAttr(); setPhase('brief'); setState('ready');
   // a draft in progress in this tab survives a reload; ?new=1 starts a fresh one
   const fresh = q.has('new') && !q.has('resume');
   let sid = ''; try { sid = fresh ? '' : (localStorage.getItem('ws_sid') || ''); } catch (_) {}
@@ -147,9 +156,10 @@ async function resumeDesign(s, from){
 }
 async function openBuiltDesk(cfg){
   W.deskId = W.pin = cfg.desk.id; W.deskName = (cfg.business && cfg.business.name) || cfg.desk.business_name || cfg.desk.name;
+  W.policy = (cfg.business && cfg.business.policy) || null;              // the desk's outbound rules, as configured
   W.tier = cfg.desk.tier || 'free'; W.workflows = cfg.workflows || []; W.template = cfg.template || ''; W.cfgAgents = cfg.agents || [];
   loadView(); loadAgentsFromConfig(W.cfgAgents);
-  W.phase = 'run'; setPhaseAttr(); setPhase('ready');            // straight into the console: no empty team, no transition
+  W.phase = 'run'; setPhaseAttr(); setPhase('loading');          // straight into the console: no empty team, no transition ("ready" once the last run is known)
   setDeskStatus(); renderAll();
   layoutAll(false); spawnAll(true);
   const cams = await api('/cameras') || {};
@@ -206,8 +216,13 @@ function addMsg(role, text, cls, noTime, ts){
   if (role === 'a') { d.classList.add('md'); d.innerHTML = md(text); } else d.textContent = text;
   $('#msgs').appendChild(d); msgsEnd(); return d;
 }
-// the conversation shows its newest line; Atlas's opening status, alone and taller than the panel, shows from its heading
-function msgsEnd(){ const m = $('#msgs'); const lone = W.greetEl && W.greetEl.isConnected && !W.greetDone && !NX.box && m.children.length === 1; m.scrollTop = lone ? 0 : 1e9; }
+// the conversation shows its newest line; Atlas's opening status (with its next steps under it), alone and taller than
+// the panel, shows from its heading: the desk's name and time first, the rest of the steps a scroll away
+function msgsEnd(){
+  const m = $('#msgs'), kids = [...m.children].filter(c => c !== NX.box);
+  const lone = W.greetEl && W.greetEl.isConnected && !W.greetDone && kids.length === 1 && kids[0] === W.greetEl;
+  m.scrollTop = lone ? 0 : 1e9;
+}
 function sayKey(ev){ if (ev.key === 'Enter' && !ev.shiftKey) { ev.preventDefault(); send(); } }
 
 /* ------------------------------------------------------------------ next steps (start)
@@ -254,7 +269,7 @@ function setNext(list, anchor, head){
     rows.append(b);
   });
   $('#msgs').appendChild(box);
-  NX.box = box; NX.steps = steps;
+  NX.box = box; NX.steps = steps; NX.head = head;                          // Ctrl K lists them under the same heading
   fitNext(); msgsBottom();
   return box;
 }
@@ -486,6 +501,7 @@ function layoutAll(animate, freshIds){
   if (fitMode()) return layoutFit(animate, freshIds);
   const c = $('#canvas'); const H0 = c.clientHeight || 600, W0 = c.clientWidth || 900;
   if (c.classList.contains('fit')) { c.classList.remove('fit', 'f-f0', 'f-c1', 'f-mini'); W.fit = null; applyView(); }
+  document.querySelectorAll('#nodes .node:not(.ghost)').forEach(fitChips);   // wrapped chips here: before the rows are measured
   const tops = W.order.filter(id => { const a = W.agents.get(id); return a && (a.reports_to === 'atlas' || !W.agents.has(a.reports_to)); });
   const blocks = tops.map(id => ({id, members: (W.agents.get(id).members || []).filter(m => W.agents.has(m))}));
   const tallest = [...document.querySelectorAll('#nodes .node:not(.atlas):not(.ghost)')].reduce((m, n) => Math.max(m, n.offsetHeight || 0), 0);
@@ -581,6 +597,7 @@ function layoutFit(animate, freshIds){
   });
   ensureAtlasNode();
   $('#empty').classList.toggle('hide', W.agents.size > 0);
+  document.querySelectorAll('#nodes .node:not(.ghost)').forEach(fitChips);   // the card width (and density) may have changed
   redrawEdges(); if (animate) animateEdges(900);
   if (W.run && W.run.active) { const busy = [...W.run.inst.values()].filter(s => !s.ghost && ['writing', 'thinking'].includes(s.status)).pop(); if (busy) fitFollow(busy.base); }
 }
@@ -606,14 +623,48 @@ function ensureAtlasNode(){
     el.innerHTML = `<div class="nm"><span class="nt">Atlas</span><span class="tag lead">lead</span></div><div class="role">Orchestrator · briefs, reviews, approves</div><div class="asg"></div><div class="chips"></div><div class="out"></div><div class="ft"></div>`;
     el.style.transition = 'none'; el.style.transform = `translate(${p.x}px,${p.y}px)`; $('#nodes').appendChild(el); void el.offsetWidth; el.style.transition = ''; }
   else el.style.transform = `translate(${p.x}px,${p.y}px)`;
-  const ac = atlasCfg(); if (ac && !W.run) el.querySelector('.chips').innerHTML = (ac.tools || []).filter(t => !['list_agents', 'finish'].includes(t)).slice(0, 4).map(t => `<span>${esc(t)}</span>`).join('');
+  const ac = atlasCfg(); if (ac && !W.run) setChips(el, (ac.tools || []).filter(t => !['list_agents', 'finish'].includes(t)));
 }
+// an agent between runs: "ready" on a built desk once its last run is known (no state at all before that), "drafted" in a draft
+const idleWord = () => W.phase === 'run' ? (W.ld.last ? 'ready' : '') : 'drafted';
+function idleTags(){ document.querySelectorAll('.node:not(.ghost):not(.atlas) .nm .tag').forEach(t => { if (!/\b(lead|rel|busy|err|done)\b/.test(t.className)) t.textContent = idleWord(); }); }
 function renderNodeInner(el, a){
   const isLead = (a.members || []).length > 0; const member = a.reports_to && a.reports_to !== 'atlas' && W.agents.has(a.reports_to);
   el.style.setProperty('--c', a.color);
-  el.querySelector('.nm').innerHTML = `<span class="nt">${esc(a.name)}</span><span class="tag ${isLead ? 'lead rel' : member ? 'rel' : ''}">${isLead ? 'sub-team lead' : (member ? '↳ ' + esc((W.agents.get(a.reports_to) || {}).name || a.reports_to) : (W.phase === 'run' ? 'ready' : 'drafted'))}</span>`;
+  el.querySelector('.nm').innerHTML = `<span class="nt">${esc(a.name)}</span><span class="tag ${isLead ? 'lead rel' : member ? 'rel' : ''}">${isLead ? 'sub-team lead' : (member ? '↳ ' + esc((W.agents.get(a.reports_to) || {}).name || a.reports_to) : idleWord())}</span>`;
   el.querySelector('.role').textContent = a.role; el.title = a.name + (a.role ? ' · ' + a.role : '');
-  if (!el.querySelector('.chips').children.length || !W.run) el.querySelector('.chips').innerHTML = (a.tools || []).slice(0, 5).map(t => `<span>${esc(t)}</span>`).join('');
+  if (!el.querySelector('.chips').children.length || !W.run) setChips(el, a.tools || []);
+}
+// a card's tool chips: the names it has (or, during a run, the tools it called, newest last, each once). The Overview's
+// fitted cards keep one row: the chips that fit whole, then "+N" for the rest (named in its tooltip); never a cut chip.
+function setChips(el, names){
+  const c = el && el.querySelector('.chips'); if (!c) return;
+  c.dataset.run = ''; c.innerHTML = [...new Set(names)].map(t => `<span>${esc(t)}</span>`).join(''); fitChips(el);
+}
+function addChip(el, name, cls){                                          // a run's tool call (or its approval / policy mark)
+  const c = el && el.querySelector('.chips'); if (!c) return;
+  if (c.dataset.run !== '1') { c.dataset.run = '1'; c.innerHTML = ''; }
+  c.querySelectorAll('.hot').forEach(x => x.classList.remove('hot'));
+  [...c.children].forEach(x => { if (x.classList.contains('more') || x.textContent === name) x.remove(); });   // each once, at its newest place
+  const sp = document.createElement('span'); sp.className = cls || 'hot'; sp.textContent = name; c.appendChild(sp);
+  while (c.children.length > 7) c.firstChild.remove();
+  fitChips(el);
+}
+function fitChips(el){
+  const c = el && el.querySelector('.chips'); if (!c) return;
+  c.querySelectorAll('.more').forEach(x => x.remove());
+  const kids = [...c.children]; kids.forEach(x => { x.style.display = ''; }); if (!kids.length) return;
+  const more = () => { const m = document.createElement('span'); m.className = 'more'; c.appendChild(m); return m; };
+  const hideFrom = (k, m) => { kids.slice(k).forEach(x => { x.style.display = 'none'; }); m.textContent = '+' + (kids.length - k); m.title = kids.slice(k).map(x => x.textContent).join(', '); };
+  if (!el.closest('#canvas.fit')) {                                       // the Team tab's chart wraps its chips: the first five, then +N
+    if (c.dataset.run !== '1' && kids.length > 5) hideFrom(el.classList.contains('atlas') ? 4 : 5, more());
+    return;
+  }
+  const room = c.clientWidth; if (!room) return;                         // c1 / mini cards show no chips
+  const end = x => x.offsetLeft - c.offsetLeft + x.offsetWidth;
+  if (end(kids[kids.length - 1]) <= room) return;
+  const m = more(); let k = kids.length;
+  do { k--; hideFrom(k, m); } while (k > 0 && end(m) > room);
 }
 async function spawn(id, fromId, instant){
   const a = W.agents.get(id); if (!a) return; if (nodeEl(id)) { renderNodeInner(nodeEl(id), a); return; }
@@ -753,9 +804,10 @@ async function buildDesk(){
   if (!r || r.error) { $('#build-hint').textContent = (r && r.error) || 'build failed'; $('#build-btn').disabled = false; return; }
   retireNext();                                                            // the draft's offers end with the draft
   W.deskId = W.pin = r.desk.id; W.deskName = r.desk.business_name || r.desk.name; saveView();
+  W.runs = []; W.ld.cams = W.ld.last = true;                               // a desk built this second: no run yet, the draft's cameras
   history.replaceState(null, '', '/desk/workspace?desk=' + W.deskId);      // a reload now opens this desk, not a new conversation
   try { localStorage.removeItem('ws_sid'); } catch (_) {}
-  const cfg = await api('/config'); if (cfg && cfg.desk && cfg.desk.id === W.deskId) { W.cfgAgents = cfg.agents || []; W.workflows = cfg.workflows || []; W.template = cfg.template || ''; W.tier = cfg.desk.tier || W.tier;
+  const cfg = await api('/config'); if (cfg && cfg.desk && cfg.desk.id === W.deskId) { W.cfgAgents = cfg.agents || []; W.workflows = cfg.workflows || []; W.template = cfg.template || ''; W.tier = cfg.desk.tier || W.tier; W.policy = (cfg.business && cfg.business.policy) || null;
     const byId = new Map(W.cfgAgents.map(a => [a.id, a])); W.agents.forEach(a => { const c = byId.get(a.id); if (c) { a.engine = c.engine || a.engine; a.engine_note = c.engine_note || ''; a.tools = (c.tools || a.tools).filter(t => !['delegate', 'list_agents', 'finish'].includes(t)); } }); }
   (r.cameras || []).forEach(c => { const k = W.cams.get(c.name); if (k) { k.id = c.id; k.journal = c.journal; k.st = 'waiting'; k.watching = true; renderCamTile(k); } });
   const camLine = (r.cameras || []).length ? ` ${plural(r.cameras.length, 'camera')} starting: each writes its journal once its frames arrive.` : '';
@@ -769,11 +821,11 @@ async function buildDesk(){
   loadNext({context: 'desk_open'}, built);
 }
 function enterRunMode(){
-  W.phase = 'run'; setPhaseAttr(); setPhase('ready');
+  W.phase = 'run'; setPhaseAttr(); setPhase(W.ld.last ? 'ready' : 'loading'); if (!W.busy) setState('ready');
   $('#chat-foot').classList.add('hide'); $('#build-btn').classList.add('hide'); $('#newjob-btn').classList.remove('hide');
   $('#as-modes').classList.remove('hide');
   $('#job').placeholder = W.cams.size ? 'Give the team a job, e.g. a safety summary of the last 24 hours' : 'Give the team a job, e.g. a reply to an enquiry, a report, a list to chase';
-  document.querySelectorAll('.node .nm .tag').forEach(t => { if (!t.classList.contains('lead') && !t.textContent.startsWith('↳')) t.textContent = 'ready'; });
+  idleTags();
   setDeskStatus(); renderWorkflows(); renderRunPanel();
   loadApprovals(); loadRuns(); pollHealth(); pollStats(); loadGaps(); renderAll();
   clearInterval(W.statsT); W.statsT = setInterval(() => { if (!document.hidden) pollStats(); }, 15000);
@@ -787,6 +839,7 @@ async function deploy(task, mode, echoed){
   const r = await api('/runs', {method: 'POST', body: {task, mode: mode || 'auto'}});
   if (!r || r.error) return toast((r && (r.message || r.error)) || 'could not start');
   $('#job').value = ''; $('#deploy-btn').classList.remove('cue');
+  W.openRunId = null; W.autoRun = true;                                    // the Result opens on this run once it finishes
   retireNext();                                                            // offers made for an earlier reply no longer apply
   if (!echoed) addMsg('u', task);
   addMsg('s', `run ${r.run_id} started`, 'assign');
@@ -848,10 +901,14 @@ function feed(e){
 }
 // Activity shows whole rows: a stack too short for every line stops at the last row that fits, never half a row
 function snapAct(){
-  const a = $('#act-panel'), log = $('#feed'); a.style.maxHeight = '';
-  if (a.parentElement !== $('#right') || !log.children.length) return;
-  const h = log.clientHeight, cut = h % 28;                              // rows are 28 px with their rule
-  if (cut > 1 && h > 28) a.style.maxHeight = (a.offsetHeight - cut) + 'px';
+  const a = $('#act-panel'), log = $('#feed');
+  const end = log.scrollTop + log.clientHeight >= log.scrollHeight - 2;   // showing the newest line: it stays shown
+  a.style.maxHeight = '';
+  if (a.parentElement === $('#right') && log.children.length) {
+    const h = log.clientHeight, cut = h % 28;                            // rows are 28 px with their rule
+    if (cut > 1 && h > 28) a.style.maxHeight = (a.offsetHeight - cut) + 'px';
+  }
+  if (end) log.scrollTop = log.scrollHeight;                             // re-pinned after the resize: whole rows top to bottom
 }
 function runFailed(status, summary){ return /error|fail|cancel/.test(status || '') || /^ERROR from /.test(summary || ''); }
 function onRunEvent(e){
@@ -865,11 +922,11 @@ function onRunEvent(e){
     const s = instState(e); const el = elFor(s);
     if (e.kind === 'agent_start') { s.status = 'thinking'; s.assignment = e.data.assignment || ''; s.text = ''; if (el) { el.classList.add('busy'); el.classList.remove('done', 'error'); el.querySelector('.asg').textContent = s.assignment; el.querySelector('.out').textContent = ''; setTag(el, 'thinking', 'busy'); } edgeState(s.inst === 'atlas' ? null : (s.ghost ? s.inst : s.base), 'on'); if (live && s.base !== 'atlas' && s.assignment) addMsg('s', `→ ${agentName(s.base)}: ${s.assignment.slice(0, 90)}`, 'assign'); }
     else if (e.kind === 'log') { s.turns++; s.status = 'thinking'; const tx = String(e.text || ''); if (tx && !tx.startsWith('(')) { s.text = tx.slice(-6000); if (el) el.querySelector('.out').textContent = s.text.slice(-420); } if (el) { setTag(el, `turn ${s.turns}`, 'busy'); el.querySelector('.ft').textContent = plural(s.turns, 'turn'); } }
-    else if (e.kind === 'tool') { const name = String(e.text || '').split(/[( →:]/)[0]; s.chips.push(name); if (el) { const c = el.querySelector('.chips'); c.querySelectorAll('.hot').forEach(x => x.classList.remove('hot')); const sp = document.createElement('span'); sp.className = 'hot'; sp.textContent = name; c.appendChild(sp); while (c.children.length > 7) c.firstChild.remove(); setTag(el, name, 'busy'); } if (name === 'delegate') { const m = String(e.text).match(/delegate → ([\w#-]+)/); if (m) edgeState(m[1], 'on'); } }
+    else if (e.kind === 'tool') { const name = String(e.text || '').split(/[( →:]/)[0]; s.chips.push(name); if (el) { addChip(el, name); setTag(el, name, 'busy'); } if (name === 'delegate') { const m = String(e.text).match(/delegate → ([\w#-]+)/); if (m) edgeState(m[1], 'on'); } }
     else if (e.kind === 'agent_end') { s.status = 'done'; if (el) { el.classList.remove('busy'); el.classList.add('done'); setTag(el, 'done', 'done'); } edgeState(s.ghost ? s.inst : s.base, 'done'); }
     else if (e.kind === 'error') { s.status = 'error'; s.err = String(e.text || '').slice(0, 300); if (el) { el.classList.remove('busy'); el.classList.add('error'); setTag(el, 'error', 'err'); } }
-    else if (e.kind === 'approval') { if (el) { const sp = document.createElement('span'); sp.className = 'hot'; sp.textContent = 'waiting: ' + (e.data.action_kind || 'approval'); el.querySelector('.chips').appendChild(sp); } if (live) { loadApprovals(); shellRefresh(); toast('Waiting for your approval: ' + (e.data.action_kind || 'an outbound action')); tutHook('approval'); } }
-    else if (e.kind === 'policy') { if (el) { const sp = document.createElement('span'); sp.className = 'hot'; sp.textContent = 'policy'; el.querySelector('.chips').appendChild(sp); } }
+    else if (e.kind === 'approval') { if (el) addChip(el, 'waiting: ' + (e.data.action_kind || 'approval')); if (live) { loadApprovals(); shellRefresh(); toast('Waiting for your approval: ' + (e.data.action_kind || 'an outbound action')); tutHook('approval'); } }
+    else if (e.kind === 'policy') { if (el) addChip(el, 'policy'); }
     if (live && W.sel === s.base && ['agent_start', 'agent_end', 'tool', 'log'].includes(e.kind)) inspect(s.base);
     if (live && ['agent_start', 'agent_end', 'tool', 'log', 'error', 'approval'].includes(e.kind)) { renderRunPanel(); renderTeamTable(); renderExplorer(); renderKpis(); headSoon(); chartSoon(); }
   }
@@ -908,34 +965,40 @@ function shellRefresh(){ if (window.shell && shell.refresh) try { shell.refresh(
 function edgeState(id, state){ if (!id) return; const p = $('#edges').querySelector(`[data-e="${id}"]`); if (!p) return; p.classList.remove('draw', 'on', 'done'); p.classList.add(state); }
 // after a reload: the last run comes back (steps, output, its activity), and a run still going keeps streaming
 async function loadLatestRun(){
-  await loadRuns();
-  const last = (W.runs || [])[0]; if (!last || (W.run && W.run.id === last.id)) return;
-  const r = await api('/runs/' + encodeURIComponent(last.id)); if (!r || r.error || (W.run && W.run.active)) return;
-  W.run = {id: r.id, inst: new Map(), active: !!r.active, tin: r.tokens_in || 0, tout: r.tokens_out || 0, task: r.task || '', started: (r.created || 0) * 1000, ended: 0, status: r.active ? '' : (r.status || ''), summary: r.summary || ''};
-  W.replay = true;
-  try { (r.events || []).forEach(ev => onRunEvent({...ev, run_id: r.id})); } finally { W.replay = false; }
-  if (!r.active && !W.run.ended) {                           // stored runs: their end is the last event (or the row's own status)
-    const evs = r.events || []; W.run.ended = evs.length ? evs[evs.length - 1].ts * 1000 : W.run.started;
-    W.run.status = runFailed(r.status, r.summary) ? (r.status !== 'done' ? r.status : 'error') : (r.status || 'done');
-    showSummary(r.id, W.run.status, r.summary || '');
+  try {
+    await loadRuns();
+    const last = (W.runs || [])[0]; if (!last || (W.run && W.run.id === last.id)) return;
+    const r = await api('/runs/' + encodeURIComponent(last.id)); if (!r || r.error || (W.run && W.run.active)) return;
+    W.run = {id: r.id, inst: new Map(), active: !!r.active, tin: r.tokens_in || 0, tout: r.tokens_out || 0, task: r.task || '', started: (r.created || 0) * 1000, ended: 0, status: r.active ? '' : (r.status || ''), summary: r.summary || ''};
+    W.replay = true;
+    try { (r.events || []).forEach(ev => onRunEvent({...ev, run_id: r.id})); } finally { W.replay = false; }
+    if (!r.active && !W.run.ended) {                         // stored runs: their end is the last event (or the row's own status)
+      const evs = r.events || []; W.run.ended = evs.length ? evs[evs.length - 1].ts * 1000 : W.run.started;
+      W.run.status = runFailed(r.status, r.summary) ? (r.status !== 'done' ? r.status : 'error') : (r.status || 'done');
+    }
+    if (!r.active) showResult(r, true);                      // the Runs tab's Result opens on it (with its saved documents)
+    if (r.active) { $('#run-cancel').classList.remove('hide'); $('#tab-n-runs').classList.remove('hide'); attachStream(r.id, 'now'); }
+  } finally {                                                // from here the page knows whether a run is going: states can be claimed
+    W.ld.last = true;
+    setPhase(W.run && W.run.active ? 'running' : 'ready');
+    idleTags(); renderRunPanel(); renderAll(); renderRunPill();
+    const d0 = (W.runs || []).find(x => !x.active); if (d0 && !W.openRunId) openRun(d0.id, true);   // the newest run is still going
   }
-  if (r.active) { setPhase('running'); $('#run-cancel').classList.remove('hide'); $('#tab-n-runs').classList.remove('hide'); attachStream(r.id, 'now'); }
-  renderRunPanel(); renderAll(); renderRunPill();
 }
 
 /* ------------------------------------------------------------------ approvals */
 const AP_KIND = {email: 'email', whatsapp: 'WhatsApp', sms: 'SMS', api_call: 'API call', instagram: 'Instagram'};
 async function loadApprovals(){
   if (!W.deskId) return;
-  const list = await api('/actions?status=pending') || [];
-  const rows = Array.isArray(list) ? list : [];
+  const rows = await api('/actions?status=pending');
+  if (!Array.isArray(rows)) return;                                      // unread: the queue keeps saying it is being read, never "none"
   const n = rows.length;
   W.apCount = n; W.apList = rows; W.apOldest = n ? ago(Math.min(...rows.map(a => a.created || Date.now() / 1000))) : '';
   $('#ap-n2').textContent = n; $('#ap-n2').className = 'n' + (n ? ' hot' : '');
   $('#tab-n-ap').textContent = n; $('#tab-n-ap').className = 'n' + (n ? ' hot' : '');
   $('#ap-oldest').textContent = n ? 'oldest ' + W.apOldest : '';
   $('#h-queue').innerHTML = n ? `<i class="dot d-warn"></i><span>${n} waiting</span>` : '<i class="dot d-ok"></i><span>none waiting</span>';
-  renderApprovals(); renderKpis(); renderHead(); renderExplorer();
+  renderApprovals(); renderKpis(); renderHead(); renderExplorer(); renderFlow();   // (the approval gate there counts the queue)
 }
 function renderApprovals(){
   const rows = W.apList || [], n = rows.length;
@@ -952,7 +1015,8 @@ function renderApprovals(){
       ${a.reason ? `<div class="hold"><b>Held</b> ${esc(a.reason)}</div>` : ''}
       <div class="edit"><input id="ap-s-${a.id}" value="${esc(a.subject || '')}" placeholder="Subject"><textarea id="ap-b-${a.id}">${esc(a.body || '')}</textarea><input class="note" id="ap-n-${a.id}" placeholder="Note for the agents (optional): it goes with Approve or Reject"></div>
       <div class="ap-acts"><button class="btn sm ok" onclick="decide(${a.id},'approved')"><svg class="i"><use href="#i-check"/></svg>Approve &amp; send</button><button class="btn sm" onclick="apEdit(${a.id})"><svg class="i"><use href="#i-edit"/></svg>Edit</button><button class="btn sm d" onclick="decide(${a.id},'rejected')"><svg class="i"><use href="#i-x"/></svg>Reject</button></div></div>`; };
-  $('#ap-body').innerHTML = n ? show.map(card).join('') + (n > show.length ? `<div class="ap-more"><span>${plural(n - show.length, 'more message')} waiting</span><button class="link" onclick="showTab('approvals')">Open the queue ›</button></div>` : '')
+  $('#ap-body').innerHTML = W.apCount == null ? '<div class="none">Reading the approval queue…</div>'
+    : n ? show.map(card).join('') + (n > show.length ? `<div class="ap-more"><span>${plural(n - show.length, 'more message')} waiting</span><button class="link" onclick="showTab('approvals')">Open the queue ›</button></div>` : '')
     : '<div class="none">Nothing waiting. When an agent wants to send something, it lands here first.</div>';
 }
 function apEdit(id){ const el = document.getElementById('ap-' + id); if (!el) return; el.classList.toggle('editing'); if (el.classList.contains('editing')) $(`#ap-b-${id}`).focus(); }
@@ -1068,7 +1132,8 @@ function ingestCams(r){
     if (c.last_note && c.last_note.ts > lastNote) lastNote = c.last_note.ts;
     renderCamTile(k);
   }
-  W.lastNoteTs = lastNote;
+  W.lastNoteTs = Math.max(lastNote, Number(r.last_note_ts) || 0);       // the whole journal's newest note, whatever its age or camera
+  W.ld.cams = true;
   renderKpis(); renderHead(); renderExplorer(); renderCamSide(); stamp();
 }
 function renderCamTile(k){
@@ -1208,6 +1273,7 @@ async function loadMyDesks(){
   $('#desks-n').textContent = list.length;
   $('#desks-panel').classList.toggle('hide', !list.length);
   $('#other-panel').classList.toggle('hide', !!list.length);              // no desk yet: the ways in that skip the conversation
+  if (!list.length) { if (W.tpls) renderOthers(); else loadTemplates(); }
   const day = ts => ts ? new Date(ts * 1000).toLocaleDateString('en-GB', {day: 'numeric', month: 'short', year: 'numeric'}) : '';
   $('#mydesks').innerHTML = list.map(d => `<button onclick="openDesk(${d.id})"><span class="sw"></span><span><b>${esc(d.business_name || d.name)}</b><small>${esc((d.template || 'custom').replace(/_/g, ' '))} · ${esc(d.tier || 'free')} models · created ${esc(day(d.created))}</small></span><span class="c">#${d.id}</span><span></span><svg class="i i14 go"><use href="#i-chev"/></svg></button>`).join('');
 }
@@ -1217,6 +1283,7 @@ function closeGuide(){ $('#guide').classList.add('hide'); }
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape') {
     if (document.getElementById('sh-pal') || (e.target && e.target.closest && e.target.closest('#sh-pal'))) return;   // the frame's palette closes itself
+    if (document.querySelector('.sh-menu')) return;                       // so does its desk / account menu: one Escape, one thing closed
     if (!$('#guide').classList.contains('hide')) return closeGuide();
     if (!$('#namedlg').classList.contains('hide')) return closeDeskName();
     if (!$('#attach').classList.contains('hide')) return closeAttach();
@@ -1238,7 +1305,7 @@ async function setTier(tier){
   if (!W.sid || W.deskId) return toast(W.deskId ? 'This desk runs on ' + (W.tier === 'free' ? 'free' : 'paid') + ' models; change it in Desk setup' : 'Start a conversation first');
   const r = await api(`/design/${W.sid}/tier`, {method: 'POST', body: {tier}});
   if (!r || r.error) return toast((r && r.error) || 'could not switch');
-  W.tier = r.tier; setDeskStatus(); renderAll();
+  W.tier = r.tier; setDeskStatus(); renderAll(); toast(W.tier === 'free' ? 'Free models for this draft' : 'Paid models for this draft');
   addMsg('s', W.tier === 'free' ? 'switched to free models' : 'switched to paid models: Claude for design, a paid vision model for the cameras', 'assign');
   if (NX.box && Array.isArray(r.next) && !NX.steps.some(x => typeof x.run === 'function')) setNext(r.next, lastAtlas());   // re-checked: no paid step on paid models
   return true;
@@ -1359,8 +1426,10 @@ function atTab(k){
   $('#at-test').classList.toggle('hide', k === 'sample' && !AT.sample);
 }
 function atUploadLabel(){ const d = $('#at-drop'); d.classList.toggle('done', !!AT.uploaded); d.querySelector('b').textContent = AT.uploaded ? AT.uploadedName : 'Drop a video or image here'; d.querySelector('span').textContent = AT.uploaded ? 'uploaded · click to choose a different file' : 'or click to choose a file'; }
+// no frame yet: one slim line instead of a 16:9 black box, so Test and Attach stay in view on a short screen
 function atPreview(src, msg, bad){
   const pv = $('#at-pv'); pv.innerHTML = src ? `<img src="${esc(src)}" alt="" onerror="this.remove()">` : '<span>Test the source to see a frame from it.</span>';
+  pv.parentElement.classList.toggle('nopic', !src);
   const m = $('#at-msg'); m.textContent = msg || ''; m.className = 'pmsg' + (bad ? ' bad' : (src ? ' ok' : ''));
 }
 function atSource(){
@@ -1450,6 +1519,7 @@ function atLive(){ const n = AT.name; closeAttach(); if (n) openLive(n); }
 /* ------------------------------------------------------------------ console: header, stat strip, team table, run panel, tabs, explorer */
 const fmtDur = s => `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
 function agentState(id){
+  if (W.phase === 'run' && !W.ld.last && !(W.run && W.run.active)) return {cls: 'q', dot: '', label: '–', turns: ''};   // the last run is still being read: no state yet
   if (id === 'atlas') return W.run && W.run.active ? {cls: 'run', dot: 'd-run', label: 'Leading', turns: ''} : {cls: W.phase === 'run' ? 'ready' : 'q', dot: W.phase === 'run' ? 'd-ok' : 'd-q', label: W.phase === 'run' ? 'Ready' : 'Lead', turns: ''};
   if (W.run) { const st = [...W.run.inst.values()].filter(s => s.base === id); if (st.length) { const s = st[st.length - 1];
     const map = {writing: ['run', 'd-run', 'Writing'], thinking: ['run', 'd-think', 'Thinking'], done: ['ok', 'd-ok', 'Done'], error: ['err', 'd-err', 'Error'], idle: ['q', 'd-q', 'Queued']};
@@ -1473,22 +1543,24 @@ function renderHead(){
   let lead = '';
   if (W.phase === 'meet') lead = 'No draft yet. Nothing is built until you press <b>Build desk</b>.';
   else if (W.phase === 'design') lead = `Draft: Atlas + ${plural(n, 'specialist')}${cams.length ? ' · ' + plural(cams.length, 'camera') : ''}, not built yet. Build it when it looks right, or keep describing changes.`;
-  else if (W.phase === 'run') {
+  else if (W.phase === 'run') {                              // each part only once its source has answered: no "0 jobs" while loading
     const gaps = gapCount(), need = [];
     if (W.apCount) need.push(`${plural(W.apCount, 'approval')} waiting · oldest ${W.apOldest}`);
     if (gaps) need.push(`${plural(gaps, 'agent gap')} to fix`);
     const ap = W.apCount == null ? '' : need.length ? `<b class="warn">${esc(need.join(' · '))}.</b> ` : '<b class="ok">No approvals waiting.</b> ';
     const wk = workingCount();
-    const team = W.run && W.run.active ? `Atlas + ${plural(n, 'specialist')}, ${wk} working on ${esc(W.run.id)}` : `Atlas + ${plural(n, 'specialist')} ready`;
+    const team = W.run && W.run.active ? `Atlas + ${plural(n, 'specialist')}, ${wk} working on ${esc(W.run.id)}` : `Atlas + ${plural(n, 'specialist')}${W.ld.last ? ' ready' : ''}`;
     const live = cams.filter(c => c.st === 'live').length;
-    const camBit = cams.length ? ` · ${live} of ${plural(cams.length, 'camera')} live` : '';
-    const day = Date.now() / 1000 - 86400, jobs = (W.runs || []).filter(r => r.created > day).length;
-    lead = `${ap}${team}${camBit} · ${plural(jobs, 'job')} in 24 h.`;
+    const camBit = cams.length && known('cams') ? ` · ${live} of ${plural(cams.length, 'camera')} live` : '';
+    const day = Date.now() / 1000 - 86400, jobs = W.runs ? ` · ${plural(W.runs.filter(r => r.created > day).length, 'job')} in 24 h` : '';
+    lead = `${ap}${team}${camBit}${jobs}.`;
   }
   $('#ph-sum').innerHTML = lead || '&nbsp;'; $('#ph-sum').title = $('#ph-sum').textContent.trim();
-  $('#tab-n-team').textContent = n + 1; $('#team-n').textContent = n + 1;
+  const tn = W.phase === 'load' ? '' : n + 1;                 // a desk link before /config: no count yet (never "Team 1")
+  $('#tab-n-team').textContent = tn; $('#team-n').textContent = tn;
   renderSteps();
-  $('#tab-n-cams').textContent = W.cams.size; $('#cam-n').textContent = W.cams.size; $('#cam-n2').textContent = W.cams.size;
+  const cn = W.phase === 'load' || !known('cams') ? '' : W.cams.size;
+  $('#tab-n-cams').textContent = cn; $('#cam-n').textContent = cn; $('#cam-n2').textContent = cn;
   teamMeta();
   const live = cams.filter(c => c.st === 'live').length, watching = cams.filter(c => c.watching).length;
   $('#cam-meta').textContent = !cams.length ? '' : !W.deskId ? 'planned · each camera keeps a written journal once built' : (live ? `${live} live · newest frame and note per camera · UTC` : watching ? 'watching, waiting for frames · UTC' : 'not being watched · newest frame and note kept · UTC');
@@ -1499,7 +1571,7 @@ function renderHead(){
 // what the Team panel's header says: the Team tab's chart is arranged by hand; the Overview's is fitted, a click opens the brief
 function teamMeta(){
   const n = W.agents.size, ov = $('#team-panel').parentElement === $('#pane-overview'), chart = W.teamView === 'chart';
-  $('#team-meta').textContent = !n ? 'drafted here as you talk to Atlas' : chart && !ov ? 'drag cards to arrange · drag the background to pan · Ctrl + scroll to zoom'
+  $('#team-meta').textContent = W.phase === 'load' ? '' : !n ? (W.phase === 'run' ? 'Atlas only' : 'drafted here as you talk to Atlas') : chart && !ov ? 'drag cards to arrange · drag the background to pan · Ctrl + scroll to zoom'
     : `${W.phase === 'run' ? '' : 'draft · '}Atlas + ${plural(n, 'specialist')} · click a ${chart ? 'card' : 'row'} for the brief`;
 }
 // a draft's plan beyond its agents, as Atlas drafted it: workflows (who hands to whom, what starts them), the connections
@@ -1507,8 +1579,7 @@ function teamMeta(){
 function renderPlan(){
   const bp = W.phase === 'design' ? W.bp : null, el = $('#plan-panel');
   const wf = (bp && bp.workflows) || [], cx = (bp && bp.connectors) || [], pol = (bp && bp.policy) || {};
-  const rules = [pol.max_words ? `at most ${pol.max_words} words` : '', pol.no_money_figures ? 'no prices or money figures' : '',
-    (pol.banned_phrases || []).length ? 'never says ' + pol.banned_phrases.map(p => `"${p}"`).join(', ') : ''].filter(Boolean);
+  const rules = policyRules(pol);
   el.classList.toggle('hide', !(wf.length || cx.length || rules.length)); if (!bp) return;
   const col = (title, n, rows, none) => `<div class="pcol"><div class="gk">${esc(title)}${n != null ? ' · ' + n : ''}</div>${rows.length ? rows.join('') : `<div class="prow muted">${esc(none)}</div>`}</div>`;
   $('#plan-body').innerHTML =
@@ -1525,6 +1596,25 @@ function renderSteps(){
 }
 // no desk yet: the two ways in that skip the conversation, on Home
 function otherWay(k){ if (k === 'template' && window.shell && shell.go) return shell.go('/desk', 'showOnboardingForm'); location.href = '/desk'; }
+function useTemplate(id){ if (window.shell && shell.go) return shell.go('/desk', 'startTemplate:' + encodeURIComponent(id)); location.href = '/desk'; }   // Home's form, this desk chosen
+async function loadTemplates(){ const T = await api('/templates'); W.tpls = ((T && T.desks) || []).filter(t => t.id !== 'blank'); renderOthers(); }
+// a screen with the room lists the ready-made desks themselves (the server's catalogue: what each does, who it is for),
+// as many as fit under the steps, the rest behind "all N"; a short screen keeps the one line for them
+function renderOthers(){
+  const box = $('#others'), p = $('#other-panel'), pane = $('#pane-overview');
+  if (W.othersHtml == null) W.othersHtml = box.innerHTML;                  // the two short ways in, from the page
+  const t = W.tpls || [];
+  if (W.phase !== 'meet' || p.classList.contains('hide') || !t.length || isPhone()) { if (box.innerHTML !== W.othersHtml) box.innerHTML = W.othersHtml; $('#others-meta').textContent = 'on Home, without the conversation'; return; }
+  box.innerHTML = W.othersHtml;
+  const rowH = box.firstElementChild.offsetHeight || 50, bottom = p.getBoundingClientRect().bottom - pane.getBoundingClientRect().top + pane.scrollTop;
+  const room = pane.clientHeight - bottom + rowH;                         // the generic line's place and the space under the panel
+  const fit = Math.floor(room / rowH), k = fit >= t.length ? t.length : fit - 1;   // all of them, or as many as fit and "all N"
+  if (k < 2) { $('#others-meta').textContent = 'on Home, without the conversation'; return; }
+  const row = d => `<button class="tp" onclick="useTemplate(${jsa(d.id)})" title="${esc(d.tagline + (d.for ? ' · For ' + d.for : ''))}"><svg class="i"><use href="#i-grid"/></svg><span><b>${esc(d.label)}</b><small>${esc(d.tagline)}</small></span><span class="fr">${esc(d.for || '')}</span><svg class="i i14 go"><use href="#i-chev"/></svg></button>`;
+  const all = k < t.length ? `<button onclick="otherWay('template')"><svg class="i"><use href="#i-grid"/></svg><span><b>All ${t.length} ready-made desks</b><small>${esc(t.slice(k).map(d => d.label).join(', '))}</small></span><svg class="i i14 go"><use href="#i-chev"/></svg></button>` : '';
+  box.innerHTML = t.slice(0, k).map(row).join('') + all + box.lastElementChild.outerHTML;   // then Start from scratch
+  $('#others-meta').textContent = 'ready-made desks open a short form on Home';
+}
 function renderRunPill(){
   const local = W.run && W.run.active, n = Math.max(W.activeRuns || 0, local ? 1 : 0);
   const p = $('#run-pill'); p.className = 'pill' + (local ? ' live' : n ? ' ok' : '');
@@ -1539,20 +1629,27 @@ function renderKpis(){
   kpi('#k-agents', n, '', !n ? 'no team yet' : (W.run && W.run.active ? [`${wk} working now · Atlas + ${plural(nSpec, 'specialist')}`, `${wk} working now`] : [`Atlas + ${plural(nSpec, 'specialist')}`, `Atlas + ${nSpec}`]));
   const cams = [...W.cams.values()], live = cams.filter(c => c.st === 'live').length, watching = cams.filter(c => c.watching).length, fixes = cams.filter(c => c.problem).length;
   const lastF = cams.reduce((m, c) => Math.max(m, c.frameTs || 0), 0);
-  if (!cams.length) kpi('#k-cams', 0, '', 'none attached');
-  else kpi('#k-cams', live, `of ${cams.length}`, live === cams.length ? 'all being watched' : fixes ? `${plural(fixes, 'feed')} to fix` : !watching ? (lastF ? 'not watched · frame ' + fmtTs(lastF) : 'not being watched') : `${watching - live} waiting for frames`, live < cams.length ? 'warn' : 'ok');
-  kpi('#k-journal', W.notes24 == null ? (cams.length ? '–' : 0) : W.notes24, '', W.lastNoteTs ? ['last ' + fmtTs(W.lastNoteTs) + ' UTC', 'last ' + fmtTs(W.lastNoteTs)] : (cams.length ? 'no notes yet' : 'no cameras'));
-  kpi('#k-ap', W.apCount == null ? '–' : W.apCount, '', W.apCount ? 'oldest ' + W.apOldest : ['nothing outbound queued', 'none queued'], W.apCount ? 'warn' : '');
+  // a figure whose source has not answered yet is "–" with nothing under it: no "none attached" before /cameras answers
+  if (!known('cams')) { kpi('#k-cams', '–', '', ''); kpi('#k-journal', '–', '', ''); }
+  else {
+    if (!cams.length) kpi('#k-cams', 0, '', 'none attached');
+    else kpi('#k-cams', live, `of ${cams.length}`, live === cams.length ? 'all being watched' : fixes ? `${plural(fixes, 'feed')} to fix` : !watching ? (lastF ? 'not watched · frame ' + fmtTs(lastF) : 'not being watched') : `${watching - live} waiting for frames`, live < cams.length ? 'warn' : 'ok');
+    // the newest note in the desk's whole journal (any camera, any age), so an old journal never reads as "no notes yet"
+    const nt = W.lastNoteTs;
+    kpi('#k-journal', W.notes24 == null ? (cams.length ? '–' : 0) : W.notes24, '', nt ? ['last ' + fmtTs(nt) + ' UTC', 'last ' + fmtTs(nt)] : !cams.length ? 'no cameras' : W.deskId ? 'no notes yet' : 'planned');
+  }
+  kpi('#k-ap', W.apCount == null ? '–' : W.apCount, '', W.apCount == null ? '' : W.apCount ? 'oldest ' + W.apOldest : ['nothing outbound queued', 'none queued'], W.apCount ? 'warn' : '');
   // the server's figure in the server's words (the same on Home): a free-tier desk leads with "Free", the paid-rate
   // estimate under it; the qualifier leads the sub-line, so it never truncates away
   const c = W.cost;
   if (c) { kpi('#k-spend', c.value || '£' + Number(c.gbp || 0).toFixed(2), c.small || '', c.note || 'at paid rates'); $('#k-spend').title = c.title || '';
     const nt = c.note || 'at paid rates'; $('#k-spend .s').innerHTML = `<span class="t-l">${esc(nt)}</span><span class="t-s">${esc(nt.replace(/^at paid rates\s*/, 'paid rates '))}</span>`; }
-  else kpi('#k-spend', '–', '', 'not reported yet');
+  else kpi('#k-spend', '–', '', known('stats') ? 'not reported yet' : '');
   const lb = $('#k-spend .l'); if (lb && c && c.label) { lb.querySelector('.t-l').textContent = c.label; lb.querySelector('.t-s').textContent = c.short || c.label; }
 }
 function goalOf(id, a){ if (id !== 'atlas') return a.goal || ''; const ac = atlasCfg(); return (ac && ac.goal) || 'Briefs the team, runs leads in parallel, reviews every result, and holds anything outbound for your approval.'; }
 function renderTeamTable(){
+  if (W.phase === 'load') { $('#team-rows').innerHTML = ''; $('#team-empty').textContent = 'Reading the team…'; $('#team-empty').classList.remove('hide'); return; }   // never "no specialists yet" for a desk not read yet
   const rows = []; const ids = ['atlas', ...W.order];
   const ac = atlasCfg();
   for (const id of ids) {
@@ -1565,7 +1662,7 @@ function renderTeamTable(){
     const toolCell = tools == null ? '<span class="muted" style="font-size:11.5px">set at build</span>' : tools.length ? `<div class="tools-c">${tools.slice(0, 6).map((t, i) => `<span class="chip${i > 1 ? ' x' : ''}${i > 2 ? ' x3' : ''}">${esc(t)}</span>`).join('')}${more(2, 'more')}${more(3, 'more2')}${more(6, 'more3')}</div>` : '<span class="muted">none</span>';
     const orders = (id === 'atlas' ? ((ac && ac.instructions) || []) : (a.instructions || [])).slice(0, 3);
     rows.push(`<tr id="tr-${esc(id)}" class="${W.sel === id ? 'sel' : ''}" onclick="inspect(${jsa(id)})"><td><div class="obj" style="--c:${esc(a.color || '')}">${id === 'atlas' ? '<span class="amark"></span>' : '<span class="sw"></span>'}<div><b>${esc(a.name)}</b><span>${esc(a.role || '')}${member ? ' · reports to ' + esc(member) : ''}</span><small class="goal" title="${esc(goalOf(id, a))}">${esc(goalOf(id, a))}</small>${orders.length ? `<ul class="ord">${orders.map(x => `<li title="${esc(x)}">${esc(x)}</li>`).join('')}</ul>` : ''}</div></div></td>` +
-      `<td><div class="stc"><span class="st ${st.cls}"${st.tip ? ` title="${esc(st.tip)}"` : ''}><i class="dot ${st.dot}"></i>${esc(st.label)}</span>${gaps.length ? `<span class="gapc" title="${esc(gaps.join('; '))}">${gaps.length === 1 ? 'gap' : gaps.length + ' gaps'}</span>` : ''}</div></td><td><span class="eng" title="${esc(eng.title)}">${esc(eng.t)}</span></td><td class="num">${st.turns || '<span class="muted">–</span>'}</td>` +
+      `<td><div class="stc"><span class="st ${st.cls}"${st.tip ? ` title="${esc(st.tip)}"` : ''}>${st.dot ? `<i class="dot ${st.dot}"></i>` : ''}${esc(st.label)}</span>${gaps.length ? `<span class="gapc" title="${esc(gaps.join('; '))}">${gaps.length === 1 ? 'gap' : gaps.length + ' gaps'}</span>` : ''}</div></td><td><span class="eng" title="${esc(eng.title)}">${esc(eng.t)}</span></td><td class="num">${st.turns || '<span class="muted">–</span>'}</td>` +
       `<td>${toolCell}</td></tr>`);
   }
   $('#team-rows').innerHTML = rows.join(''); $('#team-empty').classList.toggle('hide', W.agents.size > 0);
@@ -1627,7 +1724,16 @@ function fitTeamNow(){
 }
 function renderRunPanel(){
   const body = $('#run-body'); const r = W.run;
-  if (!r) { $('#run-id').textContent = ''; $('#run-meta').textContent = ''; body.innerHTML = W.deskId ? nextSteps() : '<div class="none">Runs start once the desk is built.</div>'; return; }
+  if (!r) {                                                  // "no run yet" only once the runs have been read
+    $('#run-id').textContent = '';
+    $('#run-meta').textContent = W.deskId && W.ld.last && W.runs && !W.runs.length ? 'no run yet' : '';
+    body.innerHTML = !W.deskId ? '<div class="none">Runs start once the desk is built.</div>'
+      : !W.ld.last ? '<div class="none">Reading the last run…</div>'
+      : !W.runs ? '<div class="none">The runs could not be read. The page reads them again within a minute.</div>'
+      : W.runs.length ? `<div class="none">The last run could not be read. <button class="link" onclick="showTab('runs')">Open Runs ›</button></div>`
+      : noRunHtml();
+    return;
+  }
   const failed = !r.active && runFailed(r.status, r.summary);
   $('#run-id').textContent = r.id;
   $('#run-meta').innerHTML = r.active ? '<span class="tag running">running</span>' : failed ? '<span class="tag error">failed</span>' : `<span class="tag done">${esc(r.status || 'finished')}</span>`;
@@ -1642,24 +1748,37 @@ function renderRunPanel(){
     + `<div class="rmeta" id="run-rmeta"></div>`;
   // the desk's own record of what the run left behind (a failed run keeps it too when something was queued or saved)
   const ver = !r.active && /\n---\n/.test(r.summary || '') ? String(r.summary).split('---').pop().trim().replace(/^Verified by the desk \(not model-claimed\):\s*/i, '') : '';
+  // a finished run: what Atlas reported, in its words (the desk's own record follows; the whole result is under Runs)
+  const said = !r.active && !failed ? String(r.summary || '').split('\n---\n')[0].replace(/[*_`#>]+/g, '').replace(/\s+/g, ' ').trim() : '';
+  if (said) body.insertAdjacentHTML('beforeend', `<div class="run-res"><span class="gk">Atlas reported</span><p title="${esc(said.slice(0, 800))}">${esc(said.slice(0, 1200))}</p></div>`);
   if (ver) body.insertAdjacentHTML('beforeend', `<div class="run-sum${failed ? ' err' : ''}"><span class="gk">Verified by the desk, not claimed by the model</span>${esc(ver)} <button class="link" onclick="showTab('runs');openRun(${jsa(r.id)})">Read the ${failed ? 'error' : 'result'} ›</button></div>`);
+  // what the run saved, as it was saved (the first document; every one is under Runs › Result)
+  const doc = !r.active && (r.docs || [])[0];
+  if (doc) body.insertAdjacentHTML('beforeend', `<div class="run-doc"><span class="gk">Saved · ${esc(doc.name)}${r.docs.length > 1 ? ` · ${r.docs.length - 1} more under Runs` : ''}</span><div class="md">${md(String(doc.content || '').slice(0, 6000))}</div></div>`);
   renderRunMeta();
 }
-// a desk with no run yet: what to do next, each with its button (nothing here is a number or a claim)
-function nextSteps(){
-  const wf = W.workflows || [];
-  const rows = [
-    ['i-plus', 'Give the team its first job', 'A reply to an enquiry, a report, a list to chase. Every agent\'s progress shows here as it happens.', '<button class="btn sm p" onclick="newJob()">New job</button>'],
-    W.cams.size ? null : ['i-cam', 'Add a camera', 'RTSP stream, recording, webcam, snapshot URL or sample footage. Each camera keeps a written journal.', '<button class="btn sm" onclick="openAttach(null)">Add camera</button>'],
-    ['i-inbox', 'Connect an app', 'Email, WhatsApp, SMS or a calendar, so approved messages can go out.', '<button class="btn sm" onclick="goDesk(\'integrations\')">Integrations</button>'],
-  ].filter(Boolean);
-  const row = ([ic, t, d, a]) => `<div class="nstep"><svg class="i"><use href="#${ic}"/></svg><div><b>${esc(t)}</b>${d ? `<small>${esc(d)}</small>` : ''}</div>${a}</div>`;
-  // the desk's own workflows and the first jobs Atlas suggests, each with its button (a click starts a run)
-  const wfRows = wf.slice(0, 4).map(w => ['i-flow', w.name, wfDesc(w.description), `<button class="btn sm" onclick="runWorkflowNow(${jsa(w.id)})"><svg class="i"><use href="#i-run"/></svg>Run</button>`]);
-  const jobs = firstJobs().map(t => ['i-run', t, '', `<button class="btn sm" onclick="deploy(${jsa(t)})" title="Starts a run of the team now; anything outbound waits for your approval"><svg class="i"><use href="#i-run"/></svg>Run</button>`]);
-  return `<div class="nsteps"><div class="gk">No run yet · next steps</div>${rows.map(row).join('')}`
-    + (wfRows.length ? `<div class="gk">Workflows · fixed hand-offs</div>${wfRows.map(row).join('')}` : '')
-    + `<div class="gk">First jobs to try</div>${jobs.map(row).join('')}</div>`;
+// a desk with no run yet: its workflows (Run starts one) and jobs worth trying (Fill in puts one in the job bar; Deploy
+// stays the owner's press). The next steps themselves are the server's, under Atlas's message: they are not repeated here.
+const nstepRow = ([ic, t, d, a, more]) => `<div class="nstep"><svg class="i"><use href="#${ic}"/></svg><div><b>${esc(t)}</b>${d ? `<small>${esc(d)}</small>` : ''}${more || ''}</div>${a}</div>`;
+const tryRows = () => firstJobs().map(t => ['i-run', t, '', `<button class="btn sm" onclick="prefillJob(${jsa(t)})" title="Puts this job in the job bar; it runs when you press Deploy"><svg class="i"><use href="#i-edit"/></svg>Fill in</button>`]);
+// a workflow's hand-offs ("research -> writer -> crm") as this desk's agents, in order; [] when it names no agents
+function wfSteps(w){ const parts = String((w && w.description) || '').split(/\s*->\s*/).map(x => x.trim()).filter(Boolean); return parts.length > 1 && parts.every(x => W.agents.has(x)) ? parts : []; }
+// the rules every outbound message must pass, from the desk's (or the draft's) policy
+function policyRules(pol){
+  pol = pol || {};
+  return [pol.max_words ? `at most ${pol.max_words} words` : '', pol.no_money_figures ? 'no prices or money figures' : '',
+    (pol.banned_phrases || []).length ? 'never says ' + pol.banned_phrases.map(p => `"${p}"`).join(', ') : ''].filter(Boolean);
+}
+function noRunHtml(){
+  // each workflow with the steps a run of it shows here (its agents, in order), then jobs to try, then the outbound rules
+  const wfRows = (W.workflows || []).slice(0, 4).map(w => { const st = wfSteps(w);
+    return ['i-flow', w.name, st.length ? '' : wfDesc(w.description), `<button class="btn sm" onclick="runWorkflowNow(${jsa(w.id)})" title="Starts this workflow now; anything outbound waits for your approval"><svg class="i"><use href="#i-run"/></svg>Run</button>`,
+      st.length ? `<ol class="wfs">${st.map(id => { const a = W.agents.get(id); return `<li style="--c:${esc(a.color || '')}"><b>${esc(a.name)}</b><span>${esc(a.role || '')}</span></li>`; }).join('')}</ol>` : '']; });
+  const rules = policyRules(W.policy);
+  return `<div class="nsteps">${wfRows.length ? `<div class="gk">Workflows · fixed hand-offs</div>${wfRows.map(nstepRow).join('')}` : ''}`
+    + `<div class="gk">Jobs to try</div>${tryRows().map(nstepRow).join('')}`
+    + `<div class="gk">Outbound rules · checked before anything reaches Approvals</div><ul class="nrules">${rules.map(r => `<li>${esc(r)}</li>`).join('')}<li>every message waits for your approval</li></ul>`
+    + `<div class="nfoot">A job you deploy shows here step by step: who is working, what they write, what they queue.</div></div>`;
 }
 async function goDesk(hash){ if (W.deskId) await api(`/desks/${W.deskId}/select`, {method: 'POST', body: {}}); location.href = '/desk#' + hash; }   // Home, on this desk
 function renderRunLive(s){ const box = $('#run-live'); if (!box || box.dataset.inst !== s.inst) { if (!W.liveRaf) W.liveRaf = requestAnimationFrame(() => { W.liveRaf = 0; renderRunPanel(); }); return; } box.querySelector('.tx').textContent = s.text.slice(-360); }
@@ -1675,11 +1794,23 @@ function runState(r){ if (r.active) return ['running', 'run', 'd-run']; if (runF
 async function loadRuns(){
   if (!W.deskId) return;
   const rows = await api('/runs'); if (!Array.isArray(rows)) return;
-  W.runs = rows;
-  $('#runs-meta').textContent = rows.length ? `${plural(rows.length, 'run')}${rows.length >= 60 ? ' (newest 60)' : ''} · UTC` : '';
+  const had = W.runs; W.runs = rows;
+  $('#runs-meta').textContent = rows.length ? `${plural(rows.length, 'run')}${rows.length >= 60 ? ' (newest 60)' : ''} · UTC` : 'none yet';
+  $('#runs-list').classList.toggle('hide', !rows.length);                 // none yet: the header says so, the jobs to try follow
   $('#runs-list').innerHTML = rows.length ? rows.slice(0, 60).map(r => { const [lbl, cls, dot] = runState(r);
     return `<div class="rrow${W.openRunId === r.id ? ' sel' : ''}" data-run="${esc(r.id)}" onclick="openRun(${jsa(r.id)})" title="${esc(r.task || '')}"><i class="dot ${dot}"></i><span class="nm">${esc(r.task || '')}</span><span class="stx ${cls}">${esc(lbl)}</span><span class="mono">${((r.tokens_in || 0) + (r.tokens_out || 0)).toLocaleString()} tok</span><span class="mono" title="${esc(fullTs(r.created))}">${esc(fmtTs(r.created))}</span></div>`; }).join('')
-    : `<div class="none">No runs yet. Give the team a job above, or run a workflow.</div>`;
+    : `<div class="none">No runs yet. Each job you deploy is listed here with its state, tokens and start time.</div>`;
+  // a desk with a run or two: the lists are as tall as their rows, the jobs to try under them, and the room below shows
+  // what a job runs through (this desk's agents, its approval gate). No Result panel until a run has finished.
+  const done = rows.filter(r => !r.active), few = rows.length <= 2, pane = $('#pane-runs');
+  pane.classList.toggle('few', few); pane.classList.toggle('norun', !done.length);
+  $('#summary-panel').classList.toggle('hide', !done.length);
+  $('#runs-try').classList.toggle('hide', !few);
+  if (few) $('#runs-try').innerHTML = `<div class="gk">Jobs to try · Fill in puts one in the job bar</div>${tryRows().map(nstepRow).join('')}`;
+  renderFlow();
+  // the Result follows the newest finished run until the owner picks one
+  if (W.ld.last && done[0] && (!W.openRunId || W.autoRun) && W.openRunId !== done[0].id) openRun(done[0].id, true);
+  if (!had && !W.run && W.ld.last) renderRunPanel();         // read again after a failed first read
   renderHead();
 }
 function showSummary(id, status, text){
@@ -1690,12 +1821,44 @@ function showSummary(id, status, text){
   $('#summary').classList.remove('hide'); $('#summary-empty').classList.add('hide');
   $('#sum-meta').textContent = `${id} · ${failed ? 'failed' : (status || 'finished')}`;
 }
-async function openRun(id){
-  const r = await api(`/runs/${encodeURIComponent(id)}`); if (!r || r.error) return toast((r && r.error) || 'run not found');
-  W.openRunId = id; document.querySelectorAll('.rrow').forEach(x => x.classList.toggle('sel', x.dataset.run === String(id)));
-  const status = r.active ? 'running' : r.status;
-  const text = (r.summary || '').trim() + (r.deliverables || []).filter(d => d.name !== 'SUMMARY.md').map(d => `\n\n### ${d.name}\n\n${d.content}`).join('');   // SUMMARY.md is the summary itself
-  showSummary(id, status, text);
+async function openRun(id, auto){
+  if (!auto) W.autoRun = false;                              // the owner's pick holds until they pick again
+  const r = await api(`/runs/${encodeURIComponent(id)}`);
+  if (!r || r.error) return auto ? null : toast((r && r.error) || 'run not found');
+  if (auto && !W.autoRun && W.openRunId) return;             // the owner picked a run meanwhile
+  showResult(r, auto);
+}
+// the Runs tab's Result: a run's summary and the documents it saved (SUMMARY.md is the summary itself)
+function showResult(r, auto){
+  W.openRunId = r.id; W.autoRun = !!auto;
+  if (W.run && W.run.id === r.id && !r.active) { W.run.docs = (r.deliverables || []).filter(d => d.name !== 'SUMMARY.md'); renderRunPanel(); }   // Current run shows what it saved
+  document.querySelectorAll('.rrow').forEach(x => x.classList.toggle('sel', x.dataset.run === String(r.id)));
+  const text = (r.summary || '').trim() + (r.deliverables || []).filter(d => d.name !== 'SUMMARY.md').map(d => `\n\n### ${d.name}\n\n${d.content}`).join('');
+  showSummary(r.id, r.active ? 'running' : r.status, text);
+}
+// a desk with a run or two: what a job runs through, from this desk's own setup (its agents, their tools, the approval
+// gate and its queue now, the desk's check of the result)
+function renderFlow(){
+  const el = $('#flow-panel'), on = W.phase === 'run' && $('#pane-runs').classList.contains('few');
+  el.classList.toggle('hide', !on); if (!on) return;
+  const ac = atlasCfg(), skip = ['list_agents', 'finish'];
+  // tools: the first two and +N; a tall screen shows up to twelve, wrapping, then +N for the rest
+  const chips = list => list.length ? `<div class="tools-c fl-tools">${list.slice(0, 12).map((t, i) => `<span class="chip${i > 1 ? ' x' : ''}">${esc(t)}</span>`).join('')}`
+    + (list.length > 2 ? `<span class="chip more" title="${esc(list.slice(2).join(', '))}">+${list.length - 2}</span>` : '')
+    + (list.length > 12 ? `<span class="chip more2" title="${esc(list.slice(12).join(', '))}">+${list.length - 12}</span>` : '') + '</div>' : '<span class="muted">no tools</span>';
+  // a tall screen also shows each agent's first standing orders (how it will behave on the job)
+  const ord = list => (list || []).length ? `<ul class="ord">${list.slice(0, 2).map(x => `<li title="${esc(x)}">${esc(x)}</li>`).join('')}</ul>` : '';
+  const row = (n, mark, name, sub, right, cls, more) => `<div class="fl${cls ? ' ' + cls : ''}"><span class="fl-n">${n}</span>${mark}<div class="fl-t"><b>${esc(name)}</b><span title="${esc(sub)}">${esc(sub)}</span>${more || ''}</div><div class="fl-x">${right}</div></div>`;
+  const rows = [row('1', '<span class="amark"></span>', 'Atlas', goalOf('atlas', {}), chips(ac ? (ac.tools || []).filter(t => !skip.includes(t)) : []), '', ord(ac && ac.instructions))];
+  W.order.forEach((id, i) => { const a = W.agents.get(id); if (!a) return; const lead = a.reports_to !== 'atlas' && W.agents.has(a.reports_to) ? W.agents.get(a.reports_to).name : '';
+    rows.push(row(i ? '' : '2', `<span class="sw" style="--c:${esc(a.color || '')}"></span>`, a.name, [a.role, lead ? 'reports to ' + lead : '', a.goal].filter(Boolean).join(' · '), chips(a.tools || []), '', ord(a.instructions))); });
+  const q = W.apCount == null ? 'reading the queue' : W.apCount ? `${plural(W.apCount, 'message')} waiting now` : 'none waiting now';
+  const rules = policyRules(W.policy);
+  rows.push(row('3', '<svg class="i i14"><use href="#i-inbox"/></svg>', 'Approvals', `Anything outbound waits here until you approve it · ${q}`, `<button class="btn sm" onclick="showTab('approvals')">Open</button>`, 'gate',
+    rules.length ? `<ul class="ord">${rules.map(x => `<li>checked first: ${esc(x)}</li>`).join('')}</ul>` : ''));
+  rows.push(row('4', '<svg class="i i14"><use href="#i-check"/></svg>', 'Result', 'Checked by the desk: what was queued, sent and saved, not what a model says it did', ''));
+  $('#flow-n').textContent = W.agents.size + 1;
+  $('#flow-body').innerHTML = rows.join('');
 }
 // a workflow's hand-offs ("research -> writer") in the agents' names
 function wfDesc(d){ const s = String(d || ''), parts = s.split(/\s*->\s*/).map(x => x.trim()); return parts.length > 1 && parts.every(x => W.agents.has(x)) ? parts.map(agentName).join(' → ') : s.replace(/->/g, '→'); }
@@ -1753,12 +1916,12 @@ function renderExplorer(){
   if (lastRun && f !== 'active' && runFailed(lastRun.status, lastRun.summary) && match('last run failed ' + (lastRun.task || ''))) grp('runs', 'i-activity', 'Runs', 1, 'last run failed', 'warn', [row('i-activity', lastRun.task || lastRun.id, 'failed', 'err', `showTab('runs');openRun(${jsa(lastRun.id)})`, false)]);
   $('#tree').innerHTML = out.join('') || `<div class="none">${q ? 'Nothing matches.' : f === 'attention' ? 'Nothing needs attention.' : f === 'active' ? 'Nothing is running.' : 'No objects yet.'}</div>`;
   const cams = [...W.cams.values()]; const fixes = cams.filter(c => c.problem).length;
-  $('#h-journal').innerHTML = cams.length ? `<i class="dot ${liveN === cams.length ? 'd-ok' : 'd-warn'}"></i><span title="${fixes ? plural(fixes, 'camera') + ' need the stream address re-entered' : ''}">${liveN} of ${cams.length} live${fixes ? ' · ' + fixes + ' to fix' : ''}</span>` : '<span>none</span>';
+  $('#h-journal').innerHTML = !known('cams') ? '<span>–</span>' : cams.length ? `<i class="dot ${liveN === cams.length ? 'd-ok' : 'd-warn'}"></i><span title="${fixes ? plural(fixes, 'camera') + ' need the stream address re-entered' : ''}">${liveN} of ${cams.length} live${fixes ? ' · ' + fixes + ' to fix' : ''}</span>` : '<span>none</span>';
 }
 async function pollStats(){
   if (!W.deskId) return;
   const s = await api('/stats'); if (!s || s.needs_desk || s.error) return;
-  W.activeRuns = s.active_runs || 0; W.cost = s.cost || null;
+  W.activeRuns = s.active_runs || 0; W.cost = s.cost || null; W.ld.stats = true;
   if (W.apCount != null && s.pending !== W.apCount) loadApprovals();
   renderKpis(); renderRunPill(); if (!W.cams.size) stamp();
 }
@@ -1801,6 +1964,7 @@ function applySize(){
     if (was && (was === 's') !== (s === 's') && W.teamView && W.teamView !== viewFor()) applyTeamView(); }   // the default view follows the layout until the owner picks one
   wk.dataset.sw = w >= 720 ? 'w' : 'n';                                   // one column: five stat tiles across from 720 px, 3 + 2 below
   placePanels(); fitCams();
+  if (W.phase === 'meet' && W.tpls) { cancelAnimationFrame(W.othRaf); W.othRaf = requestAnimationFrame(renderOthers); }
 }
 // the Overview's camera strip gives way before Team and Current run do: first one line of note under each frame, then no
 // note and smaller frames (the side list and the Cameras tab keep the notes). Its grid row never shrinks below what it draws.
@@ -1840,7 +2004,7 @@ window.shellPage = {
   replaces: ['agents', 'cameras', 'add-camera'],
   commands(){
     const c = [], add = (label, ic, run, hint) => c.push({g: 'This workspace', label, ic, run, hint});
-    NX.steps.forEach(s => c.push({g: 'Next steps', label: s.label, hint: s.detail || '', ic: typeof s.run === 'function' ? 'play' : NX_ACT[s.action][1],
+    NX.steps.forEach(s => c.push({g: NX.head || 'Next steps', label: s.label, hint: s.detail || '', ic: typeof s.run === 'function' ? 'play' : NX_ACT[s.action][1],
       run: () => { const j = NX.steps.indexOf(s); if (j >= 0) pickNext(j); else toast('Those steps were replaced: the newest are under Atlas\'s last message'); }}));
     if (W.phase === 'run') add('New job', 'plus', newJob, 'N');
     if (W.bp && !W.deskId && (W.bp.agents || []).length) add('Build desk', 'spark', buildDesk);
@@ -1851,7 +2015,7 @@ window.shellPage = {
     if (W.deskId && W.cams.size) add('Read the camera journal', 'film', () => showTab('cameras', 'journal'));
     if (W.deskId) add('Explorer: agents, cameras, workflows', 'grid', () => toggleExplorer(true));
     add('How Atlas works', 'doc', openGuide); if (W.agents.size) add('Reset the org chart layout', 'grid', resetLayout);
-    if (W.sid && !W.deskId) add(W.tier === 'free' ? 'Switch to paid models' : 'Switch to free models', 'gear', toggleTier);
+    if (W.sid && !W.deskId) c.push({g: 'This workspace', label: W.tier === 'free' ? 'Use paid models for this draft' : 'Use free models for this draft', ic: 'gear', run: toggleTier, hint: 'now: ' + (W.tier === 'free' ? 'free' : 'paid') + ' models'});
     (W.workflows || []).forEach(w => c.push({g: 'Workflows', label: w.name, hint: 'run now', ic: 'play', run: () => runWorkflowNow(w.id)}));
     if (W.agents.size) c.push({g: 'Agents', label: 'Atlas', hint: 'orchestrator', ic: 'team', run: () => inspect('atlas')});
     W.agents.forEach(a => c.push({g: 'Agents', label: a.name, hint: a.role, ic: 'team', run: () => inspect(a.id)}));

@@ -205,3 +205,18 @@ def test_a_failed_run_keeps_the_desks_record_of_what_it_queued(store, monkeypatc
     res = orch.run("Reply to the newest enquiry", "auto")
     assert res.status == "error" and res.summary.startswith("ERROR from Atlas")
     assert "Verified by the desk (not model-claimed): 1 action(s) queued for approval" in res.summary
+
+
+def test_cameras_carry_the_journals_newest_note_of_any_age(app_client, fresh_limits):
+    """Desk 1 had 500 notes (the newest five weeks old, from cameras since removed) and the workspace said "no notes
+    yet": /api/cameras only read 30 days per camera. It now names the newest written note of the whole record."""
+    from atlas.desk import app as A
+    c = app_client
+    _owner(c, "ws-oldnote@example.com")
+    d = _desk(c, "Old notes")
+    assert J(c.get("/api/cameras"))["last_note_ts"] == 0                   # nothing written yet: the page may say so
+    old = time.time() - 40 * 86400
+    A.store.add_vision_event(d["id"], "gone-cam", {"person": 1}, answer="two people at the door", source="video", ts=old)
+    A.store.add_vision_event(d["id"], "gone-cam", {"person": 2}, answer="", source="hook", ts=old + 60)   # a detection, not a note
+    A.store.add_vision_event(d["id"] + 1000, "other", {}, answer="another desk", source="journal", ts=old + 120)
+    assert abs(J(c.get("/api/cameras"))["last_note_ts"] - old) < 1

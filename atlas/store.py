@@ -573,6 +573,13 @@ class Store:
             out.setdefault(r["camera"], {"text": r["answer"], "ts": r["ts"], "source": r["source"]})
         return out
 
+    def last_note_ts(self, desk_id: int) -> float:
+        """When the desk's camera record got its newest written text (a journal note, a digest, a described clip, an
+        answer: what "Camera notes" counts), from any camera, of any age; 0 when there is none. So an old journal never
+        reads as "no notes yet"."""
+        row = self._conn.execute("SELECT MAX(ts) FROM vision_events WHERE desk_id=? AND answer<>''", (desk_id,)).fetchone()
+        return float(row[0] or 0) if row else 0.0
+
     def set_vision_run(self, vid: int, run_id: str) -> None:
         with self._lock:
             self._conn.execute("UPDATE vision_events SET run_id=?, triggered=1 WHERE id=?", (run_id, vid))

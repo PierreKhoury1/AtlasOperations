@@ -104,22 +104,22 @@
     </div>
     <div class="tabs" id="tabs">
       <button class="tab on" data-tab="overview" onclick="showTab('overview')">Overview</button>
-      <button class="tab" data-tab="team" onclick="showTab('team')">Team<span class="n" id="tab-n-team">0</span></button>
-      <button class="tab" data-tab="cameras" onclick="showTab('cameras')">Cameras<span class="n" id="tab-n-cams">0</span></button>
+      <button class="tab" data-tab="team" onclick="showTab('team')">Team<span class="n" id="tab-n-team"></span></button>
+      <button class="tab" data-tab="cameras" onclick="showTab('cameras')">Cameras<span class="n" id="tab-n-cams"></span></button>
       <button class="tab" data-tab="runs" onclick="showTab('runs')">Runs<span class="n live hide" id="tab-n-runs">live</span></button>
-      <button class="tab" data-tab="approvals" onclick="showTab('approvals')">Approvals<span class="n" id="tab-n-ap">0</span></button>
+      <button class="tab" data-tab="approvals" onclick="showTab('approvals')">Approvals<span class="n" id="tab-n-ap"></span></button>
       <span class="r" id="tab-upd" title="When this page last read the desk"></span>
     </div>
 
     <!-- overview -->
     <div class="tpane" id="pane-overview">
       <div class="panel span2 hide" id="camstrip">
-        <div class="ph"><h2>Cameras<span class="n" id="cam-n">0</span></h2><span class="meta" id="cam-meta">each camera keeps a written journal</span><button class="link" id="journal-link" onclick="showTab('cameras', 'journal')">Journal ›</button><button class="btn sm" onclick="openAttach(null)"><svg class="i"><use href="#i-cam"/></svg>Add camera</button></div>
+        <div class="ph"><h2>Cameras<span class="n" id="cam-n"></span></h2><span class="meta" id="cam-meta">each camera keeps a written journal</span><button class="link" id="journal-link" onclick="showTab('cameras', 'journal')">Journal ›</button><button class="btn sm" onclick="openAttach(null)"><svg class="i"><use href="#i-cam"/></svg>Add camera</button></div>
         <div class="camrow" id="camrow"><div class="cams strip" id="cams"><div class="cam add" id="cam-add" onclick="openAttach(null)" title="Connect a camera: RTSP, upload, webcam, snapshot URL or sample footage"><div class="pic"><svg class="i"><use href="#i-plus"/></svg><span>Add camera</span></div><div class="cn"><b>Add camera</b></div><div class="note">RTSP stream, recording, webcam, snapshot URL or sample footage. Test shows a frame first.</div></div></div><div class="cam-side" id="cam-side"><div class="in scroll" id="cam-side-in"></div></div></div>
       </div>
 
       <div class="panel" id="team-panel">
-        <div class="ph"><h2>Team<span class="n" id="team-n">0</span></h2><span class="meta" id="team-meta">drafted here as you talk to Atlas</span>
+        <div class="ph"><h2>Team<span class="n" id="team-n"></span></h2><span class="meta" id="team-meta">drafted here as you talk to Atlas</span>
           <span class="tools"><span id="canvas-tools" class="hide"><button class="ibtn" onclick="zoomBy(1/1.15)" title="Zoom out"><svg class="i i14"><use href="#i-zout"/></svg></button><button class="ibtn" onclick="zoomBy(1.15)" title="Zoom in"><svg class="i i14"><use href="#i-zin"/></svg></button><button class="ibtn" onclick="resetLayout()" title="Reset layout"><svg class="i i14"><use href="#i-reset"/></svg></button></span>
           <span class="tacts" id="team-acts"><button class="ibtn" onclick="addAgent()" title="Add an agent (on Home's team canvas)"><svg class="i i14"><use href="#i-plus"/></svg></button><button class="ibtn" onclick="changeTeamPrompt()" title="Change the team with Atlas: it proposes the change, nothing changes until you apply it"><svg class="i i14"><use href="#i-edit"/></svg></button></span>
           <span class="seg" id="team-view"><button class="on" data-v="table" onclick="teamView('table')">Table</button><button data-v="chart" onclick="teamView('chart')">Org chart</button></span></span>
@@ -156,8 +156,8 @@
       </div>
 
       <div class="panel hide" id="other-panel">
-        <div class="ph"><h2>Other ways to start</h2><span class="meta">on Home, without the conversation</span></div>
-        <div class="others">
+        <div class="ph"><h2>Other ways to start</h2><span class="meta" id="others-meta">on Home, without the conversation</span></div>
+        <div class="others" id="others">
           <button onclick="otherWay('template')"><svg class="i"><use href="#i-grid"/></svg><span><b>Ready-made desk</b><small>Sales, site-watch, consultancy, agency, SaaS or e-commerce, from a short form</small></span><svg class="i i14 go"><use href="#i-chev"/></svg></button>
           <button onclick="otherWay('blank')"><svg class="i"><use href="#i-plus"/></svg><span><b>Start from scratch</b><small>Just Atlas: add agents, cameras and apps yourself</small></span><svg class="i i14 go"><use href="#i-chev"/></svg></button>
         </div>
@@ -175,7 +175,7 @@
     <!-- cameras -->
     <div class="tpane hide" id="pane-cameras">
       <div class="panel span2 cam-page">
-        <div class="ph"><h2>Feeds<span class="n" id="cam-n2">0</span></h2><span class="meta" id="cam-meta2">frames through the local detector</span><button class="btn sm" onclick="openAttach(null)"><svg class="i"><use href="#i-cam"/></svg>Add camera</button></div>
+        <div class="ph"><h2>Feeds<span class="n" id="cam-n2"></span></h2><span class="meta" id="cam-meta2">frames through the local detector</span><button class="btn sm" onclick="openAttach(null)"><svg class="i"><use href="#i-cam"/></svg>Add camera</button></div>
         <div id="cam-big"></div>
         <div id="cam-none" class="none">No cameras yet. Press <b>Add camera</b>, or ask Atlas to watch a feed.</div>
       </div>
@@ -194,12 +194,18 @@
       </div>
       <div class="panel" id="runs-panel">
         <div class="ph"><h2>Recent runs</h2><span class="meta" id="runs-meta"></span><button class="ibtn" onclick="loadRuns()" title="Refresh"><svg class="i i14"><use href="#i-reset"/></svg></button></div>
-        <div id="runs-list" class="scroll"><div class="none">Runs appear here once the team has had a job.</div></div>
+        <div id="runs-list" class="scroll"><div class="none">Reading the runs…</div></div>
+        <div id="runs-try" class="nsteps hide"></div>
       </div>
       <div class="panel" id="summary-panel">
         <div class="ph"><h2>Result</h2><span class="meta" id="sum-meta">verified by the desk, not claimed by the model</span></div>
         <div id="summary" class="hide"><div class="sum-h" id="sum-h"><svg class="i i14"><use href="#i-check"/></svg><span id="sum-title">Run finished</span><span class="grow"></span><button class="ibtn" onclick="$('#summary').classList.add('hide');$('#summary-empty').classList.remove('hide')" title="Hide"><svg class="i i14"><use href="#i-x"/></svg></button></div><div id="summary-text" class="md scroll"></div></div>
         <div id="summary-empty" class="none">Pick a run on the left to read its verified result.</div>
+      </div>
+      <!-- a desk with a run or two: what a job runs through, from this desk's own setup -->
+      <div class="panel span2 hide" id="flow-panel">
+        <div class="ph"><h2>What a job runs through<span class="n" id="flow-n"></span></h2><span class="meta">this desk's agents and its approval gate · Atlas picks who works on each job</span></div>
+        <div class="flow" id="flow-body"></div>
       </div>
     </div>
 
@@ -210,8 +216,8 @@
   <!-- right stack: approvals, activity, Atlas (an overlay on narrow workspaces) -->
   <aside class="right" id="right">
     <div class="panel" id="ap-panel">
-      <div class="ph"><h2>Approvals<span class="n" id="ap-n2">0</span></h2><span class="meta" id="ap-oldest"></span><button class="link" onclick="showTab('approvals')">Queue ›</button></div>
-      <div id="ap-body" class="scroll"><div class="none">Nothing waiting. When an agent wants to send something, it lands here first.</div></div>
+      <div class="ph"><h2>Approvals<span class="n" id="ap-n2"></span></h2><span class="meta" id="ap-oldest"></span><button class="link" onclick="showTab('approvals')">Queue ›</button></div>
+      <div id="ap-body" class="scroll"><div class="none">Reading the approval queue…</div></div>
     </div>
     <div class="panel" id="act-panel">
       <div class="ph"><h2>Activity</h2><span class="meta">UTC</span><button class="ibtn" onclick="clearFeed()" title="Clear this list (the audit log keeps everything)"><svg class="i i14"><use href="#i-x"/></svg></button></div>
@@ -264,7 +270,7 @@
     <div class="hint">Any address that returns a JPEG (ESP32-CAM <code>/capture</code>, Hikvision <code>/ISAPI/.../picture</code>) or an MJPEG stream.</div>
   </div>
   <div class="pane" data-k="sample"><div id="at-samples"><div class="hint" style="padding:10px">Loading sample footage…</div></div></div>
-  <div class="preview"><div class="pv" id="at-pv"><span>Test the source to see a frame from it.</span></div><div class="pmsg" id="at-msg"></div></div>
+  <div class="preview nopic"><div class="pv" id="at-pv"><span>Test the source to see a frame from it.</span></div><div class="pmsg" id="at-msg"></div></div>
   <div class="mrow"><button class="btn" id="at-live" onclick="atLive()"><svg class="i"><use href="#i-eye"/></svg>Open live view</button><span class="grow"></span><button class="btn" id="at-test" onclick="testAttach()">Test</button><button class="btn p" id="at-go" onclick="doAttach()"><svg class="i"><use href="#i-check"/></svg><span id="at-go-t">Attach feed</span></button></div>
 </div></div>
 

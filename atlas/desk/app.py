@@ -2505,7 +2505,7 @@ def api_cameras():
     hook = request.host_url.rstrip("/") + "/hook/" + store.ensure_hook_token(desk["id"]) + "/vision"
     nodes = [{**n, "last_event": _vev_public(n["last_event"]) if n.get("last_event") else None}
              for n in store.hook_cameras(desk["id"], time.time() - 86400, tuple(c["name"] for c in cams))]
-    return jsonify({"cameras": cams, "nodes": nodes, "mode": _mode(),
+    return jsonify({"cameras": cams, "nodes": nodes, "mode": _mode(), "last_note_ts": store.last_note_ts(desk["id"]),
                     "detector": {"available": V.DETECTOR.available, "error": V.DETECTOR.error, "weights": getattr(V.DETECTOR, "label", os.path.basename(V.YOLO_WEIGHTS)),
                                  "runtime_error": getattr(V.DETECTOR, "_ov_error", "")},
                     "vlm": {"ready": V.vlm_ready() and _mode() != "demo", "model": V.DEFAULT_VLM},

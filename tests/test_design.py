@@ -162,3 +162,18 @@ def test_camera_team_is_wired_and_ids_stay_stable():
     assert [a["camera"] for a in out["agents"]] == ["lobby", "entrance", "carpark", "drive", "gym", ""]
     assert sum(x.startswith("Your camera is ") for x in out["agents"][0]["instructions"]) == 1
     assert D.normalise(json.loads(json.dumps(out)), out) == out                       # idempotent
+
+
+def test_a_designed_desk_carries_only_its_own_business_profile():
+    """A physio clinic built in the workspace was described to every agent as a "boutique consultancy" with day rates
+    and retainers: the build started from the consultancy template's profile. It starts from the brief alone now."""
+    bp = D.normalise({"business": {"name": "Kirkstall Physio", "tone": "Warm and plain"},
+                      "agents": [{"id": "writer", "name": "Reply writer", "role": "Drafts replies"}], "workflows": [], "connectors": [], "policy": {}})
+    b = D.blueprint_to_desk(bp, "free")["business"]
+    assert b["name"] == "Kirkstall Physio" and b["tone"] == "Warm and plain" and b["model"] == "custom" and b["currency"] == "GBP"
+    assert all(b[k] == "" for k in ("tagline", "description", "target_clients", "pricing_notes")) and b["services"] == []
+    assert "consultancy" not in json.dumps(b).lower() and "day rate" not in json.dumps(b).lower()
+    from atlas.orchestrator import Orchestrator
+    ctx = Orchestrator({"providers": {"default_provider": "demo", "providers": {"demo": {"type": "demo", "delay": 0}}}, "orchestration": {},
+                        "business": b, "agents": [], "workflows": [], "ui": {}, "mode": "demo"}, None, lambda e: None).business_context()
+    assert "Kirkstall Physio" in ctx and "Boutique" not in ctx and "retainers" not in ctx

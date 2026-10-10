@@ -121,8 +121,9 @@
     badge('live', s.active_runs || 0, 'live');
     badge('leads', s.leads || 0);
   }
+  const closeMenus = () => document.querySelectorAll('.sh-menu').forEach(m => m.remove());   // Escape or a click outside
   function menu(anchor, html) {
-    document.querySelectorAll('.sh-menu').forEach(m => m.remove());
+    closeMenus();
     const m = document.createElement('div'); m.className = 'sh-menu'; m.innerHTML = html;
     const r = anchor.getBoundingClientRect(); m.style.left = Math.min(r.left, innerWidth - 250) + 'px';
     document.body.append(m);
@@ -138,7 +139,10 @@
   }
   function deskMenu(btn) {
     if (SETUP) { menu(btn, `<a href="/desk/workspace?new=1">${svg('spark')}New desk with Atlas</a><a href="/desk">${svg('grid')}Other ways to start</a>`); return; }
-    const m = menu(btn, S.desks.map(d => `<button data-d="${d.id}" class="${d.id === S.cur ? 'cur' : ''}">${svg('home')}<span class="t">${esc(d.business_name || d.name)}</span>${d.id === S.cur ? `<span class="tk">${svg('tick')}</span>` : ''}</button>`).join('')
+    const nm = d => d.business_name || d.name, same = {};                  // two desks with one name: each says which it is
+    S.desks.forEach(d => { same[nm(d)] = (same[nm(d)] || 0) + 1; });
+    const sub = d => same[nm(d)] > 1 ? `<small>#${Number(d.id)} · ${esc(String(d.template || 'custom').replace(/_/g, ' '))}${d.created ? ' · ' + esc(new Date(d.created * 1000).toLocaleDateString('en-GB', {day: 'numeric', month: 'short'})) : ''}</small>` : '';
+    const m = menu(btn, S.desks.map(d => `<button data-d="${d.id}" class="${d.id === S.cur ? 'cur' : ''}">${svg('home')}<span class="t">${esc(nm(d))}${sub(d)}</span>${d.id === S.cur ? `<span class="tk">${svg('tick')}</span>` : ''}</button>`).join('')
       + `<hr><a href="/desk/workspace?new=1">${svg('plus')}New desk with Atlas</a><a href="/desk#setup">${svg('gear')}Desk setup</a>`);
     m.querySelectorAll('[data-d]').forEach(b => b.onclick = async () => {
       if (+b.dataset.d === S.cur) return m.remove();
@@ -232,7 +236,8 @@
       if (!this.items.length) { list.innerHTML = `<div class="none">${SETUP || page() ? 'Nothing matches. Press Enter to send this to Atlas.' : 'Nothing matches. Press Enter to give the team this as a job.'}</div>`; return; }
       let g = '';
       list.innerHTML = this.items.map((it, i) => { const head = it.g !== g ? `<div class="g">${esc(it.g)}</div>` : ''; g = it.g;
-        return head + `<div class="it ${i === this.sel ? 'sel' : ''}" data-i="${i}">${svg(it.ic)}<span>${esc(it.label)}</span>${it.hint ? `<small>${esc(String(it.hint).slice(0, 60))}</small>` : ''}</div>`; }).join('');
+        const hint = String(it.hint || '');                     // the whole hint, ended with an ellipsis by CSS where the row runs out
+        return head + `<div class="it ${i === this.sel ? 'sel' : ''}" data-i="${i}"${hint ? ` title="${esc(hint)}"` : ''}>${svg(it.ic)}<span>${esc(it.label)}</span>${hint ? `<small>${esc(hint.slice(0, 240))}</small>` : ''}</div>`; }).join('');
       list.querySelectorAll('.it').forEach(d => { d.onclick = () => this.go(this.items[+d.dataset.i]); d.onmousemove = () => { if (this.sel !== +d.dataset.i) { this.sel = +d.dataset.i; this.render(q, true); } }; });
       if (keep) { const s = list.querySelector('.it.sel'); if (s) s.scrollIntoView({block: 'nearest'}); }
     },
@@ -366,7 +371,7 @@
       keysWired = true;
       document.addEventListener('keydown', e => {
         if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k' && !location.pathname.startsWith('/desk/ops')) { e.preventDefault(); pal.el ? pal.close() : pal.open(); }
-        else if (e.key === 'Escape') { pal.close(); ask.close(); }
+        else if (e.key === 'Escape') { pal.close(); ask.close(); closeMenus(); }
       });
     }
   }
