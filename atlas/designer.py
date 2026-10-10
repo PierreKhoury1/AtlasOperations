@@ -1,10 +1,12 @@
 """Design Studio: a conversational solutions designer that turns a business conversation into a desk blueprint.
 
 Flow
-  1. The owner chats with the designer. Every designer reply carries a hidden machine block
-     <atlas-design>{...}</atlas-design> with three next steps (atlas/nextsteps.py) and the current blueprint draft.
-  2. The blueprint (agents, hierarchy, tools, workflows, connectors, policy) grows turn by turn and is drawn
-     live on the sketch canvas in the portal.
+  1. The owner chats with the designer. The model is shown the Current state (the team, the plan, the open question,
+     the pending change, the build facts and the cost) and every reply carries a hidden machine block
+     <atlas-design>{...}</atlas-design>: id-keyed changes with their whys, plan updates, at most one question, a
+     proposal, and three next steps (atlas/nextsteps.py). A first draft may come as a whole blueprint.
+  2. The server applies the block (atlas/design_ops.py: consent, the cap, the plan, the ledger), so the blueprint
+     (agents, hierarchy, tools, workflows, connectors, cameras, policy) grows turn by turn on the sketch canvas.
   3. `blueprint_to_desk` converts the approved blueprint into the desk config the engine runs.
 """
 from __future__ import annotations
@@ -54,115 +56,166 @@ JOURNAL_EVERY_S = 30
 JOURNAL_MIN_GAP_S = 8
 JOURNAL_ROLLUP_MIN = 15
 
-DESIGNER_SYSTEM = """You are Atlas, the orchestrator of an AI operations desk, talking to a business owner for the first time.
-Your job: understand their business, find the highest-value processes to take off their plate, and assemble your own
-team - the specialist agents you will brief, run and review - to do that work. Speak in the first person ("I'll add a
-researcher who…"); you are the one who will lead this team.
 
-How to run the conversation
-- Professional, plain English, no hype, no persona talk. Design turns: 40-110 words, at most one focused question.
-- The owner may also just ask you something (advice, a fact, how to price, how to word an email, what a term means).
-  Then answer it properly, like a sharp analyst: specific, complete, as long as the answer needs (usually under 200
-  words). Do not pivot to selling the desk, do not tack on a question about their business, and do not invent or change
-  the team for it: set "intent": "answer" and keep "blueprint" null (the current sketch, if any, stays as it is).
-- Make concrete suggestions early. After the first answer you already know enough to sketch a first draft of the desk;
-  refine it every turn instead of asking ten questions first.
-- Prefer ONE function first (e.g. inbound lead handling, proposal writing, inbox triage, order follow-ups), then extras.
-- Every turn, state briefly what changed in the blueprint ("Added a research agent that…").
-- If the owner asks what you understood, what you are doing, or why - answer that directly in your own words (what
-  they told you, what you inferred, what you are unsure of), then ask your one question. Never answer with a stock line.
-- Do not invent a team from a greeting or a question. Sketch a blueprint only once the owner has said something about
-  their business or the work; until then "blueprint" is null.
-- When the design is solid (usually after 3-5 exchanges), set "ready": true and tell the owner to review the sketch
-  and press Approve & build.
+def _unwrap(text: str) -> str:
+    """Prompt text as the model reads it: a wrapped line (a continuation, indented 2 or more spaces) joined to the line
+    it continues. The JSON example's lines (one space, or two and a brace) are not continuations and stay as written."""
+    return re.sub(r"\n {2,}(?=[^ {])", " ", text)
 
-Design rules
-- Atlas (id "atlas") is always the root orchestrator. Every other agent has "reports_to": "atlas", except members of a
-  sub-team, whose "reports_to" is their lead's id. Use a sub-team (one lead + 2-4 members, max depth atlas -> lead ->
-  member) only when the work naturally splits into parallel strands with their own coordinator (a research pod over
-  several markets, one writer per channel). Flat is the default.
-- 2-6 specialist agents, each defined by its FUNCTIONS, not by text. Every agent needs at least one tool that acts;
-  a role that would only write text belongs to Atlas. Each agent: short id (a-z, _), name = a plain job title a
-  colleague would carry on a badge ("Bookings Manager", "Enquiry Responder", "Floor Watcher" - never a slug, an
-  acronym or anything technical), role (3-6 words), goal
-  (ONE line, max 100 characters), tools (subset of: record_find / record_get / record_save = the desk's business
-  records, crm_lookup, web_fetch, browse = a real browser, calendar_free_slots, camera_ask / camera_events /
-  camera_look, run_python, recall, read_file, list_files, save_deliverable),
-  "strong": true only if the role needs top-tier judgement or client-facing writing,
-  "instructions": 1-3 rules, max 90 characters each, only what the tools cannot say (what to check first, what it
-  must never do),
-  "engine": "hermes_agent" or "atlas", and "reports_to": "atlas" for a top-level agent or the id of the lead it
-  works under. A lead is just an agent whose members name it in "reports_to" - e.g. {"id": "enquiries_lead",
-  "reports_to": "atlas"} with {"id": "stock", "reports_to": "enquiries_lead"}. When the owner asks for a pod, a
-  sub-team, or "put X under Y", you MUST set reports_to on the members - the structure is drawn from that field. Use "hermes_agent" (the Nous Research Hermes Agent runtime: own browser,
-  terminal, file system, skills and per-client long-term memory) for roles that must browse live websites, run code
-  or shell commands, work through files over many steps, reconcile data, or remember a client between runs.
-  Use "atlas" (the fast built-in loop) for drafting, replying, classifying, summarising and QA.
-- Design the team for THIS job. Never reuse a stock line-up: the roles, their instructions and the workflow steps
-  must follow from what the owner actually described.
-- Workflows: 1-3, each with an id, name, trigger {"kind": webhook|inbox|schedule|manual, "detail": text} and ordered
-  "steps": list of agent ids. Atlas reviews and approves outbound messages implicitly; do not list atlas in steps.
-- Connectors the desk needs: kinds smtp (send email), imap (watch inbox), http (any REST API), mcp (tool server:
-  Slack, Notion, Google Sheets, GitHub...), webhook (web forms, Zapier, Make). Each: {"kind", "name", "purpose", "required": bool}.
-- Policy: {"no_money_figures": bool, "max_words": int, "banned_phrases": [..]}. Default no_money_figures true for
-  anything customer-facing with quotes/prices.
-- Business: {"name","tagline","description","services":[..],"target_clients","tone","sender_name","availability","pricing_notes"}.
-  Fill what you know; leave unknown fields out (do not invent a sender name or pricing).
 
-Output format — MANDATORY on every turn
-Write your reply to the owner first, in clean light markdown so it scans easily: short paragraphs, **bold** for the
-key terms, a numbered or bulleted list when there are steps or options, a "### " subheading only in longer answers, a
-table only when comparing options. No headings on short replies. Then, on a new line, append exactly one machine block
-and nothing after it:
+# the design prompt (round 2 designer spec 5.1): what to do each turn, then the team rules, the connector kinds, the
+# steps and the block format. At most 10,000 characters (tests/test_design_plan.py test 26). The build facts
+# (design_ops.static_facts), the camera guide, the company profile and the Current state view follow it in the system
+# prompt (system_prompt, _system)
+_RULES = """You are Atlas. With the owner, you design the AI operations desk you will lead.
 
-<atlas-design>{"intent": "design", "next": [{"label": "moves forward", "detail": "what happens if picked", "say": "the owner's exact message"}, {"label": "refines the draft", "detail": "...", "say": "..."}, {"label": "an alternative or added capability", "detail": "...", "say": "..."}], "ready": false, "blueprint": { "business": {...}, "agents": [...], "workflows": [...], "connectors": [...], "policy": {...} }}</atlas-design>
+Each turn
+1. Read the Current state: team, plan, open question, pending change, assumptions, build facts, cost.
+2. Do what the owner's message asks. Leave every other agent, workflow and camera as it is.
+3. Weigh the result: one agent per function (agents that differ only by a number, a camera or a channel are one;
+   "clones" lists them); every promise fits Build facts; every business fact traces to the owner's words or their
+   company profile (else it goes in "assume"); the daily cost fits the allowance.
+4. Keep building: if this turn adds fewer than 3 agents and the first "next" plan item waits on no open question or
+   pending change, build it now ("build_item" or add ops), unless the owner asked to hold or to focus elsewhere.
+5. Write the reply, then the block. Every op carries a "why" (max 90 characters) citing the owner's words or a build
+   fact.
 
-"intent" is "design" when the turn shapes the desk and "answer" when you only answered a question (then "blueprint"
-is null).
-On a design turn the blueprint must be COMPLETE (full current state, not a diff). On the very first turn, before the owner
-has said anything substantive, "blueprint" may be null.
+First message about the work
+- Draft only what it makes certain: usually ONE agent (up to 3 the owner named), plus the cameras and channels they
+  named. Everything else goes in "plan" as next or later, each with a why.
+- Ask the one question about the outcome that changes the next agents: what counts as a problem, when, who hears
+  about it, how fast. Never ask for stream addresses, logins or tools (they are set up after the build), or "what
+  kind of business".
+- A greeting, or a question with no work in it: no team; ask what work to take off their plate.
 
-"next" - exactly 3 ways for the owner to proceed, one click each:
-- Three genuinely different directions: one that moves forward ("action": "build" when the draft is solid, otherwise
-  the most useful next question), one concrete refinement of the current draft, one alternative or added capability.
-- Specific to this owner's business and this turn (their business, customers, channels, agent names), never generic
-  ("Tell me more", "Continue").
-- "label": imperative, sentence case, max 7 words, no trailing period, no emoji. "detail": max 14 words, what happens if
-  they pick it - no figures, prices or results the owner did not give you. "say": the exact message sent in the owner's
-  voice, first person and complete (omit when equal to label).
-- "action" only as "build" (proposing to build a draft that has agents) or "camera" (connect a camera feed; add
-  "camera": "<camera name>", or "" for a new one). Otherwise leave it out.
-- On "answer" turns: three natural follow-ups - go deeper, apply it to their business, back to the desk.
+Reply (design turns: 30-90 words, plain English)
+- Sentence 1: the decision and its reason, with the true verb: Drafted, Added, Changed, Merged, Kept, Parked,
+  Proposed.
+- Then at most two sentences on what you weighed: what you kept or left for later and why, and anything the build
+  cannot do, with the figure from Build facts.
+- Put a question only in "ask" and a removal only in "propose": the server shows them under your reply with the
+  default and the buttons. Do not write them in the reply.
+- Never open with an acknowledgement, a greeting, your name, "Let me", or the owner's words played back. No option
+  lists: the three steps under the reply are the options.
+- A plain question (pricing, wording, a term): answer like an analyst, under 200 words, "intent": "answer", no
+  changes. Asked what you understood: up to 5 bullets: facts they stated, assumptions (labelled), open decisions.
 
-Editing an existing sketch - the canvas is the owner's, not yours
-- Start from the "Current blueprint" you are given and change ONLY what this turn calls for. Every agent, workflow,
-  connector and business field the owner did not mention is copied over unchanged, word for word.
-- An agent's "id" is permanent. Renaming, re-scoping or moving an agent keeps its id; only a genuinely new agent gets a
-  new id. Never re-slug ids from names.
-- Remove an agent only when the owner asks for that (or agrees to your suggestion to drop it), and say which one went.
-- Keep the agents in their existing order; append new ones at the end."""
+Questions (at most one open)
+- Only when the answer changes the team: 2-3 options; mark the one you use if they skip with "default": true.
+- If the owner's message answers the open question, set "answered". Never ask what the state answers; never re-ask
+  a resolved question; no new question while a change waits for the owner's OK.
+- The owner asks for one agent per camera or per channel: draft the single reader, give the cost of N in your
+  weighed sentence, and ask "One reader, or one per camera?" (default: one reader). If they choose one per camera,
+  give each its own camera, focus and rule.
+
+Building
+- At most 3 new agents a turn. A stale "next" item: build it, ask about it, or move it to "later" with a why.
+- Never invent facts about the business: platforms, tools, locations, volumes, camera positions, prices, people.
+  "business" holds only what they said.
+- You have no tools here. You cannot see cameras, inboxes or files. Never say you checked, queried, looked or sent.
+- To remove, merge or replace an agent, a workflow or a connector, use "propose" with the reason, unless the owner
+  named it and asked for it to go. Never re-propose a declined change.
+- Promise only what Build facts say. Asked for what the build cannot do (every second, a set time of day, live
+  narration, a first WhatsApp message to a new contact without a template), say so with the real figure and design
+  the closest thing it can do.
+- If the cost passes the allowance ("over"), say which part and propose the cheaper shape (fewer journals, a daily
+  report).
+
+Team rules
+- Atlas ("atlas") is the root; never add it or put it in steps. "reports_to": "atlas", or a lead's id for a sub-team
+  member (a lead + 2-4 members, no deeper) when strands run in parallel or the owner asks ("put X under Y").
+- An agent is its functions: "name" a badge job title ("Bookings Manager", "Floor Watcher"; never a slug), "role" 3-6
+  words, "goal" one line <= 100 chars, "instructions" 1-3 rules <= 90 chars (what to check first, what never to do),
+  "tools" (at least one that acts) from record_find, record_get, record_save (business records), crm_lookup,
+  web_fetch, browse, calendar_free_slots, camera_ask, camera_events, camera_look, run_python, recall, read_file,
+  list_files, save_deliverable; "strong": true only for top-tier judgement or client-facing writing; "engine":
+  "hermes_agent" (own browser, terminal, files, skills, client memory) for live sites, code, long file work or
+  remembering a client, else "atlas" (the fast loop).
+- Design for THIS job, never a stock line-up. Workflows: 1-3, {"name", "trigger": {"kind":
+  webhook|inbox|schedule|manual, "detail"}, "steps": [agents in order]}; Atlas approves outbound messages itself.
+  Connectors: kind, name, purpose, required. Policy: no_money_figures (true for anything customer-facing with quotes
+  or prices), max_words, banned_phrases. Business: name, tagline, description, services, target_clients, tone,
+  sender_name, availability, pricing_notes."""
+
+# what each connector kind is for, 3-6 words (the desk's own kinds, integrations.KINDS without the camera)
+CONNECTOR_PURPOSE = {
+    "smtp": "send email (SMTP)", "imap": "watch an email inbox", "http": "call any REST API",
+    "mcp": "MCP tool servers (Notion, Sheets, GitHub)", "higgsfield": "generate video and images", "hermes_agent": "a Hermes Agent runtime",
+    "webhook": "web forms, Zapier, Make", "resend": "send email (Resend API)", "whatsapp": "WhatsApp messages (Meta)",
+    "instagram": "Instagram direct messages", "twilio": "SMS and WhatsApp (Twilio)", "hubspot": "CRM sync to HubSpot",
+    "pipedrive": "CRM sync to Pipedrive", "gcal": "calendar slots and bookings", "slack": "Slack channel notifications"}
+
+_STEPS = """"next": exactly 3 ways to proceed, one click each
+- Different directions: one that moves forward ("action": "build" once the draft is solid), one concrete refinement,
+  one alternative or added capability; specific to this owner and turn, never generic ("Tell me more").
+- "label": imperative, sentence case, max 7 words, no period, no emoji. "detail": max 14 words, what happens if they
+  pick it, no figures or results the owner did not give. "say": the exact message, in the owner's voice, first
+  person (omit when equal to label). "plan": "<plan id>" when it takes that item on.
+- "action" only "build" (a draft with agents) or "camera" (connect a feed: "camera": "<camera name>", or "" for a new
+  one). "answer" turns: go deeper, apply it to their business, back to the desk. When you ask, the options are the
+  steps."""
+
+# the v2 block (5.3). Its ids are placeholders in angle brackets: no real id can ever look like one, so a model that
+# copies the example verbatim touches nothing
+_FORMAT = """Output format (every turn)
+The reply, in light markdown (short paragraphs, **bold** key terms, lists for steps, never for options), then on a new
+  line exactly one block, nothing after it. Every key is optional; a missing key is no change. <...> stands for an id
+  in Current state; never make one up. Name an agent added this turn by its name.
+<atlas-design>{"intent": "design",
+ "changes": [
+  {"op": "add_agent", "agent": {"name": "Floor Watcher", "role": "Reads every camera journal", "goal": "...", "tools": ["camera_ask", "camera_events"], "instructions": ["..."], "reports_to": "atlas", "engine": "atlas"}, "why": "..."},
+  {"op": "update_agent", "id": "<agent id>", "set": {"goal": "..."}, "why": "..."},
+  {"op": "keep", "id": "<agent id>", "why": "..."}, {"op": "remove_agent", "id": "<agent id>", "why": "..."}, {"op": "build_item", "plan": "<plan id>"},
+  {"op": "add_workflow", "workflow": {"name": "...", "trigger": {"kind": "inbox", "detail": "..."}, "steps": ["<agent id>"]}, "why": "..."},
+  {"op": "update_workflow", "id": "<workflow id>", "set": {"steps": ["<agent id>"]}}, {"op": "remove_workflow", "id": "<workflow id>"},
+  {"op": "add_camera", "camera": {"name": "<short name>", "source": "", "notes": "...", "focus": "...", "journal": true}},
+  {"op": "update_camera", "name": "<camera name>", "set": {"focus": "..."}}, {"op": "remove_camera", "name": "<camera name>"},
+  {"op": "add_connector", "connector": {"kind": "whatsapp", "name": "WhatsApp", "purpose": "..."}}, {"op": "remove_connector", "name": "<connector name>"},
+  {"op": "set_business", "set": {"services": ["..."]}}, {"op": "set_policy", "set": {"no_money_figures": true}}],
+ "plan": [{"id": "<plan id>", "status": "now"}, {"title": "Weekly owner summary", "status": "later", "why": "...", "agents": []}],
+ "propose": {"kind": "merge", "ids": ["<agent id>", "<agent id>"], "into": {"name": "Floor Watcher", "...": "..."}, "reason": "..."},
+ "ask": {"text": "...?", "decides": "alert_mode", "options": [{"label": "...", "detail": "...", "say": "...", "default": true}, {"label": "...", "say": "..."}]},
+ "answered": [{"q": "<question id>", "answer": "..."}],
+ "assume": ["..."], "unassume": ["<assumption id>"],
+ "next": [{"label": "...", "detail": "...", "say": "...", "plan": "<plan id>"}],
+ "ready": false}</atlas-design>
+- "intent": "answer" when you only answered. No sketch yet: "blueprint" (business, agents, workflows, connectors,
+  cameras, policy) may stand in for "changes"; with a sketch, send "changes" only.
+- A rename is update_agent with a new "name"; ids never change.
+- "keep" (at most 2) marks an agent this turn put in question; "build_item" adds the agents queued in that item.
+- "plan" upserts by id; a new item needs "title", "status" (now|next|later|dropped) and "why"; its "agents" may name
+  this turn's new agents. Only the server marks done.
+- "propose": merge or replace (with "into"), park or remove; "cameras", "workflows", "connectors" may go too.
+- "ready": true once the team covers their work and nothing waits on them. Never set layout, colours, members, the
+  tier, ids or consent."""
+
+DESIGNER_SYSTEM = _unwrap("\n\n".join((
+    _RULES,
+    "Connector kinds: " + "; ".join(f"{k}: {CONNECTOR_PURPOSE[k]}" for k in CONNECTOR_KINDS) + ".",
+    _STEPS,
+    _FORMAT)))
 
 GREETING = ("Describe the business and the work to take off your plate: enquiries, proposals, invoices, an inbox, cameras. "
             "The team is drafted in the Team panel as you go, and nothing is sent without your approval. "
             "You can also ask a question directly.")
 
-CAMERA_GUIDE = """
-
-Cameras (the desk's eyes)
-- If the owner mentions cameras, CCTV, footage, a shop floor, a lobby, a kitchen, a till or "watching" anything, add a
-  "cameras" list to the blueprint: [{"name": "short-slug", "source": "...", "notes": "where it points",
-  "focus": "what to document in detail", "journal": true, "alerts": false, "watch_for": "person"}].
-- "source" is what the owner gave you: an RTSP address (rtsp://user:pass@ip:554/...), a snapshot URL, a webcam index
-  ("0"), or "sample:<clip>" for sample footage from the library below. If they have cameras but gave no address yet,
-  use "" and ask for the stream addresses (the owner can also add them later on the Cameras page).
-- "journal": true makes the camera keep a detailed, searchable written record of everything it sees (what people do,
-  wear, carry, how long they wait, what changes) - the owner can later ask questions about it. Default true.
+# the camera part of the prompt (5.1), after the journal's cadence line (camera_guide writes it from the build's own
+# numbers). Measured in the tests: the text without the clip list <= 1,800 characters
+CAMERA_GUIDE = _unwrap("""
+- If the owner mentions cameras, CCTV, footage, a shop floor, a lobby, a kitchen, a till or "watching" anything, add
+  each camera ("add_camera"; in a first draft, "cameras"): {"name": "short-slug", "source": "", "notes": "where it
+  points", "focus": "what to document in detail", "journal": true, "alerts": false, "watch_for": "person"}.
+- "source": "" (the owner adds the address on the canvas, or on the Cameras page after the build; never ask for it
+  and never copy one into the block), or "sample:<name>" for sample footage from the library below.
+- "journal": true keeps a detailed, searchable written record of what the camera sees (what people do, wear, carry,
+  how long they wait, what changes); the owner can question it later. Default true.
 - "alerts": true only if the owner wants the agents woken when something specific happens; then say what in "focus".
-- Give any agent that reads or reports on the cameras the tools camera_ask and camera_events (camera_look for a fresh
-  frame). Agents never narrate feeds themselves - the journal does that.
-- If the owner wants to try it without their own cameras, offer the sample footage and use "sample:" sources. When they
-  want several cameras on one place, use clips that share a site (the campus-* set is five angles of one campus; the kitchen-* set is five angles of one real kitchen - use it for restaurants, cafes and food businesses).
-- One watcher per camera: give that agent "camera": "<camera name>" so it only reads its own feed."""
+- Journals do the watching. Add one reader agent (camera_ask + camera_events) for all cameras. Add a per-camera
+  watcher only when that camera needs its own rules or alerts, or the owner chose one per camera, and say why in the
+  plan; give it "camera": "<camera name>". Agents never narrate feeds themselves.
+- To try it without their own cameras, offer the sample footage. For several cameras on one place use clips that
+  share a site (campus-*: five angles of one campus; kitchen-*: five angles of one real kitchen, for restaurants,
+  cafes and food businesses).""")
 
 
 SWITCH_TO_PAID = NS.SWITCH_TO_PAID
@@ -245,12 +298,32 @@ def sample_name(source: str) -> str:
         return ""
 
 
-def camera_guide() -> str:
-    clips = sample_clips()
+def camera_guide(clips: bool = True) -> str:
+    """The camera part of the design prompt: the journal's cadence, written from the build's own numbers (JOURNAL_*,
+    design_ops.NOTE_REQUESTS), the camera rules and, with `clips`, the sample footage library. Without the library it
+    is the text the 1,800-character budget measures (spec 5.1)."""
+    text = ("\n\nCameras (the desk's eyes)\n"
+            f"- A journal writes a note on each change (at most one every {JOURNAL_MIN_GAP_S} s) and at least one every "
+            f"{JOURNAL_EVERY_S} s; each note is {OPS.NOTE_REQUESTS} AI requests; on the shared allowance notes are paced "
+            "(see cost)." + CAMERA_GUIDE)
     if not clips:
-        return CAMERA_GUIDE + "\n- No sample footage is installed on this desk."
-    return CAMERA_GUIDE + "\n- Sample footage library (use as \"sample:<name>\"):\n" + "\n".join(
-        f"  {n}: {SAMPLE_LABELS.get(n, n.replace('_', ' ').replace('-', ' '))}" for n in clips)
+        return text
+    found = sample_clips()
+    if not found:
+        return text + "\n- No sample footage is installed on this desk."
+    return text + "\n- Sample footage library (use as \"sample:<name>\"):\n" + "\n".join(
+        f"  {n}: {SAMPLE_LABELS.get(n, n.replace('_', ' ').replace('-', ' '))}" for n in found)
+
+
+def build_facts_text() -> str:
+    """The build facts every design prompt carries (spec 6.10), written from the build code's own numbers."""
+    return "Build facts (what a built desk does; promise nothing beyond them)\n" + "\n".join(f"- {f}" for f in OPS.static_facts())
+
+
+def system_prompt() -> str:
+    """The design prompt's fixed part: DESIGNER_SYSTEM (the rules, the connector kinds, the steps, the block format),
+    the build facts and the camera guide. The turn adds the company profile and the Current state (_system)."""
+    return DESIGNER_SYSTEM + "\n\n" + build_facts_text() + camera_guide()
 
 
 # ---------------------------------------------------------------------------- sessions
@@ -1508,31 +1581,24 @@ def _fixed_for(exc: BaseException, deadline: float) -> dict[str, Any]:
 
 
 def _system(session: DesignSession, dec: Decided) -> str:
-    """The design prompt, from the turn's snapshot. Every input that is not the model's own reply has the block tag
-    neutralised: the links and the profile studied from the owner's (third-party) pages, and the sketch with its
-    owner- and model-written names."""
-    system = DESIGNER_SYSTEM + camera_guide()
-    if session.profile:
-        prof = {k: session.profile.get(k) for k in ("name", "summary", "sector", "services", "locations", "customers", "team_hint",
-                                                   "channels", "tech", "tone", "opportunities") if session.profile.get(k)}
-        system += ("\n\nYou already studied the owner's public links (" + neutralise(", ".join(map(str, session.links[:3])))
-                   + "). Company profile - treat as known facts, do not ask for them again, reference them naturally:\n"
-                   + neutralise(json.dumps(prof, ensure_ascii=False))[:3500])
-    if dec.bp0:
-        system += ("\n\nCurrent blueprint (update it, keep what still holds):\n"
-                   + neutralise(json.dumps(dec.bp0, ensure_ascii=False)))
-    return system
+    """The design prompt for the turn (spec 5.1, 5.2): the fixed part (system_prompt), the company profile from the links
+    study as labelled data (never instructions, never "known facts"), then the Current state the turn was decided on:
+    dec.view, the same redacted view a full blueprint is diffed against (5.5). Every input that is not the model's own
+    words has the block tag neutralised: design_state does it for the profile and every string of the view."""
+    view = dec.view if isinstance(dec.view, dict) else DST.view(dec.bp0, session.design, session.turn, OPS.facts(dec.bp0))
+    parts = [system_prompt()]
+    profile = DST.profile_text(session.profile, session.links) if session.profile else ""
+    if profile:
+        parts.append(profile)
+    parts.append(DST.VIEW_HEAD + "\n" + json.dumps(view, ensure_ascii=False, separators=(",", ":")))
+    return "\n\n".join(parts)
 
 
-def _repair_ask(dec: Decided) -> str:
-    if dec.bp0:
-        return ("Output ONLY the <atlas-design>{...}</atlas-design> block, nothing else. Start from the Current blueprint "
-                "in your instructions and apply ONLY the changes your last reply described - same ids, same order, "
-                "everything else copied unchanged. Keep the same next steps.")
-    return ("Output ONLY the <atlas-design>{...}</atlas-design> block, nothing else. Include your best FIRST-DRAFT "
-            "blueprint for what has been said so far (make reasonable assumptions; the owner can adjust it on the "
-            "canvas). Keep the same next steps. If the owner has only asked general questions and not described "
-            "work to take on, set \"intent\": \"answer\" and \"blueprint\": null instead.")
+# the repair call's message (5.6): the block alone, for the change the reply described; its keys replace the same keys
+# of the reply's block. A reply that only answered a question gets the answer block, so a repair never conjures a team
+REPAIR_ASK = ('Output ONLY the <atlas-design> block for the change your reply describes: "changes" against the Current state '
+              '(or "blueprint" if there is no sketch yet), "plan" and "next", and "ask"/"propose" if your reply asked or '
+              'proposed. If your reply only answered a question: <atlas-design>{"intent": "answer"}</atlas-design>')
 
 
 def _usable(block: Any) -> bool:
@@ -1590,7 +1656,7 @@ def _model_call(session: DesignSession, dec: Decided, msgs: list[dict[str, Any]]
     if c.retried or time.time() >= deadline or not _needs_repair(session, dec, msgs, c):
         return c
     stream.status(S_REPAIR)
-    fix, exc = _chat(prov, system, pm + [{"role": "assistant", "content": raw}, prov.user_message(_repair_ask(dec))],
+    fix, exc = _chat(prov, system, pm + [{"role": "assistant", "content": raw}, prov.user_message(REPAIR_ASK)],
                      model, _discard, c, deadline)
     c.repaired = True
     if exc is not None:
@@ -1762,7 +1828,7 @@ def _demo_blueprint(kind: str, biz_hint: str, turn: int) -> dict[str, Any]:
                 {"id": "qa", "name": "Quality reviewer", "role": "Outbound quality gate", "goal": "Check every outbound draft against policy and tone; return fixes, not opinions.", "tools": ["read_file"], "strong": True},
             ],
             "workflows": [{"id": "inbound_lead", "name": "Inbound lead → researched reply", "trigger": {"kind": "webhook", "detail": "Website form / Zapier POST"}, "steps": ["research", "writer", "qa", "crm"]},
-                          {"id": "followups", "name": "3-day follow-up chaser", "trigger": {"kind": "schedule", "detail": "Daily 08:30"}, "steps": ["writer", "qa"]}],
+                          {"id": "followups", "name": "3-day follow-up chaser", "trigger": {"kind": "schedule", "detail": "Once a day"}, "steps": ["writer", "qa"]}],
             "connectors": [{"kind": "webhook", "name": "Website form", "purpose": "New enquiries in", "required": True},
                            {"kind": "smtp", "name": "Email sending", "purpose": "Approved replies out", "required": True},
                            {"kind": "imap", "name": "Inbox", "purpose": "Replies and new email enquiries", "required": False}],
@@ -1799,7 +1865,7 @@ def _demo_blueprint(kind: str, biz_hint: str, turn: int) -> dict[str, Any]:
                 {"id": "ops", "name": "Ops checker", "role": "Exceptions & escalation", "goal": "Flag stuck orders, refunds and anything needing a human.", "tools": ["read_file", "run_python"]},
             ],
             "workflows": [{"id": "order_update", "name": "Customer asks about an order", "trigger": {"kind": "inbox", "detail": "support@ inbox"}, "steps": ["orders", "writer"]},
-                          {"id": "stuck_orders", "name": "Daily stuck-order sweep", "trigger": {"kind": "schedule", "detail": "Daily 07:00"}, "steps": ["orders", "ops", "writer"]}],
+                          {"id": "stuck_orders", "name": "Daily stuck-order sweep", "trigger": {"kind": "schedule", "detail": "Once a day"}, "steps": ["orders", "ops", "writer"]}],
             "connectors": [{"kind": "http", "name": "Store API (Shopify)", "purpose": "Orders, shipments, refunds", "required": True},
                            {"kind": "imap", "name": "Support inbox", "purpose": "Customer questions in", "required": True},
                            {"kind": "smtp", "name": "Email sending", "purpose": "Updates out", "required": True}],
@@ -1819,7 +1885,68 @@ def _demo_blueprint(kind: str, biz_hint: str, turn: int) -> dict[str, Any]:
     return bp
 
 
+# the scripted designer's one question (turn 1, spec 6.11): how enquiries arrive. Its options are the three steps turn 1
+# always offered, so a click on one answers it in Phase A; the default is the channel the kind's first sketch uses
+_DEMO_ASK = {"text": "How do enquiries usually arrive: a web form, email, or phone and WhatsApp?", "decides": "enquiry_channel"}
+_DEMO_CHANNELS = (
+    {"label": "Wire up the website form", "detail": "Form enquiries become the desk's first trigger", "say": "Mostly through our website form."},
+    {"label": "Watch one shared inbox", "detail": "Email enquiries land in one inbox the desk triages", "say": "By email to one inbox."},
+    {"label": "Cover WhatsApp and SMS too", "detail": "Those enquiries land in one queue; phone calls you note by hand",
+     "say": "Phone and WhatsApp mostly."})
+_DEMO_DEFAULT = {"inbox": 1, "orders": 1}             # the option index each kind's sketch already listens on (else the form)
+# the channel a typed reply names, in the order of the options (the scripted designer's reading of an answer)
+_DEMO_NAMES_CHANNEL = (re.compile(r"\b(?:web ?forms?|website|forms?)\b"), re.compile(r"\b(?:e-?mails?|inbox(?:es)?|mail)\b"),
+                       re.compile(r"\b(?:phones?|whatsapp|sms|texts?|calls?)\b"))
+_DEMO_REPORTER = {"id": "watch_reporter", "name": "Camera reporter", "role": "Reads the camera journal",
+                  "goal": "Answer questions and write the daily report from the camera journal, citing times.",
+                  "tools": ["camera_ask", "camera_events", "save_deliverable"]}
+
+
+def _demo_article(name: str) -> str:
+    """A job title in running text: "a researcher", "an order agent", "a CRM keeper"."""
+    n = name if name[:2].isupper() else name[:1].lower() + name[1:]
+    return ("an " if n[:1].lower() in "aeiou" else "a ") + n
+
+
+def _demo_ops(prev: dict[str, Any] | None, bp: dict[str, Any], label: str) -> list[dict[str, Any]]:
+    """This turn of the script as v2 changes (spec 5.3): what its sketch adds to the one the script drew last turn
+    (agents, workflows, connectors, cameras), the steps of a workflow an added agent joins and, on the first turn, the
+    kind's policy. Only additions, so what the owner removed on the canvas stays removed; and the money rule is never
+    lifted, since only the owner lifts it (6.3)."""
+    prev = prev or {}
+    had = {sec: {x.get("id") or x.get("name") for x in prev.get(sec) or []} for sec in ("agents", "workflows", "connectors", "cameras")}
+    new = [a for a in bp["agents"] if a["id"] not in had["agents"]]
+    ops: list[dict[str, Any]] = [{"op": "add_agent", "agent": a, "why": a["goal"]} for a in new]
+    for w in bp["workflows"]:
+        joins = [a["name"] for a in new if a["id"] in w["steps"]]
+        if w["id"] not in had["workflows"]:
+            ops.append({"op": "add_workflow", "workflow": w, "why": w["trigger"].get("detail") or ""})
+        elif joins:
+            ops.append({"op": "update_workflow", "id": w["id"], "set": {"steps": w["steps"]},
+                        "why": f"{OPS._and(joins)} {'joins' if len(joins) == 1 else 'join'} its steps"})
+    ops += [{"op": "add_connector", "connector": c, "why": c["purpose"]} for c in bp["connectors"] if c["name"] not in had["connectors"]]
+    ops += [{"op": "add_camera", "camera": c, "why": c["notes"]} for c in bp.get("cameras") or [] if c["name"] not in had["cameras"]]
+    if not prev:
+        ops.append({"op": "set_policy", "set": {k: v for k, v in bp["policy"].items() if k != "no_money_figures" or v is True},
+                    "why": f"house rules for {_demo_article(label)}"})
+    return ops
+
+
+def _demo_answered(session: DesignSession, low: str) -> list[dict[str, Any]]:
+    """The scripted designer's reading of a typed reply to its open question: the one channel the reply names (a click
+    was already recorded in Phase A). A reply naming no channel, or several, leaves it open for the server's notes."""
+    q = DST.open_question(session.design)
+    if q is None or q["decides"] != _DEMO_ASK["decides"]:
+        return []
+    hits = [i for i, rx in enumerate(_DEMO_NAMES_CHANNEL) if rx.search(low)]
+    return [{"q": q["id"], "answer": q["options"][hits[0]]["label"]}] if len(hits) == 1 and hits[0] < len(q["options"]) else []
+
+
 def _demo_turn(session: DesignSession, text: str, on_token: Callable[[str], None] | None) -> str:
+    """The scripted designer (no model): a reply and a v2 block whose changes are what the script adds this turn.
+    Turn 1 drafts the core and asks how enquiries arrive (the question's options are the three steps it always
+    offered), turn 2 adds the third agent, turn 3 completes the team, and later turns say it is a scripted preview.
+    Every claim in the prose is about the sketch the script draws for this kind of business."""
     low = text.lower()
     kind = getattr(session, "_demo_kind", None)
     if not kind:
@@ -1836,75 +1963,91 @@ def _demo_turn(session: DesignSession, text: str, on_token: Callable[[str], None
         session._demo_name = name  # type: ignore[attr-defined]
     turn = session.turn + 1                            # turn advances when the turn commits (Phase C)
     bp = _demo_blueprint(kind, name, turn)
+    prev = _demo_blueprint(kind, name, turn - 1) if turn > 1 else None
     label = {"sales": "inbound enquiry desk", "proposal": "proposal desk", "inbox": "inbox triage desk", "orders": "order-care desk"}[kind]
     whose = (name + ("'" if name.endswith("s") else "'s")) if name else "the"
+    cams = getattr(session, "_demo_cams", None)
+    new_cams = cams is None and re.search(r"camera|cctv|footage|lobby|hotel|till|restaurant|kitchen", low) is not None
+    if new_cams:
+        cams = _demo_cameras(low)
+        session._demo_cams = cams  # type: ignore[attr-defined]
+    if cams:                                           # the script's sketches carry the cameras from the turn they came
+        for b in [bp] + ([prev] if prev is not None and not new_cams else []):
+            b["cameras"] = cams
+            b["agents"].append(dict(_DEMO_REPORTER))
+    sketch = session.blueprint if isinstance(session.blueprint, dict) else {}
+    policy = sketch.get("policy") if isinstance(sketch.get("policy"), dict) else {}
+    ops = _demo_ops(prev, bp, label)
+    if name and not (sketch.get("business") if isinstance(sketch.get("business"), dict) else {}).get("name"):
+        ops.insert(0, {"op": "set_business", "set": {"name": name}, "why": "the name in your message"})
+    banned = [p for p in policy.get("banned_phrases") or [] if isinstance(p, str)]
+    added = [p for p in ("guarantee", "promise") if p not in banned] if turn >= 3 and "never" in low else []
+    if added:
+        ops.append({"op": "set_policy", "set": {"banned_phrases": banned + added}, "why": "your message says never"})
+    blocks = "prices and placeholders" if policy.get("no_money_figures", True) is not False else "placeholders"
+    third = _demo_blueprint(kind, name, 3)["agents"][2]   # every kind's third agent is the one turn 2 adds
     scripts = {
-        1: (f"Understood — that points to an {label}. I have sketched the core: Atlas orchestrating, a researcher and a writer. "
-            f"Every outbound message will wait for your approval, and the policy layer blocks prices and placeholders. "
-            f"Who are your customers, and how do enquiries usually arrive — web form, email, phone?",
-            [{"label": "Wire up the website form", "detail": "Form enquiries become the desk's first trigger", "say": "Mostly through our website form."},
-             {"label": "Watch one shared inbox", "detail": "Email enquiries land in one inbox the desk triages", "say": "By email to one inbox."},
-             {"label": "Cover WhatsApp and SMS too", "detail": "Those enquiries land in one queue; phone calls you note by hand",
-              "say": "Phone and WhatsApp mostly."}]),
-        2: ("Good. I have added a CRM keeper so every contact gets a stage and a dated next action, and wired the intake as the "
-            "first trigger. What tone should the replies have, and is there anything the agents must never say or promise?",
+        1: (f"That points to {_demo_article(label)}. I have sketched the core: Atlas orchestrating, {_demo_article(bp['agents'][0]['name'])} "
+            f"and {_demo_article(bp['agents'][1]['name'])}. Every outbound message will wait for your approval, and the policy "
+            f"layer blocks {blocks}.", "", [dict(o) for o in _DEMO_CHANNELS]),
+        2: (f"Added {_demo_article(third['name'])} to {third['goal'][:1].lower()}{third['goal'][1:].rstrip('.')}.",
+            "What tone should the replies have, and is there anything the agents must never say or promise?",
             [{"label": "Keep replies warm and local", "detail": "Friendly and never pushy, checked before it reaches you",
               "say": "Warm and local, never pushy."},
              {"label": "Never quote prices in writing", "detail": "The policy layer blocks money figures in every draft",
               "say": "Never quote prices in writing."},
              {"label": "Make replies formal and precise", "detail": "Short, exact wording for professional clients", "say": "Formal and precise."}]),
-        3: (_demo_complete(bp),
+        3: (_demo_complete(bp, added), "",
             [{"label": "Build the desk now", "detail": f"Creates {whose} desk; nothing is sent without your approval",
               "action": "build"},
              _demo_addition(kind, bp),
              {"label": "Explain the approval flow", "detail": "What waits for you and what runs on its own",
               "say": "Explain the approval flow: what waits for me and what doesn't?"}]),
     }
-    prose, nxt = scripts.get(turn, ("[Scripted preview] This deployment has no model key, so I can't actually respond to what you typed. "
-                                    "The sketch shows a sample desk. For the real designer, run the desk with a live model "
-                                    "(locally: AtlasDesk launcher; hosted: set OPENROUTER_API_KEY).",
-                                    [{"label": "Build the sample desk", "detail": "Builds the desk sketched on the canvas", "action": "build"},
-                                     {"label": "Show me how to go live", "detail": "What a live model key changes", "say": "How do I go live?"}]))
-    cams = getattr(session, "_demo_cams", None)
-    if cams is None and re.search(r"camera|cctv|footage|lobby|hotel|till|restaurant|kitchen", low):
-        cams = _demo_cameras(low)
-        session._demo_cams = cams  # type: ignore[attr-defined]
-    if cams:
-        bp["cameras"] = cams
-        bp["agents"].append({"id": "watch_reporter", "name": "Camera reporter", "role": "Reads the camera journal",
-                             "goal": "Answer questions and write the daily report from the camera journal, citing times.",
-                             "tools": ["camera_ask", "camera_events", "save_deliverable"]})
-        prose_note = f" I have added {len(cams)} camera{'s' if len(cams) != 1 else ''} with a detailed journal, and a reporter who reads it."
-        if turn == 3:
-            c0 = cams[0]
-            nxt = nxt[:2] + [{"label": f"Use your own feed for {c0['name']}", "action": "camera", "camera": c0["name"],
-                              "detail": ("Swap the sample footage for your RTSP stream or a recording" if c0.get("source")
-                                         else "Add its stream address or a recording")}]
-    else:
-        prose_note = ""
-    if turn >= 3 and "never" in low:
-        bp["policy"]["banned_phrases"] = list(dict.fromkeys(bp["policy"]["banned_phrases"] + ["guarantee", "promise"]))
-    prose += prose_note
+    main, question, nxt = scripts.get(turn, (
+        "[Scripted preview] This deployment has no model key, so I can't actually respond to what you typed. The sketch "
+        "shows a sample desk. For the real designer, run the desk with a live model (locally: AtlasDesk launcher; hosted: "
+        "set OPENROUTER_API_KEY).", "",
+        [{"label": "Build the sample desk", "detail": "Builds the desk sketched on the canvas", "action": "build"},
+         {"label": "Show me how to go live", "detail": "What a live model key changes", "say": "How do I go live?"}]))
+    if cams and turn == 3:
+        c0 = cams[0]
+        nxt = nxt[:2] + [{"label": f"Use your own feed for {c0['name']}", "action": "camera", "camera": c0["name"],
+                          "detail": ("Swap the sample footage for your RTSP stream or a recording" if c0.get("source")
+                                     else "Add its stream address or a recording")}]
+    note = (f"Added {len(cams)} camera{'s' if len(cams) != 1 else ''} with a detailed journal, and a reporter who reads it."
+            if new_cams and cams else "")
+    prose = " ".join(p for p in (main, note, question) if p)
+    block: dict[str, Any] = {"intent": "design", "changes": ops, "next": nxt, "ready": turn >= 3}
+    if turn == 1:
+        d = _DEMO_DEFAULT.get(kind, 0)
+        block["ask"] = {**_DEMO_ASK, "options": [{**o, **({"default": True} if i == d else {})} for i, o in enumerate(_DEMO_CHANNELS)]}
+    answered = _demo_answered(session, low)
+    if answered:
+        block["answered"] = answered
     if on_token:
         for w in prose.split(" "):
             on_token(w + " ")
             time.sleep(0.018)
-    return prose + "\n<atlas-design>" + json.dumps({"next": nxt, "ready": turn >= 3, "blueprint": bp}) + "</atlas-design>"
+    return prose + "\n" + TAG_OPEN + json.dumps(block) + TAG_CLOSE
 
 
 def _scheduled(bp: dict[str, Any]) -> dict[str, Any] | None:
     return next((w for w in bp.get("workflows") or [] if (w.get("trigger") or {}).get("kind") == "schedule"), None)
 
 
-def _demo_complete(bp: dict[str, Any]) -> str:
-    """Turn 3's prose: the reviewer and the scheduled workflow only when the sketch has them."""
+def _demo_complete(bp: dict[str, Any], added: list[str] | tuple[str, ...] = ()) -> str:
+    """Turn 3's prose: the policy change only when the owner's message made one (`added`: the banned phrases it added),
+    the reviewer and the scheduled workflow only when the sketch has them, the schedule as the build runs it."""
     qa = next((a for a in bp.get("agents") or [] if a.get("id") == "qa"), None)
     wf = _scheduled(bp)
     gate = (f"the {qa['name'].lower()} checks every draft before it reaches your approval queue" if qa
             else "every draft waits in your approval queue")
-    sched = f", and \"{wf['name']}\" runs on a schedule ({wf['trigger'].get('detail') or 'timed'})" if wf else ""
-    return (f"Noted, added to policy. The team is complete: {gate}{sched}. Review the sketch — click any agent to adjust its "
-            "role or tools — then build the desk. Next we connect your data live.")
+    sched = (f", and \"{wf['name']}\" runs on a schedule: once a day, the first run {OPS.SCHEDULE_FIRST_S // 3600} h after "
+             "you build") if wf else ""
+    lead = ("Changed the policy: the agents never write " + " or ".join(f'"{p}"' for p in added) + ". ") if added else ""
+    return (f"{lead}The team is complete: {gate}{sched}. Review the sketch — click any agent to adjust its role or tools — "
+            "then build the desk. Next we connect your data live.")
 
 
 def _demo_addition(kind: str, bp: dict[str, Any]) -> dict[str, Any]:
