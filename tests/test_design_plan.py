@@ -40,6 +40,16 @@ import atlas.designer as DS
 import atlas.integrations as I
 import atlas.nextsteps as NS
 import atlas.style as ST
+import atlas.usage as U
+
+
+@pytest.fixture(autouse=True)
+def _usage_fresh():
+    """The usage ledger's in-memory state (the pool's full mark, minute windows, runs at once) starts and ends empty: a
+    scripted free-models-per-day reply marks the shared pool full for the rest of the run."""
+    U.reset()
+    yield
+    U.reset()
 
 
 def _a(id_, name, role="Specialist", tools=("record_find",), **kw):
@@ -2166,7 +2176,9 @@ def test_25_a_per_minute_limit_is_never_the_daily_allowance(monkeypatch):
     assert len(router.seen) == 1 and r["text"] == DS.MINUTE_TEXT and "allowance" not in r["text"]
     assert r["next"][0]["label"] == "Try that again" and not any(x["action"] == "paid" for x in r["next"])
     s, router, r = _or_turn(monkeypatch, (429, "Rate limit exceeded: free-models-per-day"))
-    assert r["text"] == DS.QUOTA_TEXT and r["next"][0]["action"] == "paid"
+    # the provider's daily quota is the shared pool's limit at the chokepoint (usage spec 4.4): its numbers, then the sketch
+    assert r["text"].startswith("Shared free-model pool today: ") and r["text"].endswith("The sketch so far is kept.")
+    assert r["next"][0]["action"] == "paid"
 
 
 def test_25_requests_are_counted_in_the_response_extra(monkeypatch):
@@ -2470,7 +2482,7 @@ class UsageLimit(Exception):
                 "retry_after_s": 600, "message": "AI requests today: 250 of 250 used. Resets 00:00 UTC (in 10 min)."}
 
 
-def _refuse(_s):
+def _refuse(_s, *_):
     raise UsageLimit("AI requests today: 250 of 250 used.")
 
 
@@ -2733,7 +2745,7 @@ def test_23_at_the_limit_a_click_still_accepts_and_an_answer_is_kept(web, monkey
     assert [e["t"] for e in acc] == ["done"] and acc[0]["meta"]["requests"] == 0 and len(prov.calls) == 1
     assert [a["id"] for a in s.blueprint["agents"]] == ["floor_watcher"]
     # an option click is the owner's answer, recorded before the check: it stays (saved) and the 429 carries it
-    monkeypatch.setattr(A, "_design_precheck", lambda _s: None)
+    monkeypatch.setattr(A, "_design_precheck", lambda _s, *_: None)
     t = _owned(A, uid)
     SC.install(monkeypatch, SC.Scripted(ASK_REPLY))
     asked = _events(c.post(f"/api/design/{t.id}/say", json={"text": BRIEF}))[-1]
@@ -2864,3 +2876,28 @@ def test_8_a_loaded_draft_offers_no_undo_and_a_stale_undo_says_why(monkeypatch):
     late = SC.say(loaded, undo["say"])                                    # a tab still showing the step
     assert late["text"] == DS.UNDO_GONE_TEXT and [a["id"] for a in loaded.blueprint["agents"]] == ["floor_watcher"]
     assert late["meta"]["requests"] == 0 and len(prov.calls) == 1 and loaded.transcript[-1]["k"] == "server"
+
+
+# ------------------------------------------------------------------ the design chat counts for the owner (usage spec 1.4, 4.7)
+def test_a_design_turn_counts_for_its_owner_and_stops_at_their_allowance(web, monkeypatch):
+    """design.say: the turn's requests count for the account that started the draft (lane you), and an owner at their
+    daily allowance is refused as JSON before any stream, with the steps that still work and no turn recorded."""
+    c, A, uid = web
+    s = _owned(A, uid, _cams5().blueprint)
+    seen = []
+
+    def turn(*a, **k):
+        m = U.current()
+        seen.append((m.owner_id, m.scope, m.lane, m.surface) if m else None)
+        raise RuntimeError("scripted")
+    monkeypatch.setattr(DS, "run_turn", turn)
+    _events(c.post(f"/api/design/{s.id}/say", json={"text": "watch the lobby door more closely"}))
+    assert seen == [(uid, "owner", "you", "design.say")]
+    U.set_override(uid, "ai_requests_day", 0, note="test")
+    try:
+        r = c.post(f"/api/design/{s.id}/say", json={"text": "and the car park"})
+        j = r.get_json()
+        assert r.status_code == 429 and (j["error"], j["limit_id"]) == ("usage_limit", "ai_requests_day")
+        assert j["next"] and DS.busy_since(s.id) is None and len(seen) == 1     # refused before the turn: nothing ran
+    finally:
+        U.clear_override(uid, "ai_requests_day")

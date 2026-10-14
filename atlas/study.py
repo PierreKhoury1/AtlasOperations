@@ -19,6 +19,8 @@ import time
 from typing import Any, Callable
 from urllib.parse import urljoin, urlparse
 
+from . import usage as U
+
 MAX_LINKS = 4
 MAX_PAGES = 8
 PAGE_CHARS = 5000
@@ -345,6 +347,8 @@ def study(links: list[str], on_status: Callable[[str], None] | None = None, prov
                 data = _loose_json(m.group(0))
                 if data is None:
                     base["model_error"] = f"profile JSON unparseable at char {exc.pos}: {m.group(0)[max(0, exc.pos - 60):exc.pos + 20]!r}"
+    except U.UsageLimit as exc:                       # usage spec S35: the limit's own words; the done event carries its body
+        base["model_error"], base["limit"] = exc.message, exc.body()
     except Exception as exc:
         base["model_error"] = f"{type(exc).__name__}: {str(exc)[:160]}"
     if isinstance(data, dict) and data.get("opening_message"):

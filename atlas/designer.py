@@ -1599,7 +1599,8 @@ def _design_provider(providers_cfg: Any, model: str) -> Any:
     want = _int(budget.get("max_tokens"))
     if isinstance(pc, dict) and want:
         pc["max_tokens"] = max(int(_num(pc.get("max_tokens"), 4096)), want + 3000)
-    prov = ProviderPool(cfg).get()
+    from . import usage as U
+    prov = ProviderPool(cfg, meter=U.current()).get()       # the route binds the owner's design meter (design.say)
     if (isinstance(prov, OpenAICompatProvider) and not isinstance(prov, HermesAgentProvider)
             and "openrouter.ai" in str(getattr(prov, "base_url", "")).lower()
             and "reasoning" not in model_extras(model or getattr(prov, "default_model", ""))):

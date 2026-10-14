@@ -139,9 +139,11 @@ def test_two_builds_of_one_draft_at_once_make_one_desk(client, monkeypatch):
     try:
         [t.start() for t in ts]
         [t.join(15) for t in ts]
-        assert [r.status_code for r in out] == [200, 200]
-        ids = {J(r)["desk"]["id"] for r in out}
-        assert len(ids) == 1, ids                                                          # the second build updated the first's desk
+        codes = sorted(r.status_code for r in out)
+        assert codes in ([200, 200], [200, 409]), codes                                    # the draft's turn is held: the second waits (409 busy) or updates
+        assert all(J(r)["error"] == "busy" for r in out if r.status_code == 409)
+        ids = {J(r)["desk"]["id"] for r in out if r.status_code == 200}
+        assert len(ids) == 1, ids                                                          # never a second desk
         assert len(A.store.desks_for(uid)) == before + 1
     finally:
         c.get("/logout"); c2.get("/logout")

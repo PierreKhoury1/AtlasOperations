@@ -1244,11 +1244,7 @@ POST_SITES = {"providers.py": "", "vision.py": "_vlm_post", "rag.py": "ApiEmbedd
               "study.py": "_hermes_browse", "desk/hermes_proxy.py": ""}
 # ProviderPool / make_provider calls still built without a meter, each with the step that hands one over. The list is
 # exact: a site that gets its meter must leave it, and a new unmetered call fails.
-POOL_PENDING = {
-    ("desk/app.py", "api_design_study.work"): "merge: the study meter (step 8's design-route part)",
-    ("designer.py", "_provider_for"): "merge: the designer track rewrites designer.py",
-    ("designer.py", "_live_turn"): "merge: the designer track rewrites designer.py",
-}
+POOL_PENDING: dict[tuple[str, str], str] = {}
 
 
 def _model_paths() -> dict[str, list]:
@@ -1769,13 +1765,9 @@ CATCH_NAMES = frozenset({"chat", "describe", "vlm_detect", "chat_images", "chat_
                          "deliver", "_dispatch", "_deliver_metered"})
 CATCH_ALLOWED = {
     ("orchestrator.py", "Orchestrator._record_tool"): "records.describe: a business-record lookup, not a model call",
+    ("designer.py", "_chat"): "S36: returns the exception; _fixed_for makes a UsageLimit the limit turn, never retried",
 }
-CATCH_PENDING = {
-    ("desk/app.py", "api_design_say.work"): "S10, merge: the designer track's turn and the limit turn (spec §4.7)",
-    ("desk/app.py", "api_design_study.work"): "S11, merge: the study's done event carries the limit",
-    ("study.py", "study"): "S35, merge: model_error is the limit message",
-    ("designer.py", "_live_turn"): "S36, merge: the fixed limit turn, no retry",
-}
+CATCH_PENDING: dict[tuple[str, str], str] = {}
 
 
 def _handler_names(h) -> list[str]:

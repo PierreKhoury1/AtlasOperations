@@ -5536,9 +5536,8 @@ def _design_precheck(s: DS.DesignSession, surface: str = "design.say") -> None:
     stream, refused with the usage module's UsageLimit. Nothing is taken here; each request takes at the chokepoint."""
     if s.mode == "demo":
         return
-    providers = _providers_cfg()
-    U.precheck(_design_meter(s, surface), provider=str(providers.get("default_provider") or ""),
-               model=_design_model(s, providers))
+    # usage spec §1.4: a design turn draws on the free pool on the free tier (L1), on the paid allowance otherwise (L3)
+    U.precheck(_design_meter(s, surface), pool="free:openrouter" if s.tier == "free" else "paid")
 
 
 def _design_refusal(s: DS.DesignSession, surface: str = "design.say") -> Response | None:
@@ -5647,10 +5646,15 @@ def api_design_study(sid):
                     done = {"t": "done", "profile": profile, "transcript": list(s.transcript), "next": s.next,
                             "suggestions": s.suggestions, "blueprint": s.blueprint, "ready": s.ready,
                             "design": s.plan_view(), "rev": s.bp_rev}
+                    if isinstance(profile.get("limit"), dict):
+                        done["limit"] = profile["limit"]          # S11: read without the model; the reset and the Usage page
                     snap = _design_snapshot(s)
                 _save_design(s, snap)
                 DS.release(s.id, token)                # before done: the owner may write the moment it lands
                 q.put(done)
+            except U.UsageLimit as exc:                # defensive (S11): the study turns a limit into its profile's note
+                DS.release(s.id, token)
+                q.put({"t": "error", **exc.body(), "error": "usage_limit"})
             except Exception as exc:
                 DS.release(s.id, token)
                 q.put({"t": "error", "error": f"{type(exc).__name__}: {exc}"})
