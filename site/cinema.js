@@ -3,7 +3,10 @@
    when you scroll back up. Falls back to IntersectionObserver reveals when GSAP is
    missing or the visitor prefers reduced motion. */
 (function () {
-  const rm = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const mq = (q) => !!(window.matchMedia && window.matchMedia(q).matches);
+  // phones and touch screens get the plain page: no pinned hero, no inertia scroll, no scrub (the hero's buttons slid
+  // under the next section on a phone); reveals still happen through IntersectionObserver
+  const rm = mq("(prefers-reduced-motion: reduce)") || mq("(max-width: 900px)") || mq("(pointer: coarse)");
   const G = window.gsap, ST = window.ScrollTrigger;
   window.Cinema = { ready: false };
 

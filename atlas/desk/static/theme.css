@@ -1,0 +1,135 @@
+/* Atlas look (14 Oct 2026): the pages' shared tokens and surfaces, after each page's own stylesheet.
+   Light canvas, white cards with soft 12 px corners, one blue, big quiet headings, stat tiles with an icon well,
+   the Atlas panel as a copilot card with a dark composer. Dark theme keeps the same shapes. */
+:root{--bg:#F5F7FA;--side:#F5F7FA;--panel:#FFFFFF;--panel2:#F3F5F9;--line:#E3E8EF;--line2:#D3DAE4;--text:#111827;--text2:#374151;--muted:#6B7280;--faint:#9AA3B2;
+  --accent:#2F6FE4;--accent2:#1F5BD0;--accent-soft:#EAF1FD;--ink:#2F6FE4;--blue:#2F6FE4;--deep:#1F5BD0;--ok:#1A9E5C;--ok-soft:#E4F5EC;--warn:#B7791F;--danger:#D64545;
+  --r:10px;--grad:#2F6FE4;--dot:#D3DAE4;--shadow:0 18px 60px rgba(16,24,40,.16);--card-shadow:0 1px 2px rgba(16,24,40,.04),0 1px 3px rgba(16,24,40,.06)}
+:root[data-theme="dark"]{--bg:#0F172A;--side:#0F172A;--panel:#111B2E;--panel2:#162238;--line:#223049;--line2:#2E3F5C;--text:#EEF2F8;--text2:#CBD5E1;--muted:#94A3B8;--faint:#64748B;
+  --accent:#4C8DFF;--accent2:#8AB4FF;--accent-soft:rgba(76,141,255,.16);--ink:#2F6FE4;--blue:#4C8DFF;--deep:#8AB4FF;--ok:#4ADE80;--ok-soft:rgba(74,222,128,.14);--warn:#F6B44B;--danger:#F87171;--dot:#2E3F5C;
+  --card-shadow:0 1px 2px rgba(0,0,0,.3)}
+/* the frame mounts a moment after first paint: keep its space so the page never jumps */
+body:not(.sh-on):not(.no-frame){padding-left:200px;padding-top:46px}
+html.sh-mini-pre body:not(.sh-on):not(.no-frame){padding-left:64px}
+@media (max-height:900px){body:not(.sh-on):not(.no-frame){padding-top:0}}
+@media (max-width:760px){body:not(.sh-on):not(.no-frame),html.sh-mini-pre body:not(.sh-on):not(.no-frame){padding-left:0;padding-top:42px}}
+
+/* ---------- surfaces and primitives */
+.card,.panel{border-radius:12px;box-shadow:var(--card-shadow)}
+.panel .ph,.ph{border-radius:12px 12px 0 0}
+.btn{border-radius:8px;height:34px;padding:0 14px;font-weight:500;font-size:13px}
+.btn.sm{height:28px;padding:0 10px;border-radius:7px;font-size:12px}
+.btn.ic{width:34px}.btn.sm.ic{width:28px}
+main .btn{padding:8px 14px;height:auto}main .btn.sm{padding:5px 10px}
+.tag{border-radius:6px}.chip,.n,.kbd,.seg,.seg button,.input,.pill{border-radius:7px}
+.seg{overflow:hidden}.seg button{border-radius:0}
+input,select,textarea{border-radius:8px}
+.ibtn{border-radius:7px}
+.tabs button.on,.wk .tab.on{color:var(--accent2)}
+
+/* ---------- page headings: big and quiet */
+main>section>h1,main>section>.phead h1,.hm-head h1,.wk-title h1{font-size:30px;font-weight:600;letter-spacing:-.02em;line-height:1.15}
+.hm-head h1{font-size:30px}
+main>section>p.lead,.phead .lead,.hm-head .lead,.wk-head p.lead{font-size:14px;color:var(--muted)}
+.hm-eyebrow,.eyebrow{font-family:var(--mono);font-size:10.5px}
+main{padding:28px 32px 72px}
+.hm-pill{border-radius:8px;padding:7px 11px}
+.pill{height:32px;padding:0 11px}
+
+/* ---------- stat tiles: a white card each, an icon well, the figure first */
+.hm-stats{gap:12px;background:transparent;border:0;border-radius:0;overflow:visible}
+.hm-stat{border:1px solid var(--line);border-radius:12px;padding:14px 16px;box-shadow:var(--card-shadow);display:grid;grid-template-columns:40px minmax(0,1fr);column-gap:12px;align-items:center;transition:border-color .12s,box-shadow .12s}
+.hm-stat:hover{background:var(--panel);border-color:var(--line2);box-shadow:0 4px 14px rgba(16,24,40,.08)}
+.hm-stat::before{content:"";grid-row:1/4;width:40px;height:40px;border-radius:10px;background:var(--accent-soft) center/18px 18px no-repeat;background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%232F6FE4' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'><path d='M4 20V10M10 20V4M16 20v-7M22 20H2'/></svg>")}
+.hm-stat span{order:2;font:500 12.5px/1.3 var(--ui,Inter,system-ui,sans-serif);letter-spacing:0;text-transform:none;color:var(--muted)}
+.hm-stat b{order:1;font-size:24px;margin:0 0 2px;line-height:1.1}
+.hm-stat small{order:3;font-size:11.5px;color:var(--faint)}
+.hm-stat.warn::before{background-color:#FBF1DD}.hm-stat.bad::before{background-color:#FBE7E7}.hm-stat.ok::before{background-color:var(--ok-soft)}
+.kpis{gap:12px;background:transparent;border:0;border-radius:0;overflow:visible}
+.kpi{border:1px solid var(--line);border-radius:12px;padding:10px 14px;box-shadow:var(--card-shadow);display:grid;grid-template-columns:40px minmax(0,1fr);column-gap:12px;align-items:center;transition:border-color .12s,box-shadow .12s}
+.kpi:hover{background:var(--panel);border-color:var(--line2);box-shadow:0 4px 14px rgba(16,24,40,.08)}
+.kpi::before{content:"";grid-row:1/4;width:36px;height:36px;border-radius:10px;background:var(--accent-soft) center/18px 18px no-repeat}
+.kpi .v{order:1;font-size:22px;margin:0 0 1px;line-height:1.1}
+.kpi .l{order:2;font:500 12.5px/1.3 var(--ui,Inter,system-ui,sans-serif);letter-spacing:0;text-transform:none;color:var(--muted)}
+.kpi .s{order:3;font-size:11.5px;color:var(--faint)}
+.kpi.warn::before{background-color:#FBF1DD}.kpi.bad::before{background-color:#FBE7E7}.kpi.ok::before{background-color:var(--ok-soft)}
+#k-agents::before{background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%232F6FE4' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'><circle cx='9' cy='8' r='3'/><path d='M3.5 19a5.5 5.5 0 0 1 11 0'/><circle cx='17' cy='9' r='2.5'/><path d='M15.5 14.2A4.5 4.5 0 0 1 21 18.5'/></svg>")}
+#k-cams::before{background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%232F6FE4' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'><rect x='3' y='6' width='13' height='12' rx='2'/><path d='m16 10.5 5-3v9l-5-3'/></svg>")}
+#k-journal::before{background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%232F6FE4' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'><path d='M4 5.5A2.5 2.5 0 0 1 6.5 3H20v15H6.5A2.5 2.5 0 0 0 4 20.5v-15Z'/><path d='M4 20.5A2.5 2.5 0 0 1 6.5 18H20v3H6.5'/></svg>")}
+#k-ap::before{background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%232F6FE4' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'><path d='M12 3 4.5 6v6c0 4.5 3.2 7.6 7.5 9 4.3-1.4 7.5-4.5 7.5-9V6L12 3Z'/><path d='m9 12 2 2 4-4'/></svg>")}
+#k-spend::before{background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%232F6FE4' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='12' r='9'/><path d='M12 7v10M9.5 9.5h3.5a1.75 1.75 0 0 1 0 3.5H11a1.75 1.75 0 0 0 0 3.5h3.5'/></svg>")}
+@media (max-width:1100px){.kpis{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media (max-width:640px){.kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.kpi,.hm-stat{padding:12px}.kpi::before,.hm-stat::before{display:none}}
+
+/* ---------- Home: command bar, quick actions, the start page */
+.hm-cmd{border-radius:12px;padding:12px 16px 14px}
+.hm-cmdrow input{border-radius:8px;padding:10px 12px}
+.hm-sugg button{border-radius:8px;padding:5px 11px}
+.hm-q{border-radius:10px;padding:11px 13px;box-shadow:var(--card-shadow)}
+.hm-q svg{width:34px;height:34px;padding:8px;border-radius:9px;background:var(--accent-soft);margin-top:0;box-sizing:border-box}
+.hm-q:hover{border-color:var(--line2);background:var(--panel);box-shadow:0 4px 14px rgba(16,24,40,.08)}
+.hm-n,.hm-need .k{border-radius:6px}
+.start .choice{border-radius:12px;box-shadow:var(--card-shadow);padding:20px 22px}
+.start .choice.rec{box-shadow:0 0 0 1px var(--accent),var(--card-shadow)}
+.start .choice .tag{border-radius:6px}
+.choice{border-radius:10px}
+.st-tpl .btn{border-radius:8px}
+.appt{border-radius:9px}.appt i{border-radius:7px}
+.cam,.wall,.livewrap{border-radius:10px}
+.tmn{border-radius:10px}.tmn::before{border-radius:10px 10px 0 0}
+.ob .num{border-radius:6px}
+.fdlg,.wsmenu{border-radius:12px}
+.toast{border-radius:10px}
+
+/* ---------- workspace: header, panels, explorer, the Atlas copilot card */
+.wk-head{padding:10px var(--pad) 8px}
+@media (min-width:1500px){.wk-side{flex-direction:row;align-items:center;gap:12px}.wk-side .pills{flex-wrap:nowrap}}
+.wk-title h1{font-size:26px}
+.wk-head p.lead{margin-top:3px}
+.wk-title .tag{height:22px;border-radius:6px}
+.explorer{border-radius:12px;background:var(--panel)}
+.drawer{border-radius:12px}
+.mbox{border-radius:14px}
+.nx-l{border-radius:10px}
+#chat-foot{border-radius:8px}
+.others button,.srcs button{border-radius:0}
+.as-h{min-height:44px;padding:0 10px 0 16px;border-bottom:0}
+.as-h h2{font-size:15px}
+.as-h .amark{width:9px;height:9px;border-radius:50%;flex:0 0 9px;background:var(--ok);box-shadow:0 0 0 3px color-mix(in srgb,var(--ok) 20%,transparent);margin-right:0}
+.as-h .amark::after{display:none}
+.as-h .tag{height:20px;border-radius:6px}
+#msgs{padding:0 16px 12px}
+#msgs::before{content:"";flex:none;height:84px;margin:0 0 6px;border-radius:10px;
+  background:radial-gradient(90% 90% at 16% 128%,#7F97BD 0 40%,transparent 41%),radial-gradient(70% 80% at 54% 130%,#9DB2D1 0 44%,transparent 45%),
+  radial-gradient(80% 70% at 88% 124%,#6F8AB3 0 42%,transparent 43%),radial-gradient(44% 60% at 40% 134%,#5B78A5 0 36%,transparent 37%),linear-gradient(#F2F6FC,#DCE6F3);
+  -webkit-mask-image:linear-gradient(#000 70%,transparent);mask-image:linear-gradient(#000 70%,transparent)}
+:root[data-theme="dark"] #msgs::before{background:radial-gradient(90% 80% at 18% 125%,#24354F 0 38%,transparent 39%),radial-gradient(70% 70% at 52% 128%,#2C405E 0 42%,transparent 43%),radial-gradient(80% 60% at 86% 122%,#1F3049 0 40%,transparent 41%),linear-gradient(#111B2E,#162238)}
+#wk[data-phase="run"] #msgs::before{display:none}   /* a built desk: the conversation needs the room */
+@media (max-height:900px){#msgs::before{display:none}}
+#msgs .m.u{border-radius:10px;padding:8px 11px}
+.nx-r{padding:8px 12px}
+.as-modes{gap:6px;padding:8px 14px 0;border-top:0}
+.as-modes button{border:1px solid var(--line);border-radius:8px;padding:5px 11px;font-weight:500;font-size:12px;margin:0;line-height:1.3;background:var(--panel)}
+.as-modes button:hover{border-color:var(--line2)}
+.as-modes button.on{background:var(--accent-soft);border-color:color-mix(in srgb,var(--accent) 40%,transparent);color:var(--accent2)}
+#wk:is([data-w="lm"],[data-w="m"]) .as-modes{gap:5px;padding:8px 12px 0}
+#wk:is([data-w="lm"],[data-w="m"]) .as-modes button{padding:5px 9px;font-size:11.5px}
+#composer{margin:10px 14px 8px;border:0;border-radius:12px;background:#0F1B2E;padding:6px 8px 6px 12px;display:grid;grid-template-columns:minmax(0,1fr) auto;grid-template-rows:auto auto;column-gap:8px;align-items:center}
+#composer:focus-within{border-color:transparent;box-shadow:0 0 0 2px color-mix(in srgb,var(--accent) 40%,transparent)}
+#say{grid-column:1;grid-row:1;height:46px;padding:9px 0 2px;color:#fff;font-size:13.5px}
+#say::placeholder{color:#8A9BB5}
+.cm-foot{grid-column:1/-1;grid-row:2;padding:0 0 4px;color:#7F8DA3;font-size:10.5px;gap:5px;align-items:center}
+.cm-foot .kbd{border-color:#2A3A55;background:transparent;color:#9AA9C2;height:16px;font-size:10px}
+.cm-foot .ibtn{color:#9AA9C2}.cm-foot .ibtn:hover{background:#1A2B47;color:#fff}
+#composer{position:relative}
+#send.btn.p{position:absolute;right:8px;top:8px;width:36px;height:36px;padding:0;border-radius:50%;font-size:0;gap:0;background:var(--accent) url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='1.9' stroke-linecap='round' stroke-linejoin='round'><path d='M5 12h13M13 6l6 6-6 6'/></svg>") center/17px 17px no-repeat;border:0}
+#send.btn.p .i{display:none}
+#send.btn.p:hover{background-color:var(--accent2)}
+#send.btn.p:disabled{opacity:.45}
+#say{padding-right:48px}
+.as-foot{border-top:0;padding:0 16px 10px;color:var(--faint)}
+#atlas-panel .quote{padding:0 16px 10px;font:italic 13px Georgia,"Times New Roman",serif;color:var(--muted)}
+.ap,.log{border-radius:0}
+#ap-panel,#act-panel{border-radius:12px}
+
+/* ---------- cases, objects: the same card corners */
+.insp,#insp,.list,.case,.rec{border-radius:0}
