@@ -9,7 +9,10 @@ from pathlib import Path
 import pytest
 from PIL import Image, ImageDraw
 
+from atlas import usage as U
 from atlas import vision as V
+
+M = U.cli_meter("tests")          # a house meter: what these direct calls count for
 
 
 def J(resp):
@@ -138,16 +141,16 @@ def test_grab_file_and_source_kind(tmp_path):
 
 def test_vlm_detect_parses_counts(monkeypatch, tmp_path):
     monkeypatch.setattr(V, "describe", lambda *a, **k: 'Sure: {"person": 2, "car": 0, "dog": "x"}')
-    dets = V.vlm_detect(b"\xff\xd8", ["person", "car"])
+    dets = V.vlm_detect(b"\xff\xd8", ["person", "car"], meter=M)
     assert V.counts(dets) == {"person": 2}
     monkeypatch.setattr(V, "describe", lambda *a, **k: "I cannot tell")
-    assert V.vlm_detect(b"\xff\xd8", ["person"]) == []
+    assert V.vlm_detect(b"\xff\xd8", ["person"], meter=M) == []
 
 
 def test_analyse_falls_back_without_detector(monkeypatch, tmp_path):
     p = _jpeg(tmp_path / "cam.jpg")
     d = FakeDetector([PERSON, CAR])
-    res = V.analyse(p, {"watch_for": "person"}, None, live_vlm=False, detector=d)
+    res = V.analyse(p, {"watch_for": "person"}, None, live_vlm=False, detector=d, meter=M)
     assert res["backend"] == "yolo" and res["counts"] == {"person": 1, "car": 1} and res["annotated"][:2] == b"\xff\xd8"
 
     class NoDet(FakeDetector):
@@ -155,12 +158,12 @@ def test_analyse_falls_back_without_detector(monkeypatch, tmp_path):
         def available(self):
             return False
     monkeypatch.setattr(V, "vlm_ready", lambda: False)
-    res = V.analyse(p, {}, None, live_vlm=True, detector=NoDet())
+    res = V.analyse(p, {}, None, live_vlm=True, detector=NoDet(), meter=M)
     assert res["backend"] == "none" and res["counts"] == {}
     # with a key, the vision model counts (motion gate passes on first frame)
     monkeypatch.setattr(V, "vlm_ready", lambda: True)
-    monkeypatch.setattr(V, "vlm_detect", lambda jpeg, labels, model="", transport=None: [PERSON])
-    res = V.analyse(p, {"watch_for": "person"}, None, live_vlm=True, detector=NoDet())
+    monkeypatch.setattr(V, "vlm_detect", lambda jpeg, labels, model="", transport=None, *, meter: [PERSON])
+    res = V.analyse(p, {"watch_for": "person"}, None, live_vlm=True, detector=NoDet(), meter=M)
     assert res["backend"] == "vlm" and res["counts"] == {"person": 1}
 
 
@@ -174,7 +177,7 @@ def test_describe_uses_openai_image_message(monkeypatch):
         return httpx.Response(200, json={"choices": [{"message": {"content": "Two people at the door."}}]})
     monkeypatch.setattr(V, "vlm_chain", lambda model="": [
         {"name": "test", "base": "https://api.example/v1", "key": "k123", "model": model or "vision-x"}])
-    out = V.describe(b"\xff\xd8\xff", "Who is there?", transport=httpx.MockTransport(handler))
+    out = V.describe(b"\xff\xd8\xff", "Who is there?", transport=httpx.MockTransport(handler), meter=M)
     assert out == "Two people at the door."
     msg = seen["body"]["messages"][1]["content"]
     assert msg[0]["text"] == "Who is there?" and msg[1]["image_url"]["url"].startswith("data:image/jpeg;base64,")
@@ -394,8 +397,8 @@ def test_site_demo_ask_retrieves_and_streams(app_client, monkeypatch):
     assert r.status_code == 400 and b"no events" in r.data
     seen = {}
 
-    def fake_stream(base, headers, payload, model, first=None):
-        seen.update(payload=payload, model=model, first=first)
+    def fake_stream(base, headers, payload, model, first=None, *, meter=None):
+        seen.update(payload=payload, model=model, first=first, meter=meter)
         yield A._sse(first)
         yield A._sse({"t": "Two people [#2].", "model": "m"})
         yield A._sse({"done": True, "model": "m"})
@@ -412,6 +415,7 @@ def test_site_demo_ask_retrieves_and_streams(app_client, monkeypatch):
     assert "[#2] 10:00:07 | 2 person | analyst: Stock room: two people moving boxes" in sysmsg
     assert seen["payload"]["messages"][1]["content"] == "who was in the stock room?"
     assert seen["payload"]["stream"] is True
+    assert (seen["meter"].scope, seen["meter"].surface) == ("public", "site.ask")   # the website's share (usage L12)
 
 
 # ----------------------------------------------------------------------------- live detector runtime

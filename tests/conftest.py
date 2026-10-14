@@ -3,6 +3,7 @@ import os
 import shutil
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 import pytest
@@ -17,6 +18,24 @@ os.environ.pop("DESK_OPEN", None)
 os.environ["DESK_SECRET"] = "test-secret"
 os.environ["VISION_EMBED"] = "hash"          # no CLIP / API in the suite: deterministic hashed vectors
 os.environ["VISION_INDEX_SYNC"] = "1"        # embed inline so retrieval tests see the index immediately
+# The uploads' disk floor (usage spec §1.3 L9) reads this machine's real free space: a nearly full dev disk would refuse
+# every upload test. The floor's own tests (test_usage.py T19) set it back and fake the disk.
+os.environ["USAGE_DISK_FLOOR_PCT"] = "0"
+
+
+def _prune_stale(prefix: str, max_age_s: float = 6 * 3600) -> None:
+    """Each run's throw-away database folder is ~36 MB. Windows keeps the SQLite files open until exit, so a run
+    can't always delete its own; the next run drops any older than six hours (no live run is that old)."""
+    now = time.time()
+    for p in Path(tempfile.gettempdir()).glob(prefix + "*"):
+        try:
+            if p.is_dir() and now - p.stat().st_mtime > max_age_s:
+                shutil.rmtree(p, ignore_errors=True)
+        except OSError:
+            pass
+
+
+_prune_stale("atlas-tests-")
 _TMP = Path(tempfile.mkdtemp(prefix="atlas-tests-"))
 os.environ["ATLAS_DATA_DIR"] = str(_TMP)
 atexit.register(shutil.rmtree, _TMP, True)   # the throw-away database goes with the run (each one left ~5 MB in Temp)

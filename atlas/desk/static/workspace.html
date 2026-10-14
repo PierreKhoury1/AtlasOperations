@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Atlas Desk · Workspace</title>
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
-<script>try{var t=localStorage.getItem("atlas-theme");document.documentElement.dataset.theme=t||(matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light")}catch(e){document.documentElement.dataset.theme="light"}</script>
+<script>try{var t=localStorage.getItem("atlas-theme");document.documentElement.dataset.theme=t||"light"}catch(e){document.documentElement.dataset.theme="light"}</script>
 <script>try{if(localStorage.getItem("sh-mini")==="1")document.documentElement.classList.add("sh-mini-pre")}catch(e){}</script>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/desk/static/workspace.css">
@@ -100,7 +100,7 @@
       <button class="kpi" id="k-cams" onclick="showTab('cameras')"><span class="l">Cameras live</span><span class="v">–</span><span class="s">&nbsp;</span></button>
       <button class="kpi" id="k-journal" onclick="showTab('cameras')"><span class="l"><span class="t-l">Camera notes · 24h</span><span class="t-s">Notes · 24h</span></span><span class="v">–</span><span class="s">&nbsp;</span></button>
       <button class="kpi" id="k-ap" onclick="showTab('approvals')"><span class="l"><span class="t-l">Approvals waiting</span><span class="t-s">Approvals</span></span><span class="v">–</span><span class="s">&nbsp;</span></button>
-      <button class="kpi" id="k-spend" onclick="goDesk('setup')" title="An estimate at paid-model rates, not a bill. The provider's own total is in Desk setup."><span class="l"><span class="t-l">Model cost · est.</span><span class="t-s">Cost · est.</span></span><span class="v">–</span><span class="s">&nbsp;</span></button>
+      <button class="kpi" id="k-spend" onclick="location.assign('/desk/usage')" title="An estimate at paid-model rates, not a bill. Provider-reported costs are on the Usage page."><span class="l"><span class="t-l">Model cost · est.</span><span class="t-s">Cost · est.</span></span><span class="v">–</span><span class="s">&nbsp;</span></button>
     </div>
     <div class="tabs" id="tabs">
       <button class="tab on" data-tab="overview" onclick="showTab('overview')">Overview</button>

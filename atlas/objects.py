@@ -276,7 +276,9 @@ class ObjectWorker:
         self.detector = detector
         self.tracker = Tracker()
         self.touched = time.time()
-        self.stats = {"frames": 0, "detect_ms": 0.0, "active": 0, "catalogued": 0, "error": ""}
+        # "follow": why follow-ups of called objects are held, e.g. "Follow-ups paused until 00:00 UTC: ..." ('' = not)
+        self.stats = {"frames": 0, "detect_ms": 0.0, "active": 0, "catalogued": 0, "error": "", "follow": ""}
+        self._paused_until = 0.0                           # follow-ups held at a usage limit until then
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
         self._last_pos = 0.0
@@ -417,6 +419,13 @@ class ObjectWorker:
 
     # -- called objects: keep analysing while they stay in view
     def _follow_up(self, ts: float) -> None:
+        """A follow-up note for each called object in view, every FOLLOW_S at most. Each is an AI request on Atlas's
+        account in lane auto (usage spec §1.5): a paced stream per object, held while the allowance is short, and
+        all of this camera's follow-ups pause at a limit until it resets (no error note per object)."""
+        from . import usage as U
+        now = time.time()
+        if now < self._paused_until:
+            return
         for t in self.tracker.tracks:
             oid = t.obj_id
             if oid is None or ts - t.last_ts > 1.5 or ts - self._follow.get(oid, 0) < FOLLOW_S:
@@ -426,17 +435,41 @@ class ObjectWorker:
                 continue
             self._follow[oid] = ts
             frame, box = self._latest.get(oid, (None, None))
-            if frame is not None:
-                threading.Thread(target=_safe, args=(follow, self.store, o, frame.copy(), box, self.vlm_model),
-                                 daemon=True, name=f"follow:{oid}").start()
+            if frame is None:
+                continue
+            m = U.desk_meter(self.store.desk(self.desk_id), "objects.follow", lane="auto", ref=f"obj:{oid}")
+            verdict = U.allow(m, surface="objects.follow", stream=f"object:{self.camera}:{oid}")
+            if verdict == "paused":
+                self.pause((m.held.get("objects.follow") or {}).get("limit") or {})
+                return
+            if verdict:
+                self.stats["follow"] = U.held_text(m, "objects.follow", "Follow-ups", unit="note")
+                continue
+            self.stats["follow"] = ""
+            threading.Thread(target=_safe, args=(follow, self.store, o, frame.copy(), box, self.vlm_model),
+                             kwargs={"meter": m, "on_limit": self.pause}, daemon=True, name=f"follow:{oid}").start()
+
+    def pause(self, limit: Any) -> None:
+        """Hold this camera's follow-ups until the limit that refused one resets (usage spec §4.6 S51)."""
+        from . import usage as U
+        body = limit.body() if isinstance(limit, U.UsageLimit) else (limit or {})
+        self._paused_until = float(body.get("retry_at") or body.get("resets_at") or time.time() + 60)
+        until = U.until_text(body)
+        self.stats["follow"] = "Follow-ups paused" + (f" until {until}" if until else "") + ": " + U.brief(body)
 
     def latest(self, oid: int):
         return self._latest.get(oid, (None, None))
 
 
-def _safe(fn, *a) -> None:
+def _safe(fn, *a, on_limit=None, **kw) -> None:
+    """Run one follow-up off the camera loop. A usage limit pauses the camera's follow-ups (`on_limit`) and writes no
+    note; any other failure leaves an error note on the object, as before."""
+    from . import usage as U
     try:
-        fn(*a)
+        fn(*a, **kw)
+    except U.UsageLimit as exc:
+        if on_limit is not None:
+            on_limit(exc)
     except Exception as exc:
         try:
             store, o = a[0], a[1]
@@ -561,14 +594,16 @@ def _facts(o: dict[str, Any]) -> str:
             f"last seen {time.strftime('%H:%M:%S', time.localtime(o.get('last_ts') or 0))}, status {o.get('status')}.")
 
 
-def call(store, o: dict[str, Any], model: str = "", frame=None, box=None, transport=None) -> dict[str, Any]:
-    """The owner called this object: the vision model says what it really is and describes it. Sets the verdict."""
+def call(store, o: dict[str, Any], model: str = "", frame=None, box=None, transport=None, *, meter: Any) -> dict[str, Any]:
+    """The owner called this object: the vision model says what it really is and describes it. Sets the verdict.
+    `meter` is what the request counts for."""
     from . import vision as V
     ds = store.for_desk(o["desk_id"])
     imgs = _images(store, o, frame, box)
     if not imgs:
         raise RuntimeError("no picture of this object is stored")
-    raw = V.chat_images(CALL_SYSTEM, _facts(o) + "\n\nExamine the outlined object.", imgs, model=model, max_tokens=300, transport=transport)
+    raw = V.chat_images(CALL_SYSTEM, _facts(o) + "\n\nExamine the outlined object.", imgs, model=model, max_tokens=300,
+                        transport=transport, meter=meter)
     j = _loose_json(raw)
     if not j:
         ds.add_object_note(o["id"], "describe", raw.strip()[:900])
@@ -585,24 +620,27 @@ def call(store, o: dict[str, Any], model: str = "", frame=None, box=None, transp
     return {**j, "text": text}
 
 
-def follow(store, o: dict[str, Any], frame, box, model: str = "", transport=None) -> str:
+def follow(store, o: dict[str, Any], frame, box, model: str = "", transport=None, *, meter: Any) -> str:
     from . import vision as V
     ds = store.for_desk(o["desk_id"])
     prev = next((n["text"] for n in ds.object_notes(o["id"], 10) if n["kind"] in ("follow", "describe")), "")
     text = V.chat_images(FOLLOW_SYSTEM, _facts(o) + f"\nPrevious note: {prev or 'none yet'}\n\nWhat is it doing now?",
-                         _images(store, o, frame, box)[:2], model=model, max_tokens=140, transport=transport).strip()
+                         _images(store, o, frame, box)[:2], model=model, max_tokens=140, transport=transport,
+                         meter=meter).strip()
     if text:
         ds.add_object_note(o["id"], "follow", text[:600])
     return text
 
 
-def ask(store, o: dict[str, Any], question: str, model: str = "", frame=None, box=None, transport=None) -> str:
+def ask(store, o: dict[str, Any], question: str, model: str = "", frame=None, box=None, transport=None, *,
+        meter: Any) -> str:
     from . import vision as V
     ds = store.for_desk(o["desk_id"])
     notes = "\n".join(f"- {time.strftime('%H:%M:%S', time.localtime(n['ts']))} {n['kind']}: {n['text']}"
                       for n in reversed(ds.object_notes(o["id"], 12)) if n["kind"] != "error")
     text = V.chat_images(ASK_SYSTEM, _facts(o) + (f"\nNotes so far:\n{notes}" if notes else "") + f"\n\nQuestion: {question}",
-                         _images(store, o, frame, box), model=model, max_tokens=260, transport=transport).strip()
+                         _images(store, o, frame, box), model=model, max_tokens=260, transport=transport,
+                         meter=meter).strip()
     ds.add_object_note(o["id"], "answer", text[:900], question=question[:300])
     return text
 

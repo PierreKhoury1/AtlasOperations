@@ -111,10 +111,13 @@ def test_hermes_agent_connector_is_guarded_but_the_operators_own_instance_is_not
         make_provider(pc).chat("", [{"role": "user", "content": "hi"}], [])
     with pytest.raises(SEC.UnsafeTarget):
         I.test_hermes_agent({"base_url": "http://127.0.0.1:8642", "api_key": "x"})
-    # HERMES_AGENT_URL is the operator's own (trusted, may be local): no guard
+    # HERMES_AGENT_URL is the operator's own (trusted, may be local): no guard. It is used only while its model calls
+    # can be counted (USAGE_HERMES_METER=proxy, usage spec §1.8; the default, off, keeps the built-in engine)
     for conn in A.store.connectors(did):
         A.store.delete_connector(conn["id"])
     monkeypatch.setenv("HERMES_AGENT_URL", "http://127.0.0.1:8642")
+    from atlas import usage
+    monkeypatch.setattr(usage.CFG, "hermes_meter", "proxy")
     pc = A.desk_configs(A.store.desk(did))["providers"]["providers"]["hermes_agent_atlas"]
     assert not pc["url_guard"]
 

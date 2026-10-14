@@ -9,8 +9,11 @@ import pytest
 
 from atlas import journal as JR
 from atlas import live as LIVE
+from atlas import usage as U
 from atlas import vision as V
 from test_vision import PERSON, FakeDetector, _jpeg
+
+M = U.cli_meter("tests")          # a house meter: what these direct calls count for
 
 
 @pytest.fixture()
@@ -145,7 +148,7 @@ class FakeStream:
         self.text = text
         self.calls = 0
 
-    def __call__(self, system, text, images, model="", max_tokens=500, transport=None):
+    def __call__(self, system, text, images, model="", max_tokens=500, transport=None, *, meter):
         self.calls += 1
         yield {"provider": "fake", "model": "fake-vl"}
         for word in self.text.split(" "):
@@ -162,7 +165,7 @@ def test_write_note_streams_when_someone_listens(tmp_path, monkeypatch):
     monkeypatch.setattr(V, "chat_images", audit_only)
     q = JR.subscribe(1)
     jpeg = _jpeg(tmp_path / "a.jpg")
-    text = JR.write_note((1, "till"), "till", JR.config({"journal": "1"}), jpeg, {"person": 2}, why="first note")
+    text = JR.write_note((1, "till"), "till", JR.config({"journal": "1"}), jpeg, {"person": 2}, why="first note", meter=M)
     JR.unsubscribe(1, q)
     assert fs.calls == 1
     assert "\u2014" not in text and "red coat" in text        # em dash scrubbed, content kept
@@ -181,7 +184,7 @@ def test_write_note_blocks_when_nobody_listens(tmp_path, monkeypatch):
     monkeypatch.setattr(V, "chat_images_stream", lambda *a, **k: pytest.fail("streamed with no listener"))
     monkeypatch.setattr(V, "chat_images", lambda *a, **k: "One adult at the door.")
     jpeg = _jpeg(tmp_path / "a.jpg")
-    assert JR.write_note((2, "door"), "door", JR.config({"journal": "1"}), jpeg, {"person": 1}) == "One adult at the door."
+    assert JR.write_note((2, "door"), "door", JR.config({"journal": "1"}), jpeg, {"person": 1}, meter=M) == "One adult at the door."
 
 
 def test_write_note_error_is_published(tmp_path, monkeypatch):
@@ -191,7 +194,7 @@ def test_write_note_error_is_published(tmp_path, monkeypatch):
     monkeypatch.setattr(V, "chat_images_stream", boom)
     q = JR.subscribe(3)
     with pytest.raises(RuntimeError):
-        JR.write_note((3, "cam"), "cam", JR.config({"journal": "1"}), _jpeg(tmp_path / "a.jpg"), {}, why="x")
+        JR.write_note((3, "cam"), "cam", JR.config({"journal": "1"}), _jpeg(tmp_path / "a.jpg"), {}, why="x", meter=M)
     JR.unsubscribe(3, q)
     kinds = [q.get_nowait()["kind"] for _ in range(q.qsize())]
     assert kinds == ["note_start", "note_error"]

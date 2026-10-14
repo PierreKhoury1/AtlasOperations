@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 # Atlas Desks on one Hetzner Cloud VPS (Ubuntu 24.04, x86 CX/CPX or ARM CAX). Run ONCE as root on a fresh box:
 #
-#   bash setup.sh --openrouter-key sk-or-v1-XXXX [--host atlasdesks.com] [--vision] [--open]
+#   bash setup.sh --openrouter-key sk-or-v1-XXXX [--host atlasdesks.com] [--vision] [--open] [--hermes-proxy]
 #
 # Installs and wires, on the same box:
 #   * Atlas portal (gunicorn, 127.0.0.1:8094)                      systemd atlas.service     user atlas
 #   * real Hermes Agent (Nous Research) API server 127.0.0.1:8642  systemd hermes.service    user atlas
+#     its model calls go through the portal's metering proxy        127.0.0.1:8094/internal/llm/v1 (usage spec 1.8)
 #   * PostgreSQL (accounts / desks / approvals / vision vectors)    DATABASE_URL in /etc/atlas/atlas.env
 #   * Caddy automatic HTTPS                                        /etc/caddy/Caddyfile
 #   * pull-based auto-deploy: origin/main checked every minute     atlas-deploy.timer (no GitHub Action needed)
@@ -16,12 +17,15 @@
 #              Re-run with --host atlasdesks.com once the A record points here; Caddy fetches the new cert.
 #   --vision   also install the on-box CV stack (torch CPU + ultralytics + open_clip, ~2.5 GB). Wants >= 8 GB RAM.
 #   --open     DESK_OPEN=1 (no login, every desk public). Default = accounts ON; this box is on the internet.
+#   --hermes-proxy  USAGE_HERMES_METER=proxy: Atlas uses its Hermes instance and every Hermes model call counts per
+#              account. Default = off (specialists on the built-in engine) until the README's Hermes checks are done.
+#              A new install is wired to the proxy either way: Hermes holds a proxy token, never the OpenRouter key.
 # Re-running is safe: keeps keys/passwords in /etc/atlas/atlas.env, updates the checkout, restarts services.
 set -euo pipefail
 
 REPO="${ATLAS_REPO:-https://github.com/PierreKhoury1/AtlasOperations.git}"
 BRANCH="${ATLAS_BRANCH:-main}"
-HOST=""; OPENROUTER=""; OPEN="0"; VISION="0"
+HOST=""; OPENROUTER=""; OPEN="0"; VISION="0"; HERMES_METER="off"
 while [ $# -gt 0 ]; do
   case "$1" in
     --openrouter-key) OPENROUTER="$2"; shift 2 ;;
@@ -30,6 +34,7 @@ while [ $# -gt 0 ]; do
     --branch) BRANCH="$2"; shift 2 ;;
     --open) OPEN="1"; shift ;;
     --vision) VISION="1"; shift ;;
+    --hermes-proxy) HERMES_METER="proxy"; shift ;;
     *) echo "unknown arg $1"; exit 2 ;;
   esac
 done
@@ -38,6 +43,8 @@ done
 APP_USER=atlas
 ROOT=/srv/atlas
 ENVF=/etc/atlas/atlas.env
+NEW_INSTALL=0; [ -f "$ENVF" ] || NEW_INSTALL=1
+PROXY_URL=http://127.0.0.1:8094/internal/llm/v1          # the portal's metering proxy (atlas.service binds :8094)
 HOME_DIR=/home/$APP_USER
 export DEBIAN_FRONTEND=noninteractive
 rand() { python3 -c "import secrets; print(secrets.token_urlsafe($1))"; }
@@ -107,17 +114,28 @@ if [ ! -x $HOME_DIR/.local/bin/hermes ]; then
 fi
 sudo -u $APP_USER -H bash -c "mkdir -p ~/.hermes && touch ~/.hermes/.env && chmod 600 ~/.hermes/.env"
 HENV=$HOME_DIR/.hermes/.env
-[ -z "$OPENROUTER" ] || setenv $HENV OPENROUTER_API_KEY "$OPENROUTER"
+# Hermes's model calls go through the portal's metering proxy, so each one counts for the account whose run asked
+# (usage spec section 1.8). Its .env holds the proxy token where a model key would go: Atlas's OpenRouter key never
+# sits in the Hermes process (which runs shell tools), and a model call that bypasses the proxy fails with a 401
+# instead of spending quietly. An install from before the proxy keeps its own key until it is switched (README).
+PROXY_TOKEN=""
+[ -f "$ENVF" ] && PROXY_TOKEN="$(grep '^USAGE_HERMES_PROXY_TOKEN=' "$ENVF" | cut -d= -f2- || true)"
+if [ "$NEW_INSTALL" = 1 ] && [ -z "$PROXY_TOKEN" ]; then PROXY_TOKEN="$(rand 32)"; fi
+if [ -n "$PROXY_TOKEN" ]; then
+  setenv $HENV OPENROUTER_API_KEY "$PROXY_TOKEN"
+elif [ -n "$OPENROUTER" ]; then
+  setenv $HENV OPENROUTER_API_KEY "$OPENROUTER"
+fi
 setenv $HENV API_SERVER_ENABLED true
 setenv $HENV API_SERVER_KEY "$HERMES_KEY"
 setenv $HENV API_SERVER_HOST 127.0.0.1
 setenv $HENV API_SERVER_PORT 8642
 if [ ! -f $HOME_DIR/.hermes/config.yaml ]; then
-  sudo -u $APP_USER tee $HOME_DIR/.hermes/config.yaml >/dev/null <<'YAML'
+  sudo -u $APP_USER tee $HOME_DIR/.hermes/config.yaml >/dev/null <<YAML
 model:
   default: anthropic/claude-haiku-4.5
   provider: openrouter
-  base_url: https://openrouter.ai/api/v1
+  base_url: $PROXY_URL
 agent:
   max_turns: 150
   verbose: false
@@ -125,6 +143,8 @@ terminal:
   backend: local
   timeout: 180
 YAML
+elif [ "$NEW_INSTALL" = 1 ] && ! grep -q "base_url: $PROXY_URL" $HOME_DIR/.hermes/config.yaml; then
+  echo "   WARNING: ~/.hermes/config.yaml already existed: set model.base_url to $PROXY_URL by hand"
 fi
 
 echo "== $ENVF"
@@ -145,6 +165,12 @@ DATABASE_URL=postgresql://atlas:$PGPASS@127.0.0.1:5432/atlas
 ATLAS_DATA_DIR=$ROOT/data
 SPEND_CAP_USD=10
 PORT=8094
+# Hermes's own model calls (usage spec section 1.8). off: Atlas does not use its Hermes instance; specialists run on
+# the built-in engine. proxy: Hermes's model calls go through /internal/llm/v1 and count per account. Hermes is wired
+# to the proxy either way (~/.hermes/.env holds this token, config.yaml points at the proxy); switch to proxy after
+# the README's Hermes checks, then systemctl restart atlas.
+USAGE_HERMES_METER=$HERMES_METER
+USAGE_HERMES_PROXY_TOKEN=$PROXY_TOKEN
 # sign-in extras (atlas/desk/auth.py). Google: OAuth web client, redirect URI https://$HOST/auth/google/callback.
 # Mail: the portal's own sender for 2FA codes (Gmail app password or Resend). TWO_FACTOR=auto|required|off.
 GOOGLE_CLIENT_ID=
@@ -164,6 +190,11 @@ else
   echo "   keeping existing $ENVF"
   [ -z "$OPENROUTER" ] || setenv "$ENVF" OPENROUTER_API_KEY "$OPENROUTER"
   setenv "$ENVF" PUBLIC_URL "https://$HOST"
+  if [ "$HERMES_METER" = proxy ] && [ -n "$PROXY_TOKEN" ]; then
+    setenv "$ENVF" USAGE_HERMES_METER proxy
+  elif [ "$HERMES_METER" = proxy ]; then
+    echo "   --hermes-proxy: this install predates the metering proxy; switch Hermes by hand (README)"
+  fi
 fi
 # root-only: systemd reads EnvironmentFile as root, so the service user never needs the file itself. Left group-readable,
 # a model-written run_python script (which runs as that user) could read every key in it.
@@ -263,6 +294,9 @@ $HOST {
 			roll_keep 5
 		}
 	}
+	# the Hermes metering proxy answers Hermes on this box only (usage spec section 1.8); the route refuses forwarded
+	# requests too, this keeps it off the internet whatever the mode
+	respond /internal/* 404
 	reverse_proxy 127.0.0.1:8094 {
 		flush_interval -1
 		transport http {
@@ -308,6 +342,10 @@ echo
 echo "================================================================"
 echo " portal: $(curl -s -m 10 http://127.0.0.1:8094/api/health || echo 'not answering yet - journalctl -u atlas -n 50')"
 echo " hermes: $(curl -s -m 10 http://127.0.0.1:8642/health || echo 'not up yet - journalctl -u hermes -n 50')"
+HMODE="$(grep '^USAGE_HERMES_METER=' "$ENVF" | cut -d= -f2- || true)"
+HWIRE="own OpenRouter key (an install from before the proxy)"
+[ -z "$PROXY_TOKEN" ] || HWIRE="metering proxy $PROXY_URL"
+echo "         model calls: $HWIRE, USAGE_HERMES_METER=${HMODE:-off}"
 echo " url:    https://$HOST   (cert fetched on first request)"
 echo " env:    $ENVF   hermes: $HENV"
 echo " logs:   journalctl -fu atlas | journalctl -fu hermes | journalctl -u atlas-deploy"

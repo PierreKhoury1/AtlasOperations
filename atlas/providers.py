@@ -7,6 +7,12 @@ Two backends:
 Both expose the same surface so the orchestrator loop is provider-agnostic:
   chat(system, messages, tools, model) -> LLMResponse
   user_message(text) / tool_results([...]) -> provider-native message dicts
+
+Metering (usage spec §3.2). Every HTTP request to a model goes through one chokepoint: `OpenAICompatProvider._once`,
+each attempt of `AnthropicProvider.chat`, and `DemoProvider.chat` for the scripted stand-in. `usage.before()` checks
+and takes the limits first; a refusal raises `usage.UsageLimit` and nothing is sent. `usage.after()` records the
+request with the tokens and the cost the provider reported. Retries and fallbacks are requests too, so each attempt is
+metered. A provider counts for `self.meter` (set by ProviderPool / make_provider) and pays with `self.key_kind`.
 """
 from __future__ import annotations
 
@@ -15,8 +21,10 @@ import time
 import re
 from dataclasses import dataclass, field
 from typing import Any, Callable
+from urllib.parse import urlsplit
 
 from . import config as cfg
+from . import usage as U
 
 
 @dataclass
@@ -46,10 +54,15 @@ _FALLBACK_RE = re.compile(r"(fable-5|mythos-5|opus-5)")
 
 class Provider:
     name: str = "base"
+    usage_provider: str = ""           # the ledger's provider name: openrouter | anthropic | hermes | demo | ...
 
     def __init__(self, pcfg: dict[str, Any]):
         self.cfg = pcfg
         self.default_model = pcfg.get("default_model", "")
+        # Whose key pays (usage spec §2). An endpoint a desk owner configured is always url_guard'ed: a BYO model
+        # account, or the desk's own Hermes instance. Everything else, Atlas's own Hermes instance included, is house.
+        self.key_kind = "byo" if pcfg.get("url_guard") else "house"
+        self.meter: Any = None         # the usage.Meter these requests count for; None = the bound one, else house
 
     def chat(self, system: str, messages: list[Any], tools: list[dict[str, Any]], model: str = "",
              on_token: Callable[..., None] | None = None) -> LLMResponse:
@@ -81,7 +94,9 @@ class AnthropicProvider(Provider):
         key = cfg.resolve_api_key(pcfg)
         if not key and not cfg.house_key_allowed(pcfg):   # a desk owner's account without a key: the SDK would read
             raise RuntimeError("this model account has no API key")   # ANTHROPIC_API_KEY (the house key) on its own
-        kwargs: dict[str, Any] = {"timeout": float(pcfg.get("timeout", 600)), "max_retries": 3}
+        # max_retries 0: the SDK's own retries would be requests nobody counted. chat() retries once itself, and every
+        # attempt goes through the meter (usage spec §3.2, §3.4).
+        kwargs: dict[str, Any] = {"timeout": float(pcfg.get("timeout", 600)), "max_retries": 0}
         if key:
             kwargs["api_key"] = key
         ws = (pcfg.get("workspace_id") or "").strip()   # required for identity-linked API keys
@@ -89,10 +104,18 @@ class AnthropicProvider(Provider):
             kwargs["default_headers"] = {"anthropic-workspace-id": ws}
         self._client = anthropic.Anthropic(**kwargs)
         self._anthropic = anthropic
+        self.usage_provider = "anthropic"
 
     @staticmethod
     def _tools(tools: list[dict[str, Any]]) -> list[dict[str, Any]]:
         return [{"name": t["name"], "description": t["description"], "input_schema": t["parameters"]} for t in tools]
+
+    @staticmethod
+    def _usage_of(resp: Any) -> dict[str, int]:
+        """The usage block Anthropic reports: tokens only, no cost (usage spec §3.4)."""
+        u = getattr(resp, "usage", None)
+        return {k: int(getattr(u, k, 0) or 0)
+                for k in ("input_tokens", "output_tokens", "cache_read_input_tokens", "cache_creation_input_tokens")}
 
     def chat(self, system, messages, tools, model="", on_token=None):
         model = model or self.default_model or "claude-opus-5"
@@ -134,14 +157,35 @@ class AnthropicProvider(Provider):
                             on_token(d.thinking, True)
                 return s.get_final_message()
 
-        try:
-            resp = _run(use_fallbacks)
-        except A.BadRequestError as exc:
-            # Older SDK/server without fallbacks support -> retry plain.
-            if use_fallbacks and "fallback" in str(exc).lower():
-                resp = _run(False)
-            else:
+        def _attempt(with_fallbacks: bool):
+            # the chokepoint: one HTTP request. A refusal raises UsageLimit here and nothing is sent; the house key
+            # needs an operator price for the model, because Anthropic reports no cost (usage spec §3.4).
+            ticket = U.before(self.meter, provider=self.usage_provider, model=model, key_kind=self.key_kind)
+            try:
+                got = _run(with_fallbacks)
+            except BaseException as exc:
+                U.after(ticket, http_status=int(getattr(exc, "status_code", 0) or 0), error=f"{type(exc).__name__}: {exc}")
                 raise
+            U.after(ticket, http_status=200, usage=self._usage_of(got))
+            return got
+
+        def _call():
+            try:
+                return _attempt(use_fallbacks)
+            except A.BadRequestError as exc:
+                # Older SDK/server without fallbacks support -> retry plain.
+                if use_fallbacks and "fallback" in str(exc).lower():
+                    return _attempt(False)
+                raise
+
+        try:
+            resp = _call()
+        except A.APIStatusError as exc:                 # 429, 5xx and 529 (overloaded): one more attempt, as on the
+            code = int(getattr(exc, "status_code", 0) or 0)   # OpenAI-compatible path; the SDK itself never retries
+            if not (code == 429 or code >= 500):
+                raise
+            time.sleep(2.0)
+            resp = _call()
 
         text_parts: list[str] = []
         calls: list[ToolCall] = []
@@ -193,6 +237,35 @@ def model_extras(model: str) -> dict[str, Any]:
     return {}
 
 
+_KNOWN_HOSTS = (("openrouter.ai", "openrouter"), ("groq.com", "groq"), ("googleapis.com", "gemini"),
+                ("openai.com", "openai"), ("anthropic.com", "anthropic"))
+
+
+def provider_id(base_url: str) -> str:
+    """The ledger's name for an OpenAI-compatible endpoint. Never the URL itself: an owner's own server is
+    `openai_compatible`, a model on this machine `local`."""
+    host = (urlsplit(base_url or "").hostname or "").lower()
+    for domain, name in _KNOWN_HOSTS:
+        if host == domain or host.endswith("." + domain):
+            return name
+    return "local" if host in ("localhost", "127.0.0.1", "::1") else "openai_compatible"
+
+
+def _err_text(exc: BaseException) -> str:
+    """An exception as the ledger's error text. The chokepoint's own errors already read "HTTP <code>: <message>";
+    usage.after() keeps only that line, never the upstream detail appended in brackets."""
+    return str(exc) if isinstance(exc, RuntimeError) else f"{type(exc).__name__}: {exc}"
+
+
+def _body_error(body: Any) -> str:
+    """A 200 that carries an error and no choices (OpenRouter does this): its message, for the ledger."""
+    if not isinstance(body, dict) or body.get("choices"):
+        return ""
+    err = body.get("error")
+    msg = err.get("message") if isinstance(err, dict) else err
+    return "provider returned no choices" + (f": {str(msg)[:200]}" if msg else "")
+
+
 class OpenAICompatProvider(Provider):
     name = "openai"
 
@@ -202,6 +275,7 @@ class OpenAICompatProvider(Provider):
         self._httpx = httpx
         self.base_url = (pcfg.get("base_url") or "").rstrip("/")
         self.api_key = cfg.resolve_api_key(pcfg)
+        self.usage_provider = provider_id(self.base_url)
 
     @staticmethod
     def _tools(tools):
@@ -316,17 +390,50 @@ class OpenAICompatProvider(Provider):
         )
 
     def _once(self, client, payload, on_token, _raise, limits=None) -> dict[str, Any]:
+        """One HTTP request: the text chokepoint (usage spec §3.2). `usage.before()` checks and takes the limits first;
+        a refusal raises UsageLimit and nothing is sent. `usage.after()` records the status, the provider-reported
+        usage and cost, and the error. Every retry and fallback in chat() comes through here, so each one counts, and
+        UsageLimit is not a RuntimeError, so chat() neither retries nor falls back on it. The provider's daily
+        free-model quota error comes back as UsageLimit(pool_free_day) (§4.4); any other 429 stays a RuntimeError."""
+        ticket = U.before(self.meter, provider=self.usage_provider, model=str(payload.get("model") or ""),
+                          key_kind=self.key_kind)
+        seen: dict[str, Any] = {}
+        try:
+            body = self._send(client, payload, on_token, _raise, limits, seen)
+        except BaseException as exc:
+            used, meta = self._usage_record(seen.get("usage"))
+            U.after(ticket, http_status=seen.get("status", 0), usage=used, error=_err_text(exc), meta=meta)
+            if ticket.limit is not None:
+                raise ticket.limit from exc
+            raise
+        used, meta = self._usage_record(body.get("usage") if isinstance(body, dict) else None)
+        U.after(ticket, http_status=seen.get("status", 200), usage=used, error=_body_error(body) or seen.get("error", ""),
+                meta=meta)
+        if ticket.limit is not None:
+            raise ticket.limit
+        return body
+
+    def _send(self, client, payload, on_token, _raise, limits=None, seen=None) -> dict[str, Any]:
+        """The HTTP request itself, unmetered. `seen` gets the HTTP status, and for a stream the usage and any error
+        chunk, so the ledger has them even when the request fails."""
+        seen = {} if seen is None else seen
         if not on_token:
             r = client.post("/chat/completions", json=payload)
+            seen["status"] = r.status_code
             if r.status_code >= 400:
                 _raise(r)
             return r.json()
-        return self._stream(client, payload, on_token, _raise, limits or {})
+        return self._stream(client, payload, on_token, _raise, limits or {}, seen)
+
+    def _usage_record(self, usage: Any) -> tuple[Any, dict[str, Any] | None]:
+        """What the ledger keeps of a response's usage block: all of it (tokens and the provider's cost)."""
+        return usage, None
 
     @staticmethod
-    def _stream(client, payload, on_token, _raise, limits=None) -> dict[str, Any]:
+    def _stream(client, payload, on_token, _raise, limits=None, seen=None) -> dict[str, Any]:
         """Consume an OpenAI-style SSE stream; rebuild the same `body` shape the non-stream path returns.
-        Enforces wall-clock limits: no first token within `first_token_s`, or `call_max_s` overall -> HTTP 504 (retryable)."""
+        Enforces wall-clock limits: no first token within `first_token_s`, or `call_max_s` overall -> HTTP 504 (retryable).
+        `seen` (optional) gets the HTTP status, the last usage chunk and an error chunk as they arrive."""
         import time as _t
         limits = limits or {}
         first_s = float(limits.get("first_token_s") or 120)
@@ -337,6 +444,8 @@ class OpenAICompatProvider(Provider):
         calls: dict[int, dict[str, str]] = {}
         finish, usage, model_used = "", {}, ""
         with client.stream("POST", "/chat/completions", json=payload) as r:
+            if seen is not None:
+                seen["status"] = r.status_code
             if r.status_code >= 400:
                 r.read()
                 _raise(r)
@@ -358,6 +467,11 @@ class OpenAICompatProvider(Provider):
                     continue
                 if chunk.get("usage"):
                     usage = chunk["usage"]
+                    if seen is not None:
+                        seen["usage"] = usage
+                if chunk.get("error") and seen is not None:   # an error after the stream started arrives as a chunk
+                    err = chunk["error"]
+                    seen["error"] = "stream error: " + str((err.get("message") if isinstance(err, dict) else err) or "")[:200]
                 model_used = chunk.get("model") or model_used
                 for ch in chunk.get("choices") or []:
                     d = ch.get("delta") or {}
@@ -400,6 +514,8 @@ class DemoProvider(Provider):
         super().__init__(pcfg)
         self.default_model = "demo-scripted"
         self.delay = float(pcfg.get("delay", 0.6))
+        self.key_kind = "demo"                   # no request leaves the box (usage spec §1.1)
+        self.usage_provider = "demo"
 
     @staticmethod
     def _roster(system: str) -> list[str]:
@@ -435,6 +551,18 @@ class DemoProvider(Provider):
         return outs
 
     def chat(self, system, messages, tools, model="", on_token=None):
+        # Metered like any request, as key_kind demo (metric req:demo): owner limits apply to it only with
+        # USAGE_DEMO=enforce. The script's token figures are canned, so the ledger records none.
+        ticket = U.before(self.meter, provider=self.usage_provider, model=self.default_model, key_kind="demo")
+        try:
+            r = self._scripted(system, messages, tools, on_token)
+        except BaseException as exc:
+            U.after(ticket, error=_err_text(exc))
+            raise
+        U.after(ticket)
+        return r
+
+    def _scripted(self, system, messages, tools, on_token=None):
         import time as _t
         fault = float(self.cfg.get("fault_rate") or 0)          # soak testing: inject provider failures / stalls
         if fault > 0:
@@ -541,6 +669,9 @@ class DemoProvider(Provider):
         return [{"role": "user", "content": [{"type": "tool_result", "tool_use_id": c, "content": o} for c, _n, o, _e in results]}]
 
 
+HERMES_OFF = "Hermes Agent on Atlas's account is off until its model use can be counted (USAGE_HERMES_METER=off)"
+
+
 class HermesAgentProvider(OpenAICompatProvider):
     """A running Hermes Agent (Nous Research) API server used as an *engine*: the agent runs its own tool loop
     (terminal, browser, web search, memory, skills, MCP) server-side and returns the final answer.
@@ -560,32 +691,87 @@ class HermesAgentProvider(OpenAICompatProvider):
                 "timeout": float(pcfg.get("timeout", 900))}
         super().__init__(pcfg)
         self.session_key = str(pcfg.get("session_key") or "")
+        self.usage_provider = "hermes"
+
+    def metering(self) -> str:
+        """How this instance's model use is counted (usage spec §1.8, §2). A desk's own instance runs on the owner's
+        key: `byo`, one metered request per call. Atlas's own instance follows USAGE_HERMES_METER: `off` (not used:
+        its inner model calls could not be counted), `proxy` (the portal's metering proxy counts every inner request)
+        or `unmetered` (each call counts as one request)."""
+        return "byo" if self.key_kind == "byo" else U.CFG.hermes_meter
 
     def chat(self, system, messages, tools, model="", on_token=None):
+        mode = self.metering()
+        if mode == "off":                             # fail closed: nothing is sent
+            raise RuntimeError(HERMES_OFF)
         # Hermes ignores client tools and runs its own; never advertise ours (they would be unusable server-side).
         self._extra_headers = {"X-Hermes-Session-Key": self.session_key} if self.session_key else {}
         want = model or self.default_model or "hermes-agent"
         # Per-request model choice inside the runtime: Hermes honours "model"+"provider" together (bare ids are ignored).
         self._extra_payload = {"provider": "openrouter"} if want != "hermes-agent" else {}
-        return super().chat(system, messages, [], want, on_token=on_token)
+        if mode != "proxy":                           # byo / unmetered: the call is one request, metered in _once
+            return super().chat(system, messages, [], want, on_token=on_token)
+        # proxy: this call is a delegation, not an AI request. Hermes's inner requests reach the metering proxy, which
+        # charges them to the meter registered here; first make sure that meter's pool for the model has room.
+        meter = U.resolve(self.meter)
+        U.precheck(meter, provider="openrouter", model=want, key_kind="house")
+        token = U.hermes_begin(meter, self.session_key)
+        status, failed, r = "error", None, None
+        try:
+            r = super().chat(system, messages, [], want, on_token=on_token)
+            status = "ok"
+        except Exception as exc:
+            failed = exc
+        finally:
+            # A limit that refused one of its inner requests ends the delegation at that limit (the parent gets the
+            # typed LIMIT result), whatever Hermes made of the 429. A per-minute refusal Hermes got past is no limit.
+            held = U.hermes_limit(token)
+            if held is not None and (status != "ok" or held.limit_id != "pool_free_min"):
+                status = "limit"
+            inner = U.hermes_end(token, answered=status == "ok")
+            U.action(meter, "action", metric="hermes:calls", surface="hermes.call", status=status, provider="hermes",
+                     model=want, key_kind="house", note=f"{inner} inner requests through the metering proxy",
+                     limit_id=held.limit_id if status == "limit" and held is not None else "")
+        if status == "limit" and held is not None:
+            raise held from failed
+        if failed is not None:
+            raise failed
+        return r
+
+    def _once(self, client, payload, on_token, _raise, limits=None) -> dict[str, Any]:
+        if self.metering() == "proxy":                # its inner requests are metered one by one in the proxy
+            return self._send(client, payload, on_token, _raise, limits)
+        return super()._once(client, payload, on_token, _raise, limits)
+
+    def _usage_record(self, usage: Any) -> tuple[Any, dict[str, Any] | None]:
+        """The call stands for many inner model calls: tokens if Hermes reports them, never a cost (usage spec §3.4)."""
+        kept = {k: v for k, v in usage.items() if k != "cost"} if isinstance(usage, dict) else None
+        return kept, {"note": "inner calls not counted"}
 
 
-def make_provider(pcfg: dict[str, Any]) -> Provider:
+def make_provider(pcfg: dict[str, Any], meter: Any = None) -> Provider:
+    """One provider. `meter` (a usage.Meter) is the action its requests count for, e.g. a desk's key test."""
     t = (pcfg.get("type") or "anthropic").lower()
     if t == "demo":
-        return DemoProvider(pcfg)
-    if t == "anthropic":
-        return AnthropicProvider(pcfg)
-    if t == "hermes_agent":
-        return HermesAgentProvider(pcfg)
-    return OpenAICompatProvider(pcfg)
+        p: Provider = DemoProvider(pcfg)
+    elif t == "anthropic":
+        p = AnthropicProvider(pcfg)
+    elif t == "hermes_agent":
+        p = HermesAgentProvider(pcfg)
+    else:
+        p = OpenAICompatProvider(pcfg)
+    p.meter = meter
+    return p
 
 
 class ProviderPool:
-    """Lazily builds one provider instance per configured provider name."""
+    """Lazily builds one provider instance per configured provider name. `meter` (a usage.Meter) is the action every
+    request through the pool counts for: a run, a design turn, an Ask. Each provider pays with its own key kind, so a
+    run mixing house and BYO agents shares one meter (and one per-run cap)."""
 
-    def __init__(self, providers_cfg: dict[str, Any]):
+    def __init__(self, providers_cfg: dict[str, Any], meter: Any = None):
         self.cfg = providers_cfg
+        self.meter = meter
         self._cache: dict[str, Provider] = {}
 
     @property
@@ -598,5 +784,7 @@ class ProviderPool:
             pcfg = self.cfg.get("providers", {}).get(name)
             if pcfg is None:
                 raise RuntimeError(f"Unknown provider '{name}'")
-            self._cache[name] = make_provider(pcfg)
-        return self._cache[name]
+            self._cache[name] = make_provider(pcfg, meter=self.meter)
+        prov = self._cache[name]
+        prov.meter = self.meter                       # the pool's action, even when it was set after the provider was built
+        return prov

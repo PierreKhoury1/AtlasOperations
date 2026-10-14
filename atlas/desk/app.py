@@ -48,8 +48,10 @@ from .. import tools as T
 from .. import vision as V
 from .. import rag as RAG
 from .. import team as TM
+from .. import usage as U
 from . import scheduler
 from . import auth as AUTH
+from . import hermes_proxy
 from ..orchestrator import Event, Orchestrator
 from ..store import Store
 
@@ -76,6 +78,9 @@ def _no_peeking() -> None:
 _no_peeking()
 
 app = Flask(__name__, static_folder=None)
+# /internal/llm/v1: the Hermes runtime's model calls, metered per account (usage spec §1.8). Loopback and token only;
+# _guard does not cover /internal, the routes check for themselves.
+app.register_blueprint(hermes_proxy.bp)
 # DATABASE_URL (postgres://...) makes accounts, desks and approvals survive deploys; without it SQLite in DATA_DIR.
 store = Store(DB_PATH, url=os.environ.get("DATABASE_URL", "").strip() or None)
 
@@ -302,6 +307,10 @@ def desk_configs(desk: dict[str, Any]) -> dict[str, Any]:
     elif os.environ.get("HERMES_AGENT_URL", "").strip():
         hcfg = {"base_url": os.environ["HERMES_AGENT_URL"].strip(), "api_key": os.environ.get("HERMES_AGENT_KEY", "").strip(),
                 "session_prefix": "atlas"}
+    # Atlas's own instance only while its inner model calls are counted per account (usage spec §1.8): with
+    # USAGE_HERMES_METER=off the lead and the specialists stay on the built-in engine. A desk's own instance runs on
+    # the owner's key and is never held back (spec §2).
+    house_hermes_off = hcfg is not None and not hconn and not U.hermes_house_on()
     default_hermes = os.environ.get("DESK_DEFAULT_ENGINE", "").strip().lower() == "hermes_agent" and mode != "demo"
     # The LEAD may also run on the Hermes Agent runtime (Model landscape engine override for atlas, or
     # DESK_LEAD_ENGINE=hermes_agent). Hermes ignores client tool schemas, so the lead keeps our desk tools through
@@ -318,7 +327,9 @@ def desk_configs(desk: dict[str, Any]) -> dict[str, Any]:
                 a["engine"] = "atlas"
             continue
         if a["id"] == "atlas":
-            if lead_hermes and hcfg:
+            if lead_hermes and house_hermes_off:
+                a["engine_note"] = U.HERMES_OFF_NOTE
+            elif lead_hermes and hcfg:
                 tier_cfg = templates.TIERS.get(desk.get("tier") or "free", templates.TIERS["free"])
                 hmodel = (lead_ov.get("model") if lead_ov.get("model") and lead_ov["model"] != "hermes-agent"
                           else tier_cfg.get("hermes_model", templates.FREE_MODEL))
@@ -335,6 +346,9 @@ def desk_configs(desk: dict[str, Any]) -> dict[str, Any]:
             continue
         if not hcfg:
             a["engine_note"] = "no Hermes Agent instance configured - running on the built-in engine"
+            continue
+        if house_hermes_off:
+            a["engine_note"] = U.HERMES_OFF_NOTE
             continue
         pname = f"hermes_agent_{a['id']}"
         # the tier decides which model runs INSIDE the Hermes runtime (free MiniMax / Haiku / Sonnet); a per-agent
@@ -465,6 +479,13 @@ def _security_headers(resp):
     return resp
 
 
+@app.errorhandler(U.UsageLimit)
+def _usage_limit(exc: U.UsageLimit):
+    """A usage limit refused the work and nothing was sent (usage spec §4.5): 429 with the limit's body, or 409
+    outside a channel's reply window, plus Retry-After when something retries it. Routes only raise."""
+    return Response(json.dumps(exc.body()), exc.http_status, mimetype="application/json", headers=exc.headers())
+
+
 def _client_ip() -> str:
     """The address the rate limits key on. Behind Caddy (or Render's router) the TCP peer is the proxy, and the proxy
     appends the real client to X-Forwarded-For, so the LAST entry is the one to trust. The first entry is whatever the
@@ -477,17 +498,25 @@ def _client_ip() -> str:
     return peer
 
 
+def _rate_limited(limiter: Any, key: str, message: str) -> Response:
+    """A per-address limiter's 429 (abuse, not usage): the same shape as a usage limit's (usage spec §4.5), so every
+    page shows the message and when to try again."""
+    ra = max(1, int(-(-limiter.retry_after(key) // 1)))
+    return Response(json.dumps({"error": "rate_limited", "message": message, "retry_after_s": ra}), 429,
+                    mimetype="application/json", headers={"Retry-After": str(ra)})
+
+
 @app.before_request
 def _rate_limits():
     ip = _client_ip()
     p = request.path
     if p.startswith("/hook/") and not _RL_HOOK.allow(f"{p}:{ip}"):
-        return Response(json.dumps({"error": "rate limited"}), 429, mimetype="application/json")
+        return _rate_limited(_RL_HOOK, f"{p}:{ip}", "Too many requests to this hook from one address.")
     if ((request.method == "POST" and p in ("/login", "/signup", "/desk/login", "/login/verify"))
             or (request.method == "PATCH" and p == "/api/me")) and not _RL_AUTH.allow(ip):
-        return Response(json.dumps({"error": "too many attempts - wait a few minutes"}), 429, mimetype="application/json")
+        return _rate_limited(_RL_AUTH, ip, "Too many sign-in attempts from this address: wait a few minutes.")
     if request.method == "POST" and p.startswith("/api/design/") and (p.endswith("/say") or p.endswith("/study")) and not _RL_MODEL.allow(ip):
-        return Response(json.dumps({"error": "rate limited - slow down a little"}), 429, mimetype="application/json")
+        return _rate_limited(_RL_MODEL, ip, "Too many design messages from this address in a minute.")
     return None
 
 
@@ -796,11 +825,16 @@ def api_orch_live():
     return resp
 
 
+def _house_hermes() -> bool:
+    """Atlas's own Hermes instance is configured and may be used (not USAGE_HERMES_METER=off, usage spec §1.8)."""
+    return bool(os.environ.get("HERMES_AGENT_URL", "").strip()) and U.hermes_house_on()
+
+
 @app.get("/api/health")
 def api_health():
     reason = _live_reason()
     return jsonify({"ok": True, "mode": _mode(), "live_ready": not reason, "live_reason": reason,
-                    "hermes_agent": bool(os.environ.get("HERMES_AGENT_URL", "").strip()),
+                    "hermes_agent": _house_hermes(),
                     "db": store.backend, "db_ok": store.ping(),
                     "mail": AUTH.mail_ready(), "two_factor": AUTH.two_factor_active(), "google": AUTH.google_ready(),
                     "two_factor_mode": AUTH.two_factor_mode(), "two_factor_ready": not AUTH.two_factor_problem()})
@@ -1061,7 +1095,7 @@ def _team_context(desk: dict[str, Any]) -> tuple[dict[str, Any], list[str], bool
     conns = store.connectors(desk["id"])
     cams = [c["name"] for c in conns if c["kind"] == "camera"]
     cams += [h["name"] for h in store.hook_cameras(desk["id"], time.time() - 7 * 86400, tuple(cams)) if h.get("name")]
-    hermes = configs["mode"] != "demo" and (any(c["kind"] == "hermes_agent" for c in conns) or bool(os.environ.get("HERMES_AGENT_URL", "").strip()))
+    hermes = configs["mode"] != "demo" and (any(c["kind"] == "hermes_agent" for c in conns) or _house_hermes())
     hermes = hermes and not configs["business"].get("no_hermes_engine")
     deny = set(configs["business"].get("deny_tools") or [])
     allowed = [t for t in TM.ALLOWED_TOOLS if t not in deny]   # camera tools stay designable before a camera is added
@@ -1077,7 +1111,12 @@ def _design_team_for(desk: dict[str, Any], task: str, reuse: bool = False) -> di
         _require_live(desk)
         from ..providers import ProviderPool
         atlas_agent = next((a for a in configs["agents"] if a["id"] == "atlas"), {})
-        prov = ProviderPool(configs["providers"]).get(atlas_agent.get("provider") or "")
+        # the person's own action on the desk's provider: a design and at most one repair (overrun 1 past the check)
+        meter = U.desk_meter(desk, "team.design", lane="you", overrun=1)
+        prov = ProviderPool(configs["providers"], meter=meter).get(atlas_agent.get("provider") or "")
+        # S7, S8: refused as JSON before anything is sent; the owner's own key is never limited by Atlas
+        U.precheck(meter, provider=prov.usage_provider, model=atlas_agent.get("model") or prov.default_model,
+                   key_kind=prov.key_kind)
         existing = [a for a in configs["agents"] if a["id"] != "atlas"] if reuse else None
         res = TM.design_team(configs["business"], task, prov, atlas_agent.get("model", "") or "", allowed_tools=allowed,
                              hermes_available=hermes, cameras=cams, existing=existing)
@@ -1211,8 +1250,10 @@ def api_desk_provider_test(did, name):
     pcfg["timeout"] = 45
     pcfg["url_guard"] = True                           # checked again now, not only when it was saved
     pcfg["env_key"] = False                            # no key of its own -> none is sent (never the house key)
+    meter = U.Meter(owner_id=int(d.get("owner_id") or 0), desk_id=int(d["id"]), scope="owner", lane="you",
+                    surface="byo.test", ref=f"key:{name}"[:60])   # on the owner's key: metered, never limited
     try:
-        note = make_provider(pcfg).test(e.get("default_model") or "")
+        note = make_provider(pcfg, meter=meter).test(e.get("default_model") or "")
         ok = True
     except Exception as exc:
         note, ok = f"{type(exc).__name__}: {str(exc)[:240]}", False
@@ -1260,6 +1301,8 @@ def api_team_design(did):
         return jsonify({"error": "task required"}), 400
     try:
         res = _design_team_for(d, task, bool(body.get("reuse")))
+    except U.UsageLimit:
+        raise                                            # S7: the 429 body
     except Exception as exc:
         return jsonify({"error": f"design failed: {type(exc).__name__}: {str(exc)[:200]}"}), 502
     return jsonify({k: res[k] for k in ("team", "tree", "errors", "warnings", "turns", "mode")})
@@ -1347,8 +1390,8 @@ def api_stats():
     tin, tout = int(s.get("tokens_in") or 0), int(s.get("tokens_out") or 0)
     # the one model-cost figure Home and the workspace both show, with the same words: this desk's tokens, all time,
     # priced at paid-model rates ($5 in / $25 out per million, in GBP). An estimate, not a bill - runs on free models cost
-    # nothing, and the runs do not record which tier they used - so "at paid rates" always leads the line; the provider's
-    # own total for the whole API key lives in Desk setup.
+    # nothing, and the runs do not record which tier they used - so "at paid rates" always leads the line; what the
+    # provider reported for each request is on the Usage page (usage spec §5.5).
     tier, tok = str(desk.get("tier") or "free"), tin + tout
     compact = f"{tok / 1e6:.1f}M" if tok >= 1_000_000 else f"{tok / 1e3:.1f}K" if tok >= 1000 else str(tok)
     gbp = round((tin * 5 + tout * 25) / 1e6 * 0.78, 2)
@@ -1365,7 +1408,7 @@ def api_stats():
                            + (" This desk runs on free models, which cost nothing; the runs do not record which tier they used."
                               if tier == "free" else "")
                            + (" Demo mode: the agents are scripted and their token counts are simulated." if _mode() == "demo" else "")
-                           + " The provider's own total for your API key is in Desk setup.")}
+                           + " Provider-reported costs are on the Usage page.")}
     try:
         s["cases"] = C.counts(store, desk["id"])
     except Exception:
@@ -1403,10 +1446,61 @@ def _preflight(desk: dict[str, Any]) -> dict[str, Any]:
     return configs
 
 
-def _start_run(desk: dict[str, Any], task: str, mode: str, lead_id: int | None = None, case_id: int | None = None) -> str:
+def _run_lane(lane: str | None = None) -> str:
+    """Whose work a run is (usage spec §1.1, §3.2): the lane a background entry point bound (jobs, hooks, the case
+    clock, deferred starts), else "you" inside a signed-in /api/ request (a person typed or clicked), else "auto"."""
+    if lane in ("you", "auto"):
+        return lane
+    bound_ = U.bound_lane()
+    if bound_:
+        return bound_
+    try:
+        if request.path.startswith("/api/") and (OPEN or current_user()):
+            return "you"
+    except RuntimeError:                                  # no request: a scheduler or worker thread
+        pass
+    return "auto"
+
+
+def _run_pools(configs: dict[str, Any]) -> dict[str, bool]:
+    """What a run of these agents may draw on (usage spec §1.3 L1, L3, L5, §2). house: an agent on a provider that
+    pays with Atlas's keys (Atlas's own Hermes instance included); free / paid: the house pool its model is in. An
+    agent on the owner's own account (a BYO entry, the desk's own Hermes instance) is never limited by Atlas.
+    Scripted (demo) agents are house only under USAGE_DEMO=enforce."""
+    from ..providers import provider_id
+    provs = (configs.get("providers") or {}).get("providers") or {}
+    default = (configs.get("providers") or {}).get("default_provider") or ""
+    out = {"house": False, "free": False, "paid": False}
+    for a in configs.get("agents") or []:
+        if not a.get("enabled", True):
+            continue
+        pc = provs.get(a.get("provider") or default) or {}
+        kind = (pc.get("type") or "").lower()
+        if kind == "demo":
+            if U.demo_enforced():
+                out["house"] = out["free"] = True
+            continue
+        if pc.get("url_guard"):
+            continue
+        out["house"] = True
+        name = "anthropic" if kind == "anthropic" else "hermes" if kind == "hermes_agent" else provider_id(pc.get("base_url") or "")
+        pool = U.classify(name, a.get("model") or pc.get("default_model") or "", "house")
+        out["free" if pool.startswith("free:") else "paid"] = True
+    return out
+
+
+def _start_run(desk: dict[str, Any], task: str, mode: str, lead_id: int | None = None, case_id: int | None = None,
+               lane: str | None = None) -> str:
+    """Start a run on its own thread and return its id. Usage (spec §1.3, §4.2): the run gets one meter (its lane,
+    the per-run cap) that every request of the run counts for. It does not start, and raises UsageLimit (the error
+    handler's 429), when the free pool, the lane or the owner's allowance cannot carry it (its headroom), when the paid
+    allowance is spent, or when the owner already has the most runs going at once."""
     configs = _preflight(desk)
     if case_id:
         configs["case_id"] = int(case_id)                 # approvals queued in this run belong to the case
+    meter = U.run_meter(desk, _run_lane(lane))
+    pools = _run_pools(configs)
+    U.run_begin(meter, house=pools["house"], free=pools["free"], paid=pools["paid"])
     dstore = store.for_desk(desk["id"])
     events: list[dict[str, Any]] = []
     orch: Orchestrator
@@ -1425,8 +1519,13 @@ def _start_run(desk: dict[str, Any], task: str, mode: str, lead_id: int | None =
             _last_error[desk["id"]] = {"ts": ev.ts, "run_id": orch.run_id, "text": (ev.text or "")[:400]}
         _push_feed(orch.run_id, desk["id"], ev)
 
-    orch = Orchestrator(configs, dstore, emit)
-    holder: dict[str, Any] = {"events": events, "orch": orch, "task": task, "desk_id": desk["id"], "started": time.time()}
+    try:
+        orch = Orchestrator(configs, dstore, emit, meter=meter)
+    except BaseException:
+        U.run_end(meter)                           # nothing started: the runs-at-once slot goes back
+        raise
+    holder: dict[str, Any] = {"events": events, "orch": orch, "task": task, "desk_id": desk["id"], "started": time.time(),
+                              "lead_lock": threading.Lock()}
 
     def work():
         res = None
@@ -1442,20 +1541,28 @@ def _start_run(desk: dict[str, Any], task: str, mode: str, lead_id: int | None =
                 pass
             _push_feed(orch.run_id, desk["id"], Event(kind="error", agent="system", text="run crashed: " + msg))
             _push_feed(orch.run_id, desk["id"], Event(kind="done", agent="system", text=msg, data={"status": "error"}))
-        holder["ended"] = time.time()
-        if lead_id is not None:
-            dstore.set_lead(lead_id, status=("processed" if status == "done" else status), run_id=orch.run_id)
+        finally:
+            U.run_end(meter)                       # L5: no longer going, before the case may start its next step
+        with holder["lead_lock"]:                  # a run that ends before its start returns keeps its lead's final status
+            holder["ended"] = time.time()
+            if lead_id is not None:
+                dstore.set_lead(lead_id, status=("processed" if status == "done" else status), run_id=orch.run_id)
         cid = orch.case_id or case_id
-        if cid:                                    # the case decides what happens next (atlas/cases.py)
+        if cid:                                    # the case decides what happens next (atlas/cases.py), by limit too
             try:
-                C.run_finished(store, int(cid), orch.run_id, status, res.summary if res else "")
+                C.run_finished(store, int(cid), orch.run_id, status, res.summary if res else "",
+                               limit=getattr(res, "limit", None) if res else None)
             except Exception:
                 import traceback as _tb
                 _tb.print_exc()
 
     th = threading.Thread(target=work, daemon=True)
     holder["thread"] = th
-    th.start()
+    try:
+        th.start()
+    except BaseException:
+        U.run_end(meter)
+        raise
     for _ in range(50):                            # wait briefly for run_id to exist
         if orch.run_id:
             break
@@ -1463,8 +1570,11 @@ def _start_run(desk: dict[str, Any], task: str, mode: str, lead_id: int | None =
     with _runs_lock:
         _runs[orch.run_id] = holder
         _prune_runs()
+    U.run_started(meter, orch.run_id)              # the run's start on the ledger (runs, runs:auto), under its id
     if lead_id is not None:
-        dstore.set_lead(lead_id, status="running", run_id=orch.run_id)
+        with holder["lead_lock"]:
+            if not holder.get("ended"):
+                dstore.set_lead(lead_id, status="running", run_id=orch.run_id)
     return orch.run_id
 
 
@@ -1481,7 +1591,10 @@ def _run_status(run_id: str) -> str:
 
 def _lead_case_run(desk: dict[str, Any], lid: int, mode: str = "auto", extra: str = "") -> str:
     """A lead is worked as an enquiry case: replies, follow-ups and bookings continue the same case. A workflow mode, or
-    a desk with cases switched off, gets the plain one-off run it always had."""
+    a desk with cases switched off, gets the plain one-off run it always had. A first start refused at a usage limit
+    raises UsageLimit either way; with a case, the case is open and held first (its clock starts the step after the
+    limit's retry time), the lead reads `waiting` and the exception carries `case_id`. A lead that continues a case
+    already open leaves a refusal to that case's clock."""
     lead = store.lead(lid)
     task = _lead_task(lead) + (("\n\n" + extra.strip()) if extra else "")
     if mode != "auto" or not C.enabled(desk, "lead_cases"):
@@ -1500,12 +1613,44 @@ def _lead_case_run(desk: dict[str, Any], lid: int, mode: str = "auto", extra: st
     title = first or f"Enquiry from {lead.get('name') or lead.get('email') or lead.get('phone') or 'unknown'}"
     c = C.open_case(store, desk["id"], "enquiry", title, (person or {}).get("id") or 0, source=lead.get("source") or "lead",
                     brief=task, desk=desk)
-    return C.kick(store, desk, c, lead_id=lid)
+    try:
+        return C.kick(store, desk, c, lead_id=lid, raise_limit=True)
+    except U.UsageLimit as exc:                          # the case holds the step until the retry time
+        store.set_lead(lid, status="waiting")
+        exc.case_id = c["id"]
+        raise
+
+
+def _lead_run_or_wait(desk: dict[str, Any], lid: int, extra: str = "") -> str:
+    """S12 (usage spec §1.6): a lead from outside (a web form, a message, a mail) is saved before any run is tried,
+    and a refused start never fails the sender. The lead waits instead: its case's clock retries it (cases on), or a
+    deferred start does after the limit's retry time (cases off). Returns the run id, or ""."""
+    try:
+        return _lead_case_run(desk, lid, extra=extra)
+    except U.UsageLimit as exc:
+        if not getattr(exc, "case_id", None):
+            U.defer(U.desk_meter(desk, "run.auto"), "lead", lid, exc)
+        return ""
+
+
+def _waiting_notes(desk: dict[str, Any], leads: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Leads whose run waits for a usage limit carry `waiting`: the limit as it stands and when they run (§1.6)."""
+    if not any(l.get("status") == "waiting" for l in leads):
+        return leads
+    held = {lid: (lim.get("limit_id") or "", lim.get("retry_at")) for lid, lim in C.held_leads(store, desk["id"]).items()}
+    held.update(U.deferred_leads(desk["id"]))
+    owner = int(desk.get("owner_id") or 0)
+    out = []
+    for l in leads:
+        hit = held.get(int(l["id"])) if l.get("status") == "waiting" else None
+        out.append({**l, "waiting": U.lead_note(owner, hit[0], hit[1])} if hit else l)
+    return out
 
 
 @app.get("/api/leads")
 def api_leads():
-    return jsonify(ds().leads())
+    desk = need_desk()
+    return jsonify(_waiting_notes(desk, store.for_desk(desk["id"]).leads()))
 
 
 @app.post("/api/leads")
@@ -1547,6 +1692,8 @@ def api_run_task():
     if d.get("design_team"):                            # one shot: design the team for this job, save it, then run it
         try:
             res = _design_team_for(desk, task, bool(d.get("reuse")))
+        except U.UsageLimit:
+            raise                                       # S8: the 429 body; nothing was designed or saved
         except Exception as exc:
             return jsonify({"error": f"design failed: {type(exc).__name__}: {str(exc)[:200]}"}), 502
         applied = _apply_team(desk, res["team"])
@@ -1725,11 +1872,20 @@ def api_decide(aid):
         return jsonify({"error": "status must be approved|rejected"}), 400
     u = current_user()
     by = (u["name"] if u else d.get("by", "owner"))
-    row = dstore.decide_action(aid, status, by=by, note=d.get("note", ""), body=d.get("body"), subject=d.get("subject"))
+    meter = U.desk_meter(desk, _action_surface(row), lane="you", ref=f"action:{aid}")
+    # S14: the channel's own rules come before the decision: outside WhatsApp's or Instagram's 24-hour reply window
+    # -> 409, the desk's SMS segments for today used -> 429. The action stays pending and nothing is sent.
+    res = _send_reserve(desk, row, meter) if status == "approved" else None
+    try:
+        row = dstore.decide_action(aid, status, by=by, note=d.get("note", ""), body=d.get("body"), subject=d.get("subject"))
+    except BaseException:
+        if res is not None:
+            res.release()
+        raise
     if status == "approved":
         note = d.get("note", "")
         try:
-            result = _dispatch(desk, row)
+            result = _dispatch(desk, row, res=res, meter=meter)
             row = dstore.decide_action(aid, "sent", by=by, note=(note + " " + result).strip())
             dstore.add_event(row["run_id"], "sent", "owner", f"{row['kind']} → {row['to']} — {row['subject']} ({result})")
             if row["kind"] in ("email", "whatsapp", "sms", "instagram") and row["to"]:
@@ -1740,6 +1896,11 @@ def api_decide(aid):
                 for m in (I.crm_sync(dstore.connectors(), contact) if contact else []):
                     dstore.add_event(row["run_id"], "tool", "owner", f"crm sync → {m}")
             I.notify(dstore.connectors(), f":outbox_tray: *Sent* — {row['kind']} → {row['to']}: {row['subject'] or (row['body'] or '')[:80]} {result}")
+        except U.UsageLimit:                     # S14: refused while sending, so nothing went out: pending again, 409/429
+            if res is not None:
+                res.release()
+            dstore.decide_action(aid, "pending", by="", note=note)
+            raise
         except Exception as exc:
             err = f"{type(exc).__name__}: {str(exc)[:300]}"
             row = dstore.decide_action(aid, "failed", by=by, note=(note + " send failed: " + err).strip())
@@ -1843,8 +2004,14 @@ def api_message_send():
     conn = I.outbound_connector(ds.connectors(), kind)
     if not conn:
         return jsonify({"error": f"no {kind} connector yet — add one under Integrations"}), 400
+    addr = to.replace("ig:", "") if kind == "instagram" else to
+    # S15: outside WhatsApp's or Instagram's reply window -> 409, the desk's SMS segments for today -> 429; then nothing
+    # is sent and nothing is stored on the thread
+    res = U.channel_send(desk, kind, addr, meter=U.desk_meter(desk, f"send.{kind}", lane="you"))
     try:
-        result, ok = I.deliver(conn, kind, to.replace("ig:", "") if kind == "instagram" else to, subject, body), True
+        result, ok = _deliver_metered(desk, conn, kind, addr, subject, body, res=res), True
+    except U.UsageLimit:
+        raise
     except Exception as exc:
         result, ok = f"{type(exc).__name__}: {str(exc)[:200]}", False
     mid = ds.add_message(kind, "out", ("ig:" + to) if kind == "instagram" and not to.startswith("ig:") else to,
@@ -1904,7 +2071,8 @@ def _health(desk_id: int | None, window_h: float = 24.0) -> dict[str, Any]:
     by = {}
     for r in runs:
         by[r["status"]] = by.get(r["status"], 0) + 1
-    finished = [r for r in runs if r["status"] in ("done", "error", "failed", "interrupted", "cancelled")]
+    # a run stopped at a usage limit finished, but did not fail: counted on its own as `limited` (usage spec §5.5)
+    finished = [r for r in runs if r["status"] in ("done", "error", "failed", "interrupted", "cancelled", "limit")]
     bad = [r for r in finished if r["status"] in ("error", "failed", "interrupted")]
     durs = sorted((r["ended"] or now) - r["created"] for r in finished if r.get("ended"))
     p = lambda q: round(durs[min(len(durs) - 1, int(q * len(durs)))], 1) if durs else None
@@ -1940,15 +2108,17 @@ def _health(desk_id: int | None, window_h: float = 24.0) -> dict[str, Any]:
     sp = _spend_poll()
     blocked = _spend_blocked()
     if blocked:
-        alerts.append({"level": "critical", "key": "spend", "text": blocked + " - new runs are refused"})
-    elif SPEND_CAP_USD and sp.get("total_usage") is not None and sp["total_usage"] >= 0.8 * SPEND_CAP_USD:
-        alerts.append({"level": "warn", "key": "spend80", "text": f"model spend ${sp['total_usage']:.2f} is over 80% of the ${SPEND_CAP_USD:.2f} cap"})
+        alerts.append({"level": "critical", "key": "spend", "text": blocked + " - paid models on Atlas's account are refused"})
+    elif sp["house_paid_limit"] and sp["house_paid_used"] >= 0.8 * sp["house_paid_limit"]:
+        alerts.append({"level": "warn", "key": "spend80", "text": f"paid models on Atlas's account: ${sp['house_paid_used']:.2f} "
+                                                                  f"of ${sp['house_paid_limit']:.2f} this UTC month"})
     return {
-        "spend": {"used_usd": sp.get("total_usage"), "credits_usd": sp.get("total_credits"), "cap_usd": SPEND_CAP_USD or None,
-                  "blocked": bool(blocked), "error": sp.get("error")},
+        "spend": {**{k: sp.get(k) for k in ("usage_monthly", "limit", "limit_remaining", "free_used", "free_limit", "error",
+                                             "house_paid_used", "house_paid_limit")}, "blocked": bool(blocked)},
         "ok": not any(a["level"] == "critical" for a in alerts), "window_h": window_h, "uptime_s": round(now - _BOOT_TS),
         "runs": {"total": len(runs), "by_status": by, "failure_rate": round(len(bad) / len(finished), 3) if finished else 0.0,
-                 "p50_s": p(0.5), "p90_s": p(0.9), "active": len(live), "stalled": len(stalled), "zombies": len(zombies)},
+                 "p50_s": p(0.5), "p90_s": p(0.9), "active": len(live), "stalled": len(stalled), "zombies": len(zombies),
+                 "limited": by.get("limit", 0)},
         "tokens": tokens, "cost_gbp": round((tin * 5 + tout * 25) / 1e6 * 0.78, 2),   # the Model cost tile's basis (paid rates), over this window
         "queue": {"pending": len(store.actions("pending", limit=100000, desk_id=desk_id)),
                   "oldest_pending_h": round((now - oldest) / 3600, 1) if oldest else 0},
@@ -1993,45 +2163,276 @@ def _notify_alerts(desk: dict[str, Any], alerts: list[dict[str, str]]) -> None:
         print("alert delivery failed:", exc)
 
 
-SPEND_CAP_USD = float(os.environ.get("SPEND_CAP_USD", "0") or 0)          # 0 = no cap
-_spend: dict[str, Any] = {"total_credits": None, "total_usage": None, "ts": 0.0, "error": ""}
-
-
 def _spend_poll(force: bool = False) -> dict[str, Any]:
-    """Read the OpenRouter balance at most every 5 minutes (real money now flows through the key)."""
-    if not force and time.time() - _spend["ts"] < 300:
-        return _spend
-    try:
-        prov = cfg.load("providers", cfg.DEFAULT_PROVIDERS)["providers"].get("openrouter") or {}
-        key = cfg.resolve_api_key({**prov, "name": "openrouter"})
-        if key:
-            import httpx
-            r = httpx.get("https://openrouter.ai/api/v1/credits", headers={"Authorization": f"Bearer {key}"}, timeout=15)
-            d = r.json().get("data", {}) if r.status_code < 400 else {}
-            _spend.update({"total_credits": d.get("total_credits"), "total_usage": d.get("total_usage"), "error": "" if d else f"HTTP {r.status_code}"})
-    except Exception as exc:
-        _spend["error"] = f"{type(exc).__name__}: {str(exc)[:80]}"
-    _spend["ts"] = time.time()
-    return _spend
+    """The OpenRouter key snapshot (GET /api/v1/key, every USAGE_KEY_POLL_S by the usage thread) plus this month's
+    paid spend on Atlas's account as the ledger sees it. The old credits read needed a management key and compared
+    all-time usage with the cap, so it never worked."""
+    if force:
+        U.poll_key()
+    return U.spend_view()
 
 
 def _spend_blocked() -> str:
-    """Non-empty reason when new model work must not start: cap exceeded or balance gone."""
-    s = _spend_poll()
-    used, total = s.get("total_usage"), s.get("total_credits")
-    if SPEND_CAP_USD and used is not None and used >= SPEND_CAP_USD:
-        return f"spend cap reached: ${used:.2f} of ${SPEND_CAP_USD:.2f} used - raise SPEND_CAP_USD to continue"
-    if used is not None and total is not None and total > 0 and used >= total:
-        return f"OpenRouter balance exhausted (${used:.2f} of ${total:.2f})"
-    return ""
+    """Non-empty when paid models on Atlas's account are refused: L13, the house's paid cap for this UTC month
+    (USAGE_HOUSE_PAID_USD_MONTH, else SPEND_CAP_USD, else $10). Free-model work is never blocked by it."""
+    return U.house_paid_blocked()
+
+
+# ---------------------------------------------------------------------------- usage: the page and its API (usage spec §5, §6)
+def _usage_who() -> tuple[int, bool]:
+    """Whose usage a request reads, and whether the caller has the operator view (spec §5.4): the signed-in account
+    (owner 0 in open test mode, where the operator view is open too). ?owner=<id> reads another account: operator
+    only, 403 for anyone else."""
+    u = current_user()
+    operator = OPEN or U.is_operator(u)
+    owner = int(u["id"]) if u else 0
+    raw = request.args.get("owner")
+    if raw not in (None, ""):
+        if not operator:
+            abort(Response(json.dumps({"error": "operator_only", "message": "Only the operator can read another "
+                                                                            "account's usage."}), 403, mimetype="application/json"))
+        try:
+            owner = int(raw)
+        except ValueError:
+            abort(Response(json.dumps({"error": "bad_owner"}), 400, mimetype="application/json"))
+    return owner, operator
+
+
+def _usage_desks(owner: int) -> list[dict[str, Any]]:
+    """The owner's desks, with what the page needs from each: its name, its connectors, whether it can send SMS."""
+    out = []
+    for d in store.desks_for(owner):
+        cons = store.connectors(d["id"])
+        name = ((d.get("config") or {}).get("business") or {}).get("name") or d["name"]
+        out.append({"id": int(d["id"]), "name": str(name), "desk": d, "cons": cons,
+                    "sms": any(c["kind"] == "twilio" for c in cons)})
+    return out
+
+
+def _usage_desk_filter(desks: list[dict[str, Any]]) -> int | None:
+    """?desk=<id>: one of the owner's desks (404 otherwise); none = all desks."""
+    raw = request.args.get("desk")
+    if raw in (None, "", "0", "all"):
+        return None
+    try:
+        did = int(raw)
+    except ValueError:
+        did = -1
+    if not any(d["id"] == did for d in desks):
+        abort(Response(json.dumps({"error": "no_such_desk"}), 404, mimetype="application/json"))
+    return did
+
+
+def _usage_cameras(owner: int, desks: list[dict[str, Any]], desk_id: int | None) -> list[dict[str, Any]]:
+    """Each camera's AI work as the page shows it (spec §1.5, §1.7): local detector or AI counts, the last tick's
+    state (paced, paused), the pacing gaps that make the day's allowance last until 00:00 UTC, and the journal's own
+    cadence beside them."""
+    from .. import journal as JR
+    out: list[dict[str, Any]] = []
+    cams = [(d, c) for d in desks if not desk_id or d["id"] == desk_id for c in d["cons"] if c["kind"] == "camera"]
+    if not cams:
+        return out
+    local = bool(V.DETECTOR.available)
+    scope = U.desk_scope(owner)
+    gap1 = U.pace_gap(owner, per_action=1, scope=scope)
+    gap2 = U.pace_gap(owner, per_action=2, scope=scope)
+    jobs: dict[int, list[dict[str, Any]]] = {}
+    for d, c in cams:
+        conf = c.get("config") or {}
+        jc, rule = JR.config(conf), V.rule_config(conf)
+        seen = scheduler.last_seen(d["id"], c["name"]) or {}
+        js = jobs.setdefault(d["id"], store.jobs(d["id"]))
+        job = next((j for j in js if j["kind"] == "camera_watch" and (j["task"] or "").find(f'"connector": "{c["name"]}"') >= 0), None)
+        jgap = gap2 if jc["verify"] else gap1
+        backend = str(seen.get("backend") or "")
+        out.append({"desk_id": d["id"], "desk": d["name"], "name": c["name"], "watching": bool(job and job.get("enabled")),
+                    "detector": "local" if local else "vlm",
+                    "detect": backend if backend in ("paced", "paused", "error") else ("ok" if seen else ""),
+                    "detect_status": str(seen.get("detect_status") or ""),
+                    "detect_gap_s": round(gap1) if not local and gap1 else None,
+                    "journal": jc["on"], "journal_every_s": jc["every_s"],
+                    "journal_status": str(seen.get("journal_status") or "") if jc["on"] else "",
+                    "journal_gap_s": round(jgap) if jc["on"] and jgap > jc["min_gap_s"] else None,
+                    "alert_on_motion": bool(rule.get("alert_on_motion")), "last_tick": seen.get("ts")})
+    return out
+
+
+def _usage_byo(owner: int, desks: list[dict[str, Any]], desk_id: int | None, now: float) -> list[dict[str, Any]]:
+    """The owner's own model keys (spec §2 rule 4): today's requests on each as the ledger counted them, and for an
+    OpenRouter key the provider's own figures for it, read with the owner's key while serving this request (at most
+    every 5 minutes per key)."""
+    from ..providers import provider_id
+    out: list[dict[str, Any]] = []
+    for d in desks:
+        if desk_id and d["id"] != desk_id:
+            continue
+        byo = _desk_byo(d["desk"])
+        for name, blob in (byo.get("entries") or {}).items():
+            e = SEC.decrypt_config(blob)
+            pub = _byo_public(name, e)
+            pid = "anthropic" if e.get("type") == "anthropic" else provider_id(str(e.get("base_url") or ""))
+            view = U.byo_key_view(f"byo:{d['id']}:{name}", str(e.get("api_key") or "")) if pid == "openrouter" else None
+            lt = pub.get("last_test") or {}
+            out.append({"desk_id": d["id"], "desk": d["name"], "name": name, "label": pub["label"], "provider": pid,
+                        "key_hint": pub["key_hint"], "default": byo.get("default") == name,
+                        "last_test": {"ok": bool(lt.get("ok")), "ts": lt.get("ts")} if lt else None,
+                        "today": U.byo_today(owner, d["id"], pid, now), "provider_view": view,
+                        "provider_note": "" if pid == "openrouter" else
+                        f"Usage not available from {pub['label']}; Atlas counts tokens from each response."})
+    return out
+
+
+def _usage_rules(owner: int, desks: list[dict[str, Any]], held_today: int) -> list[dict[str, Any]]:
+    """W1, the reply window (spec §1.3): which of the owner's channels it holds, how many sends it held today, and
+    whether camera alerts go by WhatsApp (they reach the owner only inside the window too)."""
+    from .. import alerts as AL
+    chans: set[str] = set()
+    for d in desks:
+        for c in d["cons"]:
+            if c["kind"] == "whatsapp" or (c["kind"] == "twilio" and (c.get("config") or {}).get("whatsapp_from")):
+                chans.add("whatsapp")
+            elif c["kind"] == "instagram":
+                chans.add("instagram")
+    return [{"id": "reply_window", "label": "WhatsApp and Instagram: 24-hour reply window",
+             "channels": sorted(chans), "held_today": held_today,
+             "alerts_on_whatsapp": any(AL.config(d["desk"])["channel"] == "whatsapp" for d in desks),
+             "basis": U.basis(owner, "reply_window")}]
+
+
+@app.get("/desk/usage")
+def desk_usage_page():
+    """The Usage page (spec §6): limits with their bars and resets, where today's requests went, recent usage, keys."""
+    if not current_user() and not OPEN:
+        return redirect(_login_next())
+    return send_from_directory(STATIC_DIR, "usage.html")
+
+
+@app.get("/api/usage")
+def api_usage():
+    """GET /api/usage[?desk=<id>] (spec §5.1): the caller's own limits, today's usage, the last 30 days and the newest
+    events. ?owner=<id> is the operator's."""
+    owner, operator = _usage_who()
+    desks = _usage_desks(owner)
+    did = _usage_desk_filter(desks)
+    now = time.time()
+    data = U.page(owner, desks=[{"id": d["id"], "name": d["name"], "sms": d["sms"]} for d in desks], desk_id=did,
+                  operator=operator, now=now)
+    cams = _usage_cameras(owner, desks, did)
+    paced = {(c["desk_id"], c["name"]): c for c in cams}
+    for t in data["today"]:                            # a camera's rows carry its pacing (one note every N s)
+        c = paced.get((t.get("desk_id"), t.get("camera")))
+        gap = c and (c["journal_gap_s"] if t["surface"] == "camera.note" else c["detect_gap_s"] if t["surface"] == "camera.detect" else None)
+        if gap:
+            t["paced"] = {c["name"]: gap}
+    data.update(mode=_mode(), open=OPEN, desk_filter=did, desks=[{"id": d["id"], "name": d["name"]} for d in desks],
+                cameras=cams, byo=_usage_byo(owner, desks, did, now),
+                rules=_usage_rules(owner, desks, data["sends"]["held_today"]))
+    resp = jsonify(data)
+    resp.headers["Cache-Control"] = "no-store"
+    return resp
+
+
+@app.get("/api/usage/events")
+def api_usage_events():
+    """GET /api/usage/events?cursor=&desk=&status=all|refused|error&limit=50 (spec §5.2): grouped, newest first."""
+    owner, _operator = _usage_who()
+    desks = _usage_desks(owner)
+    did = _usage_desk_filter(desks)
+    return jsonify(U.events_page(owner, cursor=request.args.get("cursor") or "", desk_id=did,
+                                 status=request.args.get("status") or "all", limit=request.args.get("limit", type=int) or 50,
+                                 names={d["id"]: d["name"] for d in desks}))
+
+
+@app.get("/api/usage/detail")
+def api_usage_detail():
+    """One Recent usage line, expanded: ?ids=<item ids> (as /api/usage/events gives them) -> each request with its
+    model, status, HTTP status, tokens and cost, and where to see the run."""
+    owner, _operator = _usage_who()
+    ids = [x for x in str(request.args.get("ids") or "").split(",") if x.strip()][:20]
+    rows = U.event_detail(owner, ids)
+    links = []
+    if any(r["kind"] != "refusal" and (r["surface"] in U.RUN_START_SURFACES or r["surface"] in ("run.step", "browse.step",
+                                                                                                  "hermes.inner")) for r in rows):
+        links.append({"href": "/desk#runs", "label": "Run history"})        # a run that started: its result is there
+    if any(str(r["surface"]).startswith("design.") for r in rows):
+        links.append({"href": "/desk/workspace", "label": "Atlas workspace"})
+    return jsonify({"rows": rows, "links": links})
+
+
+@app.get("/api/usage/brief")
+def api_usage_brief():
+    """GET /api/usage/brief (spec §5.3): the rail badge's state and the limit nearest to full."""
+    u = current_user()
+    return jsonify(U.brief_view(int(u["id"]) if u else 0))
+
+
+@app.get("/api/usage/house")
+def api_usage_house():
+    """GET /api/usage/house (spec §5.4), operator only (USAGE_OPERATOR_EMAILS, or open test mode)."""
+    _owner, operator = _usage_who()
+    if not operator:
+        return jsonify({"error": "operator_only", "message": "The house view is for the operator."}), 403
+    return jsonify(U.house_view())
+
+
+_last_prune = [0.0]
+_last_reconcile = [0.0]
+
+
+def _folder_bytes(root: Path) -> int:
+    total = 0
+    for base, _dirs, files in os.walk(root):
+        for name in files:
+            try:
+                total += os.path.getsize(os.path.join(base, name))
+            except OSError:
+                continue
+    return total
+
+
+def _storage_walk() -> dict[int, int]:
+    """What each owner's uploads take on disk (usage spec §1.3 L9 step 3), under ATLAS_DATA_DIR: camera recordings
+    (uploads/cameras/u<owner>; open mode's shared folder is owner 0), watched videos (videos/desk<id>) and saved cyber
+    recordings (cyber/recordings/<desk id>), each desk's folder counted for its owner. Cyber log uploads are deleted
+    once parsed; the folder of a deleted desk belongs to nobody."""
+    sizes: dict[int, int] = {}
+    owners: dict[int, int | None] = {}
+
+    def add(oid: int | None, folder: Path) -> None:
+        if oid is not None:
+            sizes[oid] = sizes.get(oid, 0) + _folder_bytes(folder)
+
+    def desk_owner(did: int) -> int | None:
+        if did not in owners:
+            d = store.desk(did)
+            owners[did] = int(d.get("owner_id") or 0) if d else None
+        return owners[did]
+
+    for base, pattern, by_desk in ((CAMERA_UPLOAD_DIR, r"u(\d+)|open", False), (VIDEO_DIR, r"desk(\d+)", True),
+                                   (cfg.DATA_DIR / "cyber" / "recordings", r"(\d+)", True)):
+        if not base.is_dir():
+            continue
+        for folder in base.iterdir():
+            m = re.fullmatch(pattern, folder.name)
+            if not (m and folder.is_dir()):
+                continue
+            num = int(m.group(1)) if m.group(1) else 0
+            add(desk_owner(num) if by_desk else num, folder)
+    return sizes
 
 
 def _watchdog_loop() -> None:
-    """Every 15s: kill runs past RUN_MAX_S, mark orphaned DB rows failed, push critical alerts."""
+    """Every 15s: kill runs past RUN_MAX_S, mark orphaned DB rows failed, push critical alerts. Hourly: usage retention.
+    At boot and then daily: each owner's stored uploads measured on disk (the L9 reconcile)."""
     while True:
         try:
             now = time.time()
-            _spend_poll()
+            if now - _last_prune[0] > 3600:
+                _last_prune[0] = now
+                U.prune(now)
+            if now - _last_reconcile[0] > 86400:
+                _last_reconcile[0] = now
+                U.reconcile_storage(_storage_walk())
             with _runs_lock:
                 holders = list(_runs.items())
             for rid, h in holders:
@@ -2093,9 +2494,10 @@ def api_report():
 
 
 # ---------------------------------------------------------------------------- demo helpers
-def _sample_leads(desk: dict[str, Any]) -> list[dict[str, str]]:
+def _sample_leads(desk: dict[str, Any], flags: dict[str, str] | None = None) -> list[dict[str, str]]:
     """Template samples for the stock business; for a customised business ask the (cheap) model to invent
-    three realistic enquiries so the demo matches what the client actually does."""
+    three realistic enquiries so the demo matches what the client actually does. At a usage limit the stock samples
+    stand in, and `flags` says so (samples: "stock (limit)")."""
     if desk.get("template") == "soc_desk":           # a security desk gets no invented leads: its input is real log data
         return []
     stock = templates.SAMPLE_LEADS.get(desk["template"], templates.SAMPLE_LEADS["sales_desk"])
@@ -2106,7 +2508,7 @@ def _sample_leads(desk: dict[str, Any]) -> list[dict[str, str]]:
         return stock
     try:
         from ..providers import ProviderPool
-        pool = ProviderPool(c["providers"])
+        pool = ProviderPool(c["providers"], meter=U.desk_meter(desk, "seed.leads", lane="you"))
         prov = pool.get()
         model = templates.FREE_MODEL if c["providers"].get("default_provider") == "openrouter" else ""
         prompt = (f"Invent 3 realistic inbound enquiries for this business. Return ONLY a JSON array of objects with keys "
@@ -2123,19 +2525,31 @@ def _sample_leads(desk: dict[str, Any]) -> list[dict[str, str]]:
                         "email": str(x.get("email", "") or "lead@example.com"), "phone": str(x.get("phone", "") or ""),
                         "source": str(x.get("source", "") or "website form"), "notes": str(x.get("notes", "") or "")})
         return out or stock
+    except U.UsageLimit:                                 # S9: no request was sent; the stock samples, flagged
+        if flags is not None:
+            flags["samples"] = "stock (limit)"
+        return stock
     except Exception:
         return stock
 
 
 @app.post("/api/demo/seed")
 def api_seed():
+    """Sample leads, each worked by a run. A run refused at a usage limit leaves its lead saved and says why
+    (`limited`, spec §5.5): one refusal no longer fails the whole seed."""
     desk = need_desk()
     dstore = store.for_desk(desk["id"])
     ids = []
-    for L in _sample_leads(desk):
+    flags: dict[str, str] = {}
+    for L in _sample_leads(desk, flags):
         lid = dstore.add_lead(L["name"], L["company"], L["email"], L["phone"], L["source"], L["notes"])
         dstore.upsert_contact(L["email"], {"name": L["name"], "company": L["company"], "email": L["email"], "phone": L["phone"], "stage": "New", "notes": "Inbound lead"})
-        ids.append({"id": lid, "run_id": _lead_case_run(desk, lid)})
+        item: dict[str, Any] = {"id": lid}
+        try:
+            item["run_id"] = _lead_case_run(desk, lid)
+        except U.UsageLimit as exc:                      # S9: the lead stays; its run did not start
+            item.update(run_id="", limited=exc.message)
+        ids.append({**item, **flags})
         time.sleep(0.05)
     return jsonify(ids)
 
@@ -2158,10 +2572,73 @@ def api_reset():
     return jsonify({"ok": True})
 
 
-def _dispatch(desk: dict[str, Any], row: dict[str, Any]) -> str:
-    """Perform an approved action for real when a connector exists; otherwise simulate and say so."""
+_MESSAGE_KINDS = ("email", "whatsapp", "sms", "instagram", "slack")    # sends (usage spec §1.4 send.*); booking is an action
+
+
+def _action_surface(row: dict[str, Any]) -> str:
+    """The ledger surface of an approved action (usage spec §1.4): send.<channel> for a message, else action.<what>."""
+    kind = row["kind"]
+    if kind in _MESSAGE_KINDS:
+        return "send." + kind
+    return {"booking": "action.calendar", "browser_action": "action.browser", "api_call": "action.http",
+            "containment": "action.containment"}.get(kind, "action." + str(kind or "other")[:30])
+
+
+def _send_reserve(desk: dict[str, Any], row: dict[str, Any], meter: U.Meter) -> U.Reservation | None:
+    """The channel's own rules for one approved message, before anything is decided or sent (S14): outside WhatsApp's
+    or Instagram's 24-hour reply window raises ChannelWindow (409), the desk's SMS segments for today UsageLimit (429).
+    None when it is not a message or no connector carries it: then nothing really goes out (a simulated send)."""
+    kind = row["kind"]
+    if kind not in _MESSAGE_KINDS or not I.outbound_connector(store.connectors(desk["id"]), kind):
+        return None
+    return U.channel_send(desk, kind, row["to"] or "", meter=meter)
+
+
+def _deliver_metered(desk: dict[str, Any], conn: dict[str, Any], kind: str, to: str, subject: str, body: str, *,
+                     res: U.Reservation | None = None, meter: U.Meter | None = None) -> str:
+    """One message out through the owner's connector, metered (usage spec §1.3 W1 and L7, §4.2): the reply-window read
+    and the SMS segment reservation first (unless the caller holds them already), and nothing is sent when they refuse;
+    the send itself outside the store lock; then the segments and price Twilio reported are confirmed, or the
+    reservation goes back when nothing went out (the ledger keeps the error's type and HTTP status, never its text)."""
+    res = res or U.channel_send(desk, kind, to, meter=meter)
+    meta: dict[str, Any] = {}
+    try:
+        out = I.deliver(conn, kind, to, subject, body, meta=meta)
+    except BaseException as exc:
+        res.release(error=U.send_error_note(exc), provider=str(meta.get("provider") or ""))
+        raise
+    res.confirm(meta.get("segments"), provider=str(meta.get("provider") or ""), cost_usd=meta.get("cost_usd"),
+                note=str(meta.get("price_note") or ""))
+    return out
+
+
+def _counted(meter: U.Meter, surface: str, fn) -> Any:
+    """An approved action that really runs: one ledger row, counted and never limited here (L8 is checked before an
+    unattended one acts); a failure is recorded with the error's type and re-raised."""
+    try:
+        out = fn()
+    except Exception as exc:
+        U.action(meter, "action", surface=surface, status="error", note=U.send_error_note(exc))
+        raise
+    U.action(meter, "action", surface=surface, note="approved")
+    return out
+
+
+def _dispatch(desk: dict[str, Any], row: dict[str, Any], *, res: U.Reservation | None = None,
+              meter: U.Meter | None = None) -> str:
+    """Perform an approved action for real when a connector exists; otherwise simulate and say so. A message goes out
+    through _deliver_metered (`res`: the reply window and SMS segment the caller already reserved); anything else that
+    really runs is counted on the ledger. `meter`: who it counts for; else the meter the caller bound in this thread
+    for this desk (alerts.queue: the auto alert's), else the desk's owner in the bound lane."""
     dstore = store.for_desk(desk["id"])
     kind = row["kind"]
+    bound = U.current()
+    if meter is None and bound is not None and int(bound.desk_id or 0) == int(desk["id"]):
+        meter = bound
+    meter = meter or U.desk_meter(desk, _action_surface(row), lane=U.bound_lane() or "you", ref=f"action:{row['id']}")
+    if res is not None and kind not in _MESSAGE_KINDS:
+        res.release()
+        res = None
     if kind == "containment":
         from .. import cyber as CY
         from .. import policy as P
@@ -2192,12 +2669,14 @@ def _dispatch(desk: dict[str, Any], row: dict[str, Any]) -> str:
             body = {"action": t["action"], "kind": t["kind"], "value": t["value"], "evidence": spec["evidence"],
                     "approval_id": row["id"]}
             try:
-                res = I.http_call(conn["config"], "POST", path, None, body, timeout=15)
-                results.append(f"{t['action']} {t['value']} → HTTP {res['status']}")
-                failed = failed or res["status"] >= 400
+                hit = I.http_call(conn["config"], "POST", path, None, body, timeout=15)
+                results.append(f"{t['action']} {t['value']} → HTTP {hit['status']}")
+                failed = failed or hit["status"] >= 400
             except Exception as exc:
                 results.append(f"{t['action']} {t['value']} → {type(exc).__name__}: {str(exc)[:80]}")
                 failed = True
+        U.action(meter, "action", surface="action.containment", status="error" if failed else "ok",
+                 note=f"{len(spec['targets'])} target(s)")
         summary = f"containment via {conn['name']}: " + "; ".join(results)
         if failed:
             raise RuntimeError(summary)          # api_decide marks the action "failed" with this note
@@ -2205,31 +2684,41 @@ def _dispatch(desk: dict[str, Any], row: dict[str, Any]) -> str:
     if kind in I.CHANNELS:
         conn = I.outbound_connector(dstore.connectors(), kind)
         if not conn:
+            if res is not None:                  # nothing goes out: the reserved segment goes back
+                res.release()
             return f"[simulated {kind} — no {' / '.join(I.CHANNELS[kind])} connector; add one under Integrations]"
-        return "[" + I.deliver(conn, kind, row["to"], row["subject"] or "", row["body"] or "") + "]"
+        args = (conn, kind, row["to"], row["subject"] or "", row["body"] or "")
+        if kind == "booking":                    # a calendar booking is an action, not a message
+            return "[" + _counted(meter, "action.calendar", lambda: I.deliver(*args)) + "]"
+        return "[" + _deliver_metered(desk, *args, res=res, meter=meter) + "]"
     if kind == "browser_action":
         from .. import browser as BR
         try:
             spec = json.loads(row["body"] or "{}")
-            return "[" + BR.perform_pending(spec.get("pending") or {}, spec.get("profile") or f"desk{desk['id']}") + "]"
+            out = "[" + BR.perform_pending(spec.get("pending") or {}, spec.get("profile") or f"desk{desk['id']}") + "]"
         except Exception as exc:
+            U.action(meter, "action", surface="action.browser", status="error", note=U.send_error_note(exc))
             return f"[browser action failed - {type(exc).__name__}: {str(exc)[:160]}]"
+        U.action(meter, "action", surface="action.browser", note="approved")
+        return out
     if kind == "api_call":
         conn = dstore.connector_by_name(row["to"])
         if not conn:
             return "[failed — connector missing]"
         spec = json.loads(row["body"] or "{}")
         if conn["kind"] == "higgsfield" or "media" in spec:
-            res = I.higgsfield_generate(conn["config"], spec.get("media", "image"), spec.get("prompt", ""), spec.get("image_url") or "",
-                                        spec.get("duration"), spec.get("aspect_ratio") or "16:9")
-            urls = ", ".join(res["outputs"]) or "no output URL returned"
-            return f"[Higgsfield {res['model']} {res['status']}: {urls}]"
+            gen = _counted(meter, "action.higgsfield", lambda: I.higgsfield_generate(
+                conn["config"], spec.get("media", "image"), spec.get("prompt", ""), spec.get("image_url") or "",
+                spec.get("duration"), spec.get("aspect_ratio") or "16:9"))
+            urls = ", ".join(gen["outputs"]) or "no output URL returned"
+            return f"[Higgsfield {gen['model']} {gen['status']}: {urls}]"
         if conn["kind"] == "mcp" or "mcp_tool" in spec:
             from .. import mcp_client as M
-            out = M.REGISTRY.get(conn).call(spec["mcp_tool"], spec.get("arguments") or {})
+            out = _counted(meter, "action.mcp", lambda: M.REGISTRY.get(conn).call(spec["mcp_tool"], spec.get("arguments") or {}))
             return f"[MCP {spec['mcp_tool']}: {out[:160]}]"
-        res = I.http_call(conn["config"], spec.get("method", "POST"), spec.get("path", ""), spec.get("params"), spec.get("body"))
-        return f"[HTTP {res['status']} {res['url']}]"
+        hit = _counted(meter, "action.http", lambda: I.http_call(conn["config"], spec.get("method", "POST"),
+                                                                 spec.get("path", ""), spec.get("params"), spec.get("body")))
+        return f"[HTTP {hit['status']} {hit['url']}]"
     return f"[simulated {kind} — no connector for this channel yet]"
 
 
@@ -2438,6 +2927,7 @@ def api_run_job(jid):
     j = store.job(jid)
     if not j or j["desk_id"] != desk["id"]:
         abort(404)
+    scheduler.RUN_NOW[jid] = int(desk.get("owner_id") or 0)   # a person pressed it: its run counts in lane you
     store.update_job(jid, next_run=time.time() - 1, enabled=1)
     return jsonify({"ok": True, "note": "will run within 20 seconds"})
 
@@ -2603,6 +3093,22 @@ def _upload_dir(uid: Any) -> Path:
     return CAMERA_UPLOAD_DIR / (f"u{int(uid)}" if uid else "open")
 
 
+def _upload_meter(owner: int, desk: dict[str, Any] | None, surface: str) -> U.Meter:
+    """Who an upload counts for (usage spec §1.3 L9): the owner's files, on the desk when there is one."""
+    return U.Meter(owner_id=int(owner or 0), desk_id=int((desk or {}).get("id") or 0), scope=U.desk_scope(int(owner or 0)),
+                   lane="you", surface=surface)
+
+
+def _charge_upload(owner: int, path: Path, size: int, meter: U.Meter, *, charge: int | None = None) -> None:
+    """Charge a saved upload to the owner's files (L9) and check the disk floor, after the write: over either, the
+    file is deleted and the 429 raised, so a body sent without a Content-Length cannot get past the limit."""
+    try:
+        U.take_storage(owner, size, meter=meter, surface=meter.surface, charge=charge)
+    except U.UsageLimit:
+        Path(path).unlink(missing_ok=True)
+        raise
+
+
 def _camera_source_reason(src: str, uid: Any) -> str | None:
     """Why `uid` may not point a camera at `src`, or None. Streams may sit on the LAN (cameras do) but never on
     loopback, link-local or the metadata service; files must be this owner's uploads or the sample footage."""
@@ -2640,6 +3146,11 @@ def api_camera_upload():
     _signed_in()
     if (request.content_length or 0) > CAMERA_UPLOAD_MAX:     # before the body is parsed, not after
         return jsonify({"error": f"file is larger than {CAMERA_UPLOAD_MAX // (1024 * 1024)} MB"}), 413
+    u = current_user()
+    owner = int(u["id"]) if u else 0
+    um = _upload_meter(owner, None, "upload.camera")
+    if request.content_length:                               # L9 and the disk floor before the body is read (429)
+        U.check_storage(owner, request.content_length, meter=um)
     request.max_content_length = CAMERA_UPLOAD_MAX           # also bounds a body sent without a Content-Length
     f = request.files.get("file")
     if not f or not f.filename:
@@ -2647,13 +3158,14 @@ def api_camera_upload():
     ext = Path(f.filename).suffix.lower()
     if ext not in CAMERA_UPLOAD_EXT:
         return jsonify({"error": f"{ext or 'that file type'} is not supported; use " + ", ".join(sorted(CAMERA_UPLOAD_EXT))}), 400
-    u = current_user()
     folder = _upload_dir(u["id"] if u else None)
     folder.mkdir(parents=True, exist_ok=True)
     stem = re.sub(r"[^a-zA-Z0-9_-]+", "-", Path(f.filename).stem).strip("-")[:40] or "camera"
     dest = folder / f"{stem}-{secrets.token_hex(8)}{ext}"
     f.save(dest)
-    return jsonify({"source": str(dest), "name": f.filename, "kind": V.source_kind(str(dest)), "bytes": dest.stat().st_size})
+    size = dest.stat().st_size
+    _charge_upload(owner, dest, size, um)
+    return jsonify({"source": str(dest), "name": f.filename, "kind": V.source_kind(str(dest)), "bytes": size})
 
 
 @app.post("/api/cameras/probe")
@@ -2718,9 +3230,16 @@ def api_camera_look(cid):
     desk = need_desk()
     c = _camera(cid, desk)
     d = request.get_json(silent=True) or {}
+    meter = U.desk_meter(desk, "camera.look", lane="you", ref=f"cam:{c['name']}", overrun=1)
+    question = str(d.get("question") or "").strip()[:500]
+    if question and _mode() != "demo":                   # S4: the question needs the vision model; refused as JSON first
+        V.vlm_precheck(meter, str(c["config"].get("vlm_model") or ""))
     try:
         r = scheduler.camera_tick(store, desk, c, _start_run, _mode() != "demo",
-                                  question=str(d.get("question") or "").strip()[:500], force=bool(d.get("trigger")))
+                                  question=question, force=bool(d.get("trigger")),
+                                  meter=meter)
+    except U.UsageLimit:
+        raise                                            # S4: the 429 body; a limit says nothing about the camera itself
     except Exception as exc:
         msg = f"{type(exc).__name__}: {str(exc)[:300]}"
         store.update_connector(cid, status="error: " + msg, last_test=time.time())
@@ -2994,13 +3513,18 @@ def api_object_image(oid, which):
     return send_file(p, mimetype="image/jpeg", max_age=0)
 
 
+def _camera_vlm_model(desk: dict[str, Any], camera: str) -> str:
+    """The vision model a camera's config pins ("" = the default chain)."""
+    conn = next((c for c in store.connectors(desk["id"]) if c["kind"] == "camera" and c["name"] == camera), None)
+    return str(((conn or {}).get("config") or {}).get("vlm_model") or "")
+
+
 def _object_live(desk: dict[str, Any], o: dict[str, Any]):
     """(frame, box, vision model) for an object: the live frame while it is still in view, else its stored pictures."""
     OBJ, _ = _objects_mod()
     w = OBJ.worker(desk["id"], o["camera"])
     frame, box = w.latest(o["id"]) if w else (None, None)
-    conn = next((c for c in store.connectors(desk["id"]) if c["kind"] == "camera" and c["name"] == o["camera"]), None)
-    return frame, box, str(((conn or {}).get("config") or {}).get("vlm_model") or "")
+    return frame, box, _camera_vlm_model(desk, o["camera"])
 
 
 @app.post("/api/objects/<int:oid>/call")
@@ -3011,13 +3535,18 @@ def api_object_call(oid):
     d = request.get_json(silent=True) or {}
     on = bool(d.get("on", True))
     ds = store.for_desk(desk["id"])
+    meter = U.desk_meter(desk, "objects.call", lane="you", ref=f"obj:{oid}", overrun=1)
+    if on:                                               # S5: refused as JSON before anything changes
+        V.vlm_precheck(meter, _camera_vlm_model(desk, o["camera"]))
     ds.update_vision_object(oid, watch=1 if on else 0)
     if not on:
         return jsonify({"ok": True, "object": _obj_public(ds.vision_object(oid))})
     _require_live(desk)
     frame, box, model = _object_live(desk, o)
     try:
-        res = OBJ.call(store, o, model=model, frame=frame, box=box)
+        res = OBJ.call(store, o, model=model, frame=frame, box=box, meter=meter)
+    except U.UsageLimit:
+        raise                                            # S5: the 429 body, and no "vision model unavailable" note
     except Exception as exc:
         ds.add_object_note(oid, "error", f"vision model unavailable: {str(exc)[:200]}")
         return jsonify({"ok": False, "error": str(exc)[:300], "object": _obj_public(ds.vision_object(oid)), "notes": ds.object_notes(oid, 60)}), 502
@@ -3031,10 +3560,14 @@ def api_object_ask(oid):
     q = str((request.get_json(force=True) or {}).get("question") or "").strip()[:500]
     if not q:
         return jsonify({"error": "empty question"}), 400
+    meter = U.desk_meter(desk, "objects.ask", lane="you", ref=f"obj:{oid}", overrun=1)
+    V.vlm_precheck(meter, _camera_vlm_model(desk, o["camera"]))   # S6: refused as JSON first
     _require_live(desk)
     frame, box, model = _object_live(desk, o)
     try:
-        text = OBJ.ask(store, o, q, model=model, frame=frame, box=box)
+        text = OBJ.ask(store, o, q, model=model, frame=frame, box=box, meter=meter)
+    except U.UsageLimit:
+        raise                                            # S6: the 429 body
     except Exception as exc:
         return jsonify({"ok": False, "error": str(exc)[:300]}), 502
     return jsonify({"ok": True, "answer": text, "notes": store.for_desk(desk["id"]).object_notes(oid, 60)})
@@ -3130,8 +3663,10 @@ def api_report_day_send():
     biz = ((desk.get("config") or {}).get("business") or {}).get("name") or desk.get("name") or ""
     subj, body = AL.report_message(desk, date, REP.markdown(data, biz), channel)
     row = AL.queue(store, desk, channel, to, subj, body, f"daily camera report {date}", nc["auto"], _dispatch)
+    held = row.get("held") or ""                      # an auto send held at a limit or by the channel's rule says why
     return jsonify({"ok": True, "status": row["status"], "action_id": row["id"],
-                    "note": "sent" if row["status"] == "sent" else ("queued for your approval" if row["status"] == "pending" else row.get("note") or row["status"])})
+                    "note": "sent" if row["status"] == "sent" else (("queued for your approval" + (f": {held}" if held else ""))
+                                                                   if row["status"] == "pending" else row.get("note") or row["status"])})
 
 
 @app.get("/api/report/day")
@@ -3190,6 +3725,9 @@ def api_camera_watch(cid):
 
 
 VIDEO_UPLOAD_MAX = 300 * 1024 * 1024
+# Watched videos live under ATLAS_DATA_DIR (they used to go to a data/videos folder relative to the working directory,
+# outside the backups and the storage reconcile): one folder per desk.
+VIDEO_DIR = cfg.DATA_DIR / "videos"
 
 
 @app.post("/api/vision/video")
@@ -3200,6 +3738,12 @@ def api_vision_video():
     from .. import vision as V
     if (request.content_length or 0) > VIDEO_UPLOAD_MAX:
         return jsonify({"error": f"video too large (max {VIDEO_UPLOAD_MAX // (1024 * 1024)} MB)"}), 413
+    meter = U.desk_meter(desk, "video.describe", lane="you", overrun=1)
+    V.vlm_precheck(meter)                                      # S1: refused as JSON before the upload is read or saved
+    owner = int(desk.get("owner_id") or 0)
+    um = _upload_meter(owner, desk, "upload.video")
+    if request.content_length and request.mimetype == "multipart/form-data":
+        U.check_storage(owner, request.content_length, meter=um)   # L9 and the disk floor before an upload is read (429)
     request.max_content_length = VIDEO_UPLOAD_MAX              # before the form is parsed
     question = (request.form.get("question") or (request.json or {}).get("question", "") if not request.files else request.form.get("question", "")) or ""
     try:
@@ -3207,17 +3751,20 @@ def api_vision_video():
     except ValueError:
         frames = 6
     f = request.files.get("video")
+    saved, size = "", 0
     if f and f.filename:
-        vdir = Path("data") / "videos" / f"desk{desk['id']}"
+        vdir = VIDEO_DIR / f"desk{desk['id']}"
         vdir.mkdir(parents=True, exist_ok=True)
         name = re.sub(r"[^\w.\- ]+", "_", f.filename)[-80:] or "clip.mp4"
         src = vdir / f"{int(time.time())}_{name}"
         f.save(str(src))
-        if src.stat().st_size > VIDEO_UPLOAD_MAX:
+        size = src.stat().st_size
+        if size > VIDEO_UPLOAD_MAX:
             src.unlink(missing_ok=True)
             return jsonify({"error": "video too large (max 300 MB)"}), 413
+        _charge_upload(owner, src, size, um)
         label = name
-        src = str(src)
+        src = saved = str(src)
     else:
         src = str((request.json or {}).get("url", "") or "").strip()
         if not src:
@@ -3227,8 +3774,14 @@ def api_vision_video():
         if why:
             return jsonify({"error": f"refusing to fetch: {why}"}), 400
         label = src.rsplit("/", 1)[-1][:60]
+    meter.ref = f"video:{label}"[:120]
     try:
-        res = V.describe_video(src, question, frames=frames, context=desk.get("name", ""))
+        res = V.describe_video(src, question, frames=frames, context=desk.get("name", ""), meter=meter)
+    except U.UsageLimit:                                       # S1: refused after the check: nothing is kept
+        if saved:
+            Path(saved).unlink(missing_ok=True)
+            U.release_storage(owner, size)
+        raise
     except Exception as exc:
         return jsonify({"error": f"{type(exc).__name__}: {exc}"}), 502
     snap = ""
@@ -3319,21 +3872,28 @@ def api_vision_live():
     context = str(j.get("context", "") or "")
     t = str(j.get("t", "") or "")
     _base, _key, chosen = V._vlm_cfg(model)
+    # built here, used by the stream after the view returned: one narration, the viewer's own action
+    meter = U.desk_meter(desk, "theatre.narrate", lane="you", ref=f"live:{camera}", overrun=1)
+    V.vlm_precheck(meter, model)                               # S2: a 429 JSON body before the stream starts
 
     def gen():
         parts = []
+        limited = False
         try:
             for delta in V.describe_stream(jpeg, "What is happening in this frame? What changed?", model=model,
-                                           context=context):
+                                           context=context, meter=meter):
                 if isinstance(delta, dict):                    # provider/model meta arrives first
                     yield "\x01" + json.dumps(delta) + "\n"
                     continue
                 parts.append(delta)
                 yield delta
+        except U.UsageLimit as exc:                            # S2: refused after the check: a meta line, no event
+            limited = True
+            yield "\x01" + json.dumps(exc.body()) + "\n"
         except Exception as exc:
             yield f"[vision error: {exc}]"
         note = "".join(parts).strip()
-        if note and not note.startswith("[vision error"):
+        if note and not limited and not note.startswith("[vision error"):
             try:
                 snap = V.save_snapshot(desk["id"], f"live-{camera}", jpeg)
                 store.add_vision_event(desk["id"], f"live:{camera}", {}, backend="vlm", source="live",
@@ -3432,9 +3992,11 @@ def api_vision_snapshot(vid):
     return send_file(e["snapshot"], mimetype="image/jpeg", max_age=3600)
 
 
-def _rag_rows(desk_id: int, question: str, camera: str, hours: float, limit: int = 60) -> list[dict[str, Any]]:
-    """Retrieval for 'ask the cameras' (kept for callers): hybrid semantic + keyword + time-window, see atlas/rag.py."""
-    return RAG.retrieve(store, desk_id, question, hours, camera, k=limit)["rows"]
+def _rag_rows(desk_id: int, question: str, camera: str, hours: float, limit: int = 60, *,
+              meter: "U.Meter") -> list[dict[str, Any]]:
+    """Retrieval for 'ask the cameras' (kept for callers): hybrid semantic + keyword + time-window, see atlas/rag.py.
+    `meter` is what its embeddings count for."""
+    return RAG.retrieve(store, desk_id, question, hours, camera, k=limit, meter=meter)["rows"]
 
 
 def _sse(obj: dict[str, Any]) -> str:
@@ -3493,7 +4055,8 @@ def api_vision_demo():
                                                          {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64," + base64.b64encode(jpeg).decode()}}]}]}
     headers = _demo_headers(key, "Atlas Desks site vision demo")
 
-    return Response(_demo_stream(base, headers, payload, model), mimetype="text/event-stream", headers=hdr)
+    return Response(_demo_stream(base, headers, payload, model, meter=_site_meter("site.demo")),
+                    mimetype="text/event-stream", headers=hdr)
 
 
 def _demo_cfg() -> tuple[str, str, str]:
@@ -3509,9 +4072,24 @@ def _demo_headers(key: str, title: str) -> dict[str, str]:
             "HTTP-Referer": "https://atlas-ops.onrender.com", "X-Title": title}
 
 
-def _demo_stream(base: str, headers: dict[str, str], payload: dict[str, Any], model: str, first: dict[str, Any] | None = None):
-    """SSE generator shared by the site demos: one concurrency slot, tokens as {"t": ...}, then {"done": true}."""
+def _site_meter(surface: str) -> "U.Meter":
+    """The public website's meter (usage spec §1.3 L12): the website's own share of the free pool, never an account's.
+    Lane auto: an anonymous visitor never takes the per-minute slots kept for owners' own work."""
+    return U.Meter(owner_id=0, desk_id=0, scope="public", lane="auto", surface=surface)
+
+
+def _sse_limit(exc: U.UsageLimit) -> str:
+    """The site demos' SSE body at a usage limit (S16): the page shows the message."""
+    return _sse({"error": "usage_limit", "message": exc.message, "resets_at": exc.resets_at})
+
+
+def _demo_stream(base: str, headers: dict[str, str], payload: dict[str, Any], model: str, first: dict[str, Any] | None = None,
+                 *, meter: "U.Meter"):
+    """SSE generator shared by the site demos: one concurrency slot, tokens as {"t": ...}, then {"done": true}. The one
+    model request is metered for `meter` (the website's share): refused at a limit, nothing is sent and the stream says
+    so with {"error": "usage_limit", message, resets_at}; otherwise the request is recorded with the provider's usage."""
     import httpx
+    from ..providers import provider_id
     t0 = time.time()
     if not _VISION_SLOTS.acquire(blocking=False):          # acquired inside the generator so a slot is never leaked
         yield _sse({"error": "busy - a few other visitors are using the demo right now, retrying shortly"})
@@ -3519,36 +4097,62 @@ def _demo_stream(base: str, headers: dict[str, str], payload: dict[str, Any], mo
     try:
         if first:
             yield _sse(first)
-        with httpx.Client(timeout=60) as c, c.stream("POST", base + "/chat/completions", headers=headers, json=payload) as r:
-            if r.status_code >= 400:
-                body = b"".join(r.iter_bytes())[:200].decode("utf-8", "replace")
-                yield _sse({"error": f"model HTTP {r.status_code}: {body}"})
-                return
-            sent = 0
-            for line in r.iter_lines():
-                if not line.startswith("data:"):
-                    continue
-                chunk = line[5:].strip()
-                if chunk == "[DONE]":
-                    break
-                try:
-                    j = json.loads(chunk)
-                except ValueError:
-                    continue
-                if j.get("error"):
-                    yield _sse({"error": str(j["error"].get("message") if isinstance(j["error"], dict) else j["error"])[:200]})
+        try:
+            tk = U.before(meter, provider=provider_id(base), model=model, key_kind="house")
+        except U.UsageLimit as exc:                         # S16: the website's share or the pool is used up
+            yield _sse_limit(exc)
+            return
+        seen: dict[str, Any] = {"status": 0, "usage": None, "error": ""}
+        try:
+            with httpx.Client(timeout=60) as c, c.stream("POST", base + "/chat/completions", headers=headers, json=payload) as r:
+                seen["status"] = r.status_code
+                if r.status_code >= 400:
+                    raw = b"".join(r.iter_bytes())[:400].decode("utf-8", "replace")
+                    try:
+                        err = (json.loads(raw) or {}).get("error")
+                        msg = str((err.get("message") if isinstance(err, dict) else err) or raw)
+                    except (ValueError, AttributeError):
+                        msg = raw
+                    U.after(tk, http_status=r.status_code, error=f"HTTP {r.status_code}: {msg[:200]}")
+                    if tk.limit is not None:                # the provider's daily free-model quota: closed until 00:00 UTC
+                        yield _sse_limit(tk.limit)
+                    else:
+                        yield _sse({"error": f"model HTTP {r.status_code}: {raw[:200]}"})
                     return
-                for ch in j.get("choices") or []:
-                    t = (ch.get("delta") or {}).get("content") or ""
-                    if t:
-                        sent += len(t)
-                        yield _sse({"t": t, "model": model.split("/")[-1]})
-            if not sent:
-                yield _sse({"error": "model returned no text"})
-                return
-            yield _sse({"done": True, "model": model.split("/")[-1], "ms": int((time.time() - t0) * 1000)})
-    except Exception as exc:
-        yield _sse({"error": f"{type(exc).__name__}: {str(exc)[:120]}"})
+                sent = 0
+                for line in r.iter_lines():
+                    if not line.startswith("data:"):
+                        continue
+                    chunk = line[5:].strip()
+                    if chunk == "[DONE]":
+                        break
+                    try:
+                        j = json.loads(chunk)
+                    except ValueError:
+                        continue
+                    if not isinstance(j, dict):
+                        continue
+                    if j.get("usage"):
+                        seen["usage"] = j["usage"]
+                    if j.get("error"):
+                        msg = str(j["error"].get("message") if isinstance(j["error"], dict) else j["error"])[:200]
+                        seen["error"] = "stream error: " + msg
+                        yield _sse({"error": msg})
+                        return
+                    for ch in j.get("choices") or []:
+                        t = (ch.get("delta") or {}).get("content") or ""
+                        if t:
+                            sent += len(t)
+                            yield _sse({"t": t, "model": model.split("/")[-1]})
+                if not sent:
+                    yield _sse({"error": "model returned no text"})
+                    return
+                yield _sse({"done": True, "model": model.split("/")[-1], "ms": int((time.time() - t0) * 1000)})
+        except Exception as exc:
+            seen["error"] = seen["error"] or f"{type(exc).__name__}: {str(exc)[:120]}"
+            yield _sse({"error": f"{type(exc).__name__}: {str(exc)[:120]}"})
+        finally:                                            # recorded even when the visitor closes the page early
+            U.after(tk, http_status=seen["status"], usage=seen["usage"], error=seen["error"])
     finally:
         _VISION_SLOTS.release()
 
@@ -3613,7 +4217,8 @@ def api_vision_demo_ask():
     payload = {"model": model, "max_tokens": 160, "temperature": 0.2, "stream": True,
                "messages": [{"role": "system", "content": system}, {"role": "user", "content": q}]}
     headers = _demo_headers(key, "Atlas Desks site vision ask")
-    return Response(_demo_stream(base, headers, payload, model, first={"used": used, "of": len(events)}),
+    return Response(_demo_stream(base, headers, payload, model, first={"used": used, "of": len(events)},
+                                 meter=_site_meter("site.ask")),
                     mimetype="text/event-stream", headers=hdr)
 
 
@@ -3629,18 +4234,27 @@ def api_vision_ask():
     except (TypeError, ValueError):
         hours = 24.0
     configs = desk_configs(desk)
+    # one Ask: the vision re-look and the embeddings on Atlas's account; the text fallback on the desk's provider,
+    # which pays with its own key kind (a desk's own model account is BYO)
+    meter = U.desk_meter(desk, "ask.cameras", lane="you", overrun=2)
     text_answer = None
+    text_byo = False
     if _mode() != "demo":
         from ..providers import ProviderPool
         atlas_agent = next((a for a in configs["agents"] if a["id"] == "atlas"), {})
-        prov = ProviderPool(configs["providers"]).get(atlas_agent.get("provider") or "")
+        prov = ProviderPool(configs["providers"], meter=meter).get(atlas_agent.get("provider") or "")
+        text_byo = prov.key_kind == "byo"
 
         def text_answer(system: str, prompt: str) -> str:   # noqa: F811 - text-only fallback on the desk's Atlas model
             return (prov.chat(system, [prov.user_message(prompt)], [], model=atlas_agent.get("model", "")).text or "").strip()
+    vlm = str(d.get("model") or "") or (DS.PAID_VLM if (desk.get("tier") or "free") != "free" else "")
+    if _mode() != "demo" and not text_byo:             # S3: the re-look needs Atlas's vision model; JSON first
+        V.vlm_precheck(meter, vlm)                     # (with the owner's own key the text answer still works, S31)
     try:
-        vlm = str(d.get("model") or "") or (DS.PAID_VLM if (desk.get("tier") or "free") != "free" else "")
         res = RAG.ask(store, desk["id"], q, hours, str(d.get("camera") or ""), configs["business"], mode=_mode(),
-                      text_answer=text_answer, vlm_model=vlm)
+                      text_answer=text_answer, vlm_model=vlm, meter=meter, text_byo=text_byo)
+    except U.UsageLimit:
+        raise                                          # S3: the 429 body
     except Exception as exc:
         return jsonify({"error": f"model error: {type(exc).__name__}: {str(exc)[:200]}"}), 502
     scores = res.get("scores") or {}
@@ -3702,20 +4316,25 @@ def hook_vision(token):
     dstore = store.for_desk(desk["id"])
     ev = dstore.add_vision_event(camera, counts, motion=float(d.get("motion") or 0), backend=backend,
                                  reason=note or "external event", snapshot=snap, triggered=trigger, source="hook", ts=ts)
-    rid = ""
+    rid, limited = "", ""
     if trigger:
         when = time.strftime("%A %d %B %H:%M", time.localtime(ts) if ts is not None else time.localtime())
         task = ("Assess this sensor/camera event, log it, and tell the right person only if it matters.\n\n"
                 f"EXTERNAL EVENT — {camera} at {when}\n"
                 f"Reported: {V.counts_text(counts) if counts else 'no object counts'}" + (f"; note: {note}" if note else "") + "\n"
                 f"Event id: {ev['id']}." + (" Snapshot attached." if snap else "") + " Use camera_events for history; camera_look works only for cameras the desk can reach itself.")
-        if C.enabled(desk, "camera_cases"):
-            _preflight(desk)
-            rid = C.camera_alert(store, desk, camera, "CAMERA ALERT (external sensor)\n" + task, note or "external event", ev["id"])
-        else:
-            rid = _start_run(desk, task, "auto")
+        try:
+            with U.bind_lane("auto"):
+                if C.enabled(desk, "camera_cases"):
+                    _preflight(desk)
+                    rid = C.camera_alert(store, desk, camera, "CAMERA ALERT (external sensor)\n" + task, note or "external event",
+                                         ev["id"], raise_limit=True)
+                else:
+                    rid = _start_run(desk, task, "auto")
+        except U.UsageLimit as exc:                   # S13: the event is kept and the sensor told why no run started;
+            rid, limited = "", exc.message            # no deferral (a run hours later is stale; a case's clock may retry)
         dstore.set_vision_run(ev["id"], rid)
-    return jsonify({"ok": True, "event_id": ev["id"], "run_id": rid})
+    return jsonify({"ok": True, "event_id": ev["id"], "run_id": rid, **({"limited": limited} if limited else {})})
 
 
 # ---------------------------------------------------------------------------- security desk (cyber)
@@ -3967,6 +4586,10 @@ def api_cyber_upload():
     cap = _upload_max_bytes()
     if (request.content_length or 0) > cap:
         return _cy_err(f"file too large: at most {cap / 1048576:g} MB (CYBER_UPLOAD_MAX_MB)", 413)
+    owner = int(desk.get("owner_id") or 0)
+    um = _upload_meter(owner, desk, "upload.cyber")
+    if request.content_length:                     # L9 and the disk floor before the body is read (429)
+        U.check_storage(owner, request.content_length, meter=um)
     request.max_content_length = cap
     f = request.files.get("file")
     if not f or not f.filename:
@@ -3991,8 +4614,14 @@ def api_cyber_upload():
     st: dict[str, Any] = {}
     tot: dict[str, Any] = {"inserted": 0, "first_ts": None, "last_ts": None, "sensor": ""}
     it = None
+    charged = 0
     try:
         f.save(str(tmp))
+        size = tmp.stat().st_size
+        # L9 counts the log while it is on disk: it is parsed into events and its file deleted below, which gives the
+        # bytes back (the ledger keeps the upload); over the limit or the disk floor -> 429, nothing parsed
+        U.take_storage(owner, size, meter=um, surface=um.surface)
+        charged = size
         it = _upload_lines(tmp, info)
         head: list[str] = []
         try:
@@ -4037,6 +4666,8 @@ def api_cyber_upload():
             tmp.unlink()
         except OSError:
             pass
+        if charged:
+            U.release_storage(owner, charged)
     det = scheduler.cyber_detect(store, desk, _start_run, trigger=o["trigger"], trigger_min=o["trigger_min"],
                                  mode=o["mode"], force=True)
     out = {"ok": True, "file": name, "fmt": fmt, "sensor": o["sensor"] or tot["sensor"], "lines": st.get("lines", 0),
@@ -4461,12 +5092,21 @@ def api_cyber_recording_save():
     if not isinstance(bundle, dict) or bundle.get("kind") != "atlas-cyber-recording":
         return _cy_err("bundle.kind must be 'atlas-cyber-recording'")
     folder = _rec_dir(desk["id"])
-    folder.mkdir(parents=True, exist_ok=True)
     p = folder / f"{name}.json"
+    old = p.stat().st_size if p.is_file() else 0          # a recording saved under its own name replaces it
+    owner = int(desk.get("owner_id") or 0)
+    um = _upload_meter(owner, desk, "upload.recording")
+    if request.content_length:                            # L9 and the disk floor before anything is written (429)
+        U.check_storage(owner, max(0, request.content_length - old), meter=um)
+    folder.mkdir(parents=True, exist_ok=True)
     tmp = folder / f".{name}.{secrets.token_hex(4)}.tmp"
     tmp.write_text(json.dumps(bundle, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
+    size = tmp.stat().st_size
+    _charge_upload(owner, tmp, size, um, charge=size - old)
     os.replace(tmp, p)
-    return jsonify({"ok": True, "name": name, "size": p.stat().st_size})
+    if old > size:
+        U.release_storage(owner, old - size)
+    return jsonify({"ok": True, "name": name, "size": size})
 
 
 @app.get("/desk/cyber")
@@ -4689,7 +5329,9 @@ def api_case_run(cid):
     d = request.get_json(silent=True) or {}
     _preflight(desk)
     extra = str(d.get("instruction") or "").strip()
-    rid = C.kick(store, desk, c, extra=("The owner asks: " + extra) if extra else "The owner asked Atlas to work this step now.")
+    # a start refused at a usage limit holds the step for the case clock, then answers 429 with the limit (§1.6)
+    rid = C.kick(store, desk, c, extra=("The owner asks: " + extra) if extra else "The owner asked Atlas to work this step now.",
+                 raise_limit=True)
     if not rid and c.get("active_run"):
         return jsonify({"error": "Atlas is already working this case", "run_id": c["active_run"]}), 409
     return jsonify({"case": C.public(store, C.get(store, cid), desk, detail=True), "run_id": rid})
@@ -5091,11 +5733,23 @@ def api_design_connect(sid):
     return jsonify(_connect_plan(store.desk(s.desk_id), s.blueprint or {}))
 
 
+def _run_limit(run_id: str) -> dict[str, Any] | None:
+    """The usage limit that stopped a run: its done event's 429 body (usage spec §5.5), while this server still holds
+    the run's events (an hour after it ends). The stored run keeps only its "Stopped: ..." summary, so then None."""
+    h = _runs.get(run_id)
+    for e in reversed(list((h or {}).get("events") or [])):
+        if e.get("kind") == "done":
+            lim = (e.get("data") or {}).get("limit")
+            return lim if isinstance(lim, dict) else None
+    return None
+
+
 @app.post("/api/next")
 def api_next():
     """Three ways to proceed in run mode, from the desk's real state (no model call): {context: "desk_open"} when a desk
     opens, {context: "run_done", run_id?, status?, task?} after a job. Never a "say" step: typed text is a job here.
-    A run_id must be a run of this desk (else 404); once it has finished, its stored status and task win."""
+    A run_id must be a run of this desk (else 404); once it has finished, its stored status and task win. A run stopped
+    at a usage limit gets that limit's steps, from the run's own done event; a limit is never taken from the body."""
     desk = need_desk()
     d = request.get_json(silent=True)
     d = d if isinstance(d, dict) else {}
@@ -5114,6 +5768,7 @@ def api_next():
     else:
         rid = str(d.get("run_id") or "").strip()
         status, task = str(d.get("status") or ""), str(d.get("task") or "")
+        limit = None
         if rid:
             row, live = store.run(rid), _runs.get(rid)
             if row and row.get("desk_id") == desk["id"]:
@@ -5123,7 +5778,8 @@ def api_next():
                 task = live.get("task") or task
             else:
                 return jsonify({"error": "no such run on this desk"}), 404
-        steps = NS.run_done(status or "done", task, pending, cams)
+            limit = _run_limit(rid)                                # used only when the run stopped at a limit
+        steps = NS.run_done(status or "done", task, pending, cams, limit=limit)
     return jsonify({"context": ctx, "next": NS.normalise([], steps, allow=NS.RUN), "pending": pending})
 
 
@@ -5157,7 +5813,8 @@ def hook(token):
         dstore.add_message("form", "in", email_ or name, notes or "(no message)", actor=name or email_)
     if email_ and not dstore.contact_for(email_):
         dstore.upsert_contact(email_, {"name": name, "company": company, "email": email_, "phone": phone, "stage": "New", "notes": "Inbound via webhook"})
-    rid = _lead_case_run(desk, lid)
+    with U.bind_lane("auto"):                        # Atlas works what came in on its own (usage spec §1.1)
+        rid = _lead_run_or_wait(desk, lid)
     return jsonify({"ok": True, "lead_id": lid, "run_id": rid})
 
 
@@ -5181,7 +5838,7 @@ def _inbound_message(desk: dict[str, Any], phone: str, name: str, text: str, sou
     else:
         dstore.upsert_contact(name if name != phone else phone, {"name": name if name != phone else "", "phone": phone,
                                                                  "stage": "New", "notes": f"First contact via {source}"})
-    return _lead_case_run(desk, lid, extra=how)
+    return _lead_run_or_wait(desk, lid, extra=how)
 
 
 def _meta_unsigned(desk_id: int, kind: str, label: str):
@@ -5217,7 +5874,8 @@ def hook_whatsapp(token):
     if refused:
         return refused
     msgs = I.parse_whatsapp_webhook(request.get_json(silent=True) or {})
-    runs = [_inbound_message(desk, m["from"], m["name"], m["text"], "whatsapp") for m in msgs if m.get("from")]
+    with U.bind_lane("auto"):
+        runs = [_inbound_message(desk, m["from"], m["name"], m["text"], "whatsapp") for m in msgs if m.get("from")]
     return jsonify({"ok": True, "messages": len(msgs), "runs": runs})
 
 
@@ -5238,13 +5896,14 @@ def hook_instagram(token):
     msgs = I.parse_instagram_webhook(request.get_json(silent=True) or {})
     dstore = store.for_desk(desk["id"])
     runs = []
-    for m in msgs:
+    for m in msgs:                                   # each is stored before its run is tried; a refused run waits
         dstore.add_message("instagram", "in", "ig:" + m["from"], m["text"], actor=m["name"] or ("ig " + m["from"]))
         name = m["name"] or f"Instagram user {m['from'][-4:]}"
         lid = dstore.add_lead(name, "", "", "", "instagram", m["text"])
         how = (f"This arrived as an Instagram DM. Reply on the same channel "
                f"(queue_action kind=instagram, to={m['from']}) — keep it short and warm.")
-        runs.append(_lead_case_run(desk, lid, extra=how))
+        with U.bind_lane("auto"):
+            runs.append(_lead_run_or_wait(desk, lid, extra=how))
     return jsonify({"ok": True, "messages": len(msgs), "runs": runs})
 
 
@@ -5285,7 +5944,8 @@ def hook_sms(token):
     if not frm:
         return jsonify({"error": "From required"}), 400
     source = "twilio whatsapp" if frm.startswith("whatsapp:") else "sms"
-    rid = _inbound_message(desk, frm.replace("whatsapp:", ""), f.get("ProfileName") or "", body, source)
+    with U.bind_lane("auto"):
+        rid = _inbound_message(desk, frm.replace("whatsapp:", ""), f.get("ProfileName") or "", body, source)
     return Response("<?xml version=\"1.0\" encoding=\"UTF-8\"?><Response></Response>", mimetype="application/xml", headers={"X-Atlas-Run": rid})
 
 
@@ -5302,10 +5962,13 @@ if not OPEN and AUTH.two_factor_problem():
 scheduler.LIVE = lambda desk=None: _mode() != "demo" and not _live_reason(desk)
 scheduler.DISPATCH = _dispatch
 scheduler.LEAD_RUN = _lead_case_run
+U.LEAD_RUN = _lead_case_run                      # deferred lead starts (usage.deferred_tick, once per scheduler pass)
 C.START_RUN = _start_run
 C.RUN_STATUS = _run_status
 C.NOTIFY = lambda desk_id, text: I.notify(store.connectors(desk_id), text)
 scheduler.BASE_URL = lambda: os.environ.get("PUBLIC_URL", "").strip()
+U.OPEN_MODE = lambda: OPEN                        # desks of user 0 count as public only while accounts are on
+U.start(store)                                    # the usage ledger + the provider key snapshot thread
 scheduler.start(store, _start_run, store.desk)
 threading.Thread(target=_watchdog_loop, daemon=True, name="atlas-watchdog").start()
 

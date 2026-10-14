@@ -29,6 +29,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from . import config as cfg
+from .usage import UsageLimit
 
 BROWSER_DIR = cfg.DATA_DIR / "browser"
 MACRO_DIR = BROWSER_DIR / "macros"
@@ -232,7 +233,7 @@ class Step:
 
 @dataclass
 class Result:
-    status: str                              # done | failed | needs_approval | blocked_captcha | needs_input | budget
+    status: str                              # done | failed | needs_approval | blocked_captcha | needs_input | budget | limit
     answer: str = ""
     steps: list[Step] = field(default_factory=list)
     tokens_in: int = 0
@@ -241,10 +242,12 @@ class Result:
     macro: dict[str, Any] | None = None
     final_url: str = ""
     screenshots: list[str] = field(default_factory=list)
+    limit: Any = None                        # status limit: the usage.UsageLimit that refused the model's next step
 
     def summary(self) -> str:
         head = {"done": "DONE", "failed": "FAILED", "needs_approval": "STOPPED BEFORE SUBMIT (needs owner approval)",
-                "blocked_captcha": "BLOCKED BY CAPTCHA", "needs_input": "NEEDS OWNER INPUT", "budget": "STOPPED: budget reached"}.get(self.status, self.status)
+                "blocked_captcha": "BLOCKED BY CAPTCHA", "needs_input": "NEEDS OWNER INPUT", "budget": "STOPPED: budget reached",
+                "limit": "STOPPED AT A USAGE LIMIT"}.get(self.status, self.status)
         body = self.answer.strip()
         if self.pending:
             body += f"\nPending action: {self.pending.get('description', '')}"
@@ -252,10 +255,11 @@ class Result:
 
 
 class SubmitBlocked(Exception):
-    def __init__(self, description: str, action: dict[str, Any]):
+    def __init__(self, description: str, action: dict[str, Any], note: str = ""):
         super().__init__(description)
         self.description = description
         self.action = action
+        self.note = note                     # why a pre-approved submit waits for the owner after all (usage limit L8)
 
 
 class CaptchaWall(Exception):
@@ -289,6 +293,9 @@ class BrowserHand:
         self.macro_steps: list[dict[str, Any]] = []
         self.last_obs: Observation | None = None
         self.allow_submit = False
+        # a pre-approved submit asks this first: "" = go, else the note it waits for the owner with (the desk's cap on
+        # actions sent without approval, usage limit L8)
+        self.submit_gate: Callable[[], str] | None = None
 
     def _guard_request(self, route) -> None:
         from . import secure as SEC
@@ -435,6 +442,10 @@ class BrowserHand:
     def _guard_submit(self, description: str, action: dict[str, Any]) -> None:
         if not self.allow_submit:
             raise SubmitBlocked(description, action)
+        gate = getattr(self, "submit_gate", None)
+        note = gate() if gate is not None else ""
+        if note:                                             # pre-approved, but the desk's unattended cap is reached
+            raise SubmitBlocked(description, action, note=note)
 
     def _record(self, action: dict[str, Any], e: dict[str, Any] | None) -> None:
         if not self.record:
@@ -648,15 +659,19 @@ def run_task(task: str, url: str = "", provider=None, model: str = "", allow_sub
              headless: bool = True, max_steps: int = MAX_STEPS, max_input_tokens: int = MAX_INPUT_TOKENS,
              allow_domains: list[str] | None = None, macro: dict[str, Any] | None = None, vars_: dict[str, Any] | None = None,
              record_name: str = "", on_event: Callable[[str, str], None] | None = None, shots_dir: Path | None = None,
-             hand: BrowserHand | None = None) -> Result:
+             hand: BrowserHand | None = None, meter: Any = None, submit_gate: Callable[[], str] | None = None) -> Result:
     """Run one browser task with a model. `macro` (recorded earlier) is replayed first and the model only takes over
-    where it stops. Returns a Result; never raises for task-level problems."""
+    where it stops. Returns a Result; never raises for task-level problems. A usage limit on the model's next step
+    stops the task with status `limit` (Result.limit). `meter` is what the steps count for when no provider is given
+    (a run passes its provider, which already carries the run's meter); `submit_gate` is asked before a pre-approved
+    submit ("" = go, else the note the submit waits for the owner with)."""
     from .providers import ToolCall  # noqa: F401  (type only)
 
     ev = on_event or (lambda kind, text: None)
     own = hand is None
     hand = hand or BrowserHand(profile=profile, headless=headless, allow_domains=allow_domains)
     hand.allow_submit = allow_submit
+    hand.submit_gate = submit_gate
     res = Result(status="failed")
     model = model or DEFAULT_MODEL
     shots_dir = shots_dir or (BROWSER_DIR / "shots" / time.strftime("%Y%m%d-%H%M%S"))
@@ -672,6 +687,8 @@ def run_task(task: str, url: str = "", provider=None, model: str = "", allow_sub
             except SubmitBlocked as sb:
                 res.status, res.answer = "needs_approval", f"Macro reached the submit step: {sb.description}"
                 res.pending = {"description": sb.description, "action": sb.action, "macro_steps": macro["steps"], "url": hand.page.url}
+                if sb.note:
+                    res.pending["note"] = sb.note
                 res.final_url = hand.page.url
                 return res
             except CaptchaWall as cw:
@@ -694,7 +711,7 @@ def run_task(task: str, url: str = "", provider=None, model: str = "", allow_sub
         # ---- 2. model loop ----------------------------------------------------------------------------------------
         if provider is None:
             from . import config as C, providers as P
-            pool = P.ProviderPool(C.load("providers", C.DEFAULT_PROVIDERS))
+            pool = P.ProviderPool(C.load("providers", C.DEFAULT_PROVIDERS), meter=meter)
             provider = pool.get(DEFAULT_PROVIDER)
         try:
             obs = hand.observe()
@@ -712,6 +729,9 @@ def run_task(task: str, url: str = "", provider=None, model: str = "", allow_sub
         for n in range(1, max_steps + 1):
             try:
                 resp = provider.chat(SYSTEM, messages, TOOLS, model)
+            except UsageLimit as exc:                   # S25: a limit stops the task; the caller decides what that means
+                res.status, res.answer, res.limit = "limit", exc.message, exc
+                break
             except Exception as exc:
                 res.answer = f"model error: {type(exc).__name__}: {str(exc)[:200]}"
                 break
@@ -759,6 +779,8 @@ def run_task(task: str, url: str = "", provider=None, model: str = "", allow_sub
             except SubmitBlocked as sb:
                 res.status, res.answer = "needs_approval", f"Ready to submit; stopped for approval: {sb.description}"
                 res.pending = {"description": sb.description, "action": sb.action, "macro_steps": list(hand.macro_steps), "url": hand.page.url}
+                if sb.note:
+                    res.pending["note"] = sb.note
                 res.steps.append(Step(n, name, args, "blocked: " + sb.description, hand.page.url, False, False))
                 try:
                     res.screenshots.append(str(shots_dir / f"{n:02d}-pending.jpg"))
@@ -913,8 +935,8 @@ def main(argv: list[str] | None = None) -> int:
             hand.close()
         return 0
     if a.cmd == "run":
-        from . import config as C, providers as P
-        pool = P.ProviderPool(C.load("providers", C.DEFAULT_PROVIDERS))
+        from . import config as C, providers as P, usage as U
+        pool = P.ProviderPool(C.load("providers", C.DEFAULT_PROVIDERS), meter=U.cli_meter("browser"))
         provider = pool.get(a.provider or DEFAULT_PROVIDER)
         res = run_task(a.task, a.url, provider, a.model, allow_submit=a.allow_submit, profile=a.profile, headless=not a.headed,
                        max_steps=a.max_steps, allow_domains=[d for d in a.domains.split(",") if d], macro=load_macro(a.macro) if a.macro else None,

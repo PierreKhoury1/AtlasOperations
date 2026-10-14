@@ -28,7 +28,11 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("vision-eval", help="compare vision models on multi-camera restaurant feeds (see atlas/vision_eval.py --help)", add_help=False)
     sub.add_parser("mcam-eval", help="multi-camera accuracy vs human labels on WILDTRACK: detection, tracking, re-id, counts (see atlas/mcam_eval.py --help)", add_help=False)
     sub.add_parser("mcam-notes", help="are the camera agents' notes true? check them against the labels and the other cameras (see atlas/mcam_notes.py --help)", add_help=False)
+    sub.add_parser("usage", help="usage limits, for the operator: show an account's limits and use, set or clear an override, prune the ledger (see atlas/usage_cli.py --help)", add_help=False)
     args, rest = p.parse_known_args(argv)
+    if args.cmd == "usage":
+        from .usage_cli import main as usage_main
+        return usage_main(rest)
     if args.cmd == "mcam-notes":
         from .mcam_notes import main as mn_main
         return mn_main(rest)
@@ -75,8 +79,9 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.cmd == "test":
         from . import config as cfg
+        from . import usage as U
         from .providers import ProviderPool
-        reg = ProviderPool(cfg.load("providers", cfg.DEFAULT_PROVIDERS))
+        reg = ProviderPool(cfg.load("providers", cfg.DEFAULT_PROVIDERS), meter=U.cli_meter("providers-test"))
         names = [args.provider] if args.provider else list(reg.cfg.get("providers", {}))
         rc = 0
         for n in names:
@@ -102,7 +107,8 @@ def main(argv: list[str] | None = None) -> int:
                 return
             print(f"[{ev.agent}] {ev.kind}: {ev.text}", flush=True)
 
-        res = Orchestrator(cfg.load_all(), Store(), emit).run(args.task, args.mode)
+        from . import usage as U
+        res = Orchestrator(cfg.load_all(), Store(), emit, meter=U.cli_meter("run")).run(args.task, args.mode)
         print(f"\n== {res.status} == tokens in {res.tokens_in} out {res.tokens_out}\n{res.run_dir}")
         return 0 if res.status == "done" else 1
 

@@ -41,6 +41,9 @@ body.sh-on.sh-mini{--sh-w:58px}
 .sh-badge{min-width:18px;padding:0 6px;border-radius:9px;font:600 10.5px/17px var(--sh-font);text-align:center;background:var(--sh-panel2);color:var(--sh-muted)}
 .sh-badge.hot{background:var(--sh-orange);color:#fff}
 .sh-badge.live{background:rgba(95,185,124,.18);color:var(--sh-ok)}
+.sh-badge.warn{background:rgba(216,161,60,.2);color:var(--sh-warn)}
+/* a usage limit's line on any page (window.atlasLimit.html): the reset never wraps, the link reads as one */
+.al-reset,.al-link{white-space:nowrap}.al-link{font-weight:600}
 .sh-foot{border-top:1px solid var(--sh-line);padding:10px 12px;display:flex;align-items:center;gap:9px}
 .sh-av{width:28px;height:28px;border-radius:7px;display:grid;place-items:center;background:linear-gradient(135deg,var(--sh-orange),#c25a00);color:#fff;font-weight:700;font-size:12px;flex:0 0 28px}
 .sh-who{flex:1;min-width:0}.sh-who b{display:block;color:var(--sh-text);font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}

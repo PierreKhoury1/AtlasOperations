@@ -167,26 +167,32 @@ def _extract_json(text: str) -> dict[str, Any] | None:
 
 
 class Caller:
-    def __init__(self, base: str, key: str, timeout: float = 180):
+    def __init__(self, base: str, key: str, timeout: float = 180, meter: Any = None):
+        from . import usage as U
         self.base, self.key, self.timeout = base, key, timeout
+        self.meter = meter or U.cli_meter("vision_eval")      # every call is a metered request on Atlas's key
         self._client = httpx.Client(timeout=timeout)
         self._lock = threading.Lock()
 
     def chat(self, model: str, system: str, content: list[dict[str, Any]], max_tokens: int = 4000) -> dict[str, Any]:
+        from . import usage as U
+        from . import vision as V
         from .providers import model_extras
         # thinking models (Gemini 3.x, Qwen 3.6, GLM 5) burn the budget on reasoning before the JSON: give them room,
         # ask for low effort (OpenRouter drops the field for models that have no such knob)
-        payload = {"model": model, "max_tokens": max_tokens, "temperature": 0.1, "usage": {"include": True},
+        payload = {"max_tokens": max_tokens, "temperature": 0.1, "usage": {"include": True},
                    "reasoning": {"effort": "low"},
                    "messages": [{"role": "system", "content": system}, {"role": "user", "content": content}],
                    **model_extras(model)}
-        headers = {"Authorization": f"Bearer {self.key}", "Content-Type": "application/json",
-                   "HTTP-Referer": "https://atlas-ops.onrender.com", "X-Title": "Atlas vision eval"}
+        entry = {"name": "openrouter", "base": self.base, "key": self.key, "model": model}
         last = ""
         for attempt in range(6):
             t0 = time.time()
-            try:
-                r = self._client.post(self.base + "/chat/completions", headers=headers, json=payload)
+            try:                                    # the vision chokepoint: each attempt is a metered request
+                _e, r, j = V._vlm_post([entry], payload, meter=self.meter, client=self._client,
+                                       title="Atlas vision eval", extras=False)
+            except U.UsageLimit as exc:
+                return {"error": f"limit: {exc.message}", "latency": 0.0}
             except httpx.HTTPError as exc:
                 last = f"transport: {exc}"
                 time.sleep(2 * (attempt + 1))
@@ -198,7 +204,7 @@ class Caller:
                 continue
             if r.status_code >= 400:
                 return {"error": f"HTTP {r.status_code}: {r.text[:200]}", "latency": dt}
-            j = r.json()
+            j = j if isinstance(j, dict) else {}
             if "error" in j and not j.get("choices"):
                 last = f"api: {json.dumps(j['error'])[:200]}"
                 time.sleep(3 * (attempt + 1))

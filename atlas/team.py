@@ -471,8 +471,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.demo:
         res = {"team": demo_team(business, args.task), "errors": [], "warnings": [], "turns": 0}
     else:
+        from . import usage as U
         from .providers import ProviderPool
-        pool = ProviderPool(cfg.load("providers", cfg.DEFAULT_PROVIDERS))
+        pool = ProviderPool(cfg.load("providers", cfg.DEFAULT_PROVIDERS), meter=U.cli_meter("team"))
         prov = pool.get()
         t0 = time.time()
         res = design_team(business, args.task, prov, "", hermes_available=args.hermes)

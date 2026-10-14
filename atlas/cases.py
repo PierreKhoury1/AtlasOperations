@@ -12,16 +12,23 @@ the visit, close. A case is that process, held by the desk:
 
 The engine is deterministic: models do the steps, the playbook decides what happens next unless Atlas (or the owner)
 moves the case explicitly. Ticks come from the desk scheduler; runs start through START_RUN (the portal's _start_run).
+
+Usage limits (usage spec §1.6). A step refused at a limit waits for the limit's retry time, plus up to five minutes
+so held cases do not all wake together, and uses none of the case's daily run budget. A step whose run stopped at a
+windowed limit (the day's or the month's allowance) runs again after the reset; one stopped at the per-run cap goes to
+the owner and is never re-run automatically.
 """
 from __future__ import annotations
 
 import json
+import random
 import re
 import time
 import traceback
 from typing import Any, Callable
 
 from . import records as R
+from . import usage as U
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS cases (
@@ -43,6 +50,7 @@ TABLES = ("cases", "case_records")
 PRIORITIES = ("low", "normal", "high", "urgent")
 MAX_RUNS_PER_DAY = int(12)          # a case that keeps waking itself up goes to the owner instead of burning tokens
 RETRY_AFTER_S = 15 * 60             # a run the desk refused (spend cap, no model key) is retried this much later
+LIMIT_JITTER_S = 300                # a step held at a usage limit wakes 0-5 min after its retry time [decision: spreads wake-ups]
 
 START_RUN: Callable[..., str] | None = None        # set by the portal: _start_run(desk, task, mode, lead_id=None, case_id=None)
 NOTIFY: Callable[[int, str], None] | None = None   # set by the portal: tell the owner (Slack etc.) about a missed deadline
@@ -402,8 +410,9 @@ def note(store, cid: int, text: str, actor: str = "owner", run_id: str = "", kin
 
 
 def enter(store, cid: int, state_id: str, reason: str = "", actor: str = "system", outcome: str = "", kick_now: bool = True,
-          extra: str = "") -> str:
-    """Move a case into a state and do what that state says. Returns the run id when a work state started one."""
+          extra: str = "", raise_limit: bool = False) -> str:
+    """Move a case into a state and do what that state says. Returns the run id when a work state started one
+    (raise_limit: see kick())."""
     c = get(store, cid)
     if not c:
         return ""
@@ -427,12 +436,14 @@ def enter(store, cid: int, state_id: str, reason: str = "", actor: str = "system
                    text=f"{old.get('label', c['state'])} → {st.get('label', state_id)}" + (f": {reason}" if reason else ""),
                    data={"from": c["state"], "to": state_id, "outcome": fields.get("outcome", "")})
     if st.get("kind") == "work" and kick_now:
-        return kick(store, desk, get(store, cid), extra=extra)
+        return kick(store, desk, get(store, cid), extra=extra, raise_limit=raise_limit)
     return ""
 
 
-def fire(store, cid: int, event: str, text: str = "", actor: str = "system", run_id: str = "", extra: str = "") -> str:
-    """An event happened on a case. Logs it, then follows the playbook. Returns a run id if one started."""
+def fire(store, cid: int, event: str, text: str = "", actor: str = "system", run_id: str = "", extra: str = "",
+         raise_limit: bool = False) -> str:
+    """An event happened on a case. Logs it, then follows the playbook. Returns a run id if one started
+    (raise_limit: see kick())."""
     c = get(store, cid)
     if not c or c.get("closed_at"):
         if c and text:
@@ -463,7 +474,7 @@ def fire(store, cid: int, event: str, text: str = "", actor: str = "system", run
         return ""
     reason = {"sent": "message sent", "rejected": "draft rejected", "reply": "they replied", "booked": "booking confirmed",
               "alert": "the camera fired again"}.get(event, event)
-    return enter(store, cid, target, reason, actor=actor, extra=extra)
+    return enter(store, cid, target, reason, actor=actor, extra=extra, raise_limit=raise_limit)
 
 
 # ---------------------------------------------------------------------------------------------- runs
@@ -511,8 +522,57 @@ def build_task(store, c: dict[str, Any], desk: dict[str, Any] | None = None, ext
     return "\n".join(lines)
 
 
-def kick(store, desk: dict[str, Any] | None, c: dict[str, Any] | None, extra: str = "", lead_id: int | None = None) -> str:
-    """Start the run for a case's current step (once at a time). Returns the run id, or "" when nothing started."""
+def _timeline_once(store, c: dict[str, Any], kind: str, text: str) -> None:
+    """A system line on the case timeline, unless it is already the newest one (a step held again says it once)."""
+    last = R.timeline_for(store, case_ids=[c["id"]], limit=1)
+    if not last or last[0]["text"] != text:
+        R.add_timeline(store, c["desk_id"], case_id=c["id"], kind=kind, actor="system", text=text)
+
+
+def _hold(store, c: dict[str, Any], data: dict[str, Any], limit: dict[str, Any], *, lead_id: int | None = None,
+          extra: str = "") -> None:
+    """A step held at a usage limit (spec §1.6). With a retry time (a full day's or month's allowance, the runs at
+    once) Atlas keeps it and the clock runs it after that time plus 0-5 min; with none (the per-run cap) it goes to
+    the owner. The case keeps the limit, and the lead and instructions of a start that did not happen, for the retry."""
+    data["limit"] = {k: limit.get(k) for k in ("limit_id", "label", "unit", "used", "limit", "resets_at", "retry_at",
+                                                "message")}
+    if lead_id is not None:
+        data["lead_id"] = int(lead_id)
+    if extra:
+        data["held_extra"] = str(extra)[:4000]
+    retry = limit.get("retry_at")
+    if retry and limit.get("limit_id") != "run_requests":
+        _set(store, c["id"], active_run="", waiting_for="atlas", wake_at=float(retry) + random.uniform(0, LIMIT_JITTER_S),
+             data=data)
+        _timeline_once(store, c, "paused", f"Paused: {U.brief(limit)}; resumes after {U.until_text(limit)}")
+        return
+    _set(store, c["id"], active_run="", waiting_for="owner", wake_at=None, data=data)
+    if limit.get("limit_id") == "run_requests":
+        text = f"the step stopped at the per-run cap ({limit.get('limit')} AI requests): check it or press Run again"
+    elif limit.get("limit_id"):
+        text = (f"the step stopped at a usage limit ({U.brief(limit)}): nothing retries it automatically; check it "
+                "or press Run again")
+    else:
+        text = "the step stopped at a usage limit: check it or press Run again"
+    _timeline_once(store, c, "attention", text)
+
+
+def held_leads(store, desk_id: int) -> dict[int, dict[str, Any]]:
+    """Leads whose case is open and waiting for a usage limit before its first step: lead id -> the limit."""
+    out: dict[int, dict[str, Any]] = {}
+    for c in list_cases(store, desk_id, open_only=True, limit=500):
+        lim, lid = c["data"].get("limit"), c["data"].get("lead_id")
+        if lid and isinstance(lim, dict) and not c.get("active_run"):
+            out[int(lid)] = lim
+    return out
+
+
+def kick(store, desk: dict[str, Any] | None, c: dict[str, Any] | None, extra: str = "", lead_id: int | None = None,
+         raise_limit: bool = False) -> str:
+    """Start the run for a case's current step (once at a time). Returns the run id, or "" when nothing started.
+    A start refused at a usage limit holds the step until the limit's retry time and uses none of the day's run
+    budget (S49); raise_limit re-raises that refusal afterwards, for a caller that reports it (a camera event, a hook,
+    a person's click)."""
     if not c or c.get("closed_at") or START_RUN is None:
         return ""
     if c.get("active_run") and _run_alive(c["active_run"]):
@@ -528,25 +588,37 @@ def kick(store, desk: dict[str, Any] | None, c: dict[str, Any] | None, extra: st
         R.add_timeline(store, c["desk_id"], case_id=c["id"], kind="paused", actor="system",
                        text=f"{len(starts)} runs on this case in 24 h - paused until you look at it")
         return ""
+    if lead_id is None and data.get("lead_id"):         # a first step held at a limit still works the lead it came from
+        lead_id = int(data["lead_id"])
+    extra = extra or str(data.get("held_extra") or "")
     task = build_task(store, c, desk, extra)
     data["run_starts"] = starts + [time.time()]
     data["run_started"] = time.time()
     data["run_moved"] = False
-    data.pop("pending_reply", None)
+    for k in ("pending_reply", "lead_id", "held_extra", "limit"):
+        data.pop(k, None)
     # "starting" holds the slot until the run's first event binds its real id (bind_run) - a fast run can finish before
     # START_RUN even returns, and a second kick must not start a twin meanwhile
     _set(store, c["id"], active_run="starting", waiting_for="atlas", wake_at=None, data=data)
     try:
         rid = START_RUN(desk, task, "auto", lead_id, c["id"])
+    except U.UsageLimit as exc:                          # S49: nothing started, so no run counts against the case
+        data["run_starts"] = starts
+        _hold(store, c, data, exc.body(), lead_id=lead_id, extra=extra)
+        if raise_limit:
+            raise
+        return ""
     except BaseException as exc:                         # Flask abort (spend cap 402, no model key 503) or a provider error
+        data["run_starts"] = starts                      # the step never started: it uses none of the day's run budget
+        if lead_id is not None:
+            data["lead_id"] = int(lead_id)
+        if extra:
+            data["held_extra"] = str(extra)[:4000]
         why = getattr(getattr(exc, "response", None), "data", b"") or str(exc) or type(exc).__name__
         if isinstance(why, bytes):
             why = why.decode(errors="replace")
-        last = R.timeline_for(store, case_ids=[c["id"]], limit=1)
-        msg = f"the desk could not start the step: {str(why)[:200]}"
-        if not last or last[0]["text"] != msg:
-            R.add_timeline(store, c["desk_id"], case_id=c["id"], kind="error", actor="system", text=msg)
-        _set(store, c["id"], active_run="", waiting_for="atlas", wake_at=time.time() + RETRY_AFTER_S)
+        _timeline_once(store, c, "error", f"the desk could not start the step: {str(why)[:200]}")
+        _set(store, c["id"], active_run="", waiting_for="atlas", wake_at=time.time() + RETRY_AFTER_S, data=data)
         return ""
     c2 = get(store, c["id"])
     if c2 and c2.get("active_run") == "starting" and (c2["data"].get("finished_run") != rid):
@@ -563,13 +635,15 @@ def bind_run(store, cid: int, run_id: str) -> None:
     R.add_timeline(store, c["desk_id"], case_id=cid, kind="run", actor="atlas", text="Atlas started the step", run_id=run_id)
 
 
-def run_finished(store, cid: int, run_id: str, status: str, summary: str = "") -> None:
-    """Called when a case's run ends (from the run thread, or by the tick after a restart)."""
+def run_finished(store, cid: int, run_id: str, status: str, summary: str = "", limit: dict[str, Any] | None = None) -> None:
+    """Called when a case's run ends (from the run thread, or by the tick after a restart). `limit`: the usage limit
+    that stopped a run with status `limit` (its 429 body), which decides what happens next (S50)."""
     c = get(store, cid)
     if not c:
         return
     short = (summary or "").split("\n\n---\nVerified by the desk")[0].strip()
-    R.add_timeline(store, c["desk_id"], case_id=cid, kind="run_done" if status == "done" else "run_failed", actor="atlas",
+    kind = "run_done" if status == "done" else "run_limit" if status == "limit" else "run_failed"
+    R.add_timeline(store, c["desk_id"], case_id=cid, kind=kind, actor="atlas",
                    text=(short[:1500] or f"run {status}"), run_id=run_id, data={"status": status})
     if c.get("active_run") not in (run_id, "starting"):
         return
@@ -598,6 +672,11 @@ def run_finished(store, cid: int, run_id: str, status: str, summary: str = "") -
     if pending_actions(store, cid):
         _set(store, cid, waiting_for="approval")
         return
+    if status == "limit":                              # S50: a day's or month's allowance -> again after the reset;
+        c2 = get(store, cid)                           # the per-run cap (or no limit known) -> the owner, never re-run
+        if c2:
+            _hold(store, c2, c2["data"], limit if isinstance(limit, dict) else {})
+        return
     if status != "done":
         _set(store, cid, waiting_for="owner")
         R.add_timeline(store, c["desk_id"], case_id=cid, kind="attention", actor="system",
@@ -611,7 +690,13 @@ def run_finished(store, cid: int, run_id: str, status: str, summary: str = "") -
 
 # ---------------------------------------------------------------------------------------------- the clock
 def tick(store, now: float | None = None) -> dict[str, int]:
-    """Timers, deadlines and lost runs for every desk. Cheap when nothing is due; called by the desk scheduler."""
+    """Timers, deadlines and lost runs for every desk. Cheap when nothing is due; called by the desk scheduler. What
+    the clock starts is Atlas's own work: lane auto (usage spec §1.1)."""
+    with U.bind_lane("auto"):
+        return _tick(store, now)
+
+
+def _tick(store, now: float | None = None) -> dict[str, int]:
     s, _ = R._base(store)
     now = now or time.time()
     done = {"woke": 0, "timeouts": 0, "breached": 0, "recovered": 0}
@@ -705,18 +790,20 @@ def inbound_reply(store, desk: dict[str, Any], c: dict[str, Any], channel: str, 
 
 
 def camera_alert(store, desk: dict[str, Any], camera: str, task: str, reason: str, event_id: int | None = None,
-                 window_h: float = 6.0) -> str:
-    """A camera rule fired: open an incident case (or add to the open one for that camera). Returns the run id."""
+                 window_h: float = 6.0, raise_limit: bool = False) -> str:
+    """A camera rule fired: open an incident case (or add to the open one for that camera). Returns the run id
+    (raise_limit: see kick())."""
     cam, _ = R.upsert(store, desk["id"], "camera", {"name": camera}, key=camera, source="cameras", log=False)
     since = time.time() - window_h * 3600
     open_ = [c for c in list_cases(store, desk["id"], open_only=True, ctype="incident", record_id=cam["id"], limit=5)
              if (c.get("opened") or 0) >= since]
     if open_:
         c = open_[0]
-        return fire(store, c["id"], "alert", f"{reason}" + (f" (event #{event_id})" if event_id else ""), actor=camera, extra=task)
+        return fire(store, c["id"], "alert", f"{reason}" + (f" (event #{event_id})" if event_id else ""), actor=camera,
+                    extra=task, raise_limit=raise_limit)
     c = open_case(store, desk["id"], "incident", f"{camera}: {reason}"[:200], record_id=cam["id"], priority="high",
                   source="camera", brief=task, actor=camera, desk=desk)
-    return kick(store, desk, c)
+    return kick(store, desk, c, raise_limit=raise_limit)
 
 
 # ---------------------------------------------------------------------------------------------- agent tools

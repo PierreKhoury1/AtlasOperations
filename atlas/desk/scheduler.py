@@ -9,7 +9,12 @@ Job kinds
   log_replay   replay log files into the desk's security log at N x speed (original timestamps kept)
   log_watch    tail a log file and feed new lines to the desk's security log
 
-Every loop also ticks the case clock (atlas/cases.py): waits that ran out, scheduled re-checks, missed deadlines.
+Every loop also ticks the case clock (atlas/cases.py): waits that ran out, scheduled re-checks, missed deadlines; and
+it starts lead runs a usage limit deferred (usage.deferred_tick).
+
+Usage limits (usage spec §1.6): background work at a limit degrades, waits for the limit's retry time, logs once and
+shows. A job whose run is refused is skipped until then; an inbox stores every mail before any run starts; a camera
+alert still goes out when its run is refused, with one event per window saying why; a detection's run stays queued.
 
 `start(store, start_run, desk_for)` is called once by the Flask app. Everything the jobs do goes
 through the normal orchestrator, so approvals, policy and the audit log apply exactly as for a lead.
@@ -32,6 +37,7 @@ from .. import cases as C
 from .. import config as CONF
 from .. import integrations as I
 from .. import journal as JR
+from .. import usage as U
 from .. import vision as V
 
 TICK = 20.0
@@ -56,50 +62,159 @@ LIVE = lambda desk=None: True                             # replaced by the app:
 BASE_URL = lambda: ""                                     # replaced by the app: public URL for snapshot links
 DISPATCH = None                                           # replaced by the app: send an approved action for real
 LEAD_RUN = None                                           # replaced by the app: work a new lead as an enquiry case
+# job id -> owner id: a person pressed the job's "Run now". The next pass runs it in lane you (usage spec §1.1, §3.2):
+# what it starts counts as the owner's own work, not Atlas's background share.
+RUN_NOW: dict[int, int] = {}
 _last_frame: dict[tuple[int, str], bytes] = {}          # (desk_id, camera) -> last raw frame (motion baseline)
 _last_seen: dict[tuple[int, str], dict[str, Any]] = {}  # (desk_id, camera) -> last analysis (portal "live" tile)
 _present: dict[tuple[int, str], tuple[float, float]] = {}  # (desk_id, camera) -> (since, last seen) while the rule's count holds
 DWELL_GRACE_S = 45.0                                        # one missed detection does not reset the dwell timer
+_noticed: dict[tuple, float] = {}                         # (desk, camera, stream, limit id, window) -> when the `usage` notice went in
+_notice_lock = threading.Lock()
+_run_held: dict[tuple, list] = {}                         # (desk, camera, limit id, window) -> [event id, alerts, first ts]
 
 
 def last_seen(desk_id: int, camera: str) -> dict[str, Any] | None:
     return _last_seen.get((desk_id, camera))
 
 
+def _notice(ds, desk_id: int, camera: str, parts: list[str], limit: dict[str, Any]) -> None:
+    """One `usage` vision event per paused stream per camera per limit window (usage spec §1.7): what stopped, the
+    numbers, until when, and what still works. Never indexed, never the baseline of the next comparison. A tick
+    where detection and the journal pause together writes one."""
+    now = time.time()
+    lid = str(limit.get("limit_id") or "")
+    w = (U.LIMITS.get(lid) or {}).get("window", "D")
+    ws = U.month_start(now) if w == "M" else U.day_start(now)
+    with _notice_lock:
+        parts = [p for p in parts if (desk_id, camera, p, lid, ws) not in _noticed]
+        if not parts:
+            return
+        for p in parts:
+            _noticed[(desk_id, camera, p, lid, ws)] = now
+        for k in [k for k, ts in _noticed.items() if now - ts > 40 * 86400]:
+            _noticed.pop(k, None)
+    until = U.until_text(limit, now) or "the reset"
+    if "detect" in parts:
+        head = "Detection" + (" and journal" if "journal" in parts else "") + " paused (no local detector)"
+        tail = f"Count rules are off until {until}; motion alerts fire only where 'alert on motion' is set."
+    else:
+        head, tail = "Journal paused", f"Notes resume after {until}."
+    try:
+        ds.add_vision_event(camera, {}, backend="usage", reason=f"{head}: {U.brief(limit)}. {tail}", source="usage")
+    except Exception:
+        traceback.print_exc()
+
+
+def _alert_run_held(ds, desk_id: int, camera: str, res: dict[str, Any], event: dict[str, Any], exc: "U.UsageLimit") -> None:
+    """S44 (usage spec §1.6): a camera alert's run refused at a usage limit. The firing's own event stays as it is and
+    the alert message already went out (alerts need no AI); one event per camera, limit and window says why no run
+    started, and later refusals in that window update it instead of adding events. Nothing retries the run: hours
+    later it would be stale."""
+    now = time.time()
+    key = (desk_id, camera, exc.limit_id, exc.window_start or U.day_start(now))
+    with _notice_lock:
+        hit = _run_held.get(key)
+        if hit:
+            hit[1] += 1
+        for k in [k for k, v in _run_held.items() if now - v[2] > 40 * 86400]:
+            _run_held.pop(k, None)
+    try:
+        if hit and ds.vision_event(hit[0]):
+            since = time.strftime("%H:%M", time.gmtime(hit[2]))
+            ds.update_vision_event_reason(hit[0], f"desk refused {hit[1]} alert runs since {since} UTC: {exc.message}")
+            return
+        ev = ds.add_vision_event(camera, res["counts"], motion=res["motion"], backend=res["backend"],
+                                 reason=f"desk refused the run: {exc.message}", snapshot=event.get("snapshot") or "")
+        with _notice_lock:
+            _run_held[key] = [ev["id"], 1, now]
+    except Exception:
+        traceback.print_exc()
+
+
 def camera_tick(store, desk: dict[str, Any], conn: dict[str, Any], start_run: Callable, live: bool,
-                question: str = "", force: bool = False) -> dict[str, Any]:
-    """One camera pass: grab → motion → detect → rule → event → (maybe) run. Returns the analysis + event + run id."""
+                question: str = "", force: bool = False, meter: "U.Meter | None" = None) -> dict[str, Any]:
+    """One camera pass: grab → motion → detect → rule → event → (maybe) run. Returns the analysis + event + run id.
+
+    Usage (spec §1.5-§1.7, §3.2). One meter per tick, lane auto, or the route's meter (lane you) for a camera look.
+    Every AI step counts for it and is gated before it is made: AI detection without a local detector and the journal
+    are paced streams, so the day's allowance lasts until 00:00 UTC; the rule question and the summary are checked.
+    A step held at a limit is skipped, never faked: an uncounted frame keeps motion alerts but no count rule judges it
+    as 0, and one `usage` event per camera and window says what paused. Local work (grab, motion, YOLO, rules,
+    alerts) never waits for the allowance."""
     ds = store.for_desk(desk["id"])
     key = (desk["id"], conn["name"])
     cfg = conn["config"]
     rule = V.rule_config(cfg)
+    base = meter or U.desk_meter(desk, "camera.watch", lane="auto", ref=f"cam:{conn['name']}")
+    you = base.lane == "you"
+    m_detect = U.derive(base, "camera.detect")
+    gate = None if you else (lambda: U.allow(m_detect, surface="camera.detect", stream=f"detect:{conn['name']}"))
     prev_jpeg = _last_frame.get(key)
-    res = V.analyse(str(cfg.get("source", "")), cfg, prev_jpeg, live_vlm=live, question="")
+    res = V.analyse(str(cfg.get("source", "")), cfg, prev_jpeg, live_vlm=live, question="", meter=m_detect, detect_vlm=gate)
     _last_frame[key] = res["jpeg"]
-    prev_ev = ds.last_vision_event(conn["name"])
+    counted = res["backend"] not in V.NOT_COUNTED
+    detect_status = ""                                 # the camera tile's line about AI counts
+    if res["backend"] == "paced":
+        detect_status = U.held_text(m_detect, "camera.detect", "AI counts")
+    elif res["backend"] == "paused":                   # numbers first, then what still works (spec §1.7, §4.9)
+        detect_status = U.held_text(m_detect, "camera.detect", "Detection") + ". " + (
+            "Count rules are off; motion alerts still fire." if rule["alert_on_motion"]
+            else "Count rules are off, and with no 'alert on motion' this camera does not alert.")
+    elif res["backend"] == "error":
+        detect_status = f"AI count failed: {res['detector_error'][:120]}"
+    paused: dict[str, dict[str, Any]] = {}            # stream -> the limit that paused it this tick
+    if res["backend"] == "paused":
+        paused["detect"] = (m_detect.held.get("camera.detect") or {}).get("limit") or {}
+    prev_ev = ds.last_vision_event(conn["name"], exclude_backends=V.NOT_MEASURED)
+    # the first frame is logged: the first counted one, or for an uncounted tick the camera's first event of any kind
+    first = prev_ev is None and (counted or ds.last_vision_event(conn["name"]) is None)
     last_alert = ds.last_vision_event(conn["name"], triggered_only=True)
     now = time.time()
-    n_watch = sum(res["counts"].get(l, 0) for l in rule["labels"])
-    if n_watch >= rule["min_count"]:
-        since = _present.get(key, (now, now))[0]
-        _present[key] = (since, now)
-    elif key in _present and now - _present[key][1] > DWELL_GRACE_S:
-        _present.pop(key, None)
+    if counted:                                        # an uncounted frame neither starts nor ends a stay
+        n_watch = sum(res["counts"].get(l, 0) for l in rule["labels"])
+        if n_watch >= rule["min_count"]:
+            since = _present.get(key, (now, now))[0]
+            _present[key] = (since, now)
+        elif key in _present and now - _present[key][1] > DWELL_GRACE_S:
+            _present.pop(key, None)
     present_since = _present[key][0] if key in _present else None
-    triggered, reason = V.evaluate(cfg, res["detections"], (prev_ev or {}).get("counts"), (last_alert or {}).get("ts"),
-                                   mot=res["motion"], present_since=present_since)
+    prev_counts = (prev_ev or {}).get("counts")
+    if not counted and prev_counts is None and prev_jpeg is not None:
+        prev_counts = {}                               # a motion baseline exists: a motion rule may fire
+    triggered, reason = V.evaluate(cfg, res["detections"], prev_counts, (last_alert or {}).get("ts"),
+                                   mot=res["motion"], present_since=present_since,
+                                   unknown="" if counted else f"AI detection {res['backend']}")
     if triggered and not rule["alerts"]:                   # document-only camera: log it, never wake the agents
         triggered, reason = False, f"{reason} (alerts off)"
     if force:
         triggered, reason = True, "manual trigger"
-    changed = (prev_ev or {}).get("counts") != res["counts"] or res["motion"] >= max(rule["motion_min"], 0.08)
+    moved = res["motion"] >= max(rule["motion_min"], 0.08)
+    changed = moved if not counted else ((prev_ev or {}).get("counts") != res["counts"] or moved)
     answer = ""
     q = question or (rule["question"] if triggered else "")
     if q and live and V.vlm_ready():
-        try:
-            answer = V.describe(res["jpeg"], q, model=str(cfg.get("vlm_model") or ""), context=str(cfg.get("notes") or ""))
-        except Exception as exc:
-            answer = f"(vision model unavailable: {str(exc)[:120]})"
+        model, notes = str(cfg.get("vlm_model") or ""), str(cfg.get("notes") or "")
+        if you and question:                           # the person's own question: their meter, their limit (429)
+            try:
+                answer = V.describe(res["jpeg"], q, model=model, context=notes, meter=base)
+            except U.UsageLimit:
+                raise
+            except Exception as exc:
+                answer = f"(vision model unavailable: {str(exc)[:120]})"
+        else:                                          # the rule's question when it fires (S40)
+            m_q = U.derive(base, "camera.describe")
+            if U.allow(m_q, surface="camera.describe"):  # held: the alert still goes out, unanswered
+                h = m_q.held.get("camera.describe") or {}
+                answer = "(not asked: " + ((h.get("limit") or {}).get("message")
+                                           or U.held_text(m_q, "camera.describe", "Rule question")) + ")"
+            else:
+                try:
+                    answer = V.describe(res["jpeg"], q, model=model, context=notes, meter=m_q)
+                except U.UsageLimit as exc:
+                    answer = f"(not asked: {exc.message})"
+                except Exception as exc:
+                    answer = f"(vision model unavailable: {str(exc)[:120]})"
     elif q and not live:
         answer = "demo mode: " + V.counts_text(res["counts"]) + " in frame"
     res["answer"] = answer
@@ -112,13 +227,25 @@ def camera_tick(store, desk: dict[str, Any], conn: dict[str, Any], start_run: Ca
             OBJ.ensure_worker(store, desk["id"], conn, live=live)
         except Exception:
             traceback.print_exc()
-    # journal: a detailed written note when the scene changed or the max gap passed (the RAG log's real content)
+    # journal: a detailed written note when the scene changed or the max gap passed (the RAG log's real content),
+    # paced so the allowance lasts the day, paused at a limit
     jc = JR.config(cfg)
     note, note_why = "", ""
     known: list[dict[str, Any]] = []
+    pace = 0.0
+    m_note = U.derive(base, "camera.note")
     if jc["on"] and live and V.vlm_ready():
-        is_due, note_why = JR.due(key, jc, time.time(), res["motion"], res["counts"])
-        if is_due:
+        stream = f"journal:{conn['name']}"
+        per = 2 if jc["verify"] else 1                 # note + verify
+        U.stream_seen(base.owner_id, stream)
+        pace = U.pace_gap(base.owner_id, per_action=per, scope=base.scope)
+        is_due, note_why = JR.due(key, jc, time.time(), res["motion"], res["counts"] if counted else None, pace=pace)
+        held = U.allow(m_note, surface="camera.note", stream=stream, per_action=per) if is_due else ""
+        if held:
+            note_why = U.held_text(m_note, "camera.note", "Journal", unit="note")
+            if held == "paused":
+                paused["journal"] = (m_note.held.get("camera.note") or {}).get("limit") or {}
+        elif is_due:
             try:
                 known = []
                 if OBJ is not None:
@@ -126,13 +253,21 @@ def camera_tick(store, desk: dict[str, Any], conn: dict[str, Any], start_run: Ca
                         known = OBJ.known_in_view(store, desk["id"], conn["name"])
                     except Exception:
                         known = []
-                note = JR.write_note(key, conn["name"], jc, res["jpeg"], res["counts"], notes=str(cfg.get("notes") or ""),
-                                     model=str(cfg.get("vlm_model") or ""), why=note_why, dets=res.get("detections"), known=known)
+                note = JR.write_note(key, conn["name"], jc, res["jpeg"], res["counts"] if counted else None,
+                                     notes=str(cfg.get("notes") or ""), model=str(cfg.get("vlm_model") or ""),
+                                     why=note_why, dets=res.get("detections"), known=known, meter=m_note)
+            except U.UsageLimit as exc:                # S41: refused between the check and the request: pause
+                body = exc.body()
+                note_why = "Journal paused" + (f" until {U.until_text(body)}" if U.until_text(body) else "") + ": " + U.brief(body)
+                JR.pause(key, float(exc.retry_at or (time.time() + 60)), note_why)
+                paused["journal"] = body
             except Exception as exc:
                 JR.failed(key)
                 note_why = f"journal failed: {str(exc)[:140]}"
+    if paused:
+        _notice(ds, desk["id"], conn["name"], sorted(paused), next(iter(paused.values())))
     event = None
-    if triggered or changed or prev_ev is None or question or note:
+    if triggered or changed or first or question or note:
         snap = V.save_snapshot(desk["id"], conn["name"], res["annotated"])
         ev_answer = (answer + "\nJournal: " + note) if (answer and note) else (answer or note)
         ev_reason = reason if (triggered or question or not note) else f"journal: {note_why}"
@@ -141,8 +276,12 @@ def camera_tick(store, desk: dict[str, Any], conn: dict[str, Any], start_run: Ca
                                     source="journal" if note else "camera")
         if note:
             JR.diary_append(desk["id"], event["ts"], conn["name"], ("ALERT: " + reason) if triggered else "note", note, event["id"])
+            m_roll = U.derive(base, "camera.rollup")
             try:
-                JR.maybe_rollup(ds, desk["id"], conn["name"], jc, res["jpeg"], snapshot=snap, model=str(cfg.get("vlm_model") or ""))
+                JR.maybe_rollup(ds, desk["id"], conn["name"], jc, res["jpeg"], snapshot=snap, model=str(cfg.get("vlm_model") or ""),
+                                meter=m_roll, pace=pace, gate=lambda: U.allow(m_roll, surface="camera.rollup"))
+            except U.UsageLimit:                       # S43: skipped; the refusal is on the ledger once; no event
+                pass
             except Exception as exc:
                 ds.add_vision_event(conn["name"], {}, backend="error", reason=f"journal summary failed: {str(exc)[:160]}")
     rid = ""
@@ -167,19 +306,24 @@ def camera_tick(store, desk: dict[str, Any], conn: dict[str, Any], start_run: Ca
             ds.set_vision_run(event["id"], f"action:{row['id']}")
     if triggered and event and (AL.config(desk)["run"]) and notified in ("", "pending", "sent", "failed"):
         when = time.strftime("%A %d %B %H:%M")
+        seen_txt = V.counts_text(res["counts"]) if counted else f"not counted ({res['backend']})"
         task = (rule["task"] or "Assess this camera alert, log it, and tell the right person only if it matters.") + "\n\n"
         task += (f"CAMERA ALERT — {conn['name']} at {when}\n"
-                 f"Seen: {V.counts_text(res['counts'])} (detector: {res['backend']}); motion {res['motion']:.2f}; rule: {reason}.\n"
+                 f"Seen: {seen_txt} (detector: {res['backend']}); motion {res['motion']:.2f}; rule: {reason}.\n"
                  + (f"Watching for: {', '.join(rule['labels'])}" + (f" during {rule['hours']}" if rule["hours"] else "") + ".\n")
                  + (f"Analyst answer to '{q}': {answer}\n" if answer else "")
                  + (f"Camera notes: {cfg.get('notes')}\n" if cfg.get("notes") else "")
                  + f"Event id: {event['id']}. Snapshot: {event['snapshot']}. Use camera_look for a fresh frame and camera_events for history.")
         try:
             if C.enabled(desk, "camera_cases") and C.START_RUN is not None and start_run is C.START_RUN:
-                rid = C.camera_alert(store, desk, conn["name"], task, reason, event["id"])   # one incident case per camera episode
+                # one incident case per camera episode; a refused start holds the case for its clock and is raised here
+                rid = C.camera_alert(store, desk, conn["name"], task, reason, event["id"], raise_limit=True)
             else:
                 rid = start_run(desk, task, "auto")
             ds.set_vision_run(event["id"], rid)
+        except U.UsageLimit as exc:                    # S44: the event stays; one "desk refused the run" per window
+            _alert_run_held(ds, desk["id"], conn["name"], res, event, exc)
+            rid = ""
         except BaseException as exc:                   # Flask abort (spend cap / 402) or a provider error: keep the event, say why
             why = getattr(getattr(exc, "response", None), "data", b"") or str(exc) or type(exc).__name__
             if isinstance(why, bytes):
@@ -189,10 +333,11 @@ def camera_tick(store, desk: dict[str, Any], conn: dict[str, Any], start_run: Ca
             rid = ""
     JR.publish(desk["id"], "tick", conn["name"], counts=res["counts"], motion=res["motion"], backend=res["backend"],
                triggered=triggered, reason=reason if triggered else "", journal=bool(note), journal_status=note_why if jc["on"] else "",
-               event_id=(event or {}).get("id"), run_id=rid, answer=answer[:600] if answer else "", notified=notified)
+               detect_status=detect_status, event_id=(event or {}).get("id"), run_id=rid,
+               answer=answer[:600] if answer else "", notified=notified)
     seen = {"ts": time.time(), "counts": res["counts"], "motion": res["motion"], "backend": res["backend"], "reason": reason,
             "present_s": round(time.time() - present_since) if present_since else 0,
-            "journal": note[:400], "journal_status": note_why if jc["on"] else "",
+            "journal": note[:400], "journal_status": note_why if jc["on"] else "", "detect_status": detect_status,
             "triggered": triggered, "answer": answer, "event_id": (event or {}).get("id"), "run_id": rid, "size": res["size"],
             "detections": res["detections"], "detector_error": res["detector_error"]}
     _last_seen[key] = {**seen, "annotated": res["annotated"]}
@@ -387,8 +532,12 @@ def _cy_trigger(store, desk: dict[str, Any], start_run: Callable, fired: list[st
                          for r in store.running_runs()):
         wait = 5.0                                       # look again shortly: one detection run at a time
     held = {"mode": mode, "run_budget": run_budget, "on_run": on_run}
+    lim = _cy_retry.get(did) or {}
+    limited = bool(lim.get("limited")) and now < float(lim.get("after") or 0.0)
+    if limited:                                          # held at a usage limit: later passes queue, not try (S48)
+        wait = max(wait, float(lim["after"]) - now)
     if wait > 0:
-        _cy_retry[did] = {**held, "after": now + wait}
+        _cy_retry[did] = {**held, "after": now + wait, **({"limited": True} if limited else {})}
         return ""
     ds = store.for_desk(did)
     rows = [r for r in (ds.sec_detection(d) for d in list(q)) if r]
@@ -401,7 +550,12 @@ def _cy_trigger(store, desk: dict[str, Any], start_run: Callable, fired: list[st
                              -int(r.get("evidence_total") or 0), -float(r.get("last_ts") or 0)))
     pick = rows[:5]
     try:
-        rid = start_run(desk, _cy_task(store, desk, pick), mode or cyber_mode(desk, "alert_triage"))
+        with U.bind_lane("auto"):                        # a detection's run is Atlas's own work (usage spec §1.1)
+            rid = start_run(desk, _cy_task(store, desk, pick), mode or cyber_mode(desk, "alert_triage"))
+    except U.UsageLimit as exc:                          # S48: stay queued; cyber_flush tries again at the limit's retry time
+        CYBER_STATUS[did] = {"ts": time.time(), "text": "desk refused the run: " + exc.message}
+        _cy_retry[did] = {**held, "after": float(exc.retry_at or (time.time() + 60)), "limited": True}
+        return ""
     except BaseException as exc:                         # spend cap (402) or no model key (503): stay queued, say why
         CYBER_STATUS[did] = {"ts": time.time(), "text": "desk refused the run: " + _refusal(exc)}
         _cy_retry[did] = {**held, "after": time.time() + 60}
@@ -844,30 +998,67 @@ def _run_job(store, job: dict[str, Any], start_run: Callable, desk_for: Callable
         if not conn:
             return "no IMAP connector"
         mails = I.fetch_unseen(conn["config"], limit=5)
-        started = []
         cases_on = C.enabled(desk, "lead_cases") and LEAD_RUN is not None and start_run is C.START_RUN
+        # S46 (usage spec §1.6): the fetch already marked these mails \Seen, so every one is stored first (message,
+        # lead, contact); only then do runs start, each on its own, so a refusal can never lose the rest of the batch
+        work: list[tuple[dict[str, Any], Any]] = []
         for m in mails:
             ds.add_message("email", "in", m["from_email"], m["body"], subject=m["subject"], actor=m["from_name"] or m["from_email"])
             open_ = C.match_open(store, desk["id"], email=m["from_email"]) if cases_on else None
             if open_:                                    # a reply to a conversation the desk is already having
-                rid = C.inbound_reply(store, desk, open_, "email", f"Subject: {m['subject']}\n\n{m['body']}",
-                                      actor=m["from_name"] or m["from_email"],
-                                      extra=f"Reply by email (queue_action kind=email, to={m['from_email']}, subject 'Re: {m['subject'][:80]}').")
-                started.append(rid or f"case #{open_['id']}")
+                work.append((m, open_))
                 continue
             lid = ds.add_lead(m["from_name"], "", m["from_email"], "", "email",
                               f"Subject: {m['subject']}\n\n{m['body']}")
             if not ds.contact_for(m["from_email"]):      # an existing customer keeps their stage and notes
                 ds.upsert_contact(m["from_email"], {"name": m["from_name"], "email": m["from_email"], "stage": "New", "notes": "Inbound email"})
-            if cases_on:
-                rid = LEAD_RUN(desk, lid)
-            else:
-                task = (f"New inbound email — handle end to end.\nName: {m['from_name']}\nEmail: {m['from_email']}\n"
-                        f"Source: email\nSubject: {m['subject']}\n\nMessage:\n{m['body']}")
-                rid = start_run(desk, task, "auto", lid)
-            ds.set_lead(lid, status="running", run_id=rid)
-            started.append(rid)
-        return f"{len(mails)} new email(s)" + (f", runs {', '.join(started)}" if started else "")
+            work.append((m, lid))
+        started: list[str] = []
+        waiting: list[int] = []
+        held: U.UsageLimit | None = None                 # the first refusal: later leads wait without another try
+        meter = U.desk_meter(desk, "run.auto")
+        for m, ref in work:
+            if isinstance(ref, dict):                    # the case clock holds a refused step itself (cases.kick)
+                try:
+                    rid = C.inbound_reply(store, desk, ref, "email", f"Subject: {m['subject']}\n\n{m['body']}",
+                                          actor=m["from_name"] or m["from_email"],
+                                          extra=f"Reply by email (queue_action kind=email, to={m['from_email']}, subject 'Re: {m['subject'][:80]}').")
+                except Exception as exc:                 # the reply is stored; the other mails still run
+                    traceback.print_exc()
+                    rid = f"case #{ref['id']} failed: {type(exc).__name__}"
+                started.append(rid or f"case #{ref['id']}")
+                continue
+            lid = ref
+            if held is not None and not cases_on:
+                U.defer(meter, "lead", lid, held)
+                waiting.append(lid)
+                continue
+            try:
+                if cases_on:
+                    rid = LEAD_RUN(desk, lid)
+                else:
+                    task = (f"New inbound email — handle end to end.\nName: {m['from_name']}\nEmail: {m['from_email']}\n"
+                            f"Source: email\nSubject: {m['subject']}\n\nMessage:\n{m['body']}")
+                    rid = start_run(desk, task, "auto", lid)
+            except U.UsageLimit as exc:                  # its case waits (cases on), or a deferred start (cases off)
+                held = held or exc
+                if not getattr(exc, "case_id", None):
+                    U.defer(meter, "lead", lid, exc)
+                waiting.append(lid)
+                continue
+            except Exception as exc:                     # this lead failed; the others still run
+                ds.set_lead(lid, status="error")
+                started.append(f"lead {lid} failed: {type(exc).__name__}: {str(exc)[:80]}")
+                traceback.print_exc()
+                continue
+            if rid:
+                ds.set_lead(lid, status="running", run_id=rid)
+                started.append(rid)
+        out = f"{len(mails)} new email(s)" + (f", runs {', '.join(started)}" if started else "")
+        if held is not None:
+            until = U.until_text(held)
+            out += f"; {len(waiting)} waiting: {U.brief(held)}" + (f", runs after {until}" if until else "")
+        return out
     if kind == "followups":
         days = 3
         try:
@@ -903,6 +1094,12 @@ def _run_job(store, job: dict[str, Any], start_run: Callable, desk_for: Callable
             try:
                 r = camera_tick(store, desk, c, start_run, live)
                 out.append(f"{c['name']}: {V.counts_text(r['counts'])}" + (f" → run {r['run_id']}" if r["run_id"] else ""))
+            except U.UsageLimit as exc:                  # S45: a background tick holds its AI work itself; should a
+                try:                                     # limit still escape, it is one refusal row, never an event
+                    U.refuse(U.desk_meter(desk, "camera.watch", lane="auto", ref=f"cam:{c['name']}"), exc, background=True)
+                except Exception:
+                    traceback.print_exc()
+                out.append(f"{c['name']}: paused: {U.brief(exc)}")
             except Exception as exc:
                 out.append(f"{c['name']}: ERROR {str(exc)[:120]}")
                 ds.add_vision_event(c["name"], {}, reason=f"grab failed: {str(exc)[:160]}", backend="error")
@@ -934,12 +1131,23 @@ def _run_job(store, job: dict[str, Any], start_run: Callable, desk_for: Callable
 
 
 def _finish_job(store, job: dict[str, Any], start_run: Callable, desk_for: Callable) -> None:
-    """Run one job and schedule its next run."""
+    """Run one job and schedule its next run. The runs it starts are in lane auto (Atlas on its own), or lane you
+    after the owner's "Run now". A run refused at a usage limit (S47, usage spec §1.6) skips this pass: the result
+    says which limit, the next pass waits for the limit's retry time (no hourly backoff), and a one-shot job stays
+    on for that retry instead of being switched off. A followups pass stops at the first refusal; the contacts it
+    did not reach stay due."""
     status = "ok"
+    lane = "you" if RUN_NOW.pop(int(job["id"]), None) is not None else "auto"
+    held: U.UsageLimit | None = None
     try:
-        result = _run_job(store, job, start_run, desk_for)
+        with U.bind_lane(lane):
+            result = _run_job(store, job, start_run, desk_for)
         if result.startswith(("no IMAP", "desk missing", "connector ", "task must", "unknown job", "no camera")):
             status = "skipped"
+    except U.UsageLimit as exc:
+        held, status = exc, "skipped"
+        until = U.until_text(exc)
+        result = f"limit: {U.brief(exc)}" + (f"; resumes {until}" if until else "")
     except Exception as exc:
         result = f"ERROR {type(exc).__name__}: {str(exc)[:300]}"
         status = "error"
@@ -960,7 +1168,11 @@ def _finish_job(store, job: dict[str, Any], start_run: Callable, desk_for: Calla
         return
     every = int(job.get("every_min") or 0)
     every_s = _camera_every(job)
-    if every_s > 0 and status != "skipped":
+    if held is not None:                                # the job's own next run, or the limit's retry time if later
+        now = time.time()
+        own = now + (max(every_s, MIN_CAMERA_S) if every_s > 0 else every * 60)
+        fields["next_run"] = max(own, float(held.retry_at or (now + U.CFG.busy_retry_s)))
+    elif every_s > 0 and status != "skipped":
         fields["next_run"] = time.time() + max(every_s, MIN_CAMERA_S)
     elif every > 0:
         # a skipped job (nothing to poll) backs off to hourly instead of hammering every tick
@@ -987,6 +1199,16 @@ def _camera_worker(store, job, start_run, desk_for) -> None:
             _busy.discard(job["id"])
 
 
+def deferred_pass(store, now: float | None = None) -> int:
+    """Lead runs a usage limit deferred (usage spec §1.6): up to 5 due ones start, once per scheduler pass, in lane
+    auto, for the ledger this scheduler's store holds. Returns how many started."""
+    try:
+        return U.deferred_tick(now, store=store)
+    except Exception:
+        traceback.print_exc()
+        return 0
+
+
 def _loop(store, start_run, desk_for):
     """Camera jobs run on their own worker threads (one per camera at a time) so eight cameras each keep their own
     pace instead of queueing behind each other's vision-model calls; every other job runs inline as before."""
@@ -1007,6 +1229,7 @@ def _loop(store, start_run, desk_for):
                     continue
                 _finish_job(store, job, start_run, desk_for)
             cyber_flush(store, start_run, desk_for)
+            deferred_pass(store, now)
         except Exception:
             traceback.print_exc()
         _stop.wait(_next_wait(store))

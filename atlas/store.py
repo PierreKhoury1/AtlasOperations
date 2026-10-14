@@ -113,7 +113,43 @@ CREATE TABLE IF NOT EXISTS named_things (
   notes TEXT DEFAULT '', created REAL, exemplars TEXT DEFAULT '[]', emb BLOB, dim INTEGER DEFAULT 0, sightings INTEGER DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS ix_named_desk ON named_things(desk_id);
+CREATE TABLE IF NOT EXISTS usage_events (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, ts REAL NOT NULL, ts_end REAL, owner_id BIGINT DEFAULT 0, desk_id BIGINT DEFAULT 0,
+  scope TEXT DEFAULT 'owner', lane TEXT DEFAULT '', surface TEXT NOT NULL, action_id TEXT DEFAULT '', ref TEXT DEFAULT '',
+  kind TEXT NOT NULL, units BIGINT DEFAULT 1, key_kind TEXT DEFAULT '', provider TEXT DEFAULT '', model TEXT DEFAULT '',
+  pool TEXT DEFAULT '', status TEXT DEFAULT 'ok', http_status INTEGER DEFAULT 0, tokens_in BIGINT DEFAULT 0,
+  tokens_out BIGINT DEFAULT 0, tokens_cached BIGINT DEFAULT 0, cost_usd REAL, est_usd REAL, cost_basis TEXT DEFAULT '',
+  limit_id TEXT DEFAULT '', note TEXT DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS ix_usage_owner_ts ON usage_events(owner_id, ts);
+CREATE INDEX IF NOT EXISTS ix_usage_desk_ts ON usage_events(desk_id, ts);
+CREATE INDEX IF NOT EXISTS ix_usage_ts ON usage_events(ts);
+CREATE INDEX IF NOT EXISTS ix_usage_action ON usage_events(action_id);
+CREATE TABLE IF NOT EXISTS usage_counters (
+  scope_key TEXT NOT NULL, metric TEXT NOT NULL, period TEXT NOT NULL, window_start BIGINT NOT NULL,
+  n BIGINT DEFAULT 0, refused BIGINT DEFAULT 0, lim BIGINT, updated REAL,
+  PRIMARY KEY (scope_key, metric, period, window_start)
+);
+CREATE TABLE IF NOT EXISTS usage_provider (
+  account TEXT NOT NULL, ts REAL NOT NULL, data TEXT DEFAULT '{}', PRIMARY KEY (account, ts)
+);
+CREATE TABLE IF NOT EXISTS usage_overrides (
+  owner_id BIGINT NOT NULL, limit_id TEXT NOT NULL, value REAL, note TEXT DEFAULT '', set_by TEXT DEFAULT '', updated REAL,
+  PRIMARY KEY (owner_id, limit_id)
+);
+CREATE TABLE IF NOT EXISTS usage_deferred (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, owner_id BIGINT DEFAULT 0, desk_id BIGINT NOT NULL, kind TEXT NOT NULL,
+  ref_id BIGINT NOT NULL, limit_id TEXT DEFAULT '', retry_at REAL NOT NULL, created REAL NOT NULL, tries INTEGER DEFAULT 0,
+  status TEXT DEFAULT 'waiting'
+);
+CREATE INDEX IF NOT EXISTS ix_usage_deferred_due ON usage_deferred(status, retry_at);
 """
+# usage_* (atlas/usage.py writes them, nothing else does): usage_events = one row per model request, action, send,
+# upload or deduplicated refusal (ids, counts and system text only, never message content); usage_counters = totals
+# per window (D = UTC day, M = UTC month, T = running total; usd:* in micro-USD; lim = the limit in force at the last
+# take, NULL = no Atlas limit); usage_provider = GET /api/v1/key snapshots, numeric fields only; usage_overrides =
+# operator limits per owner (value NULL = no Atlas limit); usage_deferred = run starts refused at a limit, retried after
+# retry_at. BIGINT wherever an epoch or a sum can pass 2^31 (Postgres INTEGER is 32-bit).
 
 # columns added after the first release — applied idempotently on open
 _MIGRATIONS = [
@@ -499,10 +535,11 @@ class Store:
         return int(self._conn.execute(sql, args).fetchone()[0])
 
     def unindexed_vision_events(self, desk_id: int, model: str, limit: int = 32) -> list[dict[str, Any]]:
-        """Newest events on the desk that have no vector row for `model`."""
+        """Newest events on the desk that have no vector row for `model` (`usage` notices are never indexed)."""
         rows = _rows(self._conn.execute(
             "SELECT e.* FROM vision_events e LEFT JOIN vision_vectors v ON v.event_id=e.id AND v.model=? "
-            "WHERE e.desk_id=? AND v.event_id IS NULL ORDER BY e.ts DESC LIMIT ?", (model, desk_id, limit)))
+            "WHERE e.desk_id=? AND v.event_id IS NULL AND COALESCE(e.backend, '')<>'usage' ORDER BY e.ts DESC LIMIT ?",
+            (model, desk_id, limit)))
         return [self._vrow(r) for r in rows]
 
     def update_vision_event_reason(self, vid: int, reason: str) -> None:
@@ -529,13 +566,15 @@ class Store:
         return r
 
     def vision_events(self, desk_id: int, camera: str = "", since: float = 0, query: str = "", limit: int = 100,
-                      triggered_only: bool = False) -> list[dict[str, Any]]:
+                      triggered_only: bool = False, exclude_backends: tuple[str, ...] = ()) -> list[dict[str, Any]]:
         sql = "SELECT * FROM vision_events WHERE desk_id=? AND ts>=?"
         args: list[Any] = [desk_id, since]
         if camera:
             sql += " AND camera=?"; args.append(camera)
         if triggered_only:
             sql += " AND triggered=1"
+        if exclude_backends:
+            sql += f" AND backend NOT IN ({','.join('?' * len(exclude_backends))})"; args += list(exclude_backends)
         if query:
             q = f"%{query.strip()}%"
             sql += " AND (camera LIKE ? OR counts LIKE ? OR reason LIKE ? OR answer LIKE ? OR question LIKE ?)"
@@ -558,8 +597,11 @@ class Store:
                         "last_ts": float(r["last_ts"] or 0), "last_event": last})
         return out
 
-    def last_vision_event(self, desk_id: int, camera: str, triggered_only: bool = False) -> dict[str, Any] | None:
-        rows = self.vision_events(desk_id, camera, 0, "", 1, triggered_only)
+    def last_vision_event(self, desk_id: int, camera: str, triggered_only: bool = False,
+                          exclude_backends: tuple[str, ...] = ()) -> dict[str, Any] | None:
+        """The camera's newest event. `exclude_backends` skips ticks that measured nothing (e.g. "paced", "paused",
+        "usage": detection held at a usage limit), so the next tick compares against a real one."""
+        rows = self.vision_events(desk_id, camera, 0, "", 1, triggered_only, exclude_backends)
         return rows[0] if rows else None
 
     def last_vision_notes(self, desk_id: int, since: float, limit: int = 400) -> dict[str, dict[str, Any]]:
@@ -1174,6 +1216,15 @@ class Store:
             self._conn.commit()
         return self.action(aid)
 
+    def hold_action(self, aid: int, note: str) -> dict[str, Any] | None:
+        """An unattended send that did not go out (a usage limit or the channel's own rule held it): it stays pending
+        for the owner, and its reason line says why ("... · auto-send paused: ...")."""
+        with self._lock:
+            self._conn.execute("UPDATE actions SET reason = CASE WHEN COALESCE(reason, '') = '' THEN ? "
+                               "ELSE reason || ' · ' || ? END WHERE id=? AND status='pending'", (note, note, aid))
+            self._conn.commit()
+        return self.action(aid)
+
     def tag_action_case(self, aid: int, case_id: int) -> None:
         with self._lock:
             self._conn.execute("UPDATE actions SET case_id=? WHERE id=?", (int(case_id or 0), aid))
@@ -1340,6 +1391,7 @@ class DeskStore:
     def actions(self, status="", limit=200): return self.s.actions(status, limit, self.desk_id)
     def action(self, aid): return self.s.action(aid)
     def decide_action(self, *a, **k): return self.s.decide_action(*a, **k)
+    def hold_action(self, aid, note): return self.s.hold_action(aid, note)
     def tag_action_case(self, aid, case_id): return self.s.tag_action_case(aid, case_id)
     def set_run_case(self, run_id, case_id): return self.s.set_run_case(run_id, case_id)
     def add_lead(self, name, company, email, phone, source, notes):
@@ -1368,7 +1420,8 @@ class DeskStore:
     def unindexed_vision_events(self, model, limit=32): return self.s.unindexed_vision_events(self.desk_id, model, limit)
     def vision_events_by_ids(self, ids): return self.s.vision_events_by_ids(ids)
     def update_vision_event_reason(self, vid, reason): return self.s.update_vision_event_reason(vid, reason)
-    def last_vision_event(self, camera, triggered_only=False): return self.s.last_vision_event(self.desk_id, camera, triggered_only)
+    def last_vision_event(self, camera, triggered_only=False, exclude_backends=()):
+        return self.s.last_vision_event(self.desk_id, camera, triggered_only, exclude_backends)
     def hook_cameras(self, since, exclude=()): return self.s.hook_cameras(self.desk_id, since, exclude)
     def set_vision_run(self, vid, run_id): return self.s.set_vision_run(vid, run_id)
     def add_vision_object(self, camera, **f): return self.s.add_vision_object(self.desk_id, camera, **f)

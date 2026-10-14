@@ -40,6 +40,8 @@
   .note .ts .lat{color:#557}
   .note.cur .body::after{content:'▌';color:var(--blue);animation:pulse .9s infinite}
   .empty{color:var(--dim);padding:18px;font-size:12.5px}
+  .note.limit .body{color:#fbb360}
+  .note .ulink{display:inline-block;margin-top:4px;color:var(--blue);font-size:12px}
   #drop{margin:14px;padding:34px;border:1.5px dashed var(--line);border-radius:3px;text-align:center;color:var(--dim);cursor:pointer}
   #drop.on{border-color:var(--blue);color:var(--txt)}
   footer{padding:10px 18px;color:var(--dim);font-size:11.5px;font-family:Consolas,monospace}
@@ -152,8 +154,11 @@ async function loop(feed){
   feed.timer=setTimeout(()=>loop(feed), 1200);
 }
 
+// a hidden tab narrates nothing: an unattended theatre must not spend the account's AI requests (usage spec §4.8)
+document.addEventListener('visibilitychange',()=>{ if(running) stat(document.hidden?'paused while this tab is hidden':'watching'); });
+
 async function tick(feed){
-  if(feed.video.readyState<2) return;
+  if(document.hidden || feed.video.readyState<2) return;
   // 1) local YOLO — fast, free, draws the live overlay
   let changed=false;
   if(!detBusy){
@@ -173,10 +178,22 @@ async function tick(feed){
   }
   // 2) narrate the moment something changes, else keep a heartbeat every quiet-gap seconds
   const quiet=(+$('#cadence').value||20)*1000;
-  if(!feed.busy && (changed || Date.now()-feed.lastNarr>quiet)){
+  if(!feed.busy && !(feed.pausedUntil>Date.now()) && (changed || Date.now()-feed.lastNarr>quiet)){
     feed.lastNarr=Date.now();
     analyse(feed, changed?'change detected':'heartbeat');
   }
+}
+
+// a usage limit stopped this feed's narration (usage spec §4.8): the limit's own message, and nothing is asked again
+// until its retry time; local detection keeps drawing the boxes
+function pauseFeed(feed, j, div){
+  const until=(j.retry_at||j.resets_at||0)*1000;
+  feed.pausedUntil=until>Date.now()?until:Date.now()+60000;
+  const t=new Date(feed.pausedUntil), hm=String(t.getUTCHours()).padStart(2,'0')+':'+String(t.getUTCMinutes()).padStart(2,'0');
+  div.classList.add('limit'); div.querySelector('.body').textContent=j.message||'A usage limit stopped the narration.';
+  const a=document.createElement('a'); a.className='ulink'; a.href='/desk/usage'; a.textContent='See usage'; div.appendChild(a);
+  feed.card.querySelector('.minfo').textContent='paused until '+hm+' UTC'; feed.card.querySelector('.dot').className='dot';
+  feed.card.querySelector('.minfo').title=t.toLocaleString()+' your time';
 }
 
 function drawBoxes(feed, boxes){
@@ -218,29 +235,37 @@ async function analyse(feed, reason){
   if(notesEl.querySelector('.empty')) notesEl.innerHTML='';
   notesEl.prepend(div);
   const body=div.querySelector('.body');
+  let held=null;
   try{
     const r=await fetch('/api/vision/live',{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({camera:feed.name, image:grabFrame(feed.video), model:$('#model').value,
         context:feed.notes.slice(-3).join('\n'), t:vt.toFixed(1)})});
-    if(!r.ok || !r.body){ body.textContent='error: HTTP '+r.status; }
+    if(!r.ok || !r.body){                      // refused before the stream: a usage limit's 429 body says why and until when
+      let j=null; try{ j=await r.json(); }catch(e){}
+      if(j && j.error==='usage_limit') held=j; else body.textContent='error: '+((j && (j.message||j.error)) || 'HTTP '+r.status);
+    }
     else{
-      const reader=r.body.getReader(), dec=new TextDecoder(); let text='', raw='';
+      const reader=r.body.getReader(), dec=new TextDecoder(); let text='', buf='';
       while(true){ const {done,value}=await reader.read(); if(done) break;
-        raw+=dec.decode(value);
-        if(raw.startsWith('\x01')){
-          const nl=raw.indexOf('\n');
-          if(nl<0) continue;
-          try{ const meta=JSON.parse(raw.slice(1,nl));
-               head.querySelector('.model').textContent=meta.provider+' · '+meta.model.split('/').pop(); }catch(e){}
-          raw=raw.slice(nl+1);
+        buf+=dec.decode(value,{stream:true});
+        // meta lines (\x01 + JSON + newline) are read wherever they come: the model first, a usage limit mid-stream
+        let i;
+        while((i=buf.indexOf('\x01'))>=0){
+          const nl=buf.indexOf('\n',i); if(nl<0) break;
+          const raw=buf.slice(i+1,nl); buf=buf.slice(0,i)+buf.slice(nl+1);
+          try{ const meta=JSON.parse(raw);
+               if(meta.error==='usage_limit') held=meta;
+               else if(meta.model) head.querySelector('.model').textContent=(meta.provider||'')+' · '+String(meta.model).split('/').pop(); }catch(e){}
         }
-        text=raw; body.textContent=text; tok.textContent=text.length+' ch'; }
-      feed.notes.push(`[clip ${vt.toFixed(1)}s] `+text);
+        const cut=buf.indexOf('\x01'); text=cut>=0?buf.slice(0,cut):buf;   // a meta line still arriving is not narration
+        body.textContent=text; tok.textContent=text.length+' ch'; }
+      if(!held) feed.notes.push(`[clip ${vt.toFixed(1)}s] `+text);
     }
   }catch(e){ body.textContent='stream failed: '+e.message; }
   div.classList.remove('cur');
   div.querySelector('.lat').textContent=((performance.now()-t0)/1000).toFixed(1)+'s';
-  dot.className='dot live'; minfo.textContent='watching';
+  if(held) pauseFeed(feed, held, div);
+  else { dot.className='dot live'; minfo.textContent='watching'; }
   while(notesEl.children.length>40) notesEl.lastChild.remove();
   feed.busy=false;
 }

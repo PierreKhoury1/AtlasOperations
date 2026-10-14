@@ -4,7 +4,7 @@
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Atlas Desk</title>
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
-<script>try{var t=localStorage.getItem("atlas-theme");document.documentElement.dataset.theme=t||(matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light")}catch(e){document.documentElement.dataset.theme="light"}</script>
+<script>try{var t=localStorage.getItem("atlas-theme");document.documentElement.dataset.theme=t||"light"}catch(e){document.documentElement.dataset.theme="light"}</script>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
 :root{--bg:#f5f7fa;--side:#eef1f6;--panel:#ffffff;--panel2:#f0f3f7;--line:#d9dfe8;--line2:#c1cad6;--text:#10161d;--text2:#2f3a47;--muted:#5f6b7a;--faint:#8b97a6;--accent:#2d72d2;--accent2:#215db0;--accent-soft:#e4eefc;--deep:#215db0;--ink:#2d72d2;--blue:#2d72d2;--ok:#1c8f5f;--ok-soft:#e2f4ea;--danger:#c23030;--warn:#a66a00;--r:3px;--grad:#2d72d2;--mono:"IBM Plex Mono",Consolas,monospace}
@@ -85,7 +85,7 @@ table{width:100%;border-collapse:collapse;font-size:13px}th,td{text-align:left;p
 tr:last-child td{border-bottom:0}
 tr.click{cursor:pointer}tr.click:hover{background:var(--panel2)}
 .tag{display:inline-block;padding:1px 7px;border-radius:2px;font-family:var(--mono);font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;background:var(--panel2);color:var(--muted);font-weight:600;border:1px solid var(--line)}
-.tag.running{color:var(--blue)}.tag.done,.tag.processed,.tag.sent,.tag.Won{color:var(--ok)}.tag.error,.tag.rejected,.tag.Lost{color:var(--danger)}.tag.pending,.tag.new{color:var(--warn)}
+.tag.running{color:var(--blue)}.tag.done,.tag.processed,.tag.sent,.tag.Won{color:var(--ok)}.tag.error,.tag.rejected,.tag.Lost{color:var(--danger)}.tag.pending,.tag.new,.tag.limit{color:var(--warn)}
 .log{background:var(--panel2);border:1px solid var(--line);border-radius:3px;padding:12px 14px;font-family:var(--mono);font-size:12px;max-height:520px;overflow:auto;white-space:pre-wrap;line-height:1.55}
 .log .ag{font-weight:600}.log .t{color:var(--faint);margin-right:8px}
 .appr{border-left:3px solid var(--warn)}
@@ -161,6 +161,7 @@ tr.click{cursor:pointer}tr.click:hover{background:var(--panel2)}
 .choice small{color:var(--muted);font-size:12px;display:block;line-height:1.4}
 .choice ul{margin:8px 0 0;padding-left:16px;color:var(--muted);font-size:12px}
 .hint{color:var(--faint);font-size:12px;margin-top:4px}
+.not-sent{color:var(--warn);font-size:12px;margin-top:6px;line-height:1.45}
 /* ---------- start page */
 .start{max-width:1280px}
 .start .choices{grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
@@ -983,7 +984,10 @@ aside.simple [data-lvl="full"]{display:none}
 <script>
 window.addEventListener('hashchange', ()=>{const h=location.hash.slice(1); if(document.getElementById('p-'+h)) go(h);});
 const $ = s => document.querySelector(s);
-const api = async (p, opt) => { const r = await fetch('/api' + p, opt ? {headers:{'Content-Type':'application/json'}, ...opt, body: opt.body ? JSON.stringify(opt.body) : undefined} : undefined); if (r.status === 401) { location.href = '/login?next=/desk'; return; } if (r.status === 409) { const j = await r.json(); if (j.error === 'no_desk') { showOnboarding(); return null; } return j; } return r.json(); };
+// a usage limit (429 usage_limit), a channel's reply window (409 outside_window) or a rate limit: the formatted message
+// in `error` (window.atlasLimit, shell.js), `limited: true` and the original code in `code` (usage spec §4.8)
+const limitBody = j => (j && ['usage_limit', 'outside_window', 'rate_limited'].includes(j.error)) ? (window.atlasLimit ? window.atlasLimit.map(j) : {...j, code: j.error, error: j.message || j.error, limited: true}) : j;
+const api = async (p, opt) => { const r = await fetch('/api' + p, opt ? {headers:{'Content-Type':'application/json'}, ...opt, body: opt.body ? JSON.stringify(opt.body) : undefined} : undefined); if (r.status === 401) { location.href = '/login?next=/desk'; return; } if (r.status === 409) { const j = await r.json(); if (j.error === 'no_desk') { showOnboarding(); return null; } return limitBody(j); } return limitBody(await r.json()); };
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const jstr = v => JSON.stringify(String(v ?? '')).replace(/'/g, '\\u0027').replace(/</g, '\\u003c');   // a JS string literal (no quote or < left raw)
 // The ONLY way data goes into an inline handler (onclick="fn(${jsa(x)})"): a JS string literal, HTML-escaped for the
@@ -1146,6 +1150,7 @@ async function homeDecide(id, status){
   const a = HM.actions.find(x => x.id === id); if (!a) return;
   document.querySelectorAll(`[data-act="${id}"] button`).forEach(b => b.disabled = true);
   const r = await api(`/actions/${id}/decide`, {method: 'POST', body: {status, subject: a.subject, body: a.body, note: ''}});
+  if (heldSend(r)) { document.querySelectorAll(`[data-act="${id}"] button`).forEach(b => b.disabled = false); return notSent(document.querySelector(`[data-act="${id}"] .t`), r); }
   if (!r || r.error) return toast(r?.error || 'failed');
   toast(status === 'rejected' ? 'Rejected' : r.status === 'failed' ? `Could not send: ${r.note || ''}` : `Sent to ${r.to}`);
   HM.t = 0; HM.nkey = ''; refresh();
@@ -1203,7 +1208,7 @@ function homeRender(s){
     + cell('Camera notes · 24h', cst.notes ?? notes, `${plural(alerts || 0, 'alert')} · ${plural(cams.length, 'camera')}`, alerts ? 'warn' : '', "go('cameras')")
     + cell('Sent', s.approved || 0, `after your OK · ${s.rejected || 0} rejected`, '', "go('approvals')")
     + cell(esc((s.cost && s.cost.label) || 'Model cost · est.'), s.cost && s.cost.value ? esc(s.cost.value + (s.cost.small ? ' ' + s.cost.small : '')) : '£' + cost.toFixed(2),
-           esc(s.cost ? s.cost.note : `at paid rates · ${((s.tokens_in || 0) + (s.tokens_out || 0)).toLocaleString()} tokens`), '', "go('setup')",
+           esc(s.cost ? s.cost.note : `at paid rates · ${((s.tokens_in || 0) + (s.tokens_out || 0)).toLocaleString()} tokens`), '', "location.href='/desk/usage'",
            s.cost ? s.cost.title : 'An estimate at paid-model rates, not a bill');
   homeNeedsRender(needs); homeFeed(); homeAgents(running); homeCases(); homeRuns();
 }
@@ -1280,13 +1285,17 @@ function homeCases(){
 }
 function homeRuns(){
   const R = HM.runs.slice(0, 6);
-  $('#hm-runs').innerHTML = R.length ? R.map(r => { const st = r.active ? ['running', 'on'] : /error|fail/.test(r.status) ? ['failed', 'bad'] : r.status === 'done' ? ['done', ''] : [r.status, ''];
+  $('#hm-runs').innerHTML = R.length ? R.map(r => { const st = r.active ? ['running', 'on'] : /error|fail/.test(r.status) ? ['failed', 'bad'] : r.status === 'done' ? ['done', ''] : r.status === 'limit' ? ['stopped at a limit', 'warn'] : [r.status, ''];
     return `<div class="hm-row" onclick="homeOpenRun(${jsa(r.id)})"><span class="m"><b title="${esc(r.task)}">${esc(String(r.task || '').replace(/^Run workflow /, ''))}</b><small>${esc(ago(r.created))} ago${r.summary ? ' · ' + esc(r.summary) : ''}</small></span><span class="st ${st[1]}">${esc(st[0])}</span></div>`; }).join('')
     : '<div class="hm-none">No jobs yet. Give the team one with the bar at the top.</div>';
 }
 async function loadDashLog(){ const ev = await api('/audit'); $('#dash-log').innerHTML = ev.length ? ev.slice(0,40).reverse().map(evLine).join('') : '(nothing yet — seed demo leads)'; $('#dash-log').scrollTop = 1e9; }
 
-async function seed(){ toast('Seeding 3 leads…'); const r = await api('/demo/seed', {method:'POST', body:{}}); if (r && r[0]) liveWant = r[0].run_id; go('live'); }
+// a sample lead whose run was refused at a usage limit is still saved; it says so (usage spec §5.5)
+async function seed(){ toast('Seeding 3 leads…'); const r = await api('/demo/seed', {method:'POST', body:{}});
+  if (r && r.limited) return toast(r.error);
+  if (Array.isArray(r)) { const held = r.filter(x => x.limited); if (held.length) toast(`${r.length} sample lead${r.length === 1 ? '' : 's'} added; ${held.length} not started: ${held[0].limited}`); const first = r.find(x => x.run_id); if (first) liveWant = first.run_id; }
+  go('live'); }
 async function resetDemo(){ if(!confirm('Wipe all demo data?')) return; const r = await api('/demo/reset', {method:'POST', body:{}}); toast(r.ok ? 'Reset' : (r.error||'failed')); curRun=null; refresh(); }
 async function addLead(){
   const b = {name:$('#l-name').value, company:$('#l-company').value, email:$('#l-email').value, phone:$('#l-phone').value, source:$('#l-source').value, notes:$('#l-notes').value, mode:$('#l-mode').value};
@@ -1295,7 +1304,7 @@ async function addLead(){
 }
 async function loadLeads(){
   const L = await api('/leads');
-  $('#leads-table').innerHTML = L.length ? `<table><tr><th>When</th><th>Lead</th><th>Source</th><th>Status</th><th></th></tr>` + L.map(l=>`<tr><td>${when(l.created)}</td><td><b>${esc(l.name)}</b><br><span style="color:var(--muted)">${esc(l.company||'')} ${esc(l.email)}</span><br><span style="color:var(--muted);font-size:12px">${esc(l.notes).slice(0,110)}</span></td><td>${esc(l.source)}</td><td><span class="tag ${l.status}">${l.status}</span></td><td>${l.run_id?`<button class="btn sm" onclick="curRun=${jsa(l.run_id)};go('runs')">run</button>`:''} <button class="btn sm" onclick="rerun(${l.id})">re-run</button></td></tr>`).join('') + '</table>' : '<div class="empty">No leads yet</div>';
+  $('#leads-table').innerHTML = L.length ? `<table><tr><th>When</th><th>Lead</th><th>Source</th><th>Status</th><th></th></tr>` + L.map(l=>`<tr><td>${when(l.created)}</td><td><b>${esc(l.name)}</b><br><span style="color:var(--muted)">${esc(l.company||'')} ${esc(l.email)}</span><br><span style="color:var(--muted);font-size:12px">${esc(l.notes).slice(0,110)}</span></td><td>${esc(l.source)}</td><td><span class="tag ${l.status}">${l.status}</span>${l.waiting?`<div class="hint" style="max-width:240px;margin-top:4px">${esc(l.waiting)}</div>`:''}</td><td>${l.run_id?`<button class="btn sm" onclick="curRun=${jsa(l.run_id)};go('runs')">run</button>`:''} <button class="btn sm" onclick="rerun(${l.id})">re-run</button></td></tr>`).join('') + '</table>' : '<div class="empty">No leads yet</div>';
 }
 async function rerun(id){ const r = await api(`/leads/${id}/run`, {method:'POST', body:{mode:'auto'}}); curRun=r.run_id; liveWant=r.run_id; go('live'); }
 
@@ -1311,8 +1320,19 @@ async function loadApprovals(){
     ${a.status==='pending' ? `<div class="row" style="margin-top:10px"><button class="btn ok" onclick="decide(${a.id},'approved')">✔ Approve &amp; send</button><button class="btn d" onclick="decide(${a.id},'rejected')">✖ Reject</button><input id="n${a.id}" placeholder="note (optional — used to tune the agents)" style="flex:1"></div>` : `<div class="meta" style="margin-top:8px">decided ${a.decided_at?when(a.decided_at):''} by ${esc(a.decided_by||'')} ${a.note?'— '+esc(a.note):''}</div>`}
   </div>`).join('') : `<div class="empty">Nothing ${af||''} — seed demo leads from the dashboard</div>`;
 }
+// a send the channel's own rule or a usage limit held (409 outside_window, 429 usage_limit): nothing went out, the
+// action stays pending and Approve stays on; the reason shows on the row itself
+const heldSend = r => !!r && (r.limited || r.error === 'outside_window' || r.error === 'usage_limit');
+function notSent(box, r){
+  const text = 'Not sent: ' + (r.limited ? r.error : (r.message || r.error));
+  if (!box) return toast(text);
+  let el = box.querySelector('.not-sent');
+  if (!el) { el = document.createElement('div'); el.className = 'not-sent'; box.appendChild(el); }
+  el.textContent = text;
+}
 async function decide(id, status){
   const r = await api(`/actions/${id}/decide`, {method:'POST', body:{status, subject:$(`#s${id}`).value, body:$(`#b${id}`).value, note:$(`#n${id}`)?.value||''}});
+  if (heldSend(r)) return notSent($(`#a${id}`), r);
   toast(status==='approved' ? `Sent (simulated) to ${r.to}` : 'Rejected'); refresh();
 }
 
@@ -1418,7 +1438,7 @@ async function msgSend(){
   $('#mc-send').disabled = true;
   const r = await api('/messages/send', {method: 'POST', body: {channel: ch, to, subject: $('#mc-subj').value.trim(), body}});
   $('#mc-send').disabled = false;
-  if (!r || r.error) return toast(r?.error || 'failed');
+  if (!r || r.error) return toast(heldSend(r) ? 'Not sent: ' + (r.limited ? r.error : (r.message || r.error)) : (r?.error || 'failed'));
   $('#mc-body').value = ''; $('#mc-subj').value = ''; toast('Sent'); MSG.t = 0; msgRender();
 }
 async function loadCrm(){
@@ -1432,12 +1452,12 @@ async function dashTask(){ const t=$('#d-task').value.trim(); if(!t) return; con
 async function runTask(){ const t=$('#r-task').value.trim(); if(!t) return; const r = await api('/runs', {method:'POST', body:{task:t, mode:$('#r-mode').value}}); $('#r-task').value=''; curRun=r.run_id; loadRuns(); loadRun(curRun); }
 async function loadRuns(){
   const R = await api('/runs');
-  $('#runs-table').innerHTML = R.length ? `<table><tr><th>When</th><th>Task</th><th>Mode</th><th>Status</th><th>Tokens</th></tr>` + R.map(r=>`<tr class="click" onclick="curRun=${jsa(r.id)};loadRun(${jsa(r.id)})"><td>${when(r.created)}</td><td>${esc(r.task).slice(0,80)}</td><td>${esc(r.mode)}</td><td><span class="tag ${r.active?'running':r.status}">${r.active?'running':r.status}</span></td><td style="color:var(--muted)">${(r.tokens_in+r.tokens_out).toLocaleString()}</td></tr>`).join('') + '</table>' : '<div class="empty">No runs yet</div>';
+  $('#runs-table').innerHTML = R.length ? `<table><tr><th>When</th><th>Task</th><th>Mode</th><th>Status</th><th>Tokens</th></tr>` + R.map(r=>`<tr class="click" onclick="curRun=${jsa(r.id)};loadRun(${jsa(r.id)})"><td>${when(r.created)}</td><td>${esc(r.task).slice(0,80)}</td><td>${esc(r.mode)}</td><td><span class="tag ${r.active?'running':r.status}">${r.active?'running':r.status==='limit'?'stopped at a limit':r.status}</span></td><td style="color:var(--muted)">${(r.tokens_in+r.tokens_out).toLocaleString()}</td></tr>`).join('') + '</table>' : '<div class="empty">No runs yet</div>';
 }
 async function loadRun(id, quiet){
   const r = await api('/runs/'+id); if(!r || r.error) return;
   const el = $('#run-detail'); const atBottom = true;
-  el.innerHTML = `<div class="row"><span class="tag ${r.active?'running':r.status}">${r.active?'running':r.status}</span><b>${esc(r.id)}</b><span class="spacer"></span>${r.active?`<button class="btn sm" onclick="liveWant=${jsa(r.id)};go('live')">▶ watch live</button> <button class="btn sm d" onclick="api(${jsa('/runs/' + r.id + '/cancel')},{method:'POST',body:{}})">stop</button>`:''}</div>
+  el.innerHTML = `<div class="row"><span class="tag ${r.active?'running':r.status}">${r.active?'running':r.status==='limit'?'stopped at a limit':r.status}</span><b>${esc(r.id)}</b><span class="spacer"></span>${r.active?`<button class="btn sm" onclick="liveWant=${jsa(r.id)};go('live')">▶ watch live</button> <button class="btn sm d" onclick="api(${jsa('/runs/' + r.id + '/cancel')},{method:'POST',body:{}})">stop</button>`:''}</div>
     <div class="md" style="color:var(--muted);margin:8px 0">${esc(r.task).slice(0,400)}</div>
     <div class="log" id="runlog">${r.events.map(evLine).join('')}${r.active?'<div style="color:var(--accent2)">… working</div>':''}</div>
     ${r.summary?`<h2 style="margin-top:14px">Summary</h2><div class="md">${esc(r.summary)}</div>`:''}
@@ -2495,8 +2515,9 @@ function liveEvent(ev){
   const why = $('#live-why'), txt = $('#live-txt'), hist = $('#live-hist'), ticks = $('#live-ticks');
   if (ev.kind === 'tick') {
     LIVE.ticks++;
-    if (ticks) ticks.innerHTML = `<span>tick ${hms(ev.ts)}</span><span>${esc(countsText(ev.counts||{}))}</span><span>motion ${(ev.motion||0).toFixed(2)}</span><span>${esc(ev.backend||'')}</span>${ev.journal_status ? `<span>journal: ${esc(ev.journal_status)}</span>` : ''}${ev.triggered ? `<span style="color:var(--warn)">ALERT ${esc(ev.reason||'')}</span>` : ''}`;
-    if (why && !LIVE.typing && ev.journal_status) why.textContent = 'journal: ' + ev.journal_status;
+    if (ticks) ticks.innerHTML = `<span>tick ${hms(ev.ts)}</span><span>${esc(countsText(ev.counts||{}))}</span><span>motion ${(ev.motion||0).toFixed(2)}</span><span>${esc(ev.backend||'')}</span>${ev.detect_status ? `<span>${esc(ev.detect_status)}</span>` : ''}${ev.journal_status ? `<span>journal: ${esc(ev.journal_status)}</span>` : ''}${ev.triggered ? `<span style="color:var(--warn)">ALERT ${esc(ev.reason||'')}</span>` : ''}`;
+    if (why && !LIVE.typing && /paused/i.test(ev.detect_status || '')) why.textContent = ev.detect_status;   // counting paused at a usage limit says so first
+    else if (why && !LIVE.typing && ev.journal_status) why.textContent = 'journal: ' + ev.journal_status;
     if (ev.triggered) { toast('Camera alert: ' + (ev.reason||'')); if (ev.run_id) liveWant = ev.run_id; }
     return;
   }

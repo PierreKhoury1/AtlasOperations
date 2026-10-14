@@ -159,6 +159,7 @@ def main(argv: list[str] | None = None) -> int:
     a = ap.parse_args(argv)
     from . import config as cfg
     from . import journal as JR
+    from . import usage as U
     from .vision_eval import Caller, _key
     data, out = Path(a.data).expanduser(), Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
@@ -169,7 +170,8 @@ def main(argv: list[str] | None = None) -> int:
     idx = pick_instants(D, ci, a.instants, a.step)
     print(f"cameras {cams}, instants {[D['frames'][i] for i in idx]} ({a.step / 2:.0f} s apart)", flush=True)
     base, key = _key()
-    caller = Caller(base, key)
+    meter = U.cli_meter("mcam_notes")
+    caller = Caller(base, key, meter=meter)
     jc = {"closeup": True, "verify": not a.no_verify}
     t0 = 1_790_000_000.0                                         # a fixed clock: notes say "8 s ago", not today's date
 
@@ -185,8 +187,8 @@ def main(argv: list[str] | None = None) -> int:
             dets = [{"label": "person", "box": [v * s for v in d["box"]], "conf": d["conf"]} for d in preds[i][c]]
             v_log: dict[str, Any] = {}
             orig = JR.verify_note
-            def spy(text, frames, model="", transport=None):
-                r = orig(text, frames, model=model, transport=transport)
+            def spy(text, frames, model="", transport=None, *, meter):
+                r = orig(text, frames, model=model, transport=transport, meter=meter)
                 v_log.update(r)
                 return r
             JR.verify_note = spy
@@ -195,7 +197,7 @@ def main(argv: list[str] | None = None) -> int:
                 for attempt in range(3):                     # providers return the odd 502: retry, as the live journal does next tick
                     try:
                         note = JR.write_note((0, cam), cam, jc, jpg, {"person": len(dets)}, notes="a public square seen from a fixed camera",
-                                             model=a.model, now=t0 + i / 2, stream=False, dets=dets)
+                                             model=a.model, now=t0 + i / 2, stream=False, dets=dets, meter=meter)
                         err = ""
                         break
                     except Exception as exc:

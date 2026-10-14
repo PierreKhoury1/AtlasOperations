@@ -10,7 +10,7 @@ from atlas import journal as JR
 from atlas import objects as OBJ
 from atlas import report as REP
 from atlas import vision as V
-from test_journal import FakeVLM
+from test_journal import M, FakeVLM
 
 
 def _emb(seed: float, dim: int = 8) -> bytes:
@@ -74,7 +74,7 @@ def test_known_in_view_feeds_the_journal_prompt(store, monkeypatch):
     monkeypatch.setattr(V, "chat_images", vlm)
     jc = JR.config({"journal": "1", "journal_verify": "0"})
     JR._state.pop((1, "overview"), None)
-    JR.write_note((1, "overview"), "overview", jc, b"\xff\xd8x", {"person": 1}, now=now,
+    JR.write_note((1, "overview"), "overview", jc, b"\xff\xd8x", {"person": 1}, now=now, meter=M,
                   known=[{"name": "Marco", "kind": "person", "score": 0.88, "sure": False, "by": "match", "notes": "chef"},
                          {"name": "Bidfood van", "kind": "vehicle", "score": 1.0, "sure": True, "by": "owner", "notes": ""}])
     t = vlm.notes()[-1]["text"]

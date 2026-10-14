@@ -15,6 +15,10 @@ event (timeline + peak counts) so broad questions ("how busy was lunch?") retrie
 Notes and summaries are ordinary vision events (source "journal" / "digest"), so they are embedded, retrieved and
 cited exactly like alerts. They are also appended to a readable diary, one Markdown file per desk per day:
 DATA_DIR/journal/desk<id>/<YYYY-MM-DD>.md.
+
+Every note, verify pass and summary is an AI request on Atlas's account, counted for the meter the caller passes
+(atlas/usage.py). The camera loop paces notes so the day's allowance lasts until 00:00 UTC (due(pace=)) and pauses
+a camera's notes at a limit (pause()).
 """
 from __future__ import annotations
 
@@ -142,11 +146,13 @@ def config(c: dict[str, Any]) -> dict[str, Any]:
             "verify": str(c.get("journal_verify", "1")).strip().lower() not in ("0", "false", "no", "off")}
 
 
-def verify_note(text: str, frames: list[tuple[str, bytes]], model: str = "", transport=None) -> dict[str, Any]:
+def verify_note(text: str, frames: list[tuple[str, bytes]], model: str = "", transport=None, *,
+                meter: Any) -> dict[str, Any]:
     """The verify pass: {"note", "removed", "softened", "changed"}. If the auditor's reply cannot be parsed the
-    original note is kept, never a half-parsed one."""
+    original note is kept, never a half-parsed one. `meter` is what the request counts for."""
     prompt = "NOTE TO AUDIT:\n" + text.strip() + "\n\nReturn the JSON."
-    raw = V.chat_images(VERIFY_SYSTEM, prompt, frames, model=model, max_tokens=520, transport=transport).strip()
+    raw = V.chat_images(VERIFY_SYSTEM, prompt, frames, model=model, max_tokens=520, transport=transport,
+                        meter=meter).strip()
     raw = re.sub(r"^```(?:json)?\s*|\s*```$", "", raw, flags=re.S)
     try:
         j = json.loads(raw[raw.find("{"):raw.rfind("}") + 1])
@@ -193,32 +199,51 @@ def reset() -> None:
         _state.clear()
 
 
-def due(key: tuple[int, str], jc: dict[str, Any], now: float, motion: float, counts: dict[str, int]) -> tuple[bool, str]:
-    """Should this tick write a note? Returns (due, why)."""
+def pause(key: tuple[int, str], until: float, why: str = "") -> None:
+    """Hold this camera's notes until `until` (a usage limit refused one; usage spec §4.6 S41): no note is due, and
+    no model-error backoff loop runs, until then."""
+    with _lock:
+        st = _state.setdefault(key, {})
+        st["pause_until"] = float(until)
+        st["pause_why"] = why
+
+
+def due(key: tuple[int, str], jc: dict[str, Any], now: float, motion: float, counts: dict[str, int] | None,
+        pace: float = 0.0) -> tuple[bool, str]:
+    """Should this tick write a note? Returns (due, why). `pace` is usage.pace_gap(): while the last note is younger
+    than it, nothing is due, not even the every_s heartbeat, so the AI-request allowance lasts until 00:00 UTC.
+    `counts` None = this frame was not counted (AI detection held): only motion and the clock can make a note due."""
     st = _state.get(key) or {}
+    if now < st.get("pause_until", 0):
+        return False, st.get("pause_why") or "paused at a usage limit"
     if now < st.get("fail_until", 0):
         return False, "journal backing off after a model error"
     last = st.get("note")
     if not last:
         return True, "first note"
     gap = now - last["ts"]
+    if pace > jc["min_gap_s"] and gap < pace:
+        return False, f"paced: one note every {max(1, round(pace / 60))} min to last until 00:00 UTC"
     if gap >= jc["every_s"]:
         return True, f"{gap:.0f}s since last note"
     if gap < jc["min_gap_s"]:
         return False, f"last note {gap:.0f}s ago"
-    if counts != last.get("counts"):
+    if counts is not None and counts != last.get("counts"):
         return True, f"counts {V.counts_text(last.get('counts') or {}) or 'nothing'} -> {V.counts_text(counts) or 'nothing'}"
     if motion >= jc["motion"]:
         return True, f"scene changed (motion {motion:.2f})"
     return False, "no change"
 
 
-def write_note(key: tuple[int, str], camera: str, jc: dict[str, Any], jpeg: bytes, counts: dict[str, int],
+def write_note(key: tuple[int, str], camera: str, jc: dict[str, Any], jpeg: bytes, counts: dict[str, int] | None,
                notes: str = "", model: str = "", now: float | None = None, transport=None, why: str = "",
                stream: bool | None = None, dets: list[dict[str, Any]] | None = None,
-               known: list[dict[str, Any]] | None = None) -> str:
+               known: list[dict[str, Any]] | None = None, *, meter: Any) -> str:
     """One journal note from the frame at the previous note + the current frame. Updates the camera's state.
-    When anyone is listening on the live bus (or stream=True) the model is streamed and every delta is published."""
+    When anyone is listening on the live bus (or stream=True) the model is streamed and every delta is published.
+    `meter` is what the note (and its verify pass) count for: two requests with verify on, one without. `counts`
+    None = the frame was not counted this tick (AI detection held at a usage limit): the prompt says so, never 0."""
+    from . import usage as U
     now = now or time.time()
     desk_id = key[0]
     if stream is None:
@@ -226,6 +251,9 @@ def write_note(key: tuple[int, str], camera: str, jc: dict[str, Any], jpeg: byte
     st = _state.get(key) or {}
     last = st.get("note")
     gap = now - last["ts"] if last else 0
+    counted = counts is not None
+    if counts is None:                                    # keep the last counted figures for the next change test
+        counts = dict((last or {}).get("counts") or {})
     frames: list[tuple[str, bytes]] = []
     if last and last.get("jpeg"):
         frames.append((f"EARLIER ({time.strftime('%H:%M:%S', time.localtime(last['ts']))}, {gap:.0f}s ago)", last["jpeg"]))
@@ -235,7 +263,8 @@ def write_note(key: tuple[int, str], camera: str, jc: dict[str, Any], jpeg: byte
         frames.append(("CLOSE-UP (NOW): the largest person in the current frame, cut out and enlarged", crop))
     prompt = (f"Camera: {camera}." + (f" About this camera: {notes}." if notes else "")
               + f"\nTime now: {time.strftime('%A %d %B %H:%M:%S', time.localtime(now))}."
-              + f"\nObject detector counts for the current frame (small model, may miss or miscount): {V.counts_text(counts) or 'nothing detected'}."
+              + (f"\nObject detector counts for the current frame (small model, may miss or miscount): {V.counts_text(counts) or 'nothing detected'}."
+                 if counted else "\nObject counts for the current frame: not counted this time; count from the frame itself.")
               + (f"\nPay special attention to: {jc['focus']}." if jc.get("focus") else "")
               + (("\nKnown in view right now (named by the owner, matched by appearance, not by face): "
                   + "; ".join(f"{k['name']} ({k['kind']}{', ' + k['notes'] if k.get('notes') else ''}) "
@@ -248,7 +277,8 @@ def write_note(key: tuple[int, str], camera: str, jc: dict[str, Any], jpeg: byte
     if stream:
         parts: list[str] = []
         try:
-            for delta in V.chat_images_stream(NOTE_SYSTEM, prompt, frames, model=model, max_tokens=380, transport=transport):
+            for delta in V.chat_images_stream(NOTE_SYSTEM, prompt, frames, model=model, max_tokens=380, transport=transport,
+                                              meter=meter):
                 if isinstance(delta, dict):
                     publish(desk_id, "note_model", camera, **delta)
                     continue
@@ -260,7 +290,8 @@ def write_note(key: tuple[int, str], camera: str, jc: dict[str, Any], jpeg: byte
         text = "".join(parts).strip()
     else:
         try:
-            text = V.chat_images(NOTE_SYSTEM, prompt, frames, model=model, max_tokens=380, transport=transport).strip()
+            text = V.chat_images(NOTE_SYSTEM, prompt, frames, model=model, max_tokens=380, transport=transport,
+                                 meter=meter).strip()
         except Exception as exc:
             publish(desk_id, "note_error", camera, error=str(exc)[:200])
             raise
@@ -271,7 +302,9 @@ def write_note(key: tuple[int, str], camera: str, jc: dict[str, Any], jpeg: byte
     if jc.get("verify", True):
         publish(desk_id, "note_verify_start", camera)
         try:
-            v = verify_note(text, frames, model=model, transport=transport)
+            v = verify_note(text, frames, model=model, transport=transport, meter=meter)
+        except U.UsageLimit as exc:                       # S42: the draft stands, said to be unverified
+            v = {"note": text, "removed": [], "softened": [], "changed": False, "error": f"not verified: {exc.message}"[:200]}
         except Exception as exc:                          # the draft still stands; the audit is best effort
             v = {"note": text, "removed": [], "softened": [], "changed": False, "error": str(exc)[:160]}
         publish(desk_id, "note_verify", camera, changed=v["changed"], removed=v["removed"], softened=v["softened"],
@@ -282,6 +315,8 @@ def write_note(key: tuple[int, str], camera: str, jc: dict[str, Any], jpeg: byte
         st["note"] = {"ts": now, "text": text, "jpeg": jpeg, "counts": dict(counts)}
         st.setdefault("rollup_ts", now)
         st.pop("fail_until", None)
+        st.pop("pause_until", None)
+        st.pop("pause_why", None)
     publish(desk_id, "note_done", camera, text=text, why=why, counts=dict(counts), took_s=round(time.time() - t_start, 2))
     return text
 
@@ -292,16 +327,22 @@ def failed(key: tuple[int, str], backoff_s: float = 30.0) -> None:
 
 
 def maybe_rollup(ds, desk_id: int, camera: str, jc: dict[str, Any], jpeg: bytes | None, snapshot: str = "",
-                 model: str = "", now: float | None = None, transport=None) -> dict[str, Any] | None:
-    """When rollup_min has passed since the last summary, condense the notes in between into one `digest` event."""
+                 model: str = "", now: float | None = None, transport=None, *, meter: Any, pace: float = 0.0,
+                 gate: Any = None) -> dict[str, Any] | None:
+    """When rollup_min has passed since the last summary, condense the notes in between into one `digest` event.
+    `pace` is the journal's usage pace gap: a summary waits at least that long too (usage spec §1.5). `gate` is asked
+    just before the request (usage.allow): "paced" / "paused" skip this summary and keep its window for later. `meter`
+    is what the request counts for."""
     now = now or time.time()
     key = (desk_id, camera)
     st = _state.get(key) or {}
     since = st.get("rollup_ts")
-    if since is None or now - since < jc["rollup_min"] * 60:
+    if since is None or now - since < max(jc["rollup_min"] * 60, float(pace or 0)):
         return None
     rows = [r for r in ds.vision_events(camera, since - 0.001, "", 500) if r.get("source") == "journal" and r.get("answer")]
     rows.sort(key=lambda r: r["ts"])
+    if rows and gate is not None and gate():
+        return None
     with _lock:
         _state.setdefault(key, {})["rollup_ts"] = now
     if not rows:
@@ -315,7 +356,8 @@ def maybe_rollup(ds, desk_id: int, camera: str, jc: dict[str, Any], jpeg: bytes 
     prompt = (f"Camera: {camera}. Window: {span} on {time.strftime('%A %d %B', time.localtime(now))}. "
               f"Peak detector counts in the window: {V.counts_text(peak) or 'nothing'}.\n\nJournal notes (oldest first):\n{lines[:14000]}")
     frames = [("end of window", jpeg)] if jpeg else []
-    text = V.chat_images(ROLLUP_SYSTEM, prompt, frames, model=model, max_tokens=500, transport=transport).strip()
+    text = V.chat_images(ROLLUP_SYSTEM, prompt, frames, model=model, max_tokens=500, transport=transport,
+                         meter=meter).strip()
     if not text:
         return None
     ev = ds.add_vision_event(camera, peak, backend="vlm", reason=f"summary {span} ({len(rows)} notes)", question="",

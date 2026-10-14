@@ -28,6 +28,7 @@ from . import policy as P
 from . import records as R
 from . import secure as S
 from . import tools as T
+from . import usage as U
 from .config import RUNS_DIR
 from .providers import ProviderPool, ToolCall
 from .store import Store
@@ -45,12 +46,13 @@ class Event:
 @dataclass
 class RunResult:
     run_id: str
-    status: str
+    status: str                  # done | error | cancelled | limit (a usage limit stopped it)
     summary: str
     deliverables: list[Path]
     tokens_in: int
     tokens_out: int
     run_dir: Path
+    limit: dict[str, Any] | None = None   # status limit: the usage limit's body (usage spec §4.5), else None
 
 
 class Cancelled(Exception):
@@ -110,11 +112,15 @@ PARALLEL_SAFE = {"delegate", "camera_look", "camera_events", "camera_ask", "web_
 
 
 class Orchestrator:
-    def __init__(self, configs: dict[str, Any], store: Store | None, emit: Callable[[Event], None]):
+    def __init__(self, configs: dict[str, Any], store: Store | None, emit: Callable[[Event], None], meter: Any = None):
         self.configs = configs
         self.store = store
         self._emit = emit
-        self.pool = ProviderPool(configs["providers"])
+        # the run's usage.Meter: every model request of the run counts for it, its tools' vision and search requests
+        # too (handed over explicitly: parallel tool calls run on pool threads). None = the bound one, else house.
+        self.meter = meter
+        self._tool_limits: dict[str, dict[str, Any]] = {}   # tools out at a usage limit, when the run has no meter
+        self.pool = ProviderPool(configs["providers"], meter=meter)
         self.business = configs["business"]
         self.agents: dict[str, dict[str, Any]] = {a["id"]: a for a in configs["agents"] if a.get("enabled", True)}
         self.workflows: dict[str, dict[str, Any]] = {w["id"]: w for w in configs["workflows"]}
@@ -268,6 +274,10 @@ class Orchestrator:
         self._tl.inst = inst
         try:
             return self._run_agent(agent_id, task, context, depth, parent, inst)
+        except U.UsageLimit as exc:            # the agent's own model was refused: it ends here (S20, S21), and so
+            name = (self.agents.get(agent_id) or {}).get("name") or agent_id   # does the run when it is Atlas (S26)
+            self.emit("agent_end", agent_id, f"{name} stopped at a usage limit: {exc.message}", depth=depth)
+            raise
         finally:
             self._tl.inst = prev_inst
 
@@ -312,6 +322,8 @@ class Orchestrator:
             self._check()
             try:
                 resp = provider.chat(self.system_prompt(agent), messages, schemas, model, on_token=on_token)
+            except U.UsageLimit:
+                raise                                   # S20: a limit is not a model error; run() ends the run with it
             except Exception as exc:
                 msg = f"{type(exc).__name__}: {exc}"
                 self.emit("error", agent_id, msg)
@@ -382,6 +394,8 @@ class Orchestrator:
                 if resp3.text:
                     self.emit("log", agent_id, resp3.text)
                     final_text = resp3.text
+            except U.UsageLimit:
+                raise                                   # S21
             except Exception as exc:
                 self.emit("error", agent_id, f"final synthesis failed: {exc}")
         preview = re.sub(r"\s+", " ", (final_text or "")).strip()[:400]
@@ -474,7 +488,7 @@ class Orchestrator:
             if why:
                 return f"ERROR: refusing to fetch {source}: {why}"
         self.emit("tool", agent["id"], f"video_describe {source} ({question[:80] or 'describe'})")
-        res = V.describe_video(src, question, frames=frames, context=self.business.get("name", ""))
+        res = V.describe_video(src, question, frames=frames, context=self.business.get("name", ""), meter=self.meter)
         stamp = time.strftime("%H%M%S")
         for i, fr in enumerate(res["frames"][:4]):    # contact sheet: first sampled frames as run deliverables
             fp = self.run_dir / f"video_{stamp}_f{i}_{fr['t']:.0f}s.jpg"
@@ -539,17 +553,40 @@ class Orchestrator:
             return True
         return name.startswith("mcp__") and "mcp" in agent.get("tools", []) and name in getattr(self, "_mcp_index", {})
 
+    def _held_tools(self) -> dict[str, dict[str, Any]]:
+        """Tools refused at a usage limit in this run -> the limit's body. On the run's meter, so parallel tool calls
+        and nested agents share it (usage spec §4.6 S22)."""
+        limited = getattr(self.meter, "limited", None)
+        return limited if isinstance(limited, dict) else self._tool_limits
+
+    @staticmethod
+    def _limit_key(call: ToolCall) -> tuple[str, str]:
+        """(key, words) for a refused tool: a delegation is out for that one agent only, other tools by name."""
+        if call.name == "delegate":
+            target = str((call.args or {}).get("agent_id", "") or "").strip()
+            return f"delegate:{target}", f"delegate to {target or '?'}"
+        return call.name, call.name
+
     def _execute_tools(self, agent: dict[str, Any], calls: list[ToolCall], depth: int) -> list[tuple[str, str, str, bool]]:
         def one(call: ToolCall) -> tuple[str, str, str, bool]:
             if not self._tool_allowed(agent, call.name, depth):
                 self.emit("policy", agent["id"], f"refused {call.name}: not one of {agent.get('name', agent['id'])}'s tools")
                 return (call.id, call.name, f"NOT ALLOWED: {call.name} is not one of your tools. "
                                             f"Your tools: {', '.join(sorted(self._agent_tools(agent, depth)))}.", True)
+            key, words = self._limit_key(call)
+            held = self._held_tools().get(key)
+            if held:                                    # refused earlier in this run: the same answer, no new request
+                return (call.id, call.name, U.tool_limit_text(held, words), True)
             try:
                 out = self._tool(agent, call, depth)
                 return (call.id, call.name, out, False)
             except Cancelled:
                 raise
+            except U.UsageLimit as exc:                 # S22: a typed result, and the tool is out for the rest of the run
+                body = exc.body()
+                self._held_tools()[key] = body
+                self.emit("log", agent["id"], f"{words}: stopped at a usage limit: {exc.message}")
+                return (call.id, call.name, U.tool_limit_text(body, words), True)
             except Exception as exc:
                 self.emit("error", agent["id"], f"{call.name}: {exc}")
                 return (call.id, call.name, f"{type(exc).__name__}: {exc}", True)
@@ -575,6 +612,24 @@ class Orchestrator:
         except Exception:
             pass
 
+    # ------------------------------------------------------------------ actions nobody approved (usage spec §1.3 L8)
+    def _action_meter(self) -> Any:
+        """Who an unattended action counts for: the run's meter, else (a run with none: CLI, tests) this desk."""
+        if self.meter is not None:
+            return self.meter
+        return U.Meter(owner_id=0, desk_id=int(getattr(self.store, "desk_id", 0) or 0), scope="house", lane="auto",
+                       surface="run.step")
+
+    def _auto_held(self, kind: str) -> str:
+        """L8 before an auto connector acts (S27): "" = go (one action sent without approval is counted); otherwise
+        the note the action waits for approval with ("auto-send paused: ..."). It is never dropped."""
+        held = U.auto_action(self._action_meter(), kind)
+        return U.paused_note(held) if held is not None else ""
+
+    def _submit_gate(self) -> str:
+        """The browser's gate for a pre-approved submit (browser_allow_submit): "" = submit, else the L8 note."""
+        return self._auto_held("browser")
+
     # ------------------------------------------------------------------ browser hand
     def _browse(self, agent: dict[str, Any], args: dict[str, Any]) -> str:
         """Run one browser task through atlas.browser. The model never self-approves submits: allow_submit comes
@@ -596,22 +651,29 @@ class Orchestrator:
             return "browse: not available in demo mode (no model key)"
         macro = BR.load_macro(str(args.get("macro") or "")) if args.get("macro") else None
         self.emit("tool", aid, f"browse -> {url or '(current page)'}: {task[:140]}")
-        try:
-            res = BR.run_task(task, url, provider, model, allow_submit=allow, profile=profile,
-                              max_steps=max(3, min(80, int(args.get("max_steps") or BR.MAX_STEPS))),
-                              macro=macro, vars_=dict(args.get("vars") or {}), record_name=str(args.get("record") or ""),
-                              on_event=lambda k, t: self.emit("log" if k == "log" else "tool", aid, t))
-        except Exception as exc:
-            return f"browse failed to start: {type(exc).__name__}: {str(exc)[:200]}"
+        # the browser's model steps are the run's requests (its meter, lane and per-run cap), labelled browse.step
+        with U.step_surface("browse.step"):
+            try:
+                res = BR.run_task(task, url, provider, model, allow_submit=allow, profile=profile,
+                                  max_steps=max(3, min(80, int(args.get("max_steps") or BR.MAX_STEPS))),
+                                  macro=macro, vars_=dict(args.get("vars") or {}), record_name=str(args.get("record") or ""),
+                                  on_event=lambda k, t: self.emit("log" if k == "log" else "tool", aid, t),
+                                  meter=self.meter, submit_gate=self._submit_gate if allow else None)
+            except U.UsageLimit:
+                raise                                   # S25: _execute_tools makes it the typed LIMIT result
+            except Exception as exc:
+                return f"browse failed to start: {type(exc).__name__}: {str(exc)[:200]}"
         with self._usage_lock:
             self.tokens_in += res.tokens_in
             self.tokens_out += res.tokens_out
+        if res.status == "limit" and isinstance(res.limit, U.UsageLimit):
+            raise res.limit                             # S25: the task stopped at a limit; the tool is out for the run
         out = res.summary()
         if res.status == "needs_approval" and res.pending and self.store:
             host = re.sub(r"^https?://", "", res.pending.get("url") or url).split("/")[0][:80]
             body = json.dumps({"task": task, "url": url, "profile": profile, "pending": res.pending}, ensure_ascii=False)
             qid = self.store.add_action(self.run_id, aid, "browser_action", host, res.pending.get("description", "")[:200], body,
-                                        "browser submit needs owner approval")
+                                        res.pending.get("note") or "browser submit needs owner approval")
             self.emit("approval", aid, f"browser_action -> {host}: {res.pending.get('description', '')[:100]}",
                       action_id=qid, action_kind="browser_action", to=host)
             out += f"\nQueued for owner approval (id={qid}). Do not tell anyone it was sent."
@@ -930,26 +992,31 @@ class Orchestrator:
                 return "\n".join(slots) if slots else "no free slots in that range"
             spec = {"title": str(args.get("title", "")), "start": str(args.get("start", "")), "end": str(args.get("end", "") or ""),
                     "attendee_email": str(args.get("attendee_email", "") or ""), "description": str(args.get("description", "") or "")}
-            if conn.get("auto"):
+            held = self._auto_held("calendar") if conn.get("auto") else ""   # S27: L8 before an unattended booking
+            if conn.get("auto") and not held:
                 res = I.gcal_create_event(conn["config"], spec["title"], spec["start"], spec["end"], spec["attendee_email"], spec["description"])
                 self.emit("tool", aid, f"calendar_book → {res}")
                 return res
             qid = self.store.add_action(self.run_id, aid, "booking", spec["attendee_email"] or conn["name"], spec["title"],
-                                        json.dumps(spec, indent=1), str(args.get("reason", "") or "calendar booking"))
+                                        json.dumps(spec, indent=1), held or str(args.get("reason", "") or "calendar booking"))
             self.emit("approval", aid, f"booking → {spec['attendee_email'] or conn['name']}: {spec['title']} {spec['start']}", action_id=qid, action_kind="booking", to=spec["attendee_email"])
             self._notify(f":calendar: *Booking awaiting approval* — {spec['title']} {spec['start']} (queue #{qid})")
-            return f"queued for approval (id={qid}): booking '{spec['title']}' at {spec['start']} — the owner must approve before it lands on the calendar."
+            return (f"queued for approval (id={qid}): booking '{spec['title']}' at {spec['start']} — the owner must approve before it lands on the calendar."
+                    + (f" {held}." if held else ""))
         if name.startswith("mcp__"):
             hit = self._mcp_index.get(name)
             if not hit:
                 return f"unknown MCP tool {name}"
             conn, tool = hit
-            if M.is_write(tool) and not conn.get("auto"):
+            write = M.is_write(tool)
+            held = self._auto_held("mcp") if write and conn.get("auto") else ""   # S27: L8 before an unattended write
+            if write and (not conn.get("auto") or held):
                 payload = json.dumps({"mcp_tool": tool, "arguments": args}, indent=1)
                 qid = self.store.add_action(self.run_id, aid, "api_call", conn["name"], f"MCP {tool}", payload,
-                                            f"Write-type MCP tool on {conn['name']} — owner approval required")
+                                            held or f"Write-type MCP tool on {conn['name']} — owner approval required")
                 self.emit("approval", aid, f"api_call → {conn['name']}: MCP {tool}", action_id=qid, action_kind="api_call", to=conn["name"])
-                return f"queued for approval (id={qid}): {tool} on {conn['name']} looks like a write; the owner must approve."
+                return (f"queued for approval (id={qid}): {tool} on {conn['name']} looks like a write; the owner must approve."
+                        + (f" {held}." if held else ""))
             self.emit("tool", aid, f"mcp {conn['name']}.{tool}({', '.join(f'{k}={str(v)[:40]!r}' for k, v in args.items())})")
             return M.REGISTRY.get(conn).call(tool, args)
         if name == "camera_look":
@@ -966,7 +1033,10 @@ class Orchestrator:
             live = (self.configs.get("mode") or "") != "demo"
             prev = self.store.last_vision_event(conn["name"]) if hasattr(self.store, "last_vision_event") else None
             try:
-                res = V.analyse(str(conn["config"].get("source", "")), conn["config"], None, live_vlm=live, question=question)
+                res = V.analyse(str(conn["config"].get("source", "")), conn["config"], None, live_vlm=live, question=question,
+                                meter=self.meter)
+            except U.UsageLimit:
+                raise                                   # S23: the typed LIMIT result (_execute_tools), not "unavailable"
             except Exception as exc:
                 return f"camera {conn['name']} unavailable: {str(exc)[:200]}"
             snap = V.save_snapshot(self.configs.get("desk_id", 0), conn["name"], res["annotated"])
@@ -1011,8 +1081,14 @@ class Orchestrator:
                 return r.text or ""
 
             try:
+                text_byo = self.pool.get(agent.get("provider") or "").key_kind == "byo"
+            except Exception:
+                text_byo = False
+            try:
                 res = rag.ask(self.store.s, self.store.desk_id, q, hours, str(args.get("camera", "") or ""), self.business,
-                              mode="demo" if demo else "live", text_answer=text_answer)
+                              mode="demo" if demo else "live", text_answer=text_answer, meter=self.meter, text_byo=text_byo)
+            except U.UsageLimit:
+                raise                                   # S24: rag.ask already fell back to the owner's key where it could
             except Exception as exc:
                 return f"ERROR: camera_ask failed: {type(exc).__name__}: {str(exc)[:200]}"
             m = res["retrieval"]
@@ -1036,15 +1112,18 @@ class Orchestrator:
             except Exception:
                 limit = 40
             query = str(args.get("query", "") or "").strip()
+            rows = None
             if query and hasattr(self.store, "desk_id"):          # semantic + keyword retrieval over the log
                 from . import rag
                 try:
                     ret = rag.retrieve(self.store.s, self.store.desk_id, query, hours, str(args.get("camera", "") or ""),
-                                       k=limit, alerts_only=bool(args.get("alerts_only")), strict=True)
+                                       k=limit, alerts_only=bool(args.get("alerts_only")), strict=True, meter=self.meter)
                     rows = list(reversed(ret["rows"]))
+                except U.UsageLimit:
+                    rows = None                         # held at a limit: the keyword search below needs no model
                 except Exception:
-                    rows = self.store.vision_events(str(args.get("camera", "") or ""), time.time() - hours * 3600, query, limit, bool(args.get("alerts_only")))
-            else:
+                    rows = None
+            if rows is None:
                 rows = self.store.vision_events(str(args.get("camera", "") or ""), time.time() - hours * 3600,
                                                 query, limit, bool(args.get("alerts_only")))
             self.emit("tool", aid, f"camera_events({args.get('camera','') or 'all'}, {hours:g}h) → {len(rows)}")
@@ -1103,12 +1182,14 @@ class Orchestrator:
                 return f"connector {conn['name']} is {conn['kind']}, not an HTTP API"
             method = str(args.get("method", "GET")).upper()
             path = str(args.get("path", ""))
-            if method != "GET" and not conn.get("auto"):
+            held = self._auto_held("http") if method != "GET" and conn.get("auto") else ""   # S27: L8 before an auto write
+            if method != "GET" and (not conn.get("auto") or held):
                 payload = json.dumps({"method": method, "path": path, "params": args.get("params") or {}, "body": args.get("body")}, indent=1)
                 qid = self.store.add_action(self.run_id, aid, "api_call", conn["name"], f"{method} {path}", payload,
-                                            str(args.get("reason", "") or ""))
+                                            held or str(args.get("reason", "") or ""))
                 self.emit("approval", aid, f"api_call → {conn['name']}: {method} {path}", action_id=qid, action_kind="api_call", to=conn["name"])
-                return f"queued for approval (id={qid}): {method} {path} on {conn['name']} — the owner must approve writes on this connector."
+                return (f"queued for approval (id={qid}): {method} {path} on {conn['name']} — the owner must approve writes on this connector."
+                        + (f" {held}." if held else ""))
             self.emit("tool", aid, f"http_request {method} {conn['name']}{path}")
             res = I.http_call(conn["config"], method, path, args.get("params") or None, args.get("body"))
             txt = json.dumps(res, ensure_ascii=False)
@@ -1125,11 +1206,13 @@ class Orchestrator:
                 return "generate_media needs a prompt"
             spec = {"media": media, "prompt": prompt, "image_url": args.get("image_url") or "", "duration": args.get("duration"),
                     "aspect_ratio": args.get("aspect_ratio") or "16:9", "purpose": args.get("purpose") or ""}
-            if not conn.get("auto"):
+            held = self._auto_held("higgsfield") if conn.get("auto") else ""   # S27: it spends the owner's credits
+            if not conn.get("auto") or held:
                 qid = self.store.add_action(self.run_id, aid, "api_call", conn["name"], f"generate {media}: {prompt[:70]}",
-                                            json.dumps(spec, indent=1), str(args.get("purpose") or "media generation spends credits"))
+                                            json.dumps(spec, indent=1), held or str(args.get("purpose") or "media generation spends credits"))
                 self.emit("approval", aid, f"api_call → {conn['name']}: generate {media}", action_id=qid, action_kind="api_call", to=conn["name"])
-                return f"queued for approval (id={qid}): {media} generation on {conn['name']} — spends credits, the owner must approve."
+                return (f"queued for approval (id={qid}): {media} generation on {conn['name']} — spends credits, the owner must approve."
+                        + (f" {held}." if held else ""))
             self.emit("tool", aid, f"generate_media {media} via {conn['name']}")
             res = I.higgsfield_generate(conn["config"], media, prompt, spec["image_url"], spec["duration"], spec["aspect_ratio"])
             return json.dumps({"status": res["status"], "outputs": res["outputs"], "model": res["model"]}, ensure_ascii=False)
@@ -1203,6 +1286,9 @@ class Orchestrator:
         self._inst_counts = {}
         self._tl.inst = None
         self.run_id = time.strftime("%Y%m%d-%H%M%S") + "-" + uuid.uuid4().hex[:6]
+        if self.meter is not None and str(getattr(self.meter, "surface", "")).startswith(("run.", "show.")):
+            self.meter.ref = self.run_id                # every ledger row of the run carries its id
+        self._held_tools().clear()                      # a tool out at a limit is out for one run only
         self.run_dir = RUNS_DIR / self.run_id
         self.run_dir.mkdir(parents=True, exist_ok=True)
         (self.run_dir / "TASK.md").write_text(f"# Task\n\n{task}\n\nMode: {mode}\n", encoding="utf-8")
@@ -1221,6 +1307,7 @@ class Orchestrator:
         self.emit("log", "system", f"run {self.run_id}  mode={mode}  business={self.business.get('name')}"
                   + (f"  case=#{self.case_id}" if self.case_id else ""))
         status, summary = "done", ""
+        limit: dict[str, Any] | None = None
         try:
             if mode == "auto":
                 summary = self.run_agent("atlas", task)
@@ -1233,12 +1320,16 @@ class Orchestrator:
         except Cancelled:
             status, summary = "cancelled", "Cancelled by user."
             self.emit("error", "system", "cancelled")
+        except U.UsageLimit as exc:                     # S26: a usage limit stopped the run - its own status, not an error
+            status, summary, limit = "limit", f"Stopped: {exc.message}", exc.body()
+            self.emit("log", "system", f"run stopped at a usage limit: {exc.message}")
         except Exception as exc:
             status, summary = "error", f"{type(exc).__name__}: {exc}"
             self.emit("error", "system", summary + "\n" + traceback.format_exc()[-1500:])
         c = self._counts
-        # the desk's own record of what the run left behind; a failed run keeps it too when anything was queued, sent or saved
-        if status == "done" or (status == "error" and (c["queued"] or c["sent"] or c["crm"] or c["jobs"] or self.deliverables)):
+        # the desk's own record of what the run left behind; a failed or stopped run keeps it too when anything was
+        # queued, sent or saved
+        if status == "done" or (status in ("error", "limit") and (c["queued"] or c["sent"] or c["crm"] or c["jobs"] or self.deliverables)):
             summary = (summary or "").rstrip() + (
                 f"\n\n---\nVerified by the desk (not model-claimed): {c['queued']} action(s) queued for approval, "
                 f"{c['sent']} sent, {c['crm']} CRM update(s), {c['jobs']} task(s) scheduled, "
@@ -1249,9 +1340,9 @@ class Orchestrator:
             self.store.finish_run(self.run_id, status, summary, self.tokens_in, self.tokens_out)
         self.emit("done", "system", summary, status=status, run_dir=str(self.run_dir),
                   deliverables=[str(p) for p in self.deliverables],
-                  tokens_in=self.tokens_in, tokens_out=self.tokens_out)
+                  tokens_in=self.tokens_in, tokens_out=self.tokens_out, **({"limit": limit} if limit else {}))
         return RunResult(self.run_id, status, summary, list(self.deliverables),
-                         self.tokens_in, self.tokens_out, self.run_dir)
+                         self.tokens_in, self.tokens_out, self.run_dir, limit)
 
     def _run_workflow(self, wf: dict[str, Any], task: str) -> str:
         outputs: list[tuple[str, str]] = []
