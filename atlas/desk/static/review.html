@@ -181,6 +181,8 @@ async function init(){
   const r = await fetch('/api/review/data'); const j = await r.json();
   if (!r.ok || !j.review) { $('#vp').innerHTML = `<div class="view info" style="grid-column:1/-1"><div class="empty">${esc(j.error || 'no data')}</div></div>`; return; }
   RV = j.review; RS = j.results; NT = j.notes; N = RV.instants.length;
+  { const want = (new URLSearchParams(location.search).get('cams') || '').split(',').map(s => s.trim()).filter(Boolean);   // ?cams=C1,C2,C3,C6: the others start hidden
+    if (want.length) RV.cameras.forEach(c => { if (!want.includes(c)) HIDE.add(c); }); }
   GEO = RV.geo_label || GEO; SHARED = !!RV.shared_ids; $('#lg-geo-t').textContent = GEO;   // older runs: the 75 cm clustering, per-camera ids
   if (RS) {
     const d = RS.detection && RS.detection[Object.keys(RS.detection)[0]];
