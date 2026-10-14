@@ -86,11 +86,10 @@
     ['', [['home', 'Home', '/desk#dash', 'home'], ['design', 'New desk', '/desk/workspace', 'plus'], ['live', 'Live operations', '/desk#live', 'pulse'],
           ['cameras', 'Cameras', '/desk#cameras', 'camera'], ['team', 'Agents', '/desk#team', 'team'], ['cases', 'Cases', '/desk/ops', 'inbox'],
           ['approvals', 'Approvals', '/desk#approvals', 'check'], ['inbox', 'Messages', '/desk#inbox', 'chat'], ['leads', 'Leads', '/desk#leads', 'leads'],
-          ['crm', 'Contacts', '/desk#crm', 'db'], ['report', 'Reports', '/desk#report', 'chart']]],
+          ['crm', 'Contacts', '/desk#crm', 'db'], ['report', 'Reports', '/desk#report', 'chart'], ['usage', 'Usage', '/desk/usage', 'gauge']]],
     ['More', [['objects', 'Objects', '/desk/objects', 'box'], ['review', 'Review', '/desk/review', 'film'], ['security', 'Security', '/desk/cyber', 'shield'],
               ['studio', 'Ad studio', '/desk#studio', 'spark'], ['automations', 'Automations', '/desk#automations', 'clock'], ['runs', 'Run history', '/desk#runs', 'list'],
-              ['integrations', 'Integrations', '/desk#integrations', 'link'], ['audit', 'Audit log', '/desk#audit', 'doc'],
-              ['usage', 'Usage', '/desk/usage', 'gauge']]],
+              ['integrations', 'Integrations', '/desk#integrations', 'link'], ['audit', 'Audit log', '/desk#audit', 'doc']]],
   ];
   // an owner with no desk yet: the same frame, with only the way in (Atlas drafts the first desk in the workspace)
   // (design chat counts against the account's allowance before any desk exists, so Usage is here too)
