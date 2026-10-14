@@ -29,7 +29,7 @@ async def run(a) -> Path:
                                   record_video_dir=str(tmp), record_video_size={"width": a.width, "height": a.height})
         pg = await ctx.new_page()
         await pg.goto(a.base + "/desk/review", wait_until="load")
-        await pg.wait_for_function("() => window.RV && RV.instants && RV.instants.length > 0", timeout=120000)
+        await pg.wait_for_function("() => typeof RV !== 'undefined' && RV && RV.instants && RV.instants.length > 0 && document.querySelector('.view canvas')", timeout=120000)
         hide = [c for c in ALL if c not in a.cams]
         await pg.evaluate("(hs) => { hs.forEach(c => hide(c)); }", hide)
         await pg.evaluate("(s) => { const e = document.getElementById('spd'); if (e) { e.value = String(s); e.dispatchEvent(new Event('change')); } }", a.speed)

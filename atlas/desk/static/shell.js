@@ -88,7 +88,9 @@
       <button class="sh-desk" id="sh-desk" title="${SETUP ? 'Start a desk' : 'Switch desk'}">${svg('home')}<span class="nm"><b id="sh-dname">${SETUP ? 'No desk yet' : '…'}</b><small id="sh-dsub">${SETUP ? 'Atlas drafts it with you' : 'loading'}</small></span>${svg('chevd')}</button>
       <div class="sh-nav">${nav.map(([g, items]) => (g ? `<div class="sh-grp">${g}</div>` : '') + items.map(([id, label, href, ic]) =>
         `<a class="sh-item" data-id="${id}" href="${href}" title="${esc(label)}">${svg(ic)}<span class="lbl">${esc(label)}</span><span class="sh-badge" id="sh-b-${id}" hidden></span></a>`).join('')).join('')}
-        <div class="sh-planet" aria-hidden="true"><div class="sh-orb"></div><div class="cap">REAL-WORLD\nINTELLIGENCE\nAT SCALE.</div></div></div>
+        <div class="sh-planet" aria-hidden="true"><div class="sh-orb"></div><div class="cap">CAMERAS
+INBOX
+APPROVALS</div></div></div>
       <div class="sh-bottom">${SETUP ? '' : `<a class="sh-item" data-id="setup" href="/desk#setup" title="Desk setup">${svg('gear')}<span class="lbl">Settings</span></a>`}<button class="sh-item" id="sh-help" title="Search and commands (Ctrl K)">${svg('help')}<span class="lbl">Help</span></button></div>
       <div class="sh-foot" id="sh-acct" title="Account"><div class="sh-av" id="sh-av">?</div><div class="sh-who"><b id="sh-me">…</b><small id="sh-co"></small></div>${svg('chevd')}</div>`;
     document.body.prepend(r);
