@@ -542,7 +542,7 @@ SAMPLE_LEADS: dict[str, list[dict[str, str]]] = {
 # model tiers: which agents get the strong model. Provider stays whatever the desk runs on (OpenRouter by default).
 TIERS: dict[str, dict[str, Any]] = {
     "free":     {"label": "Free",     "strong": [], "hermes_model": os.environ.get("ATLAS_FREE_MODEL", "nvidia/nemotron-3-super-120b-a12b:free"),
-                 "note": "£0 per lead. Free MiniMax everywhere - inside the Hermes Agent runtime it still scored 3/3 on research, writing and data. Planning is weaker; drafts run long and get bounced by policy."},
+                 "note": "Free models on Atlas's shared daily allowance; slower, and limited each day."},
     "frugal":   {"label": "Frugal",   "strong": [], "orchestrator": "anthropic/claude-haiku-4.5", "hermes_model": "anthropic/claude-haiku-4.5",
                  "note": "≈ 5-8p per lead. Claude Haiku orchestrates and powers Hermes Agent: fast, tidy, near-perfect on tool tasks."},
     "balanced": {"label": "Balanced", "strong": ["atlas"], "hermes_model": "anthropic/claude-haiku-4.5",

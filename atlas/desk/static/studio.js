@@ -4,7 +4,9 @@ const SPECIALIST_TOOLS = ['read_file', 'list_files', 'web_fetch', 'run_python', 
 const WF_COLORS = ['#0b5fcb', '#7c3aed', '#1f9d63', '#b45309'];
 const KIND_LABEL = {smtp: 'EMAIL OUT', imap: 'INBOX', http: 'API', mcp: 'TOOL SERVER', webhook: 'WEB FORM', hermes_agent: 'HERMES AGENT', higgsfield: 'HIGGSFIELD VIDEO'};
 const TRIG_LABEL = {webhook: 'WEBHOOK', inbox: 'INBOX', schedule: 'SCHEDULE', manual: 'MANUAL'};
-const DSG = {sid: null, bp: null, ready: false, stage: 1, deskId: null, plan: null, sel: null, els: new Map(), busy: false, tiers: [], mode: 'demo', saveT: null, jobs: []};
+// rev: the sketch's revision this page drew (the server's bp_rev); canvas saves and Build send it, and an older one is
+// refused as stale with the newest sketch, which is drawn instead. saving: a canvas save on its way.
+const DSG = {sid: null, bp: null, ready: false, stage: 1, deskId: null, plan: null, sel: null, els: new Map(), busy: false, tiers: [], mode: 'demo', saveT: null, jobs: [], rev: null, saving: null};
 
 /* ---------------------------------------------------------------- entry */
 async function openStudio(fresh) {
@@ -30,7 +32,8 @@ async function openStudio(fresh) {
   if (prev) { S = await fetch(`/api/design/${prev}`).then(r => r.ok ? r.json() : null).catch(() => null); }   // survive a page refresh
   if (!S) { S = await api('/design/start', {method: 'POST', body: {tier: $('#ds-tier').value}}); if (!S) return; }
   try { sessionStorage.setItem('ds_sid', S.sid); } catch (e) {}
-  Object.assign(DSG, {sid: S.sid, bp: null, ready: !!S.ready, stage: 1, deskId: S.desk_id || null, plan: null, sel: null, busy: false, jobs: []});
+  Object.assign(DSG, {sid: S.sid, bp: null, ready: !!S.ready, stage: 1, deskId: S.desk_id || null, plan: null, sel: null, busy: false, jobs: [],
+    rev: typeof S.rev === 'number' ? S.rev : null, saving: null});
   DSG.els.clear();
   $('#ds-svg').innerHTML = ''; $('#cv-empty').classList.remove('hide');
   $('#ds-chatwrap').classList.remove('hide'); $('#ds-connwrap').classList.add('hide');
@@ -65,9 +68,9 @@ async function dsStudy() {
   const push = (t, done) => { if (lines.length) lines[lines.length - 1].cls = 'done'; lines.push({t, cls: done ? 'done' : 'on'}); box.innerHTML = lines.map(l => `<div class="st-line ${l.cls}">${esc(l.t)}</div>`).join(''); };
   try {
     const r = await fetch(`/api/design/${DSG.sid}/study`, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({links})});
-    if (!r.ok) {                                         // refused before the stream: a usage limit's 429 says why and until when
+    if (!r.ok) {                                         // refused before the stream: a usage limit's 429 says why and until when; a 409 while a turn holds the sketch, or the spend cap: the server's words
       let j = null; try { j = await r.json(); } catch (_) {}
-      push(dsLimit(j) ? window.atlasLimit.text(j) : 'Study failed: ' + ((j && (j.message || j.error)) || 'HTTP ' + r.status), true);
+      push(dsLimit(j) ? window.atlasLimit.text(j) : (j && (j.message || j.error)) || `The study did not start (HTTP ${r.status})`, true);
       if (dsLimit(j)) dsLimitLink(box, j);
     }
     else { const rd = r.body.getReader(); const dec = new TextDecoder(); let buf = '';
@@ -102,6 +105,7 @@ function onStudyDone(ev, push) {
   $('#ds-msgs').innerHTML = '';
   for (const m of ev.transcript || []) addMsg(m.role === 'user' ? 'u' : 'a', m.text);
   setSugg(ev.suggestions);
+  if (typeof ev.rev === 'number') DSG.rev = ev.rev;
   if (ev.blueprint && (ev.blueprint.agents || []).length) { DSG.bp = ev.blueprint; setStage(2); renderCanvas(); $('#ds-approve').disabled = false; }
   document.querySelector('#ds-links .row').classList.add('hide'); $('#ds-linkbox').classList.add('hide'); $('#ds-links label').classList.add('hide');
   $('#ds-input').focus();
@@ -116,9 +120,11 @@ function setStage(n) {
 function addMsg(role, text) {
   const d = document.createElement('div'); d.className = 'msg ' + role;
   d.innerHTML = (role === 'a' ? '<span class="who">Designer</span>' : '') + '<span class="tx"></span>';
-  d.querySelector('.tx').textContent = text || '';
+  d.querySelector('.tx').textContent = role === 'a' ? plainNotes(text) : (text || '');
   $('#ds-msgs').appendChild(d); $('#ds-msgs').scrollTop = 1e9; return d;
 }
+// the server's factual notes are italic lines ("_Waiting for your OK: ..._"); this chat is plain text, so the marks go
+function plainNotes(text) { return String(text || '').replace(/(^|\n)_([^\n_][^\n]*?)_(?=\n|$)/g, '$1$2'); }
 function setSugg(list) {
   $('#ds-sugg').innerHTML = (list || []).map(s => `<button data-s="${esc(s)}" onclick="dsSend(this.dataset.s)">${esc(s)}</button>`).join('');
 }
@@ -139,16 +145,16 @@ async function dsSend(text) {
   const node = addMsg('a', ''); node.classList.add('typing'); const tx = node.querySelector('.tx');
   DSG.busy = true; $('#ds-sendbtn').disabled = true;
   try {
-    if (DSG.saveT) {                                              // an edit on the canvas is still in its save debounce: land it before the model sees the sketch
-      clearTimeout(DSG.saveT); DSG.saveT = null;
-      try { await api(`/design/${DSG.sid}/blueprint`, {method: 'POST', body: {blueprint: DSG.bp}}); } catch (_) {}
-    }
+    await landSave();                                             // an edit on the canvas still on its way lands before the model sees the sketch
     const r = await fetch(`/api/design/${DSG.sid}/say`, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({text})});
-    if (!r.ok) {                                         // refused before the stream (a usage limit's 429): no turn was recorded
+    if (!r.ok) {                                         // the status first: a usage limit's 429 (no turn recorded), 409 while another turn holds the sketch, or the spend cap, as JSON
       let j = null; try { j = await r.json(); } catch (_) {}
-      if (!dsLimit(j)) throw new Error((j && (j.message || j.error)) || 'HTTP ' + r.status);
-      tx.innerHTML = window.atlasLimit.html(j); node.classList.add('limit');
-      setSugg((j.next || []).map(s => s && s.say).filter(Boolean).slice(0, 3));
+      if (dsLimit(j)) { tx.innerHTML = window.atlasLimit.html(j); node.classList.add('limit'); }
+      else tx.textContent = (j && (j.message || j.error)) || `The designer did not answer (HTTP ${r.status}).`;
+      if (r.status === 409 && !$('#ds-input').value.trim()) $('#ds-input').value = text;   // nothing was taken: the message waits in the box
+      else if (j && Array.isArray(j.suggestions)) setSugg(j.suggestions);                     // the steps that still work (accept or keep a proposed change)
+      else if (j && Array.isArray(j.next)) setSugg(j.next.map(s => s && s.say).filter(Boolean).slice(0, 3));
+      if (j && typeof j.rev === 'number') DSG.rev = j.rev;
     }
     else { const rd = r.body.getReader(); const dec = new TextDecoder(); let buf = '';
     while (true) {
@@ -176,10 +182,11 @@ const dsLimit = j => !!(j && window.atlasLimit && window.atlasLimit.is(j));
 function dsLimitLink(box, limit) { if (!box || !window.atlasLimit) return; const e = document.createElement('div'); e.className = 'lim-link'; e.innerHTML = window.atlasLimit.link(limit); box.appendChild(e); }
 
 function onDesignTurn(ev, tx) {
-  tx.textContent = ev.text;
+  tx.textContent = plainNotes(ev.text);
   setSugg(ev.suggestions);
   DSG.ready = !!ev.ready;
-  if (ev.blueprint && (ev.blueprint.agents || []).length) {
+  if (typeof ev.rev === 'number') DSG.rev = ev.rev;
+  if (ev.blueprint && ((ev.blueprint.agents || []).length || (DSG.bp && (DSG.bp.agents || []).length))) {   // an accepted removal that empties the sketch empties the canvas too
     DSG.bp = ev.blueprint;
     if (DSG.stage < 2) setStage(2);
     renderCanvas();
@@ -236,7 +243,7 @@ function clip(s, n) { s = String(s || ''); return s.length > n ? s.slice(0, n - 
 
 function renderCanvas() {
   const svg = $('#ds-svg'), wrap = $('#ds-cv');
-  if (!DSG.bp || !(DSG.bp.agents || []).length) { $('#cv-empty').classList.remove('hide'); return; }
+  if (!DSG.bp || !(DSG.bp.agents || []).length) { $('#cv-empty').classList.remove('hide'); svg.innerHTML = ''; DSG.els.clear(); return; }
   $('#cv-empty').classList.add('hide');
   const L = layout(DSG.bp, wrap.clientWidth || 900);
   svg.setAttribute('viewBox', `0 0 ${L.vw} ${L.vh}`);
@@ -365,7 +372,19 @@ function selectNode(key) {
 }
 function xbtn() { return '<button class="x" onclick="closeInsp()" title="Close">×</button>'; }
 function closeInsp() { DSG.sel = null; $('#ds-insp').classList.remove('on'); renderCanvas(); }
-function bpChanged() { renderCanvas(); clearTimeout(DSG.saveT); DSG.saveT = setTimeout(() => api(`/design/${DSG.sid}/blueprint`, {method: 'POST', body: {blueprint: DSG.bp}}), 500); }
+function bpChanged() { renderCanvas(); clearTimeout(DSG.saveT); DSG.saveT = setTimeout(saveBp, 500); }
+// one save of the canvas, with the revision it was drawn from. 409 stale: the sketch moved on (a turn, another tab), and
+// the newest one is drawn instead of this edit
+function saveBp() {
+  clearTimeout(DSG.saveT); DSG.saveT = null;
+  const p = api(`/design/${DSG.sid}/blueprint`, {method: 'POST', body: {blueprint: DSG.bp, base_rev: DSG.rev ?? undefined}}).then(r => {
+    if (r && r.error === 'stale' && r.blueprint) { DSG.bp = r.blueprint; DSG.rev = r.rev; closeInsp(); toast('The sketch changed meanwhile: redrawn from the newest'); }
+    else if (r && typeof r.rev === 'number') DSG.rev = r.rev;
+  }).catch(() => {});
+  DSG.saving = p; p.then(() => { if (DSG.saving === p) DSG.saving = null; });
+  return p;
+}
+async function landSave() { if (DSG.saveT) await saveBp(); else if (DSG.saving) await DSG.saving; }
 function agEdit(id, k, v) { const a = DSG.bp.agents.find(x => x.id === id); if (!a) return; a[k] = v; bpChanged(); }
 function agTool(id, t, on) { const a = DSG.bp.agents.find(x => x.id === id); if (!a) return; a.tools = on ? [...new Set([...a.tools, t])] : a.tools.filter(x => x !== t); bpChanged(); }
 function agRemove(id) { DSG.bp.agents = DSG.bp.agents.filter(x => x.id !== id); DSG.bp.workflows.forEach(w => w.steps = w.steps.filter(s => s !== id)); closeInsp(); bpChanged(); }
@@ -385,9 +404,15 @@ function cnRemove(i) { DSG.bp.connectors.splice(i, 1); closeInsp(); bpChanged();
 async function approveBuild() {
   if (!DSG.bp || !DSG.bp.agents.length) return toast('Nothing to build yet');
   $('#ds-approve').disabled = true; $('#ds-approve').textContent = 'Building…';
-  const r = await api(`/design/${DSG.sid}/build`, {method: 'POST', body: {blueprint: DSG.bp, tier: $('#ds-tier').value}});
+  await landSave();                                               // a canvas edit on its way lands first: its revision is this page's
+  const r = await api(`/design/${DSG.sid}/build`, {method: 'POST', body: {blueprint: DSG.bp, tier: $('#ds-tier').value, base_rev: DSG.rev ?? undefined}});
   $('#ds-approve').textContent = 'Approve & build';
-  if (!r || r.error) { $('#ds-approve').disabled = false; return toast(r?.error || 'Build failed'); }
+  if (r && r.error === 'stale') {                                 // the sketch moved on since this page drew it: the newest is drawn, nothing was built
+    if (r.blueprint) DSG.bp = r.blueprint; if (typeof r.rev === 'number') DSG.rev = r.rev;
+    closeInsp(); $('#ds-approve').disabled = !(DSG.bp && (DSG.bp.agents || []).length);
+    return toast('The sketch changed since you looked: check it, then approve again');
+  }
+  if (!r || r.error) { $('#ds-approve').disabled = false; return toast(r?.message || r?.error || 'Build failed'); }
   DSG.deskId = r.desk.id; DSG.plan = r.connect; DSG.jobs = r.jobs || [];
   toast(`Desk "${r.desk.business_name || r.desk.name}" built`);
   setStage(3); closeInsp();

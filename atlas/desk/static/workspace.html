@@ -239,6 +239,11 @@
     </div>
     <div class="panel" id="atlas-panel">
       <div class="ph as-h" id="chat-head"><span class="amark"></span><h2>Atlas</h2><span class="meta" id="as-sub">orchestrator · free models</span><span class="tag" id="chat-state">ready</span><span class="kbd" title="Press / anywhere to type here">/</span><button class="ibtn as-close" onclick="closeAtlas()" title="Close (Esc)"><svg class="i i14"><use href="#i-x"/></svg></button></div>
+      <!-- the design plan (a draft only): the plan, the open question, the change waiting for your OK, the build's facts and cost; it only displays -->
+      <section class="pstrip hide" id="plan" aria-label="Design plan">
+        <button type="button" class="ps-h" id="plan-head" aria-expanded="false" aria-controls="plan-rows"><span class="ps-l">Plan</span><span class="ps-sum" id="plan-sum"></span><svg class="i i14 ps-ch" aria-hidden="true"><use href="#i-down"/></svg></button>
+        <div class="ps-rows scroll" id="plan-rows"></div>
+      </section>
       <div id="msgs" class="scroll"></div>
       <div id="chat-foot" class="hide"><svg class="i i14"><use href="#i-build"/></svg><span class="hint" id="build-hint">Build is available once there is a first draft.</span></div>
       <div class="as-modes hide" id="as-modes"><button data-m="job" onclick="setMode('job')" title="Every message starts a run of the team">Give a job</button><button data-m="ask" onclick="setMode('ask')" title="Answers come only from what the cameras logged">Ask the cameras</button><button data-m="change" onclick="setMode('change')" title="Atlas proposes the change on the Team canvas; nothing changes until you apply it">Change the team</button></div>

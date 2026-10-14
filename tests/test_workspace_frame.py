@@ -1,7 +1,9 @@
 """The workspace inside the app frame: one desk per page (X-Desk / ?desk=), one honest camera status, one model-cost
 figure for Home and the workspace, failed runs that say so, run events that keep their data for a reload, and
 /desk/workspace meaning "my desk" once there is one. The Usage page in the frame and the rail, and every page wording
-a usage limit the same way (usage spec §4.7, §4.8, §6.1: T29, T30)."""
+a usage limit the same way (usage spec §4.7, §4.8, §6.1: T29, T30). The designer's UI (round 2 designer spec, step 7):
+the Plan strip between Atlas's header and the conversation, the ledger lines, the status read before the stream, a busy
+turn waited out, attaches stored by the server, base_rev on Build, studio.js and Home's draft card."""
 import json
 import re
 import shutil
@@ -16,6 +18,19 @@ from atlas import templates
 
 J = lambda r: json.loads(r.get_data(as_text=True))
 STATIC = Path(__file__).resolve().parents[1] / "atlas" / "desk" / "static"
+
+
+def _static(name):
+    return (STATIC / name).read_text(encoding="utf-8")
+
+
+def _fn(src, head):
+    """One top-level function's source: a one-line function, or from its head to the closing brace at column 0."""
+    i = src.index(head)
+    line = src[i:src.index("\n", i)]
+    if line.count("{") and line.count("{") == line.count("}"):
+        return line
+    return src[i:src.index("\n}", i) + 2]
 
 
 @pytest.fixture()
@@ -291,7 +306,7 @@ def test_usage_page_is_in_the_frame_and_rail(app_client, fresh_limits):
         assert THEME_LIGHT in line and "prefers-color-scheme" not in line, name
 
 
-def _fn(src: str, head: str) -> str:
+def _fn_to_next(src: str, head: str) -> str:
     """One top-level function's source, from its head to the next top-level function."""
     i = src.index(head)
     ends = [k for k in (src.find("\nasync function ", i + 1), src.find("\nfunction ", i + 1)) if k > 0]
@@ -304,13 +319,14 @@ def test_limit_rendering_is_wired():
     outside_window bodies into the formatted message; the live theatre handles a 429, any meta line and a hidden tab;
     the Ask panel's run watcher stops at `limit`; runs stopped at a limit say so; the cost figure links Usage."""
     ws = (STATIC / "workspace.js").read_text(encoding="utf-8")
-    send = _fn(ws, "async function send(")
-    assert send.index("if (!r.ok || !r.body)") < send.index("getReader()") and "isLimit(j)" in send
-    assert "result.refused" in send and "limitHtml(j)" in send and "j.next" in send
+    send = _fn_to_next(ws, "async function send(")
+    assert send.index("if (!r.ok || !r.body)") < send.index("getReader()") and "isLimit(ev)" in send and "turnRefused(refused" in send
+    refused = _fn_to_next(ws, "function turnRefused(")
+    assert "isLimit(j)" in refused and "limitHtml(j)" in refused and "j.next" in refused
     assert "if (result.limit) d.append(limitLink(result.limit));" in send
     studio = (STATIC / "studio.js").read_text(encoding="utf-8")
     for head in ("async function dsSend(", "async function dsStudy("):
-        f = _fn(studio, head)
+        f = _fn_to_next(studio, head)
         assert f.index("if (!r.ok)") < f.index("getReader()") and "dsLimit(" in f and "ev.limit" in f, head
     # the five api() helpers
     shell = (STATIC / "shell.js").read_text(encoding="utf-8")
@@ -325,23 +341,23 @@ def test_limit_rendering_is_wired():
         helper = text[text.index(head):].split("\n}", 1)[0].split("};", 1)[0]
         assert "const limitBody = j => (j && " + kinds in text and "limitBody(" in helper, name
     # the surfaces
-    assert "if (r && r.limited) { toast(r.error); limitLine(r); return; }" in _fn(ws, "async function deploy(")
-    assert "r && r.limited ? limitLine(r)" in _fn(ws, "async function askCams(")
-    assert "r.limited ||" in _fn(ws, "async function decide(") and "'stopped at a limit'" in _fn(ws, "function runState(")
-    assert "Run stopped at a limit" in _fn(ws, "function showSummary(")
+    assert "if (r && r.limited) { toast(r.error); limitLine(r); return; }" in _fn_to_next(ws, "async function deploy(")
+    assert "r && r.limited ? limitLine(r)" in _fn_to_next(ws, "async function askCams(")
+    assert "r.limited ||" in _fn_to_next(ws, "async function decide(") and "'stopped at a limit'" in _fn_to_next(ws, "function runState(")
+    assert "Run stopped at a limit" in _fn_to_next(ws, "function showSummary(")
     home = (STATIC / "index.html").read_text(encoding="utf-8")
     assert "r.limited ||" in home.split("const heldSend = ", 1)[1].split("\n", 1)[0]
-    assert "held[0].limited" in _fn(home, "async function seed(") and "'stopped at a limit'" in _fn(home, "function homeRuns(")
+    assert "held[0].limited" in _fn_to_next(home, "async function seed(") and "'stopped at a limit'" in _fn_to_next(home, "function homeRuns(")
     assert """"location.href='/desk/usage'",""" in home and "onclick=\"location.assign('/desk/usage')\"" in (STATIC / "workspace.html").read_text(encoding="utf-8")
     m = re.search(r"if \(/([^/]+)/i\.test\(st\)\)", shell)             # T39: the Ask panel's run watcher
     assert m and re.search(m.group(1), "limit", re.I) and not re.search(m.group(1), "running", re.I)
     assert "Stopped at a limit: " in shell
     th = (STATIC / "theatre.html").read_text(encoding="utf-8")
-    an = _fn(th, "async function analyse(")
+    an = _fn_to_next(th, "async function analyse(")
     assert "if(!r.ok || !r.body)" in an and "j.error==='usage_limit'" in an and "pauseFeed(feed, held, div)" in an
     assert "while((i=buf.indexOf('\\x01'))>=0)" in an and "startsWith('\\x01')" not in th   # every meta line, not only the first
-    assert "addEventListener('visibilitychange'" in th and "document.hidden" in _fn(th, "async function tick(")
-    assert "!(feed.pausedUntil>Date.now())" in _fn(th, "async function tick(")
+    assert "addEventListener('visibilitychange'" in th and "document.hidden" in _fn_to_next(th, "async function tick(")
+    assert "!(feed.pausedUntil>Date.now())" in _fn_to_next(th, "async function tick(")
 
 
 NODE = shutil.which("node")
@@ -390,3 +406,100 @@ def test_atlas_limit_words_every_limit_the_same_way(tmp_path):
     # a body an api() helper already mapped (the Ask panel, the job bar) still reads with its reset and link
     assert out["again"] == m and out["mapped_text"].startswith("AI requests today: 250 of 250 used. Resets ")
     assert out["mapped_html"].startswith('<span class="al-msg">AI requests today: 250 of 250 used.</span> <span class="al-reset" title="')
+
+
+# ------------------------------------------------------------------ the designer's UI (designer spec 11, 7.1, 12.4)
+def test_the_plan_strip_sits_between_atlas_header_and_the_conversation():
+    html = _static("workspace.html")
+    panel = html[html.index('id="atlas-panel"'):html.index('id="composer"')]
+    head, plan, msgs = panel.index('id="chat-head"'), panel.index('id="plan"'), panel.index('id="msgs"')
+    assert head < plan < msgs
+    strip = panel[plan:msgs]
+    assert 'aria-label="Design plan"' in strip and '<button type="button" class="ps-h" id="plan-head" aria-expanded="false"' in strip
+    assert not re.search(r"\son[a-z]+=", strip)                            # it only displays: no handler in its markup
+
+
+def test_the_plan_strip_and_the_ledger_lines_are_text_only():
+    """Plan, question, option, assumption, decision, reason and ledger text is model text: textContent only, never
+    parsed as HTML or markdown (designer spec 10)."""
+    js = _static("workspace.js")
+    block = js[js.index("plan strip (start)"):js.index("plan strip (end)")]
+    for bad in ("innerHTML", "outerHTML", "insertAdjacentHTML", "onclick=", "document.write", "eval(", "md("):
+        assert bad not in block, bad
+    assert "textContent" in block and "replaceChildren(" in block
+    assert "function renderPlan(" in block and "function narrateLedger(" in block and "function ledgerLine(" in block
+    ledger = _fn(js, "function narrateLedger(")                            # one system message, a text line per entry
+    assert "addMsg('s', '', 'assign ledger')" in ledger and "psEl('div', 'lg', t)" in ledger
+    assert "else d.textContent = text" in _fn(js, "function addMsg(")
+    # the header is a button that says whether it is open; the owner's choice is a convenience in localStorage
+    assert "setAttribute('aria-expanded'" in _fn(js, "function psPaint(")
+    assert "try { localStorage.setItem(psKey()" in block and "try { const v = localStorage.getItem(psKey())" in block
+    # it opens by itself on a turn that changed the plan, the question or the proposal; the owner's choice wins
+    plan = _fn(js, "function renderPlan(")
+    assert plan.index("if (choice)") < plan.index("else if (turn && changed) PS.open = true")
+    assert "['meet', 'design'].includes(W.phase)" in plan
+    # no glyph icons in the lines: words and the established + ~ − = → markers
+    assert not re.search("[✓✔✕⇄↺●]", block)
+
+
+def test_send_reads_the_status_before_the_stream_and_waits_out_a_busy_turn():
+    js = _static("workspace.js")
+    send = _fn(js, "async function send(")
+    assert send.index("r.status") < send.index("getReader()") and send.index("if (!r.ok || !r.body)") < send.index("getReader()")
+    refused = _fn(js, "function turnRefused(")
+    assert "j.status === 409 && j.error === 'busy'" in refused and "return waitBusy(j.busy_since, false)" in refused
+    assert "$('#say').value = text" in refused and "mine.remove()" in refused       # nothing was taken: the message goes back
+    assert "renderPlan(j.design, true)" in refused and "j.next" in refused         # a refusal keeps Phase A's answer and its steps
+    wait = _fn(js, "async function waitBusy(")
+    assert "sleep(3000)" in wait and "'/design/' + encodeURIComponent(W.sid)" in wait and "!r.busy" in wait
+    assert "W.seenTs.has(m.ts)" in wait and "setNext(s.next, lastA)" in wait and "renderPlan(s.design, true)" in wait
+    resume = _fn(js, "async function resumeDesign(")
+    assert "renderPlan(s.design)" in resume and "if (s.busy) waitBusy(s.busy_since, true)" in resume
+    # the state tag counts the seconds of a turn ("weighing · 14 s")
+    assert "stateClock(Date.now())" in send and "` · ${s} s`" in _fn(js, "function paintState(")
+
+
+def test_a_turn_draws_the_servers_draft_its_ledger_and_its_plan():
+    js = _static("workspace.js")
+    assert "addedCams" not in js                                           # the server's draft holds every attached camera
+    send = _fn(js, "async function send(")
+    assert "(result.blueprint.agents || []).length || W.agents.size" in send   # an accepted park that empties the team clears the canvas
+    assert "applyBlueprint(result.blueprint, false, !ledger)" in send      # with a ledger the canvas animates, the ledger tells
+    order = [send.index(s) for s in ("applyBlueprint(result.blueprint", "narrateLedger(ledger)", "renderPlan(result.design, true)",
+                                      "setNext(result.next, d)")]
+    assert order == sorted(order)
+    apply = _fn(js, "async function applyBlueprint(")
+    assert "narrate = narrate ?? !quiet" in apply and "applyCams(bp.cameras || [], quiet, !narrate)" in apply
+    assert not re.search(r"if \(!quiet\) addMsg", apply)                   # every line it writes follows the narration flag
+    attach = _fn(js, "async function doAttach(")
+    assert "/design/${W.sid}/camera`" in attach and "applyBlueprint(r.blueprint, false, false)" in attach
+    build = _fn(js, "async function buildDesk(")
+    assert "base_rev: W.rev ?? undefined" in build and "await flushLayout()" in build and "buildRefused(r)" in build
+    assert "r.rev === rev0 + 1 && W.rev === rev0" in _fn(js, "function sendLayout(")   # only this page's drag moves its revision
+
+
+def test_the_plan_strip_follows_the_themes_and_a_phone():
+    css = _static("workspace.css")
+    rules = [line for line in css.splitlines() if ".ps-" in line or ".pstrip" in line or "#plan" in line]
+    assert rules and not [line for line in rules if re.search(r"#[0-9a-fA-F]{3,8}\b|rgba?\(", line)]   # tokens only: light and dark
+    assert '#wk:is([data-phase="run"],[data-phase="load"]) #plan{display:none!important}' in css
+    assert '#wk[data-w="s"] .ps-rows{max-height:45vh}' in css and '#wk[data-w="s"] .ps-h{min-height:40px}' in css
+    assert "-webkit-line-clamp:2" in next(line for line in rules if line.startswith('#wk[data-w="s"] .ps-sum'))
+
+
+def test_studio_shows_the_busy_message_and_sends_its_revision():
+    js = _static("studio.js")
+    say = _fn(js, "async function dsSend(")
+    assert say.index("if (!r.ok)") < say.index("getReader()") and "j.message" in say and "throw new Error('HTTP '" not in say
+    assert "await landSave()" in say
+    assert "base_rev: DSG.rev ?? undefined" in _fn(js, "function saveBp(")
+    build = _fn(js, "async function approveBuild(")
+    assert "base_rev: DSG.rev ?? undefined" in build and "r.error === 'stale'" in build and "await landSave()" in build
+    assert "DSG.rev = ev.rev" in _fn(js, "function onDesignTurn(")
+
+
+def test_home_counts_the_owners_messages_and_the_wall_waits_for_a_note():
+    html = _static("index.html")
+    more = _fn(html, "async function startMore(")
+    assert "filter(m => m && m.role === 'user')" in more and "said.length + ' message'" in more and "d.turn" not in more
+    assert "journal: listening" not in html and "journal: waiting for the first note" in html

@@ -681,6 +681,45 @@ table.team{width:100%;border-collapse:collapse;table-layout:fixed;font-size:12.5
 @keyframes aflash{0%{box-shadow:0 0 0 2px var(--accent)}100%{box-shadow:0 0 0 2px transparent}}
 #wk[data-phase="meet"] #msgs>.m,#wk[data-phase="meet"] #msgs>.nx,#wk[data-phase="meet"] #composer{max-width:780px}
 #wk[data-phase="meet"]:not([data-w="s"]) #say{height:84px}            /* the first brief is usually a few sentences */
+/* the Plan strip (a draft only): the design state between Atlas's header and the conversation. One row collapsed (the
+   next item, the open question, the change waiting); open, a row per item, question, proposal, assumption, build fact
+   and cost line. It only displays: the step rows under the reply act. */
+.pstrip{flex:none;margin:10px 14px 0;border:1px solid var(--line);border-radius:var(--r);background:var(--panel2);display:flex;flex-direction:column;min-width:0;overflow:hidden}
+#wk:is([data-phase="run"],[data-phase="load"]) #plan{display:none!important}
+.ps-h{display:flex;align-items:center;gap:10px;width:100%;min-height:32px;padding:5px 8px 5px 10px;text-align:left;color:var(--text);min-width:0}
+.ps-h:hover{background:color-mix(in srgb,var(--line) 45%,transparent)}
+.ps-h:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+.ps-l{flex:none;font:500 10.5px/1 var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}
+.ps-sum{flex:1 1 auto;min-width:0;font-size:12.5px;line-height:18px;color:var(--text2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ps-ch{flex:none;color:var(--muted);transition:transform .15s var(--ease)}
+.pstrip.open .ps-ch{transform:rotate(180deg)}
+.ps-rows{display:none;border-top:1px solid var(--line);max-height:min(32vh,300px)}
+.pstrip.open .ps-rows{display:block}
+@media (max-height:820px){.ps-rows{max-height:30vh}}                   /* a short screen keeps the conversation readable under it */
+.ps-r{display:grid;grid-template-columns:62px minmax(0,1fr) auto;column-gap:10px;align-items:start;padding:6px 10px 7px;border-top:1px solid var(--line);font-size:12.5px;line-height:18px;color:var(--text)}
+.ps-r:first-child{border-top:0}
+.ps-k{min-width:0;font:500 10.5px/18px var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--faint);white-space:nowrap}
+.ps-k .tag{height:18px;padding:0 5px;font-size:10.5px;gap:3px;letter-spacing:.06em}
+.ps-k .tag .i{width:11px;height:11px;stroke-width:2}
+.ps-t{min-width:0;overflow-wrap:anywhere}
+.ps-tt{display:block}
+.ps-sub{display:block;font-size:12px;line-height:17px;color:var(--muted);margin-top:1px}
+.ps-w{font:500 10.5px/17px var(--mono);letter-spacing:.06em;text-transform:uppercase;color:var(--faint);margin-right:6px}
+.ps-side{font:400 11px/18px var(--mono);color:var(--warn);white-space:nowrap}
+/* NOW in the accent, NEXT plain, LATER / DONE / DROPPED faint; the two rows that wait on the owner carry a left rule */
+.ps-k .tag.ps-now{color:var(--accent2);background:var(--accent-soft);border-color:var(--accent-line)}
+.ps-k .tag:is(.ps-later,.ps-done,.ps-dropped){color:var(--faint);background:transparent}
+.ps-r.dr .ps-tt{text-decoration:line-through;color:var(--muted)}
+.ps-r.q{box-shadow:inset 2px 0 0 var(--warn)}
+.ps-r.x{box-shadow:inset 2px 0 0 var(--accent)}
+.ps-r.x :is(.ps-k,.ps-side){color:var(--accent2)}
+.ps-q{display:inline-flex;align-items:center;gap:6px;color:var(--warn)}
+.ps-r.f .ps-tt{font:400 11.5px/17px var(--mono);color:var(--muted)}
+.ps-r.a .ps-tt{color:var(--text2)}
+.ps-r.full .ps-tt{color:var(--warn)}
+/* a turn's ledger under its reply: one compact system message, a line per change (whole in the tooltip) */
+#msgs .m.s.ledger{display:flex;flex-direction:column;gap:1px}
+#msgs .m.s.ledger>.lg{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 
 /* formatted replies */
 .md{white-space:normal}
@@ -979,6 +1018,15 @@ body[data-w="s"] #toast{bottom:16px}
 #wk[data-w="s"]:is([data-phase="meet"],[data-phase="design"]) .right{order:-1;flex:none}
 #wk[data-w="s"]:is([data-phase="meet"],[data-phase="design"]) #atlas-panel{min-height:0;flex:none}
 #wk[data-w="s"]:is([data-phase="meet"],[data-phase="design"]) #msgs{flex:none;min-height:0;max-height:min(64vh,620px)}
+/* the Plan strip on a phone: one row of two lines collapsed, at most 45% of the screen open (it scrolls), 40 px taps */
+#wk[data-w="s"] .pstrip{margin:8px 12px 0}
+#wk[data-w="s"] .ps-h{min-height:40px}
+#wk[data-w="s"] .ps-sum{white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+#wk[data-w="s"] .ps-rows{max-height:45vh}
+#wk[data-w="s"] .ps-r{grid-template-columns:58px minmax(0,1fr)}
+#wk[data-w="s"] .ps-side{grid-column:2}
+#wk[data-w="s"] #msgs .m.s.ledger>.lg{white-space:normal}               /* no tooltip on a phone: the whole line */
+@media (pointer:coarse){.ps-h{min-height:40px}}
 /* phones: the frame's bar above already names the desk, so the page title steps aside; the phase tag joins the eyebrow */
 @media (max-width:760px){
   body.sh-on #wk .wk-id{display:flex;flex-wrap:wrap;align-items:center;column-gap:8px}

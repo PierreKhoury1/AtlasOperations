@@ -328,7 +328,9 @@ class OpenAICompatProvider(Provider):
                 pass
             if "free-models-per-day" in str(msg):
                 msg = f"{msg} [daily free-model quota exhausted on this OpenRouter account - resets 00:00 UTC; add credits or switch tier]"
-            raise RuntimeError(f"HTTP {r.status_code}: {msg}")
+            err = RuntimeError(f"HTTP {r.status_code}: {msg}")
+            err.requests = int(limits.get("requests") or 0)   # type: ignore[attr-defined]  # the call's requests so far
+            raise err
 
         fallback = (self.cfg.get("fallback_model") or "").strip()
         # Wall-clock limits for streamed calls. OpenRouter keeps a queued request alive with ": PROCESSING"
@@ -379,6 +381,7 @@ class OpenAICompatProvider(Provider):
                 fn["arguments"] = json.dumps({"_raw": str(fn.get("arguments") or "")[:2000], "_error": "malformed arguments, resend"})
             calls.append(ToolCall(tc.get("id") or f"call_{len(calls)}", fn.get("name", ""), args))
         usage = body.get("usage") or {}
+        details = usage.get("completion_tokens_details") if isinstance(usage.get("completion_tokens_details"), dict) else {}
         return LLMResponse(
             text=(message.get("content") or "").strip(),
             tool_calls=calls,
@@ -387,6 +390,10 @@ class OpenAICompatProvider(Provider):
             input_tokens=int(usage.get("prompt_tokens") or 0),
             output_tokens=int(usage.get("completion_tokens") or 0),
             model=body.get("model") or model,
+            # what the call cost in HTTP requests (each 5xx retry and the fallback count), the model it fell back from,
+            # and the hidden reasoning tokens: read by the designer's per-turn telemetry
+            extra={"requests": int(limits.get("requests") or 0), "fallback_from": str(body.get("_fallback_from") or ""),
+                   "reasoning_tokens": details.get("reasoning_tokens") if isinstance(details.get("reasoning_tokens"), int) else 0},
         )
 
     def _once(self, client, payload, on_token, _raise, limits=None) -> dict[str, Any]:
@@ -397,6 +404,8 @@ class OpenAICompatProvider(Provider):
         free-model quota error comes back as UsageLimit(pool_free_day) (§4.4); any other 429 stays a RuntimeError."""
         ticket = U.before(self.meter, provider=self.usage_provider, model=str(payload.get("model") or ""),
                           key_kind=self.key_kind)
+        if limits is not None:                          # one HTTP request: counted for LLMResponse.extra["requests"]
+            limits["requests"] = int(limits.get("requests") or 0) + 1
         seen: dict[str, Any] = {}
         try:
             body = self._send(client, payload, on_token, _raise, limits, seen)

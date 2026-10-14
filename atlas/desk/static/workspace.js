@@ -28,7 +28,8 @@ const W = {
   cams: new Map(),          // name -> {name, id, source, journal, el, st, watching, frameTs, problem, lastNote, counts}
   camPoll: null, evSince: 0,
   manual: new Map(), pan: {x: 0, y: 0}, uz: 1,
-  addedCams: new Map(),
+  rev: null,                // the draft's revision this page drew (the server's bp_rev): Build sends it, an older one is refused as stale
+  seenTs: new Set(),        // the server times of the conversation entries on the page, so a turn that ended elsewhere is drawn once
   modeSel: 'job', apCount: null, apOldest: '', runs: null, desks: null, notes24: null, lastNoteTs: 0, cost: null, activeRuns: 0,
   // what has answered at least once on a built desk: until then its figures read "–" and no line claims anything from it
   // (W.apCount stays null until /actions answers, W.runs until /runs does)
@@ -76,7 +77,14 @@ function countsText(c){
 
 const PALETTE = ['#4c90f0', '#32a467', '#ec9a3c', '#9881f3', '#2ec4b6', '#e76a6e', '#68c1ee', '#d1980b', '#c274c2', '#8eb125'];   // one muted colour per agent
 function agentName(id){ if (!id) return ''; if (id === 'atlas') return 'Atlas'; if (id === 'system') return 'Desk'; if (id === 'owner') return 'You'; const base = String(id).split('#')[0]; const a = W.agents.get(base); return a ? a.name + (base !== id ? ' #' + String(id).split('#')[1] : '') : id; }
-function setState(t){ t = String(t || 'ready').toLowerCase(); const el = $('#chat-state'); el.textContent = t; el.className = 'tag' + (t !== 'ready' ? ' busy' : ''); }
+// Atlas's state tag; while a design turn runs it carries the seconds since it started ("weighing · 14 s")
+const CS = {text: 'ready', t0: 0, timer: 0};
+function setState(t){ CS.text = String(t || 'ready').toLowerCase(); paintState(); }
+function paintState(){
+  const el = $('#chat-state'), on = CS.text !== 'ready', s = on && CS.t0 ? Math.floor((Date.now() - CS.t0) / 1000) : 0;
+  el.textContent = CS.text + (s >= 1 ? ` · ${s} s` : ''); el.className = 'tag' + (on ? ' busy' : '');
+}
+function stateClock(t0){ clearInterval(CS.timer); CS.t0 = t0 || 0; CS.timer = CS.t0 ? setInterval(paintState, 1000) : 0; paintState(); }
 function setPhase(t){ const e = $('#phase-label'); e.textContent = t; e.className = 'tag ' + (/^running/.test(t) ? 'running' : /ready|built/.test(t) ? 'done' : /fail|error/.test(t) ? 'error' : ''); }
 function setPhaseAttr(){ $('#wk').dataset.phase = document.body.dataset.phase = W.phase; placePanels(); fitStrip(); if (typeof msgsBottom === 'function') msgsBottom(); if (W.teamView !== viewFor()) applyTeamView(); else fitTeam(); }
 function setDeskStatus(){
@@ -151,23 +159,27 @@ async function boot(){
   }
   const s = await api('/design/start', {method: 'POST', body: {tier: W.tier}});
   if (!s || s.error) { W.noAtlas = true; addMsg('s', (s && s.error) || 'Atlas is not available right now.'); setPhase('brief'); setState('unavailable'); $('#say').placeholder = 'Atlas is not available right now'; renderAll(); return; }
-  W.sid = s.sid; W.mode = s.mode || W.mode; W.tier = s.tier || W.tier; loadView(); opened();
+  W.sid = s.sid; W.mode = s.mode || W.mode; W.tier = s.tier || W.tier; W.rev = typeof s.rev === 'number' ? s.rev : null; loadView(); opened();
   keepSid(s.sid);
   if (q.has('new')) history.replaceState(null, '', '/desk/workspace?new=1&resume=1');
-  setNext(s.next, addMsg('a', (s.transcript && s.transcript[0] && s.transcript[0].text) || 'Describe the business and the work to take on.'));
+  const hello = (s.transcript || [])[0]; if (hello && hello.ts) W.seenTs.add(hello.ts);
+  setNext(s.next, addMsg('a', (hello && hello.text) || 'Describe the business and the work to take on.'));
+  renderPlan(s.design);
   setDeskStatus(); loadMyDesks(); renderAll();
   if (W.liveReason) addMsg('s', 'no model key: ' + W.liveReason + ' (running the scripted designer)');
   tutStart(false, 'meet');
 }
 async function resumeDesign(s, from){
-  W.sid = s.sid; W.mode = s.mode || W.mode; W.tier = s.tier || W.tier; loadView(); opened();
-  (s.transcript || []).forEach(m => addMsg(m.role === 'user' ? 'u' : 'a', m.text || '', '', !m.ts, m.ts));
+  W.sid = s.sid; W.mode = s.mode || W.mode; W.tier = s.tier || W.tier; W.rev = typeof s.rev === 'number' ? s.rev : null; loadView(); opened();
+  (s.transcript || []).forEach(m => { addMsg(m.role === 'user' ? 'u' : 'a', m.text || '', '', !m.ts, m.ts); if (m.ts) W.seenTs.add(m.ts); });
   W.lastSaid = ((s.transcript || []).filter(m => m.role === 'user').pop() || {}).text || '';   // what a paid switch resends
   const lastA = [...document.querySelectorAll('#msgs > .m.a')].pop() || null;
-  if (s.blueprint && (s.blueprint.agents || []).length) await applyBlueprint(s.blueprint, true);
+  if (s.blueprint && ((s.blueprint.agents || []).length || (s.blueprint.cameras || []).length)) await applyBlueprint(s.blueprint, true);   // a camera attached before any agent is part of the draft too
   if ((s.transcript || []).length > 1) addMsg('s', (from === 'mine' ? 'draft continued from your last session' : 'draft restored') + (W.agents.size ? ` · Atlas + ${plural(W.agents.size, 'specialist')}: ${[...W.agents.values()].map(a => a.name).join(', ')}` : ''), 'assign');
-  setNext(s.next, lastA);                                                  // the saved steps of the last reply, as they were
-  syncBuild();
+  renderPlan(s.design);
+  if (s.busy) waitBusy(s.busy_since, true);                                // a turn still running (another tab, or this page before a reload): its reply is drawn when it ends
+  else setNext(s.next, lastA);                                             // the saved steps of the last reply, as they were
+  if (W.bp) draftControls(s.ready); else syncBuild();
   setDeskStatus(); loadMyDesks(); renderAll();
   tutStart(false, W.bp ? 'team' : 'meet');
 }
@@ -399,6 +411,147 @@ document.getElementById('msgs').addEventListener('keydown', e => {
 });
 /* ------------------------------------------------------------------ next steps (end) */
 
+/* ------------------------------------------------------------------ plan strip (start)
+   The design state between Atlas's header and the conversation (designer spec 11), from the server's view of it: the
+   plan (now, next, later, dropped, done, each with its why), the change waiting for the owner's OK, the open question
+   and what Atlas uses if it is skipped, assumptions, what the build will and will not do, and the cost estimate (what
+   was decided is told by the ledger lines under each reply). It only displays: every action is one of the three step
+   rows under the reply. It opens by itself on
+   a turn that changed the plan, the question or the proposal; the owner's own open or close wins after that, kept per
+   draft in localStorage (a convenience: the strip works without it). Model text reaches the page through textContent
+   only, here and in the ledger lines under a reply. */
+const PS = {view: null, sig: '', open: null};
+const PS_TAG = {now: 'Now', next: 'Next', later: 'Later', dropped: 'Dropped', done: 'Done'};
+const PS_VERB = {remove: 'Remove', park: 'Park', merge: 'Merge', replace: 'Replace'};
+const psEl = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = String(text); return e; };
+const psKey = () => 'ws_plan_' + (W.sid || '');
+function psChoice(){ try { const v = localStorage.getItem(psKey()); return v === 'open' || v === 'shut' ? v : ''; } catch (_) { return ''; } }
+// "A", "A and B", "A, B and C"; past six names the rest are "N more" (the server's own joining)
+function psAnd(xs, most = 6){ xs = xs.filter(Boolean); if (xs.length > most) xs = [...xs.slice(0, most - 1), `${xs.length - most + 1} more`]; return xs.length > 1 ? xs.slice(0, -1).join(', ') + ' and ' + xs[xs.length - 1] : xs.join(''); }
+// a proposal in the server's words: what it takes (agents, workflows, connectors, cameras) and into what
+function psProposal(x){
+  const names = [...(x.names || []), ...(x.workflows || []).map(w => `the ${w} workflow`), ...(x.connectors || []).map(c => `the ${c} connector`)];
+  if ((x.cameras || []).length) names.push((x.cameras.length === 1 ? 'camera ' : 'cameras ') + x.cameras.join(', '));
+  const into = x.into ? (x.kind === 'merge' ? ' into ' + x.into : x.kind === 'replace' ? ' with ' + x.into : '') : '';
+  return `${PS_VERB[x.kind] || 'Change'} ${psAnd(names)}${into}`;
+}
+// view: the server's design view (public() / a done event / a design route's answer); turn: it comes from a turn
+function renderPlan(view, turn){
+  const box = $('#plan'); if (!box) return;
+  if (view && typeof view === 'object') PS.view = view;
+  const v = PS.view, plan = v && Array.isArray(v.plan) ? v.plan : [];
+  const has = !!v && (plan.length > 0 || !!v.question || !!v.proposal);
+  box.classList.toggle('hide', !has || !['meet', 'design'].includes(W.phase));
+  if (!has) { PS.sig = ''; return; }
+  const sig = JSON.stringify([plan.map(it => [it.id, it.status, it.title, it.why, it.agents, it.pending]), v.question && [v.question.id, v.question.text], v.proposal && v.proposal.id]);
+  const changed = sig !== PS.sig; PS.sig = sig;
+  const choice = psChoice();
+  if (choice) PS.open = choice === 'open';                                 // the owner's own choice wins
+  else if (turn && changed) PS.open = true;                                // a turn changed the plan, the question or the proposal
+  else if (PS.open === null) PS.open = !isPhone();                         // first sight: open beside the canvas, one row on a phone
+  psSummary(v, plan); psRows(v, plan); psPaint();
+}
+// collapsed, the strip is one row: the next item (else what is being done now), the open question, the change waiting
+function psSummary(v, plan){
+  const find = st => plan.find(it => it.status === st), parts = [];
+  const nx = (v.summary && v.summary.first_next) || '', now = find('now');
+  if (nx) parts.push('next: ' + nx); else if (now) parts.push('now: ' + now.title);
+  if (v.question) parts.push('? ' + v.question.text);
+  if (v.proposal) parts.push('your OK: ' + psProposal(v.proposal));
+  if (!parts.length) {                                                     // nothing open: what is parked for later, else the newest done item
+    const later = find('later'), done = plan.filter(it => it.status === 'done').pop();
+    parts.push(later ? 'later: ' + later.title : done ? 'done: ' + done.title : 'every item dropped');
+  }
+  $('#plan-sum').textContent = parts.join('  ·  ');
+}
+function psRows(v, plan){
+  const rows = [];
+  const why = w => { if (!w) return null; const s = psEl('span', 'ps-sub'); s.append(psEl('span', 'ps-w', 'why'), document.createTextNode(w)); return s; };
+  const tag = st => { const t = psEl('span', 'tag ps-' + st); if (st === 'done') t.append(nxIcon('i-check')); t.append(document.createTextNode(PS_TAG[st] || st)); return t; };
+  // one row: a label (a status tag or a kind), the text with its muted lines under it, a note on the right
+  const row = (cls, label, title, subs, side) => {
+    const r = psEl('div', 'ps-r' + (cls ? ' ' + cls : '')), k = psEl('span', 'ps-k'), t = psEl('div', 'ps-t');
+    if (typeof label === 'string') k.textContent = label; else if (label) k.append(label);
+    t.append(psEl('span', 'ps-tt', title));
+    (subs || []).forEach(s => { if (s) t.append(typeof s === 'string' ? psEl('span', 'ps-sub', s) : s); });
+    r.append(k, t); if (side) r.append(psEl('span', 'ps-side', side));
+    rows.push(r);
+  };
+  for (const st of ['now', 'next', 'later']) plan.filter(it => it.status === st).forEach(it => {
+    const team = [(it.agents || []).join(' · '), (it.pending || []).length ? 'queued: ' + it.pending.join(', ') : ''].filter(Boolean).join(' · ');
+    row('', tag(st), it.title, [team, why(it.why)], it.stale ? (it.idle ? 'waiting ' + plural(it.idle, 'turn') : 'waiting') : '');
+  });
+  if (v.proposal) row('x', 'Proposed', psProposal(v.proposal), [why(v.proposal.reason)], 'your OK');
+  if (v.question) {
+    const q = v.question, k = psEl('span', 'ps-q'); k.append(psEl('i', 'dot d-warn'), document.createTextNode('Q'));
+    row('q', k, q.text, [[q.decides ? 'decides ' + String(q.decides).replace(/_/g, ' ') : '', q.default ? 'if you skip: ' + q.default : ''].filter(Boolean).join(' · ')], q.waited ? 'still open' : '');
+  }
+  (v.assumptions || []).forEach(a => row('a', 'Assumed', a.text));          // decisions stay in the conversation's ledger lines
+  const cost = Array.isArray(v.cost) ? v.cost : [];
+  (v.facts || []).filter(f => !cost.includes(f)).forEach(f => row('f', 'Build', f));
+  cost.forEach(f => row('f', 'Cost', f));
+  plan.filter(it => it.status === 'dropped').forEach(it => row('dr', tag('dropped'), it.title, [why(it.why)]));
+  const done = plan.filter(it => it.status === 'done');
+  if (done.length) row('dn', tag('done'), plural(done.length, 'item'), [done.map(it => it.title).join(' · ')]);
+  if (v.plan_full) row('full', '', `The plan is full (${plural(plan.length, 'item')}): drop or merge one.`);
+  $('#plan-rows').replaceChildren(...rows);
+}
+function psPaint(){
+  const open = !!PS.open, head = $('#plan-head'); if (!head) return;
+  $('#plan').classList.toggle('open', open);
+  head.setAttribute('aria-expanded', String(open)); head.title = open ? 'Collapse the plan' : 'Show the plan';
+}
+(document.getElementById('plan-head') || {addEventListener(){}}).addEventListener('click', () => {   // a button: Enter and Space toggle it too
+  PS.open = !PS.open;
+  try { localStorage.setItem(psKey(), PS.open ? 'open' : 'shut'); } catch (_) {}
+  psPaint();
+});
+// the turn's ledger (changes.applied: what the server applied, never the prose), one system line an entry, e.g.
+// "+ Floor Watcher — one reader covers all five camera journals"; three or more cameras, connectors or workflows added
+// or removed in one turn share a line
+const LG_WHAT = {workflow: 'workflow ', camera: 'camera ', connector: 'connector '};
+function ledgerLine(e){
+  const nm = String(e.name || ''), why = e.why ? ' — ' + e.why : '', what = LG_WHAT[e.what] || '';
+  const fields = (e.fields || []).length ? ': ' + e.fields.map(f => String(f).replace(/_/g, ' ')).join(', ') : '';
+  switch (e.kind) {
+    case 'add': case 'build': return `+ ${what}${nm}${why}`;
+    case 'update': return `~ ${e.what === 'business' ? 'business details' : e.what === 'policy' ? 'policy' : what + nm}${fields}${why}`;
+    case 'remove': return `− ${what}${nm} removed${why}`;
+    case 'merge': return `− merged ${nm}${why}`;
+    case 'park': return `− parked ${nm}${why}`;
+    case 'keep': return `= ${nm} kept${why}`;
+    case 'queue': return `→ next: ${nm}${why}`;
+    case 'propose': return `proposed ${nm}, waiting for your OK${why}`;
+    case 'accept': return `accepted: ${nm}`;
+    case 'decline': return `declined: ${nm}`;
+    case 'undo': return `undone: ${nm}`;
+    case 'answer': return `answered: ${nm}${why}`;
+    case 'default': return `default used: ${nm}${why}`;
+    default: return nm ? `${e.kind}: ${nm}${why}` : '';
+  }
+}
+function ledgerLines(applied){
+  const list = (Array.isArray(applied) ? applied : []).filter(e => e && typeof e === 'object' && typeof e.kind === 'string');
+  const out = [], shared = new Set();
+  for (const kind of ['add', 'remove']) for (const what of ['camera', 'connector', 'workflow']) {
+    const es = list.filter(e => e.kind === kind && e.what === what);
+    if (es.length < 3) continue;
+    es.forEach(e => shared.add(e));
+    out.push([list.indexOf(es[0]), `${kind === 'add' ? '+' : '−'} ${es.length} ${what}s${kind === 'remove' ? ' removed' : ''}: ${es.map(e => e.name).join(', ')}`]);
+  }
+  list.forEach((e, i) => { if (!shared.has(e)) out.push([i, ledgerLine(e)]); });
+  return out.sort((a, b) => a[0] - b[0]).map(x => x[1]).filter(Boolean);
+}
+// one system message holding a line per entry: a long turn's ledger stays compact under the reply (each line whole in
+// its tooltip, and wrapped on a phone)
+function narrateLedger(applied){
+  const lines = ledgerLines(applied); if (!lines.length) return;
+  const box = addMsg('s', '', 'assign ledger');
+  lines.forEach(t => { const l = psEl('div', 'lg', t); l.title = t; box.append(l); });
+  msgsEnd();
+}
+/* ------------------------------------------------------------------ plan strip (end) */
+
 const MODE_PH = {ask: 'Ask about what the cameras recorded', job: 'Describe a job for the team: it starts a run', change: 'Describe a change to the team: Atlas proposes it on the Team canvas'};
 // first jobs worth trying on a desk with no run yet (the Current run panel's list)
 function firstJobs(){ return W.cams.size ? ['Summarise what the cameras saw today', 'Write a safety report for the last 24 hours'] : ['Draft a reply to the newest enquiry', "Prepare tomorrow's staff briefing"]; }
@@ -438,47 +591,43 @@ async function send(text){
     $('#job').value = text; return deploy();
   }
   W.lastSaid = text;
-  retireNext(); addMsg('u', text);
+  retireNext(); const mine = addMsg('u', text);
   const desk0 = W.deskId;
-  W.busy = true; syncSend(); syncBuild(); setState('working');
+  W.busy = true; syncSend(); syncBuild(); setState('working'); stateClock(Date.now());
   const d = addMsg('a', ''); let acc = '', raf = 0;
   const paint = () => { raf = 0; d.innerHTML = md(acc) + '<i class="cur"></i>'; $('#msgs').scrollTop = 1e9; };
   paint();
-  let result = null;
+  let result = null, refused = null;
   try {
     const r = await fetch(`/api/design/${W.sid}/say`, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({text})});
     if (r.status === 401) { location.href = '/login?next=' + encodeURIComponent(location.pathname + location.search); return; }
-    if (!r.ok || !r.body) {                            // refused before any stream (a usage limit's 429, a rate limit): JSON, no turn recorded
+    if (!r.ok || !r.body) {                                                // the status first: a JSON answer before any stream (a turn already running, a usage limit, the spend cap)
       let j = null; try { j = await r.json(); } catch (_) {}
-      result = isLimit(j) ? {refused: j} : {error: (j && (j.message || j.error)) || `Atlas did not answer (${r.status}). Try again.`};
-    }
-    else { const reader = r.body.getReader(); const dec = new TextDecoder(); let buf = '';
-    while (true) {
-      const {value, done} = await reader.read(); if (done) break;
-      buf += dec.decode(value, {stream: true});
-      let i; while ((i = buf.indexOf('\n\n')) >= 0) {
-        const chunk = buf.slice(0, i); buf = buf.slice(i + 2);
-        for (const line of chunk.split('\n')) {
-          if (!line.startsWith('data: ')) continue;
-          let ev; try { ev = JSON.parse(line.slice(6)); } catch (_) { continue; }
-          if (ev.t === 'tok') { acc += ev.d; if (!raf) raf = requestAnimationFrame(paint); }
-          else if (ev.t === 'status') { setState(ev.d); }
-          else if (ev.t === 'done') result = ev;
-          else if (ev.t === 'error') result = isLimit(ev) ? {refused: ev} : {error: ev.error};
+      refused = {...(j && typeof j === 'object' ? j : {}), status: r.status};
+    } else {
+      const reader = r.body.getReader(); const dec = new TextDecoder(); let buf = '';
+      while (true) {
+        const {value, done} = await reader.read(); if (done) break;
+        buf += dec.decode(value, {stream: true});
+        let i; while ((i = buf.indexOf('\n\n')) >= 0) {
+          const chunk = buf.slice(0, i); buf = buf.slice(i + 2);
+          for (const line of chunk.split('\n')) {
+            if (!line.startsWith('data: ')) continue;
+            let ev; try { ev = JSON.parse(line.slice(6)); } catch (_) { continue; }
+            if (ev.t === 'tok') { acc += ev.d; if (!raf) raf = requestAnimationFrame(paint); }
+            else if (ev.t === 'status') { setState(ev.d); }
+            else if (ev.t === 'done') result = ev;
+            else if (ev.t === 'error') { if (isLimit(ev)) refused = {...ev, status: 200}; else result = {error: ev.message || ev.error}; }
+          }
         }
       }
-    } }
+    }
   } catch (e) { result = {error: String(e)}; }
   cancelAnimationFrame(raf);
   // Atlas has answered once its reply's team is on the page: until then Send and Build wait (a build mid-way would
   // build a team the page is still drawing)
-  const settle = () => { W.busy = false; syncSend(); syncBuild(); setState('ready'); };
-  if (result && result.refused) {                      // the limit's numbers and reset, with the server's steps; W.lastSaid stays (the paid step resends it)
-    settle();
-    const j = result.refused; d.classList.add('limit'); d.innerHTML = limitHtml(j);
-    setNext(Array.isArray(j.next) && j.next.length ? j.next : [{label: 'Send it again', detail: 'Resends your last message to Atlas', icon: 'i-reset', run: () => send(text)}], d);
-    return;
-  }
+  const settle = () => { W.busy = false; syncSend(); syncBuild(); stateClock(0); setState('ready'); };
+  if (refused) { settle(); return turnRefused(refused, text, typed, mine, d); }
   if (!result || result.error) {
     settle();
     d.innerHTML = md((result && result.error) || 'Atlas did not answer. Try again.');
@@ -487,15 +636,81 @@ async function send(text){
   }
   const last = (result.transcript || []).filter(m => m.role === 'assistant').pop();
   d.innerHTML = md(result.text || (last && last.text) || acc || 'Atlas did not answer. Try again.');   // the final text, without the machine block
+  if (typeof result.rev === 'number') W.rev = result.rev;
   if (result.limit) d.append(limitLink(result.limit));                    // a limit inside the turn: the reset and the Usage page
   if (W.deskId !== desk0 || W.phase === 'run') return settle();            // the desk was built meanwhile: its team is the built one, the reply is only text
-  try { if (result.blueprint && (result.blueprint.agents || []).length) { await applyBlueprint(result.blueprint); setDeskStatus(); } }
-  finally { settle(); }
+  const ledger = result.changes && Array.isArray(result.changes.applied) ? result.changes.applied : null;   // the server's record of what this turn applied
+  // the canvas follows the draft; an accepted park that leaves no agent (or no camera) clears it too
+  try {
+    if (result.blueprint && ((result.blueprint.agents || []).length || W.agents.size || (result.blueprint.cameras || []).length || W.cams.size)) {
+      await applyBlueprint(result.blueprint, false, !ledger); setDeskStatus();   // with a ledger the canvas animates and the ledger lines below tell what changed
+    }
+  } finally { settle(); }
   if (W.deskId !== desk0 || W.phase === 'run') return;
-  $('#build-hint').textContent = result.ready ? 'Draft complete. Build it, or keep refining.' : (W.bp ? 'Describe changes to reshape the team, or build now.' : 'Build is available once there is a first draft.');
-  if (W.bp) $('#chat-foot').classList.remove('hide');
+  if (ledger) narrateLedger(ledger);
+  if (result.design) renderPlan(result.design, true);
+  draftControls(result.ready);
   if (d === lastAtlas()) setNext(result.next, d);                          // after the team settles, so a build step is real
   if (result.ready) tutHook('ready');
+}
+// /say answered before any stream. 409: another tab, device or request holds this draft's turn: nothing was taken, the
+// message goes back to the box and the page waits for that reply. Otherwise a limit or the spend cap: the server's
+// words, the steps that still work (accepting or keeping a proposed change needs no model) and what Phase A kept.
+function turnRefused(j, text, typed, mine, d){
+  if (j.status === 409 && j.error === 'busy') {
+    d.remove(); mine.remove();
+    if (typed && !$('#say').value.trim()) $('#say').value = text;
+    addMsg('s', (j.message || 'Atlas is still answering your last message.') + (typed ? ' Your message is back in the box.' : ''));
+    return waitBusy(j.busy_since, false);
+  }
+  if (isLimit(j)) { d.classList.add('limit'); d.innerHTML = limitHtml(j); }   // a usage limit: its numbers, the reset in UTC, the Usage page
+  else d.textContent = String(j.message || j.error || `Atlas did not answer (${j.status}). Try again.`);
+  if (typeof j.rev === 'number') W.rev = j.rev;
+  if (j.design) renderPlan(j.design, true);                                // an option's answer, recorded before the refusal, stays
+  const steps = Array.isArray(j.next) && j.next.length ? j.next : [{label: 'Send it again', detail: 'Resends your last message to Atlas', icon: 'i-reset', run: () => send(text)}];
+  if (d === lastAtlas()) setNext(steps, d);
+}
+// the draft's build controls after a reply: Build needs agents; the hint says where the draft stands
+function draftControls(ready){
+  const has = !!(W.bp && (W.bp.agents || []).length);
+  syncBuild();                                                             // Build: agents, no reply under way, not building, not built
+  $('#build-hint').textContent = ready ? 'Draft complete. Build it, or keep refining.' : (has ? 'Describe changes to reshape the team, or build now.' : 'Build is available once there is a first draft.');
+  if (W.bp) $('#chat-foot').classList.remove('hide');
+}
+/* ------------------------------------------------------------------ a turn this page did not start (designer spec 7.1)
+   Another tab or device, or this page before a reload: /say answers 409 while a turn holds the draft, and a resumed
+   draft says busy. The page says so, reads the draft every 3 s and, once the turn has ended, draws what it added: its
+   messages, the team, the plan and the next steps. */
+async function waitBusy(since, resumed){
+  if (W.waiting || !W.sid) return;
+  W.waiting = true; W.busy = true; syncSend(); syncBuild();
+  const from = Number(since) || 0;
+  if (resumed) addMsg('s', 'Atlas is still answering your last message.');
+  setState('answering'); stateClock(from > 0 ? Math.min(Date.now(), from * 1000) : Date.now());
+  let s = null;
+  try {
+    for (let i = 0; i < 200 && !s; i++) {                                 // 10 minutes; a design turn ends by its 180 s deadline
+      await sleep(3000);
+      const r = await api('/design/' + encodeURIComponent(W.sid));
+      if (r && !r.error && r.sid && !r.busy) s = r;
+    }
+  } finally { W.waiting = false; W.busy = false; syncSend(); syncBuild(); stateClock(0); setState('ready'); }
+  if (!s) {
+    const note = addMsg('s', 'That turn has not ended yet.');
+    setNext([{label: 'Check again', detail: 'Reads the draft again and shows the reply once it is in', icon: 'i-reset', run: () => waitBusy(since, true)}], note);
+    return;
+  }
+  if (s.desk_id) { try { localStorage.removeItem('ws_sid'); } catch (_) {} location.replace('/desk/workspace?desk=' + s.desk_id); return; }   // built meanwhile: the desk
+  for (const m of s.transcript || []) {                                    // what that turn wrote (server times, so nothing is drawn twice)
+    if (!m || !m.ts || m.ts < from - 1 || W.seenTs.has(m.ts)) continue;
+    W.seenTs.add(m.ts); addMsg(m.role === 'user' ? 'u' : 'a', m.text || '', '', false, m.ts);
+    if (m.role === 'user') W.lastSaid = m.text || W.lastSaid;
+  }
+  if (typeof s.rev === 'number') W.rev = s.rev;
+  if (s.blueprint && ((s.blueprint.agents || []).length || W.agents.size || (s.blueprint.cameras || []).length || W.cams.size)) { await applyBlueprint(s.blueprint); setDeskStatus(); }
+  renderPlan(s.design, true);
+  draftControls(s.ready);
+  const lastA = lastAtlas(); if (lastA) setNext(s.next, lastA);
 }
 // a built desk's team is changed on Home's team canvas, where Atlas proposes it and nothing changes until applied
 async function changeTeam(text){
@@ -519,7 +734,10 @@ function orderIds(){
   W.agents.forEach(a => { if (!out.includes(a.id)) out.push(a.id); });
   return out;
 }
-async function applyBlueprint(bp, quiet){
+// quiet: no animation and no lines (a reload); narrate false: the canvas animates, and the turn's ledger lines (the
+// server's record of what it applied) tell what changed instead of this page's own diff
+async function applyBlueprint(bp, quiet, narrate){
+  narrate = narrate ?? !quiet;
   W.bp = bp;
   // positions the owner dragged to, saved with the blueprint: the canvas never snaps back after a reply (local wins)
   Object.entries(bp.layout || {}).forEach(([id, p]) => { if (!W.manual.has(id) && p && typeof p.x === 'number') W.manual.set(id, {x: p.x, y: p.y}); });
@@ -533,20 +751,19 @@ async function applyBlueprint(bp, quiet){
   const added = [], removed = [], moved = [], changed = [];
   incoming.forEach((a, id) => { const old = W.agents.get(id); if (!old) added.push(a); else { if (old.reports_to !== a.reports_to) moved.push(a); else if (old.role !== a.role || old.name !== a.name || (old.tools || []).join() !== (a.tools || []).join()) changed.push(a); } });
   W.agents.forEach((a, id) => { if (!incoming.has(id)) removed.push(a); });
-  if (first && added.length && !quiet) addMsg('s', 'drafting the team', 'assign');
+  if (first && added.length && narrate) addMsg('s', 'drafting the team', 'assign');
   W.agents = incoming; W.order = orderIds(); fitTeamNow();
-  removed.forEach(a => { const el = nodeEl(a.id); if (el) { el.classList.add('gone'); setTimeout(() => el.remove(), 500); } removeEdge(a.id); if (!quiet) addMsg('s', `− ${a.name} removed`, 'assign'); });
+  removed.forEach(a => { const el = nodeEl(a.id); if (el) { el.classList.add('gone'); setTimeout(() => el.remove(), 500); } removeEdge(a.id); if (narrate) addMsg('s', `− ${a.name} removed`, 'assign'); });
   layoutAll(!quiet, added.map(a => a.id));
   for (const a of added) {
     const lead = a.reports_to !== 'atlas' && W.agents.has(a.reports_to) ? W.agents.get(a.reports_to) : null;
-    if (!quiet) addMsg('s', `+ ${a.name} — ${a.role}${lead ? `  (in ${lead.name}'s team)` : ''}`, 'assign');
+    if (narrate) addMsg('s', `+ ${a.name} — ${a.role}${lead ? `  (in ${lead.name}'s team)` : ''}`, 'assign');
     await spawn(a.id, lead ? lead.id : 'atlas', quiet);
     if (!quiet) { renderTeamTable(); await sleep(160); }
   }
-  moved.forEach(a => { const to = a.reports_to === 'atlas' ? 'Atlas' : (W.agents.get(a.reports_to) || {}).name || a.reports_to; if (!quiet) addMsg('s', `↳ ${a.name} now reports to ${to}`, 'assign'); removeEdge(a.id); drawEdge(a.id, !quiet); });
+  moved.forEach(a => { const to = a.reports_to === 'atlas' ? 'Atlas' : (W.agents.get(a.reports_to) || {}).name || a.reports_to; if (narrate) addMsg('s', `↳ ${a.name} now reports to ${to}`, 'assign'); removeEdge(a.id); drawEdge(a.id, !quiet); });
   changed.forEach(a => { const el = nodeEl(a.id); if (el) { renderNodeInner(el, a); el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash'); } });
-  W.addedCams.forEach((src, name) => { const list = bp.cameras = bp.cameras || []; const c = list.find(x => x.name === name); if (c) { if (!c.source) c.source = src; } else list.push({name, source: src, journal: true, notes: '', focus: ''}); });   // hand-attached feeds survive a redraft
-  await applyCams(bp.cameras || [], quiet);
+  await applyCams(bp.cameras || [], quiet, !narrate);                      // the server's draft holds every camera, attached ones too
   if (first && !quiet) tutHook('team');
   if (!quiet && !first && added.length && $('#insp').classList.contains('inline')) W.sel = added[added.length - 1].id;   // a brief on screen follows the newest agent
   renderAll(); syncBuild();
@@ -943,13 +1160,18 @@ async function buildDesk(){
   if (W.deskId || W.building) return;                                      // built, or a build is out: one desk per draft
   if (W.busy) return toast('Atlas is still answering: Build is available once it has finished');   // its reply may still change the team
   if (!W.bp || !(W.bp.agents || []).length) return;
+  if (W.busy) return toast('Atlas is still answering: build once the reply is in');
   if (!W.deskName) return askDeskName();
   W.building = true; syncBuild(); syncSend(); $('#build-hint').textContent = 'Building…'; setState('building');
   let r = null;
-  try { r = await api(`/design/${W.sid}/build`, {method: 'POST', body: {blueprint: W.bp, tier: W.tier, name: W.deskName || ''}}); }
+  try {
+    await flushLayout();                                                   // a drag still on its way lands first: its revision is this page's
+    r = await api(`/design/${W.sid}/build`, {method: 'POST', body: {blueprint: W.bp, tier: W.tier, name: W.deskName || '', base_rev: W.rev ?? undefined}});
+  }
   catch (e) { r = {error: 'build failed: ' + String(e)}; }
   finally { W.building = false; syncSend(); }
   setState('ready');
+  if (r && (r.error === 'stale' || r.error === 'busy')) return buildRefused(r);
   if (!r || r.error) { $('#build-hint').textContent = (r && r.error) || 'build failed'; syncBuild(); return; }
   retireNext();                                                            // the draft's offers end with the draft
   W.deskId = W.pin = r.desk.id; W.deskName = r.desk.business_name || r.desk.name; saveView();
@@ -970,6 +1192,20 @@ async function buildDesk(){
   tutAct('build');                                                         // the draft's walkthrough is over; the built desk's follows
   if ((r.cameras || []).length) { startCamPoll(); tutHook('watching'); } else tutHook('built');
   loadNext({context: 'desk_open'}, built);
+}
+// Build was refused before anything was made. Stale: the draft moved on since this page drew it (a turn, another tab),
+// so the page redraws the newest draft and the owner builds again. Busy: a turn holds the draft.
+async function buildRefused(r){
+  if (r.error === 'stale') {
+    const s = await api('/design/' + encodeURIComponent(W.sid));         // the newest draft whole: team, revision, plan
+    const bp = s && !s.error && s.blueprint ? s.blueprint : r.blueprint, rev = s && !s.error && typeof s.rev === 'number' ? s.rev : r.rev;
+    if (typeof rev === 'number') W.rev = rev;
+    if (bp) { await applyBlueprint(bp); setDeskStatus(); }
+    if (s && !s.error && s.design) renderPlan(s.design, true);
+    addMsg('s', 'the draft changed since this page drew it: redrawn from the newest; check it, then press Build desk again', 'assign');
+  } else addMsg('s', r.message || 'Atlas is still answering: build once the reply is in');
+  draftControls(false);
+  $('#build-hint').textContent = r.error === 'stale' ? 'Redrawn from the newest draft. Build when it looks right.' : 'Build once Atlas has answered.';
 }
 function enterRunMode(){
   W.phase = 'run'; setPhaseAttr(); setPhase(W.ld.last ? 'ready' : 'loading'); if (!W.busy) setState('ready');
@@ -1330,9 +1566,9 @@ function tutSkip(){ TUT.auto = false; clearTimeout(TUT.t); TUT.pend = ''; tutEnd
 
 /* ------------------------------------------------------------------ cameras: tiles, frames, notes, questions */
 function camKind(src){ src = String(src || ''); if (!src) return 'needs a stream address'; if (src.startsWith('sample:') || /AtlasDemo[\\/]videos|[\\/]samples[\\/]/i.test(src)) return 'sample footage'; if (/^rtsps?:/i.test(src)) return 'RTSP camera'; if (/^https?:/i.test(src)) return 'snapshot URL'; if (/^\d+$/.test(src)) return 'webcam'; if (/\.(mp4|mov|avi|mkv|webm|m4v|ts|mpe?g)$/i.test(src)) return 'recording'; if (/\.(jpe?g|png)$/i.test(src)) return 'still image'; return 'camera'; }
-async function applyCams(list, instant){
+async function applyCams(list, instant, silent){
   const incoming = new Map((list || []).map(c => [c.name, c]));
-  W.cams.forEach((k, name) => { if (!incoming.has(name)) { if (k.el) { k.el.classList.add('spawn'); setTimeout(() => k.el.remove(), 500); } W.cams.delete(name); if (!instant) addMsg('s', `− camera ${name} removed`, 'assign'); } });
+  W.cams.forEach((k, name) => { if (!incoming.has(name)) { if (k.el) { k.el.classList.add('spawn'); setTimeout(() => k.el.remove(), 500); } W.cams.delete(name); if (!instant && !silent) addMsg('s', `− camera ${name} removed`, 'assign'); } });
   const first = !W.cams.size && incoming.size;
   for (const [name, c] of incoming) {
     const k = W.cams.get(name);
@@ -1342,7 +1578,7 @@ async function applyCams(list, instant){
     el.innerHTML = `<div class="pic"><span class="kind"></span><span class="badge hide"></span><span class="cnt"></span></div><div class="cn"><b>${esc(name)}</b><span class="tag"></span></div><div class="note"></div>`;
     el.onclick = () => camClick(name);
     $('#cams').insertBefore(el, $('#cam-add')); nk.el = el; W.cams.set(name, nk); renderCamTile(nk);
-    if (!instant) { addMsg('s', `+ camera ${name}: ${camKind(c.source)}${nk.journal ? ', keeping a journal' : ''}`, 'assign'); void el.offsetWidth; await sleep(30); el.classList.remove('spawn'); await sleep(170); }
+    if (!instant) { if (!silent) addMsg('s', `+ camera ${name}: ${camKind(c.source)}${nk.journal ? ', keeping a journal' : ''}`, 'assign'); void el.offsetWidth; await sleep(30); el.classList.remove('spawn'); await sleep(170); }
   }
   $('#camstrip').classList.toggle('hide', !incoming.size); $('#camstrip').classList.toggle('has', incoming.size > 0);
   $('#cams').style.setProperty('--n', Math.max(1, incoming.size)); $('#cams').style.setProperty('--cols', Math.min(6, Math.max(1, incoming.size)));
@@ -1593,6 +1829,7 @@ function mdInline(t){
     .replace(/`([^`]+)`/g, '<code>$1</code>')
     .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
     .replace(/(^|[\s(])\*([^*\s][^*]*?)\*(?=[\s).,;:!?]|$)/g, '$1<em>$2</em>')
+    .replace(/(^|[\s(])_([^_\s][^_]*?)_(?=[\s).,;:!?]|$)/g, '$1<em>$2</em>')   // the server's factual notes: "_Waiting for your OK: ..._"
     .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
 }
 function md(src){
@@ -1628,8 +1865,18 @@ function loadView(){ try { const v = JSON.parse(localStorage.getItem(viewKey()) 
 function saveView(){ const k = viewKey(); if (!k) return; try { localStorage.setItem(k, JSON.stringify({manual: Object.fromEntries(W.manual), pan: W.pan, uz: W.uz})); } catch (_) {} pushLayout(); }
 function pushLayout(){                                            // the drafted team's positions also live in the design session (survives another browser / a redraft)
   if (!W.sid || W.deskId) return; clearTimeout(W.layoutT);
-  W.layoutT = setTimeout(() => { api(`/design/${W.sid}/layout`, {method: 'POST', body: {positions: Object.fromEntries(W.manual)}}).catch(() => {}); }, 400);
+  W.layoutT = setTimeout(sendLayout, 400);
 }
+function sendLayout(){
+  clearTimeout(W.layoutT); W.layoutT = 0;
+  const rev0 = W.rev;
+  const p = api(`/design/${W.sid}/layout`, {method: 'POST', body: {positions: Object.fromEntries(W.manual)}})
+    .then(r => { if (r && typeof rev0 === 'number' && r.rev === rev0 + 1 && W.rev === rev0) W.rev = r.rev; })   // only this write moved the draft on; more is someone else's, and Build finds it stale
+    .catch(() => {});
+  W.layoutP = p; p.then(() => { if (W.layoutP === p) W.layoutP = null; });
+  return p;
+}
+async function flushLayout(){ if (W.layoutT) sendLayout(); if (W.layoutP) await W.layoutP; }
 function applyView(){ const p = W.fit && fitMode() ? (W.fpan || {x: 0, y: 0}) : W.pan; ['#nodes', '#edges'].forEach(q => { $(q).style.transform = `translate(${p.x}px,${p.y}px) scale(${W.k || 1})`; }); }
 function zoomBy(f, cx, cy){
   if (fitMode()) return;                                                // the Overview's chart sizes itself
@@ -1782,13 +2029,14 @@ async function doAttach(){
       const nk = W.cams.get(name); Object.assign(nk, {id: r.camera.id, source: src, problem: '', st: 'waiting', watching: true}); renderCamTile(nk);
       if (W.phase === 'run') { startCamPoll(); setMode(W.modeSel); }
       addMsg('s', `camera ${name} → ${camKind(src)}`, 'assign');
-    } else {                                                                            // not built yet: it goes into the draft
-      if (!W.bp) W.bp = {agents: [], cameras: []};
-      const list = W.bp.cameras = W.bp.cameras || []; const c = list.find(x => x.name === name);
-      if (c) c.source = src; else list.push({name, source: src, journal: true, notes: '', focus: ''});
-      W.addedCams.set(name, src);
-      if (W.phase === 'meet') openWorkspace();
-      await applyCams(list);
+    } else {                                                                            // not built yet: the server's draft holds it (checked like a built desk's, never shown to the model)
+      if (!W.sid) return atPreview('', 'Start the conversation first: the draft holds the cameras.', true);
+      const r = await api(`/design/${W.sid}/camera`, {method: 'POST', body: {name, source: src}});
+      if (!r || r.error || !r.blueprint) return atPreview('', (r && r.error) || 'could not attach', true);
+      name = (r.camera && r.camera.name) || name;
+      if (typeof r.rev === 'number') W.rev = r.rev;
+      await applyBlueprint(r.blueprint, false, false);                                  // the line below says what happened
+      if (r.design) renderPlan(r.design);
       addMsg('s', `camera ${name} → ${camKind(src)} (goes live when the desk is built)`, 'assign');
       syncBuild();
     }
@@ -1817,7 +2065,7 @@ function agentState(id){
 // what stops an agent doing part of its job: shown beside its run state, whatever the last run did
 const agentGaps = id => (W.phase === 'run' && W.gaps && W.gaps.get(id)) || [];
 function workingCount(){ return W.run && W.run.active ? [...W.run.inst.values()].filter(s => ['writing', 'thinking'].includes(s.status)).length : 0; }
-function renderAll(){ renderHead(); renderKpis(); renderTeamTable(); renderExplorer(); renderPlan(); syncCalm(); renderCamTab(); }
+function renderAll(){ renderHead(); renderKpis(); renderTeamTable(); renderExplorer(); renderDraftPlan(); syncCalm(); renderCamTab(); }
 function renderHead(){
   const n = W.agents.size, built = !!W.deskId, cams = [...W.cams.values()];
   const date = new Date().toLocaleDateString('en-GB', {weekday: 'long', day: 'numeric', month: 'long', timeZone: 'UTC'});
@@ -1861,9 +2109,10 @@ function teamMeta(){
   $('#team-meta').textContent = W.phase === 'load' ? '' : !n ? (W.phase === 'run' ? 'Atlas only' : 'drafted here as you talk to Atlas') : chart && !ov ? `Atlas + ${plural(n, 'specialist')} · ${W.tWide ? 'click a card for its brief, drag to arrange' : 'drag to arrange, Ctrl + scroll to zoom'}`
     : `${W.phase === 'run' ? '' : 'draft · '}Atlas + ${plural(n, 'specialist')} · click a ${chart ? 'card' : 'row'} for the brief`;
 }
-// a draft's plan beyond its agents, as Atlas drafted it: workflows (who hands to whom, what starts them), the connections
-// they need, and the rules every outbound message must pass. Shown on tall screens, where the draft has the room.
-function renderPlan(){
+// a draft's set-up beyond its agents, as Atlas drafted it: workflows (who hands to whom, what starts them), the
+// connections they need, and the rules every outbound message must pass. Shown on tall screens, where the draft has the
+// room. (The design plan itself, step by step, is the strip in the Atlas panel: renderPlan.)
+function renderDraftPlan(){
   const bp = W.phase === 'design' ? W.bp : null, el = $('#plan-panel');
   const wf = (bp && bp.workflows) || [], cx = (bp && bp.connectors) || [], pol = (bp && bp.policy) || {};
   const rules = policyRules(pol), has = !!(wf.length || cx.length || rules.length);

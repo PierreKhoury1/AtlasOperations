@@ -38,6 +38,8 @@ from werkzeug.security import check_password_hash, generate_password_hash
 
 from .. import cases as C
 from .. import config as cfg
+from .. import design_ops as OPS
+from .. import design_state as DST
 from .. import designer as DS
 from .. import integrations as I
 from .. import metrics as MX
@@ -112,7 +114,6 @@ _runs_lock = threading.Lock()
 _starts: dict[tuple[int, str], tuple[float, str]] = {}   # (desk, job text) -> (when POST /api/runs took it, its run id once known)
 _starts_lock = threading.Lock()
 START_DEDUPE_S = 5.0                           # the same job on the same desk again within this, while it is starting or running: refused
-_build_lock = threading.Lock()                 # two builds of one draft at once (a double press, two tabs) make one desk
 _feed: list[dict[str, Any]] = []               # global live feed (all desks, incl. token deltas) for /api/stream
 _feed_lock = threading.Lock()
 _feed_seq = 0
@@ -5409,13 +5410,22 @@ def _providers_cfg() -> dict[str, Any]:
     return providers
 
 
+_DESIGN_LOAD_LOCK = threading.Lock()
+_DESIGN_SAVE_LOCK = threading.Lock()
+_DESIGN_SAVED: dict[str, int] = {}                     # sid -> save_seq of the newest row written for it
+_DESIGN_SEQ = itertools.count(1)
+
+
 def _design_session(sid: str) -> DS.DesignSession:
     s = DS.SESSIONS.get(sid)
     if not s:
-        saved = store.load_design_session(sid)          # design chats survive restarts and deploys
-        if saved:
-            s = DS.DesignSession.from_dict(saved)
-            DS.SESSIONS[s.id] = s
+        with _DESIGN_LOAD_LOCK:                        # one object per sid: two requests for a session not in memory
+            s = DS.SESSIONS.get(sid)                   # share the copy the first one loads (designer spec 7.1)
+            if not s:
+                saved = store.load_design_session(sid)          # design chats survive restarts and deploys
+                if saved:
+                    s = DS.DesignSession.from_dict(saved)
+                    DS.SESSIONS[s.id] = s
     owner = getattr(s, "owner_id", None) if s else None
     if s and owner is not None:                        # a draft is its owner's: another account in the same browser never sees it
         u = current_user()
@@ -5426,11 +5436,141 @@ def _design_session(sid: str) -> DS.DesignSession:
     return s
 
 
-def _save_design(s: DS.DesignSession) -> None:
+def _design_snapshot(s: DS.DesignSession) -> tuple[int, str]:
+    """The session's row as it is now, serialised, with its save_seq: rows are numbered in the order the session
+    changed. The caller holds s.lock."""
+    return next(_DESIGN_SEQ), json.dumps(s.to_dict(), ensure_ascii=False)
+
+
+def _save_design(s: DS.DesignSession, snap: tuple[int, str] | None = None) -> None:
+    """Write the session's row (designer spec 6.14). The row is taken under s.lock (or passed in as `snap` by a caller
+    that took it there) and written outside it; a row older than one already written for this sid is dropped, so a save
+    taken before a turn's Phase C can never land after the turn's own."""
+    if snap is None:
+        with s.lock:
+            snap = _design_snapshot(s)
+    seq, row = snap
+    with _DESIGN_SAVE_LOCK:
+        if seq <= _DESIGN_SAVED.get(s.id, 0):
+            return
+        try:
+            store.save_design_session(s.id, row)
+        except Exception as exc:
+            print("design session save failed:", exc)
+            return
+        _DESIGN_SAVED[s.id] = seq
+        if len(_DESIGN_SAVED) > 4096:                  # bounded: only sessions still in memory can race their own saves
+            for k in [k for k in _DESIGN_SAVED if k not in DS.SESSIONS]:
+                del _DESIGN_SAVED[k]
+
+
+def _design_busy(s: DS.DesignSession) -> Response:
+    """409 while another request holds the session's turn (designer spec 7.1). The client shows the message and polls
+    GET /api/design/<sid> until busy is false, then renders the last reply."""
+    r = jsonify({"error": "busy", "message": DS.BUSY_MESSAGE, "busy_since": DS.busy_since(s.id)})
+    r.status_code = 409
+    return r
+
+
+def _design_stale(s: DS.DesignSession, d: dict[str, Any]) -> Response | None:
+    """409 {"error": "stale", "blueprint", "rev"} when the body's base_rev is older than the sketch's revision (designer
+    spec 6.5): the client redraws from the blueprint it gets back. A body without a whole-number base_rev (an older
+    client) goes on as before. The caller holds s.lock."""
+    base = d.get("base_rev")
+    if isinstance(base, bool) or not isinstance(base, int) or base >= s.bp_rev:
+        return None
+    r = jsonify({"error": "stale", "blueprint": s.blueprint, "rev": s.bp_rev})
+    r.status_code = 409
+    return r
+
+
+def _owner_write(s: DS.DesignSession, bp: dict[str, Any], *also: tuple[str, str, str]) -> None:
+    """Commit an owner's write of the sketch (the canvas, a camera attach): rev bumped, and the (kind, id, field) pairs it
+    changed recorded at that rev, so a turn running meanwhile keeps them (designer spec 6.5). With no sketch before, the
+    write is compared with the empty sketch: normalise's defaults are never taken for the owner's edits. Lock held."""
+    before = s.blueprint if isinstance(s.blueprint, dict) else DS.normalise({})
+    s.blueprint = bp
+    s.bp_rev += 1
+    s.owner_edits.update(dict.fromkeys(OPS.edits_between(before, bp) | set(also), s.bp_rev))
+
+
+def _design_stream(q: "queue.Queue[dict[str, Any] | None]") -> Response:
+    """A design SSE stream: each item of `q` as one data line, until None; a ping every 15 s while it waits."""
+    def gen():
+        yield "retry: 1000\n\n"
+        while True:
+            try:
+                item = q.get(timeout=15)
+            except queue.Empty:
+                yield ": ping\n\n"
+                continue
+            if item is None:
+                break
+            yield f"data: {json.dumps(item, ensure_ascii=False)}\n\n"
+
+    return Response(gen(), mimetype="text/event-stream",
+                    headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no", "Connection": "keep-alive"})
+
+
+def _design_model(s: DS.DesignSession, providers: dict[str, Any] | None) -> str:
+    """The designer's model: the strong one on a paid tier, the free one otherwise (OpenRouter only)."""
+    if providers and providers.get("default_provider") == "openrouter":
+        return templates.STRONG_MODEL if s.tier != "free" else templates.FREE_MODEL
+    return ""
+
+
+def _design_meter(s: DS.DesignSession, surface: str) -> "U.Meter":
+    """What a design session's model requests count for (usage spec §1.4 design.say / design.study): the account that
+    started the draft (no account: the website's share), lane you; a turn already under way may finish one request
+    past a full allowance. A link study has the per-run cap (L4)."""
+    owner = int(s.owner_id or 0)
+    m = U.Meter(owner_id=owner, desk_id=int(s.desk_id or 0), scope=U.desk_scope(owner), lane="you", surface=surface,
+                key_kind="demo" if s.mode == "demo" else "house", overrun=1)
+    if surface == "design.study":
+        m.run_cap = U.run_cap(owner)
+    return m
+
+
+def _design_precheck(s: DS.DesignSession, surface: str = "design.say") -> None:
+    """The usage pre-check of a design model turn (designer spec 12.3, usage spec 4.7 path 1): after Phase A, before any
+    stream, refused with the usage module's UsageLimit. Nothing is taken here; each request takes at the chokepoint."""
+    if s.mode == "demo":
+        return
+    providers = _providers_cfg()
+    U.precheck(_design_meter(s, surface), provider=str(providers.get("default_provider") or ""),
+               model=_design_model(s, providers))
+
+
+def _design_refusal(s: DS.DesignSession, surface: str = "design.say") -> Response | None:
+    """A model turn that may not start now, answered as JSON before any stream: the paid spend cap (402) or a usage
+    limit (its own status and body, 429 for an allowance, with Retry-After when it says when). The body adds the steps
+    that still work (accept and decline while a proposal waits: they are server-only) and the design state with what
+    Phase A kept (the plan seeded, an option's answer). None: the turn goes on."""
+    if s.mode != "demo" and s.tier != "free":
+        blocked = _spend_blocked()
+        if blocked:
+            return _design_refused(s, {"error": blocked}, 402)
     try:
-        store.save_design_session(s.id, s.to_dict())
+        _design_precheck(s, surface)
     except Exception as exc:
-        print("design session save failed:", exc)
+        limit = DS.usage_limit(exc)
+        if limit is None:
+            raise
+        status = getattr(exc, "http_status", None)
+        r = _design_refused(s, limit, status if isinstance(status, int) and 400 <= status < 600 else 429)
+        wait = limit.get("retry_after_s")
+        if isinstance(wait, int) and not isinstance(wait, bool) and wait > 0:
+            r.headers["Retry-After"] = str(wait)
+        return r
+    return None
+
+
+def _design_refused(s: DS.DesignSession, body: dict[str, Any], status: int) -> Response:
+    with s.lock:
+        steps = DS.limit_steps(s, body)
+        r = jsonify({**body, "next": steps, "suggestions": NS.labels(steps), "design": s.plan_view(), "rev": s.bp_rev})
+    r.status_code = status
+    return r
 
 
 def _design_spend_gate(s) -> None:
@@ -5452,8 +5592,8 @@ def api_design_start():
     tier = d.get("tier") if d.get("tier") in templates.TIERS else "free"
     s = DS.new_session(_mode(), tier)
     s.owner_id = int(u["id"]) if u else None
-    if u and u.get("company"):
-        s.transcript[0]["text"] = s.transcript[0]["text"].replace("Describe the business", f"Describe {u['company']}", 1)
+    if u and u.get("company"):                         # "Describe Bright Smile ...", never "Describe me ..."
+        s.transcript[0]["text"] = DS.greeting(u["company"])
     links = d.get("links") or []
     if isinstance(links, str):
         links = re.split(r"[\s,]+", links)
@@ -5466,7 +5606,8 @@ def api_design_start():
 def api_design_study(sid):
     """Read the owner's links (website, socials, booking page), stream progress, then seed the designer with a company
     profile + first-draft blueprint. SSE: {"t":"status","d":...}* then {"t":"done", profile, transcript, next, suggestions,
-    blueprint, ready}."""
+    blueprint, ready, design, rev}. The study holds the session's turn for its whole run (409 while a turn runs, and no
+    turn starts while it reads)."""
     from .. import study as ST
     s = _design_session(sid)
     d = request.get_json(silent=True) or {}
@@ -5476,71 +5617,95 @@ def api_design_study(sid):
     links = [str(x).strip() for x in links if str(x).strip()][:4]
     if not links:
         return jsonify({"error": "no links"}), 400
-    s.links = links
     if s.mode != "demo":
         _require_live()
     _design_spend_gate(s)
-    import queue
-    q: "queue.Queue[dict[str, Any] | None]" = queue.Queue()
-    providers = None if s.mode == "demo" else _providers_cfg()
+    token = DS.claim(s.id)
+    if token is None:
+        return _design_busy(s)
+    started = False
+    try:
+        refused = _design_refusal(s, "design.study")    # a usage limit: JSON before any stream, nothing read
+        if refused is not None:
+            return refused
+        with s.lock:
+            s.links = links
+        q: "queue.Queue[dict[str, Any] | None]" = queue.Queue()
+        providers = None if s.mode == "demo" else _providers_cfg()
+        meter = _design_meter(s, "design.study")
 
-    def work():
-        try:
-            prov, model = None, ""
-            if providers:
-                from ..providers import ProviderPool
-                prov = ProviderPool(providers).get()
-                if providers.get("default_provider") == "openrouter":
-                    model = templates.STRONG_MODEL if s.tier != "free" else templates.FREE_MODEL
-            profile = ST.study(links, on_status=lambda t: q.put({"t": "status", "d": t}), provider=prov, model=model)
-            with s.lock:
-                s.apply_profile(profile)
-            _save_design(s)
-            q.put({"t": "done", "profile": profile, "transcript": s.transcript, "next": s.next, "suggestions": s.suggestions,
-                   "blueprint": s.blueprint, "ready": s.ready})
-        except Exception as exc:
-            q.put({"t": "error", "error": f"{type(exc).__name__}: {exc}"})
-        q.put(None)
-
-    threading.Thread(target=work, daemon=True).start()
-
-    def gen():
-        yield "retry: 1000\n\n"
-        while True:
+        def work():
             try:
-                item = q.get(timeout=15)
-            except queue.Empty:
-                yield ": ping\n\n"
-                continue
-            if item is None:
-                break
-            yield f"data: {json.dumps(item, ensure_ascii=False)}\n\n"
+                prov, model = None, ""
+                if providers:
+                    from ..providers import ProviderPool
+                    prov = ProviderPool(providers, meter=meter).get()
+                    model = _design_model(s, providers)
+                profile = ST.study(links, on_status=lambda t: q.put({"t": "status", "d": t}), provider=prov, model=model)
+                with s.lock:
+                    s.apply_profile(profile)
+                    done = {"t": "done", "profile": profile, "transcript": list(s.transcript), "next": s.next,
+                            "suggestions": s.suggestions, "blueprint": s.blueprint, "ready": s.ready,
+                            "design": s.plan_view(), "rev": s.bp_rev}
+                    snap = _design_snapshot(s)
+                _save_design(s, snap)
+                DS.release(s.id, token)                # before done: the owner may write the moment it lands
+                q.put(done)
+            except Exception as exc:
+                DS.release(s.id, token)
+                q.put({"t": "error", "error": f"{type(exc).__name__}: {exc}"})
+            finally:
+                DS.release(s.id, token)
+                q.put(None)
 
-    return Response(gen(), mimetype="text/event-stream",
-                    headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no", "Connection": "keep-alive"})
+        threading.Thread(target=work, daemon=True).start()
+        started = True
+        return _design_stream(q)
+    finally:
+        if not started:
+            DS.release(s.id, token)
+
+
+def _resumable(d: dict[str, Any]) -> bool:
+    """A saved draft to bring back: it has a turn, or the owner wrote in it (a brief whose only turn hit the allowance
+    has no turn but is still theirs, designer spec 6.14)."""
+    if DST.whole(d.get("turn")) > 0:
+        return True
+    t = d.get("transcript")
+    return isinstance(t, list) and any(isinstance(e, dict) and e.get("role") == "user" for e in t)
 
 
 @app.get("/api/design/mine")
 def api_design_mine():
-    """This account's newest unfinished draft (not built, at least one turn, saved in the last 30 days): the workspace
-    resumes it on any device or tab instead of a blank brief. {} when there is none."""
+    """This account's newest unfinished draft (not built, a turn or an owner message, saved in the last 30 days): the
+    workspace resumes it on any device or tab instead of a blank brief. {} when there is none."""
     u = current_user()
     if not u:
         return jsonify({})
     for d in store.recent_design_sessions():
-        if d.get("owner_id") == u["id"] and not d.get("desk_id") and int(d.get("turn") or 0) > 0:
-            return jsonify(_design_session(str(d.get("id"))).public())
+        if d.get("owner_id") == u["id"] and not d.get("desk_id") and _resumable(d):
+            s = _design_session(str(d.get("id")))
+            with s.lock:
+                return jsonify(s.public())
     return jsonify({})
 
 
 @app.get("/api/design/<sid>")
 def api_design_get(sid):
-    return jsonify(_design_session(sid).public())
+    s = _design_session(sid)
+    with s.lock:                                       # never half of a turn's commit
+        return jsonify(s.public())
 
 
 @app.post("/api/design/<sid>/say")
 def api_design_say(sid):
-    """One designer turn, streamed as SSE: {"t":"tok","d":...}* then {"t":"done", ...result}."""
+    """One designer turn (designer spec 3, 7.1, 12.3). The session's turn is claimed first: 409 {"error": "busy",
+    "message", "busy_since"} while another request holds it. Phase A decides: accept, decline, skip, undo and Continue
+    on queued agents end there with no usage check and no model call, as a stream of one done event. Any other message
+    passes the spend cap and the usage pre-check (a refusal comes back as JSON before any stream; what Phase A wrote, such
+    as an option's answer, stays), then the turn streams as SSE: {"t":"status","d":"planning"} first, statuses and
+    {"t":"tok"} prose, then {"t":"done", text, next, suggestions, blueprint, ready, turn, design, changes, meta, rev}.
+    The turn is released before its done event goes out."""
     s = _design_session(sid)
     d = request.get_json(force=True) or {}
     text = str(d.get("text") or "").strip()[:4000]
@@ -5548,74 +5713,138 @@ def api_design_say(sid):
         return jsonify({"error": "empty"}), 400
     if s.mode != "demo":
         _require_live()
-    _design_spend_gate(s)
-    import queue
+    token = DS.claim(s.id)                             # test-and-set: one turn per session at a time
+    if token is None:
+        return _design_busy(s)
     q: "queue.Queue[dict[str, Any] | None]" = queue.Queue()
-    providers = None if s.mode == "demo" else _providers_cfg()
-    model = ""
-    if providers and providers.get("default_provider") == "openrouter":
-        model = templates.STRONG_MODEL if s.tier != "free" else templates.FREE_MODEL
-
-    def work():
-        try:
-            def on_tok(t: str):
-                if t.startswith(DS.STATUS_MARK):
-                    q.put({"t": "status", "d": t[1:]})
-                else:
-                    q.put({"t": "tok", "d": t})
-            res = DS.reply(s, text, on_token=on_tok, providers_cfg=providers, designer_model=model)
+    started = False
+    try:
+        dec = DS.decide(s, text)                       # Phase A: before any usage check or model call
+        if dec.server is not None:                     # a server-only turn: nothing metered, no model
             _save_design(s)
-            q.put({"t": "done", **res})
-        except Exception as exc:
-            q.put({"t": "error", "error": f"{type(exc).__name__}: {exc}"})
-        q.put(None)
+            DS.release(s.id, token)
+            q.put({"t": "done", **dec.server})
+            q.put(None)
+            return _design_stream(q)
+        refused = _design_refusal(s)
+        if refused is not None:
+            with s.lock:                               # no turn happened, so Undo still holds what it held
+                DS.restore_undo(s, dec)
+            _save_design(s)                            # Phase A's writes stay: the plan seeded, an option's answer
+            return refused
+        providers = None if s.mode == "demo" else _providers_cfg()
+        model = _design_model(s, providers)
+        meter = _design_meter(s, "design.say")
 
-    threading.Thread(target=work, daemon=True).start()
-
-    def gen():
-        yield "retry: 1000\n\n"
-        while True:
+        def work():
             try:
-                item = q.get(timeout=15)
-            except queue.Empty:
-                yield ": ping\n\n"
-                continue
-            if item is None:
-                break
-            yield f"data: {json.dumps(item, ensure_ascii=False)}\n\n"
+                def on_tok(t: str):
+                    q.put({"t": "status", "d": t[1:]} if t.startswith(DS.STATUS_MARK) else {"t": "tok", "d": t})
+                with U.bind(meter):                    # every request of the turn counts for the owner (the provider is built inside)
+                    res = DS.run_turn(s, dec, on_token=on_tok, providers_cfg=providers, designer_model=model)
+                _save_design(s)
+                DS.release(s.id, token)                # before done: the owner may send the next message the moment it lands
+                q.put({"t": "done", **res})
+            except Exception as exc:
+                _save_design(s)
+                DS.release(s.id, token)
+                limit = DS.usage_limit(exc)            # defensive: the turn makes a limit its own reply (usage spec S10)
+                q.put({"t": "error", **limit, "error": "usage_limit"} if limit is not None
+                      else {"t": "error", "error": f"{type(exc).__name__}: {exc}"})
+            finally:
+                DS.release(s.id, token)
+                q.put(None)
 
-    return Response(gen(), mimetype="text/event-stream",
-                    headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no", "Connection": "keep-alive"})
+        threading.Thread(target=work, daemon=True).start()
+        started = True
+        return _design_stream(q)
+    finally:
+        if not started:
+            DS.release(s.id, token)
 
 
 @app.post("/api/design/<sid>/blueprint")
 def api_design_blueprint(sid):
-    """Owner edits from the sketch canvas (rename, tools, add/remove agent, triggers)."""
+    """Owner edits from the sketch canvas (rename, tools, add/remove agent, triggers). Allowed while a turn runs
+    (designer spec 6.5, 7.1): written under the session lock with the canvas's ids as they are (remap=False), the fields
+    it changed recorded as the owner's, so the running turn's change list never overwrites them, and rev bumped. A
+    base_rev older than rev: 409 stale, nothing written. `ready` passes the ready gate (6.12)."""
     s = _design_session(sid)
     d = request.get_json(force=True) or {}
-    bp = DS.normalise(d.get("blueprint"), s.blueprint)
-    if bp:
-        s.blueprint = bp
-        s.ready = bool(bp.get("agents"))
+    with s.lock:
+        stale = _design_stale(s, d)
+        if stale is not None:
+            return stale
+        bp = DS.normalise(d.get("blueprint"), s.blueprint, remap=False)
+        if not bp:
+            return jsonify({"blueprint": s.blueprint, "ready": s.ready, "next": s.next, "rev": s.bp_rev})
+        if bp != s.blueprint:
+            _owner_write(s, bp)
+        s.ready = OPS.compute_ready(s.model_ready, s.blueprint, s.design)
         s.refresh_next()                                 # no "build" step once the canvas has no agents left
-        _save_design(s)
-    return jsonify({"blueprint": s.blueprint, "ready": s.ready, "next": s.next})
+        out = jsonify({"blueprint": s.blueprint, "ready": s.ready, "next": s.next, "rev": s.bp_rev, "design": s.plan_view()})
+        snap = _design_snapshot(s)
+    _save_design(s, snap)
+    return out
 
 
 @app.post("/api/design/<sid>/layout")
 def api_design_layout(sid):
     """Where the owner dragged the cards: {positions: {agent_id: {x, y}}}. Stored with the blueprint so the next
-    designer turn (and the next browser) draws the team where they left it."""
+    designer turn (and the next browser) draws the team where they left it: written straight into the sketch's layout
+    under the session lock (whole numbers, the sketch's agents only), with no re-normalise of the team, so a drag
+    during a turn is never read as an agent edit and survives the turn (designer spec 6.5, 7.1). {layout, rev}."""
     s = _design_session(sid)
     d = request.get_json(force=True) or {}
-    pos = d.get("positions") if isinstance(d.get("positions"), dict) else {}
-    if s.blueprint is None:
-        return jsonify({"layout": {}})
-    bp = dict(s.blueprint)
-    bp["layout"] = pos
-    s.blueprint = DS.normalise(bp, s.blueprint) or s.blueprint
-    _save_design(s)
-    return jsonify({"layout": s.blueprint.get("layout", {})})
+    with s.lock:
+        if not isinstance(s.blueprint, dict):
+            return jsonify({"layout": {}, "rev": s.bp_rev})
+        layout = DS.canvas_layout(d.get("positions"), s.blueprint)
+        if layout == s.blueprint.get("layout"):
+            return jsonify({"layout": layout, "rev": s.bp_rev})
+        s.blueprint = {**s.blueprint, "layout": layout}
+        s.bp_rev += 1
+        out = jsonify({"layout": layout, "rev": s.bp_rev})
+        snap = _design_snapshot(s)
+    _save_design(s, snap)
+    return out
+
+
+@app.post("/api/design/<sid>/camera")
+def api_design_camera(sid):
+    """{name, source}: point a camera of the draft at a feed before the desk is built (designer spec 7.1). Checked as an
+    attach to a built desk is (a stream address, a webcam number, one of the owner's uploads or sample footage; never
+    loopback or the metadata service), then stored in the session's sketch under the lock, a sketch shell when there is
+    none: a camera of that name keeps its notes, focus and journal and takes the source, a new one is added with its
+    journal on. The address never reaches the model (its view shows "rtsp:// (set)"), the model never overwrites it,
+    and the write is recorded as the owner's edit with rev bumped. {ok, camera, blueprint, rev, design}."""
+    s = _design_session(sid)
+    d = request.get_json(silent=True) or {}
+    name = DS.camera_slug(d.get("name"))
+    raw = str(d.get("source") or "").strip()
+    if not name:
+        return jsonify({"error": "name the camera"}), 400
+    if len(raw) > 400:                                     # what a sketch keeps of a source: never a cut address
+        return jsonify({"error": "that address is longer than 400 characters"}), 400
+    src = DS.resolve_camera_source(raw)
+    if not src:
+        return jsonify({"error": "give a stream address (rtsp://, http://), a webcam number, an uploaded file or sample footage"}), 400
+    why = _camera_source_reason(src, s.owner_id if s.owner_id is not None else (current_user() or {}).get("id"))
+    if why:
+        return jsonify({"error": why}), 400
+    clip = DS.sample_name(raw) if raw.lower().startswith("sample:") else ""
+    keep = f"sample:{clip}" if clip else raw                # the owner's own form: the build resolves it
+    with s.lock:
+        bp = DS.with_camera(s.blueprint, name, keep)
+        if bp is None:
+            return jsonify({"error": f"the draft holds {OPS.CAMERAS_MAX} cameras: remove one before adding {name}"}), 400
+        if bp != s.blueprint:
+            _owner_write(s, bp, ("camera", name, "source"))
+        out = jsonify({"ok": True, "camera": {"name": name, "source_kind": V.source_kind(src)}, "blueprint": s.blueprint,
+                       "rev": s.bp_rev, "design": s.plan_view()})
+        snap = _design_snapshot(s)
+    _save_design(s, snap)
+    return out
 
 
 @app.post("/api/design/<sid>/tier")
@@ -5627,58 +5856,79 @@ def api_design_tier(sid):
     tier = str((request.get_json(silent=True) or {}).get("tier") or "")
     if tier not in templates.TIERS:
         return jsonify({"error": "unknown tier"}), 400
-    s.tier = tier
-    s.refresh_next()                                     # the paid switch is offered only while the session is on free models
-    _save_design(s)
-    return jsonify({"tier": s.tier, "label": templates.TIERS[tier]["label"], "next": s.next})
+    with s.lock:
+        s.tier = tier
+        s.refresh_next()                                 # the paid switch is offered only while the session is on free models
+        out = jsonify({"tier": s.tier, "label": templates.TIERS[tier]["label"], "next": s.next})
+        snap = _design_snapshot(s)
+    _save_design(s, snap)
+    return out
 
 
 @app.post("/api/design/<sid>/build")
 def api_design_build(sid):
-    """Approve the blueprint: create the desk, schedule its triggers, return what still needs connecting."""
+    """Approve the blueprint: create the desk, schedule its triggers, return what still needs connecting. The build holds
+    the session's turn (409 while a turn runs); a base_rev older than rev: 409 stale, nothing built (designer spec 6.5,
+    7.1)."""
     s = _design_session(sid)
     u = current_user()
     if not u and not OPEN:
         abort(401)
     d = request.get_json(force=True) or {}
-    bp = DS.normalise(d.get("blueprint"), s.blueprint) or s.blueprint
-    if not bp or not bp.get("agents"):
-        return jsonify({"error": "The blueprint has no agents yet - keep talking to the designer first."}), 400
-    tier = d.get("tier") if d.get("tier") in templates.TIERS else s.tier
-    name = (d.get("name") or (bp.get("business") or {}).get("name") or (u or {}).get("company") or "New desk").strip()
-    conf = DS.blueprint_to_desk(bp, tier, name=name)
-    if not (bp.get("business") or {}).get("name"):                 # never show the template's placeholder business name
-        conf["business"]["name"] = name
-    with _build_lock:                                              # a second build of this draft updates the first one's desk
-        if s.desk_id and store.desk(s.desk_id):
-            store.update_desk(s.desk_id, name=name, tier=tier, config=conf)
-            desk = store.desk(s.desk_id)
+    token = DS.claim(s.id)
+    if token is None:
+        return _design_busy(s)
+    try:
+        with s.lock:
+            stale = _design_stale(s, d)
+            if stale is not None:
+                return stale
+            bp = DS.normalise(d.get("blueprint"), s.blueprint, remap=False) or s.blueprint
+            rev0, built, tier0 = s.bp_rev, s.desk_id, s.tier
+        if not bp or not bp.get("agents"):
+            return jsonify({"error": "The blueprint has no agents yet - keep talking to the designer first."}), 400
+        tier = d.get("tier") if d.get("tier") in templates.TIERS else tier0
+        name = (d.get("name") or (bp.get("business") or {}).get("name") or (u or {}).get("company") or "New desk").strip()
+        conf = DS.blueprint_to_desk(bp, tier, name=name)
+        if not (bp.get("business") or {}).get("name"):                 # never show the template's placeholder business name
+            conf["business"]["name"] = name
+        if built and store.desk(built):
+            store.update_desk(built, name=name, tier=tier, config=conf)
+            desk = store.desk(built)
         else:
             desk = store.add_desk(u["id"] if u else 0, name, "custom", tier, conf)
+        session["desk"] = desk["id"]
+        # triggers -> automations
+        existing = {j["name"] for j in store.jobs(desk["id"])}
+        jobs = []
+        for w in bp.get("workflows") or []:
+            t = w.get("trigger") or {}
+            jname = f"{w['name']} ({t.get('kind')})"
+            if jname in existing:
+                continue
+            if t.get("kind") == "schedule":
+                jobs.append(store.add_job(desk["id"], "task", jname, f"Run workflow '{w['name']}': {t.get('detail') or 'scheduled sweep'}. Mode: {w['id']}", 1440, time.time() + 86400))
+            elif t.get("kind") == "inbox":
+                jobs.append(store.add_job(desk["id"], "inbox_watch", jname, "", 2, time.time() + 120))
+        cameras, cams_missing = _build_cameras(desk, bp)
+        with s.lock:
             s.desk_id = desk["id"]
-    session["desk"] = desk["id"]
-    s.blueprint = bp
-    # triggers -> automations
-    existing = {j["name"] for j in store.jobs(desk["id"])}
-    jobs = []
-    for w in bp.get("workflows") or []:
-        t = w.get("trigger") or {}
-        jname = f"{w['name']} ({t.get('kind')})"
-        if jname in existing:
-            continue
-        if t.get("kind") == "schedule":
-            jobs.append(store.add_job(desk["id"], "task", jname, f"Run workflow '{w['name']}': {t.get('detail') or 'scheduled sweep'}. Mode: {w['id']}", 1440, time.time() + 86400))
-        elif t.get("kind") == "inbox":
-            jobs.append(store.add_job(desk["id"], "inbox_watch", jname, "", 2, time.time() + 120))
-    cameras, cams_missing = _build_cameras(desk, bp)
-    _save_design(s)
-    return jsonify({"desk": _desk_public(desk), "connect": _connect_plan(desk, bp), "jobs": jobs,
-                    "cameras": cameras, "cameras_missing": cams_missing})
+            if s.bp_rev == rev0 and bp != s.blueprint:    # the sketch the desk was built from, unless the canvas moved on meanwhile
+                s.blueprint = bp
+                s.bp_rev += 1
+            rev = s.bp_rev
+            snap = _design_snapshot(s)
+        _save_design(s, snap)
+        return jsonify({"desk": _desk_public(desk), "connect": _connect_plan(desk, bp), "jobs": jobs,
+                        "cameras": cameras, "cameras_missing": cams_missing, "rev": rev})
+    finally:
+        DS.release(s.id, token)
 
 
 def _build_cameras(desk: dict[str, Any], bp: dict[str, Any]) -> tuple[list[dict[str, Any]], list[str]]:
-    """Blueprint cameras -> camera connectors (journal on by default) + a fast watch job each. Cameras without a
-    usable source are returned by name so the owner can add the address later."""
+    """Blueprint cameras -> camera connectors (journal on by default, at the designer's JOURNAL_* cadence, which the
+    designer's build facts describe) + a fast watch job each. Cameras without a usable source are returned by name so
+    the owner can add the address later."""
     made, missing = [], []
     have = {c["name"]: c for c in store.connectors(desk["id"]) if c["kind"] == "camera"}
     for cam in bp.get("cameras") or []:
@@ -5689,8 +5939,9 @@ def _build_cameras(desk: dict[str, Any], bp: dict[str, Any]) -> tuple[list[dict[
         journal = bool(cam.get("journal", True))
         config = {"source": src, "watch_for": cam.get("watch_for") or "person", "min_count": 1,
                   "alerts": "1" if cam.get("alerts") else "0", "notes": cam.get("notes", ""),
-                  "journal": "1" if journal else "", "journal_every_s": "30", "journal_min_gap_s": "8",
-                  "journal_rollup_min": "15", "journal_focus": cam.get("focus", "")}
+                  "journal": "1" if journal else "", "journal_every_s": str(DS.JOURNAL_EVERY_S),
+                  "journal_min_gap_s": str(DS.JOURNAL_MIN_GAP_S), "journal_rollup_min": str(DS.JOURNAL_ROLLUP_MIN),
+                  "journal_focus": cam.get("focus", "")}
         if (desk.get("tier") or "free") != "free":
             config["vlm_model"] = DS.PAID_VLM
         c = have.get(cam["name"])
@@ -5700,8 +5951,9 @@ def _build_cameras(desk: dict[str, Any], bp: dict[str, Any]) -> tuple[list[dict[
         else:
             c = store.add_connector(desk["id"], "camera", cam["name"], config, False)
         if not any(j["kind"] == "camera_watch" and f'"connector": "{cam["name"]}"' in (j["task"] or "") for j in store.jobs(desk["id"])):
+            # a journal camera is looked at as often as it may write a note; one without a journal every 30 s
             store.add_job(desk["id"], "camera_watch", f"Watch {cam['name']}",
-                          json.dumps({"connector": cam["name"], "every_s": 8 if journal else 30}), 1, time.time())
+                          json.dumps({"connector": cam["name"], "every_s": DS.JOURNAL_MIN_GAP_S if journal else 30}), 1, time.time())
         made.append({"id": c["id"], "name": c["name"], "sample": str(cam.get("source", "")).startswith("sample:"),
                      "journal": journal, "alerts": bool(cam.get("alerts"))})
     return made, missing
