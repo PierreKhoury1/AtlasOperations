@@ -505,6 +505,8 @@ def _guard():
             abort(401)
     elif p.startswith("/desk") and not p.startswith("/desk/static/") and p != "/desk/login":
         if not current_user():
+            if GUEST_AUTO and request.method == "GET" and p.rstrip("/") in ("/desk", "/desk/workspace"):
+                return redirect("/try?next=" + quote(request.full_path.rstrip("?"), safe=""))     # straight in, as a guest
             return redirect(_login_next())
     return None
 
@@ -697,7 +699,31 @@ def try_desk():
     email = f"guest-{secrets.token_urlsafe(9).lower()}@{GUEST_DOMAIN}"
     u = store.add_user(email, "Guest", "", "")               # no password: this account can only ever be reached from its session
     _sign_in(u["id"])
-    return redirect("/desk/workspace?new=1")
+    nxt = request.args.get("next") or ""
+    return redirect(nxt if nxt.startswith("/desk") else "/desk/workspace?new=1")
+
+
+def guest_sweep() -> int:
+    """Delete guest accounts (and their desks) idle for GUEST_TTL_S. Returns how many went."""
+    n = 0
+    for u in store.stale_guests(GUEST_DOMAIN, GUEST_TTL_S):
+        try:
+            store.delete_user(u["id"])
+            n += 1
+        except Exception as e:                                  # one bad row never stops the sweep
+            print("guest sweep:", u.get("email"), e)
+    if n:
+        print(f"guest sweep: {n} idle guest desk{'s' if n != 1 else ''} removed")
+    return n
+
+
+def _guest_sweeper() -> None:
+    while True:
+        try:
+            guest_sweep()
+        except Exception as e:
+            print("guest sweep:", e)
+        time.sleep(6 * 3600)
 
 
 @app.route("/signup", methods=["GET", "POST"])
@@ -3524,6 +3550,8 @@ def _demo_headers(key: str, title: str) -> dict[str, str]:
 
 
 GUEST_DOMAIN = "try.atlas.invalid"          # accounts made by /try: a real session, no password, free models only
+GUEST_AUTO = os.environ.get("GUEST_AUTO", "1").strip() not in ("0", "false", "no")   # a signed-out visit to the desk opens a guest desk
+GUEST_TTL_S = float(os.environ.get("GUEST_TTL_DAYS", "7") or 7) * 86400              # idle guest desks are deleted after this
 
 
 def _is_guest(u: dict[str, Any] | None) -> bool:
@@ -5352,6 +5380,8 @@ C.RUN_STATUS = _run_status
 C.NOTIFY = lambda desk_id, text: I.notify(store.connectors(desk_id), text)
 scheduler.BASE_URL = lambda: os.environ.get("PUBLIC_URL", "").strip()
 scheduler.start(store, _start_run, store.desk)
+if os.environ.get("GUEST_SWEEP", "1").strip() not in ("0", "false", "no"):
+    threading.Thread(target=_guest_sweeper, daemon=True, name="guest-sweep").start()
 threading.Thread(target=_watchdog_loop, daemon=True, name="atlas-watchdog").start()
 
 

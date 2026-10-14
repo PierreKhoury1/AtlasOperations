@@ -26,7 +26,7 @@
     help: '<circle cx="12" cy="12" r="9"/><path d="M9.6 9.3a2.5 2.5 0 1 1 3.6 2.3c-.8.4-1.2 1-1.2 1.9"/><path d="M12 16.8h.01"/>', arrow: '<path d="M5 12h13M13 6l6 6-6 6"/>',
     box: '<path d="M12 3 3 7.5v9L12 21l9-4.5v-9L12 3Z"/><path d="M3 7.5 12 12l9-4.5M12 12v9"/>', chevd: '<path d="m6 9 6 6 6-6"/>',
   };
-  const MARK = '<svg class="mark" viewBox="0 0 48 32"><path d="M2 16C8 6 16 2 24 2s16 4 22 14c-6 10-14 14-22 14S8 26 2 16Z"/><circle cx="24" cy="16" r="8.5"/><ellipse cx="24" cy="16" rx="3.6" ry="8.5"/><path d="M15.5 16h17M17.5 11.3h13M17.5 20.7h13"/></svg>';
+  const MARK = '<img class="mark" src="/desk/static/mark.png" alt="">';
   const svg = k => `<svg viewBox="0 0 24 24">${IC[k] || ''}</svg>`;
   const NAV = [
     ['', [['home', 'Home', '/desk#dash', 'home'], ['design', 'New desk', '/desk/workspace', 'plus'], ['live', 'Live operations', '/desk#live', 'pulse'],

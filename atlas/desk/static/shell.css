@@ -19,7 +19,7 @@ body.sh-on.sh-mini{--sh-w:64px}
 :where(#sh-rail) button{font:inherit;color:inherit;background:none;border:0;cursor:pointer;text-align:left}
 #sh-rail svg{width:17px;height:17px;flex:0 0 17px;stroke:currentColor;fill:none;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
 .sh-logo{display:flex;flex-direction:column;align-items:center;gap:7px;padding:22px 12px 12px;color:var(--sh-text);position:relative}
-.sh-logo .mark{width:46px;height:32px;flex:none;stroke-width:1.5;color:#fff}
+.sh-logo .mark{width:56px;height:30px;flex:none;object-fit:contain;display:block;filter:drop-shadow(0 0 6px rgba(76,141,255,.35))}
 .sh-logo .word{font-weight:600;font-size:15px;letter-spacing:.34em;text-indent:.34em;line-height:1}
 .sh-logo .tag{font-size:8px;letter-spacing:.26em;text-indent:.26em;line-height:1.5;color:var(--sh-muted);text-align:center;white-space:nowrap}
 .sh-logo .sh-iconbtn{position:absolute;right:6px;top:8px}
@@ -63,7 +63,7 @@ body.sh-on.sh-mini{--sh-w:64px}
 body.sh-mini #sh-rail .lbl,body.sh-mini #sh-rail .sh-grp,body.sh-mini #sh-rail .sh-desk .nm,body.sh-mini #sh-rail .sh-desk>svg:last-child,body.sh-mini #sh-rail .sh-who,body.sh-mini #sh-rail .sh-foot>svg,
 body.sh-mini #sh-rail .sh-logo .word,body.sh-mini #sh-rail .sh-logo .tag,body.sh-mini #sh-rail .sh-planet{display:none}
 body.sh-mini #sh-rail .sh-logo{padding:14px 8px 10px}
-body.sh-mini #sh-rail .sh-logo .mark{width:34px;height:24px}
+body.sh-mini #sh-rail .sh-logo .mark{width:40px;height:22px}
 body.sh-mini #sh-rail .sh-logo .sh-iconbtn{position:static;margin-top:4px}
 body.sh-mini #sh-rail .sh-desk{margin:4px 11px 10px;width:42px;padding:8px;justify-content:center}
 body.sh-mini #sh-rail .sh-item{justify-content:center;padding:0;width:44px;margin-left:0}

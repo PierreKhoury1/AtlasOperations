@@ -5,13 +5,14 @@
 <link rel="stylesheet" href="/desk/static/auth.css">
 </head>
 <body>
-<div class="top"><a class="brand" href="/"><i></i>Atlas Desks</a><a class="alt" href="/login">Already have an account? <b>Log in</b></a></div>
+<div class="top"><a class="brand" href="/"><img class="mark" src="/desk/static/mark.png" alt="" width="44" height="24"><span class="wm"><b>ATLAS</b><small>OBSERVE&nbsp;&nbsp;REASON&nbsp;&nbsp;ACT</small></span></a><a class="alt" href="/login">Already have an account? <b>Log in</b></a></div>
 <div class="wrap">
   <div class="pitch">
     <div class="crumb"><a href="/" style="color:inherit;text-decoration:none">Home</a><span>/</span><b>Sign up</b></div>
-    <h1>Open your <b>AI desk</b> in a minute.</h1>
-    <p>Create an account, seed three sample leads and watch a research → draft → QA → approval loop run in front of you. No card needed.</p>
-    <ul><li>Live demo desk on a real model</li><li>Approval queue, CRM, audit log, monthly report</li><li>Book a scoping call when you're ready for your own desk</li></ul>
+    <h1>Keep the desk you <b>build</b>.</h1>
+    <p>An account keeps your desks, lets you switch to paid models and turns on the second factor. No card needed.</p>
+    <ul><li>Your desks, cameras and journals kept</li><li>Paid models when the free ones run out</li><li>Approval queue, audit log, monthly report</li></ul>
+    <div class="guest"><b>No account yet? Walk straight in.</b><p>A guest desk opens in one click: brief Atlas, watch the team draft, add a camera. Free models only, nothing is sent without your say-so. Sign up later to keep it.</p><a href="/try">Open a guest desk <span>→</span></a></div>
   </div>
   <form method="post" action="/signup">
     <h2>Create your account</h2>
@@ -27,8 +28,7 @@
     <label>Password</label><input type="password" name="password" placeholder="At least 8 characters" minlength="8" required>
     <button type="submit">Create account →</button>
     <div class="foot">Already registered? <a href="/login">Log in</a></div>
-    <p class="fine">By signing up you agree to our <a href="/privacy.html" style="color:#c084fc">privacy policy &amp; terms</a>. Demo data is shared and reset periodically.</p>
+    <p class="fine">By signing up you agree to our <a href="/privacy.html">privacy policy &amp; terms</a>. Demo data is shared and reset periodically.</p>
   </form>
-    <div class="foot">Just looking? <a href="/try">Open a guest desk without an account</a></div>
 </div>
 </body></html>

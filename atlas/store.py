@@ -925,6 +925,27 @@ class Store:
             self._conn.execute(f"UPDATE desks SET {', '.join(f'{k}=?' for k in fields)} WHERE id=?", (*fields.values(), desk_id))
             self._conn.commit()
 
+    def stale_guests(self, domain: str, idle_s: float) -> list[dict[str, Any]]:
+        """Guest accounts (email @domain) whose last sign-in (or creation) is older than idle_s."""
+        cutoff = time.time() - idle_s
+        return _rows(self._conn.execute("SELECT id,email,created,last_login FROM users WHERE email LIKE ? AND COALESCE(last_login, created) < ?",
+                                        ("%@" + domain, cutoff)))
+
+    def delete_user(self, uid: int) -> int:
+        """The account and everything it owns: every desk's data, the desks, the user row. Returns desks removed."""
+        desks = [r[0] for r in self._conn.execute("SELECT id FROM desks WHERE owner_id=?", (uid,)).fetchall()]
+        for did in desks:
+            self.delete_desk_data(did)
+            with self._lock:
+                for t in ("connectors", "jobs", "messages", "vision_vectors", "vision_objects", "vision_object_notes", "named_things"):
+                    self._conn.execute(f"DELETE FROM {t} WHERE desk_id=?", (did,))
+                self._conn.execute("DELETE FROM desks WHERE id=?", (did,))
+                self._conn.commit()
+        with self._lock:
+            self._conn.execute("DELETE FROM users WHERE id=?", (uid,))
+            self._conn.commit()
+        return len(desks)
+
     def delete_desk_data(self, desk_id: int) -> None:
         with self._lock:
             run_ids = [r[0] for r in self._conn.execute("SELECT id FROM runs WHERE desk_id=?", (desk_id,)).fetchall()]
