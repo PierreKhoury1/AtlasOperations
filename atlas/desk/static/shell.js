@@ -172,12 +172,16 @@
   }
   function acctMenu(btn) {
     const dark = document.documentElement.dataset.theme !== 'light';
-    const m = menu(btn, `<button id="sh-th">${svg(dark ? 'sun' : 'moon')}${dark ? 'Light theme' : 'Dark theme'}</button>${SETUP ? '' : `<a href="/desk#setup">${svg('gear')}Desk setup</a>`}<a href="/">${svg('home')}Website</a><hr><a href="/logout">${svg('out')}Log out</a>`);
+    const guest = !!(S.me && S.me.guest);
+    const m = menu(btn, `<button id="sh-th">${svg(dark ? 'sun' : 'moon')}${dark ? 'Light theme' : 'Dark theme'}</button>${SETUP ? '' : `<a href="/desk#setup">${svg('gear')}Desk setup</a>`}<a href="/">${svg('home')}Website</a><hr>${guest ? `<a href="/signup">${svg('plus')}Create an account</a>` : ''}<a href="/logout">${svg('out')}${guest ? 'Leave the guest desk' : 'Log out'}</a>`);
     m.querySelector('#sh-th').onclick = () => { toggleTheme(); m.remove(); const b = document.getElementById('sh-theme'); if (b) b.innerHTML = svg(document.documentElement.dataset.theme === 'dark' ? 'sun' : 'moon'); };
   }
   function setMe(me) {
     if (!document.getElementById('sh-me')) return;
-    if (me && me.id) {
+    if (me && me.id && me.guest) {
+      document.getElementById('sh-me').textContent = 'Guest desk'; document.getElementById('sh-co').textContent = 'no account yet · sign up to keep it';
+      document.getElementById('sh-av').textContent = 'G';
+    } else if (me && me.id) {
       document.getElementById('sh-me').textContent = me.name || me.email; document.getElementById('sh-co').textContent = me.email || '';
       document.getElementById('sh-av').textContent = (me.name || me.email || '?').trim()[0].toUpperCase();
     } else { document.getElementById('sh-me').textContent = 'Guest'; document.getElementById('sh-co').textContent = 'open mode'; }

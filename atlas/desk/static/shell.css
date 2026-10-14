@@ -1,6 +1,6 @@
 /* Atlas app frame (14 Oct 2026 look): a navy navigation rail with the mark, a light top bar with search, and the
    Ask Atlas panel, the same on every page. Namespaced (--sh-*, .sh-*) so it looks identical whatever the page uses. */
-:root{--sh-w:200px;--sh-top:56px;--sh-bg:#0B1628;--sh-bg2:#122036;--sh-bg3:#1A2B47;--sh-line:#1B2A44;--sh-line2:#27395A;
+:root{--sh-w:200px;--sh-top:46px;--sh-bg:#0B1628;--sh-bg2:#122036;--sh-bg3:#1A2B47;--sh-line:#1B2A44;--sh-line2:#27395A;
   --sh-text:#F1F4F9;--sh-text2:#C3CCDA;--sh-muted:#8593A8;--sh-faint:#5C6B82;--sh-acc:#3B7CF6;--sh-acc-h:#2F6FE4;--sh-acc-soft:rgba(59,124,246,.18);
   --sh-ok:#22B36B;--sh-warn:#E0A33A;--sh-bad:#E5484D;
   --sh-page:#F5F7FA;--sh-card:#FFFFFF;--sh-edge:#E3E8EF;--sh-edge2:#D3DAE4;--sh-ink:#111827;--sh-ink2:#374151;--sh-ink3:#6B7280;--sh-ink4:#9AA3B2;--sh-blue-soft:#EAF1FD;
@@ -49,12 +49,8 @@ body.sh-on.sh-mini{--sh-w:64px}
 /* the planet card: a still of the world the desk watches */
 .sh-planet{margin:8px 12px 6px;padding:16px 10px 12px;border:1px solid var(--sh-line2);border-radius:11px;display:flex;flex-direction:column;align-items:center;gap:12px;
   background:radial-gradient(120% 90% at 50% 0%,#132339 0,var(--sh-bg) 70%)}
-.sh-orb{width:74px;height:74px;border-radius:50%;flex:none;position:relative;
-  background:radial-gradient(circle at 34% 30%,#3D7BE0 0,#1E4FA8 32%,#0E2B66 62%,#06162F 100%);
-  box-shadow:0 0 0 1px rgba(90,150,255,.18),0 0 26px rgba(59,124,246,.28),inset -14px -12px 26px rgba(0,0,0,.6)}
-.sh-orb::before{content:"";position:absolute;inset:0;border-radius:50%;
-  background:radial-gradient(28% 18% at 58% 38%,rgba(130,190,120,.55) 0,transparent 70%),radial-gradient(22% 30% at 36% 60%,rgba(120,170,110,.45) 0,transparent 70%),radial-gradient(16% 10% at 66% 66%,rgba(140,190,130,.4) 0,transparent 70%)}
-.sh-orb::after{content:"";position:absolute;left:14%;top:12%;width:34%;height:22%;border-radius:50%;background:radial-gradient(rgba(255,255,255,.55),transparent 70%);filter:blur(1px)}
+.sh-orb{width:92px;height:92px;border-radius:50%;flex:none;position:relative;background:#0B1628 url(/desk/static/planet.jpg) center/118% no-repeat;
+  box-shadow:0 0 0 1px rgba(90,150,255,.16),0 0 30px rgba(59,124,246,.26)}
 .sh-planet .cap{font-size:8px;letter-spacing:.24em;text-indent:.24em;line-height:1.7;color:var(--sh-muted);text-align:center;white-space:pre-line}
 .sh-bottom{padding:4px 10px 6px;border-top:1px solid var(--sh-line);margin-top:2px}
 .sh-foot{border-top:1px solid var(--sh-line);padding:12px 14px;display:flex;align-items:center;gap:10px;cursor:pointer}
@@ -93,6 +89,8 @@ body.sh-mini #sh-rail .sh-foot{padding:12px 17px}
 @media (hover:none),(pointer:coarse){.sh-tsearch kbd{display:none}}
 @media (max-width:1100px){.sh-motto{display:none}.sh-tsep{display:none}}
 
+/* laptops under 900 px tall: the top bar gives its room back to the page (search = Ctrl K or Help in the rail) */
+@media (max-height:900px){body.sh-on{padding-top:0!important}#sh-topbar{display:none}}
 /* ---------------------------------------------------------------- menus */
 .sh-menu{position:fixed;z-index:950;min-width:230px;background:var(--sh-card);border:1px solid var(--sh-edge);border-radius:12px;padding:6px;box-shadow:0 18px 50px rgba(16,24,40,.18);font:13px var(--sh-font);color:var(--sh-ink2)}
 .sh-menu button,.sh-menu a{display:flex;width:100%;align-items:center;gap:9px;padding:8px 10px;border-radius:8px;border:0;background:none;color:inherit;font:inherit;text-align:left;cursor:pointer;text-decoration:none}

@@ -687,6 +687,19 @@ def _google_redirect() -> str:
     return base + "/auth/google/callback"
 
 
+@app.get("/try")
+def try_desk():
+    """Straight into the workspace without signing up: a throwaway account with its own desks and session, on free
+    models only (no paid switch, see _is_guest). Someone already signed in just goes to their front door."""
+    u = current_user()
+    if u:
+        return redirect(_front_door(u))
+    email = f"guest-{secrets.token_urlsafe(9).lower()}@{GUEST_DOMAIN}"
+    u = store.add_user(email, "Guest", "", "")               # no password: this account can only ever be reached from its session
+    _sign_in(u["id"])
+    return redirect("/desk/workspace?new=1")
+
+
 @app.route("/signup", methods=["GET", "POST"])
 def signup():
     if request.method == "POST":
@@ -747,6 +760,7 @@ def api_me():
         return jsonify({"id": None, "name": "Guest", "email": "", "company": "", "open": OPEN})
     out = {k: v for k, v in u.items() if k != "google_sub"}
     out["google"] = bool(u.get("google_sub"))
+    out["guest"] = _is_guest(u)
     required = AUTH.two_factor_mode() == "required"
     out["two_factor"] = AUTH.two_factor_active() and (required or bool(int(u.get("two_factor") or 0)))
     out["two_factor_available"] = AUTH.two_factor_active()
@@ -990,7 +1004,7 @@ def api_update_desk(did):
         abort(404)
     body = request.get_json(force=True) or {}
     fields: dict[str, Any] = {}
-    if body.get("tier") in templates.TIERS:
+    if body.get("tier") in templates.TIERS and not (body["tier"] != "free" and _is_guest(u)):
         fields["tier"] = body["tier"]
     if body.get("name"):
         fields["name"] = str(body["name"]).strip()
@@ -3493,7 +3507,7 @@ def api_vision_demo():
                                                          {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64," + base64.b64encode(jpeg).decode()}}]}]}
     headers = _demo_headers(key, "Atlas Desks site vision demo")
 
-    return Response(_demo_stream(base, headers, payload, model), mimetype="text/event-stream", headers=hdr)
+    return Response(_demo_stream_fb(base, headers, payload, model), mimetype="text/event-stream", headers=hdr)
 
 
 def _demo_cfg() -> tuple[str, str, str]:
@@ -3507,6 +3521,35 @@ def _demo_cfg() -> tuple[str, str, str]:
 def _demo_headers(key: str, title: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {key}", "Content-Type": "application/json", "Accept": "text/event-stream",
             "HTTP-Referer": "https://atlas-ops.onrender.com", "X-Title": title}
+
+
+GUEST_DOMAIN = "try.atlas.invalid"          # accounts made by /try: a real session, no password, free models only
+
+
+def _is_guest(u: dict[str, Any] | None) -> bool:
+    return bool(u and str(u.get("email") or "").endswith("@" + GUEST_DOMAIN))
+
+
+def _demo_fallback_model(model: str) -> str:
+    """The paid model the public demos fall back to when the free one answers 429 for the day (OpenRouter's
+    free-models-per-day bucket). Empty string = no fallback. Subject to the spend cap like any paid call."""
+    fb = os.environ.get("VISION_DEMO_FALLBACK_MODEL", "google/gemini-3.1-flash-lite").strip()
+    return fb if fb and fb != model and ":free" in model else ""
+
+
+def _demo_stream_fb(base: str, headers: dict[str, str], payload: dict[str, Any], model: str, first: dict[str, Any] | None = None):
+    """_demo_stream, retried once on the fallback model when the free model's first event is a rate-limit error."""
+    fb = _demo_fallback_model(model)
+    seen = False
+    for ev in _demo_stream(base, headers, payload, model, first):
+        if not seen and fb and '"error"' in ev and ("429" in ev or "rate limit" in ev.lower() or "rate-limit" in ev.lower()) and not _spend_blocked():
+            p2 = dict(payload)
+            p2["model"] = fb
+            yield from _demo_stream(base, headers, p2, fb, first)
+            return
+        if '"error"' not in ev:
+            seen = True
+        yield ev
 
 
 def _demo_stream(base: str, headers: dict[str, str], payload: dict[str, Any], model: str, first: dict[str, Any] | None = None):
@@ -3613,7 +3656,7 @@ def api_vision_demo_ask():
     payload = {"model": model, "max_tokens": 160, "temperature": 0.2, "stream": True,
                "messages": [{"role": "system", "content": system}, {"role": "user", "content": q}]}
     headers = _demo_headers(key, "Atlas Desks site vision ask")
-    return Response(_demo_stream(base, headers, payload, model, first={"used": used, "of": len(events)}),
+    return Response(_demo_stream_fb(base, headers, payload, model, first={"used": used, "of": len(events)}),
                     mimetype="text/event-stream", headers=hdr)
 
 
@@ -4985,6 +5028,8 @@ def api_design_tier(sid):
     tier = str((request.get_json(silent=True) or {}).get("tier") or "")
     if tier not in templates.TIERS:
         return jsonify({"error": "unknown tier"}), 400
+    if tier != "free" and _is_guest(current_user()):
+        return jsonify({"error": "paid models need an account: sign up (free) to switch"}), 403
     s.tier = tier
     s.refresh_next()                                     # the paid switch is offered only while the session is on free models
     _save_design(s)

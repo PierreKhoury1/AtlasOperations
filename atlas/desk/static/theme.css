@@ -8,8 +8,9 @@
   --accent:#4C8DFF;--accent2:#8AB4FF;--accent-soft:rgba(76,141,255,.16);--ink:#2F6FE4;--blue:#4C8DFF;--deep:#8AB4FF;--ok:#4ADE80;--ok-soft:rgba(74,222,128,.14);--warn:#F6B44B;--danger:#F87171;--dot:#2E3F5C;
   --card-shadow:0 1px 2px rgba(0,0,0,.3)}
 /* the frame mounts a moment after first paint: keep its space so the page never jumps */
-body:not(.sh-on):not(.no-frame){padding-left:200px;padding-top:56px}
+body:not(.sh-on):not(.no-frame){padding-left:200px;padding-top:46px}
 html.sh-mini-pre body:not(.sh-on):not(.no-frame){padding-left:64px}
+@media (max-height:900px){body:not(.sh-on):not(.no-frame){padding-top:0}}
 @media (max-width:760px){body:not(.sh-on):not(.no-frame),html.sh-mini-pre body:not(.sh-on):not(.no-frame){padding-left:0;padding-top:42px}}
 
 /* ---------- surfaces and primitives */
@@ -44,10 +45,10 @@ main{padding:28px 32px 72px}
 .hm-stat small{order:3;font-size:11.5px;color:var(--faint)}
 .hm-stat.warn::before{background-color:#FBF1DD}.hm-stat.bad::before{background-color:#FBE7E7}.hm-stat.ok::before{background-color:var(--ok-soft)}
 .kpis{gap:12px;background:transparent;border:0;border-radius:0;overflow:visible}
-.kpi{border:1px solid var(--line);border-radius:12px;padding:14px 16px;box-shadow:var(--card-shadow);display:grid;grid-template-columns:40px minmax(0,1fr);column-gap:12px;align-items:center;transition:border-color .12s,box-shadow .12s}
+.kpi{border:1px solid var(--line);border-radius:12px;padding:10px 14px;box-shadow:var(--card-shadow);display:grid;grid-template-columns:40px minmax(0,1fr);column-gap:12px;align-items:center;transition:border-color .12s,box-shadow .12s}
 .kpi:hover{background:var(--panel);border-color:var(--line2);box-shadow:0 4px 14px rgba(16,24,40,.08)}
-.kpi::before{content:"";grid-row:1/4;width:40px;height:40px;border-radius:10px;background:var(--accent-soft) center/18px 18px no-repeat}
-.kpi .v{order:1;font-size:24px;margin:0 0 2px;line-height:1.1}
+.kpi::before{content:"";grid-row:1/4;width:36px;height:36px;border-radius:10px;background:var(--accent-soft) center/18px 18px no-repeat}
+.kpi .v{order:1;font-size:22px;margin:0 0 1px;line-height:1.1}
 .kpi .l{order:2;font:500 12.5px/1.3 var(--ui,Inter,system-ui,sans-serif);letter-spacing:0;text-transform:none;color:var(--muted)}
 .kpi .s{order:3;font-size:11.5px;color:var(--faint)}
 .kpi.warn::before{background-color:#FBF1DD}.kpi.bad::before{background-color:#FBE7E7}.kpi.ok::before{background-color:var(--ok-soft)}
@@ -80,7 +81,10 @@ main{padding:28px 32px 72px}
 .toast{border-radius:10px}
 
 /* ---------- workspace: header, panels, explorer, the Atlas copilot card */
-.wk-head{padding:18px var(--pad) 14px}
+.wk-head{padding:10px var(--pad) 8px}
+@media (min-width:1500px){.wk-side{flex-direction:row;align-items:center;gap:12px}.wk-side .pills{flex-wrap:nowrap}}
+.wk-title h1{font-size:26px}
+.wk-head p.lead{margin-top:3px}
 .wk-title .tag{height:22px;border-radius:6px}
 .explorer{border-radius:12px;background:var(--panel)}
 .drawer{border-radius:12px}
@@ -88,18 +92,19 @@ main{padding:28px 32px 72px}
 .nx-l{border-radius:10px}
 #chat-foot{border-radius:8px}
 .others button,.srcs button{border-radius:0}
-.as-h{min-height:52px;padding:0 10px 0 16px;border-bottom:0}
+.as-h{min-height:44px;padding:0 10px 0 16px;border-bottom:0}
 .as-h h2{font-size:15px}
 .as-h .amark{width:9px;height:9px;border-radius:50%;flex:0 0 9px;background:var(--ok);box-shadow:0 0 0 3px color-mix(in srgb,var(--ok) 20%,transparent);margin-right:0}
 .as-h .amark::after{display:none}
 .as-h .tag{height:20px;border-radius:6px}
 #msgs{padding:0 16px 12px}
 #msgs::before{content:"";flex:none;height:84px;margin:0 0 6px;border-radius:10px;
-  background:radial-gradient(90% 90% at 16% 128%,#A9BBD4 0 40%,transparent 41%),radial-gradient(70% 80% at 54% 130%,#BFCEE1 0 44%,transparent 45%),
-  radial-gradient(80% 70% at 88% 124%,#9DB1CC 0 42%,transparent 43%),radial-gradient(44% 60% at 40% 134%,#8DA4C3 0 36%,transparent 37%),linear-gradient(#F7FAFE,#E6EDF6);
-  -webkit-mask-image:linear-gradient(#000 55%,transparent);mask-image:linear-gradient(#000 55%,transparent)}
+  background:radial-gradient(90% 90% at 16% 128%,#7F97BD 0 40%,transparent 41%),radial-gradient(70% 80% at 54% 130%,#9DB2D1 0 44%,transparent 45%),
+  radial-gradient(80% 70% at 88% 124%,#6F8AB3 0 42%,transparent 43%),radial-gradient(44% 60% at 40% 134%,#5B78A5 0 36%,transparent 37%),linear-gradient(#F2F6FC,#DCE6F3);
+  -webkit-mask-image:linear-gradient(#000 70%,transparent);mask-image:linear-gradient(#000 70%,transparent)}
 :root[data-theme="dark"] #msgs::before{background:radial-gradient(90% 80% at 18% 125%,#24354F 0 38%,transparent 39%),radial-gradient(70% 70% at 52% 128%,#2C405E 0 42%,transparent 43%),radial-gradient(80% 60% at 86% 122%,#1F3049 0 40%,transparent 41%),linear-gradient(#111B2E,#162238)}
 #wk[data-phase="run"] #msgs::before{display:none}   /* a built desk: the conversation needs the room */
+@media (max-height:900px){#msgs::before{display:none}}
 #msgs .m.u{border-radius:10px;padding:8px 11px}
 .nx-r{padding:8px 12px}
 .as-modes{gap:6px;padding:8px 14px 0;border-top:0}

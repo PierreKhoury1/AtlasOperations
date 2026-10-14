@@ -24,7 +24,7 @@
 <nav class="nav">
   <div class="wrap">
     <a class="brand" href="index.html"><svg class="mark" viewBox="0 0 48 32" aria-hidden="true"><path d="M2 16C8 6 16 2 24 2s16 4 22 14c-6 10-14 14-22 14S8 26 2 16Z"/><circle cx="24" cy="16" r="8.5"/><ellipse cx="24" cy="16" rx="3.6" ry="8.5"/><path d="M15.5 16h17M17.5 11.3h13M17.5 20.7h13"/></svg><span class="wm"><b>ATLAS</b><small>OBSERVE&nbsp;&nbsp;REASON&nbsp;&nbsp;ACT</small></span></a>
-    <ul id="menu"><li><a href="index.html" class="on">Home</a></li><li><a href="desks.html">Desks</a></li><li><a href="how-it-works.html">How it works</a></li><li><a href="pricing.html">Pricing</a></li><li><a href="about.html">About</a></li><li><a href="contact.html">Contact</a></li><li class="cta"><a href="/login" class="btn ghost sm">Sign in</a></li><li><a href="/signup" class="btn primary sm">Get started <i class="ar">→</i></a></li></ul>
+    <ul id="menu"><li><a href="index.html" class="on">Home</a></li><li><a href="desks.html">Desks</a></li><li><a href="how-it-works.html">How it works</a></li><li><a href="pricing.html">Pricing</a></li><li><a href="about.html">About</a></li><li><a href="contact.html">Contact</a></li><li class="cta"><a href="/login" class="btn ghost sm">Sign in</a></li><li><a href="/try" class="btn primary sm">Get started <i class="ar">→</i></a></li></ul>
     <button class="burger" id="burger" aria-label="menu">☰</button>
   </div>
 </nav>
@@ -36,7 +36,7 @@
       <h1><span class="l1">See more.</span><span class="l2">Know first.</span><span class="l3">Act with confidence.</span></h1>
       <p class="lead">Atlas deploys multi-agent AI with computer vision and language models to document, understand and act on real-world operations, in real time, with a person approving anything sensitive.</p>
       <div class="cta">
-        <a class="btn primary" href="/signup">Get started <i class="ar">→</i></a>
+        <a class="btn primary" href="/try">Open the desk <i class="ar">→</i></a>
         <a class="btn ghost" href="#feed"><i class="pl"></i>Watch demo</a>
       </div>
     </div>
@@ -65,20 +65,19 @@
       <div>
         <div class="eyebrow">From live feed to action</div>
         <h2>Turn real-world data into real results.</h2>
-        <p>Atlas turns live video, sensor data and documents into work: a fleet of specialised agents watches, reads, drafts and files, and every outbound action waits for your approval.</p>
+        <p>Four cameras, one place: the detector follows each person with an id in every view, the catalogue cross-checks what it saw, and the agents turn it into work. Every outbound action waits for your approval.</p>
         <a class="play" href="#vision"><i></i>See the live pipeline below</a>
       </div>
       <div class="cam">
-        <video autoplay muted loop playsinline preload="auto"><source src="video/cam-factory.mp4" type="video/mp4"></video>
-        <div class="hud l"><span class="dot"></span>Factory floor · sample footage</div>
-        <div class="hud r" id="feedClock">live</div>
-        <div class="box1"><b>FORKLIFT</b></div><div class="box2"><b>PERSON</b></div>
+        <video autoplay muted loop playsinline preload="auto" poster="video/multicam.jpg"><source src="video/multicam.mp4" type="video/mp4"></video>
+        <div class="hud l"><span class="dot"></span>4 feeds · YOLO + ByteTrack · real boxes</div>
+        <div class="hud r">CAVIAR shop footage</div>
       </div>
       <div class="acts">
         <div class="act hot"><div class="th"><svg viewBox="0 0 24 24"><path d="M3 17h9v-5H8l-2-4H3zM12 12V7h3l3 5v5h-6"/><circle cx="6" cy="19" r="2"/><circle cx="15" cy="19" r="2"/></svg></div><div><b>Forklift in a restricted zone</b><small>alert the floor lead, log the clip</small></div></div>
         <div class="act"><div class="th"><svg viewBox="0 0 24 24"><path d="M3 7h11v10H3zM14 11h4l3 3v3h-7z"/><circle cx="7" cy="18" r="2"/><circle cx="17" cy="18" r="2"/></svg></div><div><b>Delivery arrived at the dock</b><small>open a case, notify receiving</small></div></div>
         <div class="act"><div class="th"><svg viewBox="0 0 24 24"><circle cx="8" cy="8" r="3"/><circle cx="16" cy="9" r="2.5"/><path d="M2.5 20a5.5 5.5 0 0 1 11 0M13.5 19a4 4 0 0 1 8 0"/></svg></div><div><b>Queue longer than four</b><small>message the manager, note the time</small></div></div>
-        <a class="more" href="/desk" target="_blank">Open the live desk <i class="ar">→</i></a>
+        <a class="more" href="/try">Open the live desk <i class="ar">→</i></a>
       </div>
     </div>
   </div>
@@ -172,7 +171,7 @@
     <div class="eyebrow">See it in action</div>
     <h2>The desk your team actually <b>uses</b>.</h2>
     <p class="lead">The real product, running real models. Jobs come in, a team of agents researches, drafts and updates the CRM — every outbound message waits in one approval queue for you.</p>
-    <div class="cta" style="margin:26px 0 0;display:flex;gap:14px;flex-wrap:wrap"><a class="btn primary" href="/desk" target="_blank">Open the live demo <i class="ar">↗</i></a><a class="btn ghost" href="contact.html#form">Book a scoping call</a></div>
+    <div class="cta" style="margin:26px 0 0;display:flex;gap:14px;flex-wrap:wrap"><a class="btn primary" href="/try">Open the live demo <i class="ar">↗</i></a><a class="btn ghost" href="contact.html#form">Book a scoping call</a></div>
   </div>
   <div class="shots-track">
     <figure><img src="img/desk_dash.jpg" alt="Atlas Desk dashboard" loading="lazy"><figcaption><em>01</em><b>Dashboard</b><span>jobs handled, what's waiting for approval, live agent activity.</span></figcaption></figure>
