@@ -3,9 +3,9 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Atlas Desks — AI teams for every function of your business, installed and run for you</title>
-<meta name="description" content="We install and operate AI teams for every function of your business — sales, support and bookings, content, research, and the shop floor itself — with a human approving anything sensitive.">
-<meta property="og:title" content="Atlas Desks — AI teams for every function of your business">
+<title>Atlas — See more. Know first. Act with confidence.</title>
+<meta name="description" content="Atlas deploys multi-agent AI with computer vision and language models to document, understand and act on real-world operations, in real time, with a person approving anything sensitive.">
+<meta property="og:title" content="Atlas — See more. Know first. Act with confidence.">
 <meta property="og:description" content="One orchestrator assembles the right specialists for each job, runs them in parallel, and puts anything sensitive in front of you to approve. Cameras can be an input too.">
 <meta property="og:type" content="website">
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
@@ -16,46 +16,90 @@
 <link rel="stylesheet" href="cinema.css">
 <link rel="stylesheet" href="orch.css">
 <link rel="stylesheet" href="vision.css">
+<link rel="stylesheet" href="dark.css">
 </head>
 <body>
 <!-- multipage -->
 
 <nav class="nav">
   <div class="wrap">
-    <a class="brand" href="index.html"><i></i><span data-brand>Atlas Desks</span></a>
-    <ul id="menu"><li><a href="index.html" class="on">Home</a></li><li><a href="desks.html">Desks</a></li><li><a href="how-it-works.html">How it works</a></li><li><a href="pricing.html">Pricing</a></li><li><a href="about.html">About</a></li><li><a href="contact.html">Contact</a></li><li><a href="/login">Log in</a></li><li><a href="/signup" class="btn primary sm">Sign up free</a></li></ul>
+    <a class="brand" href="index.html"><svg class="mark" viewBox="0 0 48 32" aria-hidden="true"><path d="M2 16C8 6 16 2 24 2s16 4 22 14c-6 10-14 14-22 14S8 26 2 16Z"/><circle cx="24" cy="16" r="8.5"/><ellipse cx="24" cy="16" rx="3.6" ry="8.5"/><path d="M15.5 16h17M17.5 11.3h13M17.5 20.7h13"/></svg><span class="wm"><b>ATLAS</b><small>OBSERVE&nbsp;&nbsp;REASON&nbsp;&nbsp;ACT</small></span></a>
+    <ul id="menu"><li><a href="index.html" class="on">Home</a></li><li><a href="desks.html">Desks</a></li><li><a href="how-it-works.html">How it works</a></li><li><a href="pricing.html">Pricing</a></li><li><a href="about.html">About</a></li><li><a href="contact.html">Contact</a></li><li class="cta"><a href="/login" class="btn ghost sm">Sign in</a></li><li><a href="/signup" class="btn primary sm">Get started <i class="ar">→</i></a></li></ul>
     <button class="burger" id="burger" aria-label="menu">☰</button>
   </div>
 </nav>
 
-<header class="hero cine" id="top" data-title="Atlas Desks">
-  <div class="film" aria-hidden="true"></div>
+<header class="hero cine eye" id="top" data-title="Atlas">
   <div class="wrap grid">
     <div class="h-in">
-      <div class="crumb"><b>Atlas Desks</b> / AI operations, run as a service</div>
-      <h1>We install and operate <span class="gw">AI teams</span> for every function of your business.</h1>
-      <p class="lead">Sales, support and bookings, content, research, back office — and the shop floor itself. One orchestrator reads each job, assembles the right specialists, runs them in parallel, and puts anything that touches money, contracts or customers in front of you to approve. We map it, connect it, run it and improve it every month.</p>
+      <div class="eyebrow">Real-world intelligence at scale</div>
+      <h1><span class="l1">See more.</span><span class="l2">Know first.</span><span class="l3">Act with confidence.</span></h1>
+      <p class="lead">Atlas deploys multi-agent AI with computer vision and language models to document, understand and act on real-world operations, in real time, with a person approving anything sensitive.</p>
       <div class="cta">
-        <a class="btn primary" href="contact.html#form">Book a scoping call <i class="ar">→</i></a>
-        <a class="btn ghost" href="/desk" target="_blank">Open the live desk <i class="ar">↗</i></a>
-      </div>
-      <div class="proof">
-        <div><b>Every function</b>sales to shop floor, one system</div>
-        <div><b>Human approval</b>before anything sensitive</div>
-        <div><b>Cameras as input</b>agents that see the room</div>
+        <a class="btn primary" href="/signup">Get started <i class="ar">→</i></a>
+        <a class="btn ghost" href="#feed"><i class="pl"></i>Watch demo</a>
       </div>
     </div>
-
-    <div class="orch" id="orch" aria-label="Atlas orchestrating a team of agents - live when the server can run a model, otherwise a replay of a real run">
-      <header><span><span class="dot"></span><b>Atlas</b> · orchestrating <span class="orch-mode" id="orchMode">replay</span></span><span class="orch-tag" id="orchTag">connecting…</span></header>
-      <div class="orch-task"><span class="k">Job</span><p id="orchTask"></p><span class="orch-det" id="orchDet"></span></div>
-      <canvas id="orchCanvas" height="176"></canvas>
-      <div class="orch-panels" id="orchPanels"></div>
-      <div class="orch-merge" id="orchMerge"><span class="k">Atlas · merged plan</span><p></p><span class="q" hidden>Queued for owner approval</span></div>
-      <div class="orch-stats"><span><b id="stInst">1</b>model instances</span><span><b id="stTok">0</b>tokens streamed</span><span><b id="stPar">0</b>agents in parallel</span><span><b id="stWall">0.0 s</b>wall clock</span></div>
+    <div class="eyevid" aria-hidden="true">
+      <video autoplay muted loop playsinline preload="auto" poster="video/hero.jpg"><source src="video/hero.mp4" type="video/mp4"></video>
+      <div class="hud pin">51.5072° N<br>0.1276° W</div>
+      <div class="hud tr">Cameras<br>Agents<br>Insights<br>Actions</div>
+      <div class="hud tl">Physical<br>operations<br>Digital<br>clarity</div>
+      <div class="hud br">Multi-agent AI<br>Computer vision<br>RAG + LLM</div>
     </div>
   </div>
 </header>
+
+<section class="verbs" aria-label="What Atlas does">
+  <div class="wrap">
+    <div class="verb"><div class="ic"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="13" rx="2"/><path d="M8 21h8M12 18v3"/><circle cx="12" cy="11.5" r="3"/></svg></div><div><b>Monitor</b><span>Multi-camera, multi-site visibility</span></div></div>
+    <div class="verb"><div class="ic"><svg viewBox="0 0 24 24"><path d="M9 4.5a3.5 3.5 0 0 0-3.5 3.5v1A3 3 0 0 0 4 12a3 3 0 0 0 1.5 2.6V16a3.5 3.5 0 0 0 7 0V8A3.5 3.5 0 0 0 9 4.5Z"/><path d="M15 4.5a3.5 3.5 0 0 1 3.5 3.5v1A3 3 0 0 1 20 12a3 3 0 0 1-1.5 2.6V16a3.5 3.5 0 0 1-7 0"/></svg></div><div><b>Understand</b><span>Computer vision + LLM with RAG</span></div></div>
+    <div class="verb"><div class="ic"><svg viewBox="0 0 24 24"><path d="M6 3h8l4 4v14H6z"/><path d="M14 3v4h4M9 12h6M9 16h6"/></svg></div><div><b>Document</b><span>Auto-generate reports and insights</span></div></div>
+    <div class="verb"><div class="ic"><svg viewBox="0 0 24 24"><path d="M13 3 5 13h6l-1 8 8-10h-6l1-8Z"/></svg></div><div><b>Act</b><span>Trigger workflows, alerts and integrations</span></div></div>
+  </div>
+</section>
+
+<section class="feed" id="feed" aria-label="From live feed to action">
+  <div class="wrap">
+    <div class="box">
+      <div>
+        <div class="eyebrow">From live feed to action</div>
+        <h2>Turn real-world data into real results.</h2>
+        <p>Atlas turns live video, sensor data and documents into work: a fleet of specialised agents watches, reads, drafts and files, and every outbound action waits for your approval.</p>
+        <a class="play" href="#vision"><i></i>See the live pipeline below</a>
+      </div>
+      <div class="cam">
+        <video autoplay muted loop playsinline preload="auto"><source src="video/cam-factory.mp4" type="video/mp4"></video>
+        <div class="hud l"><span class="dot"></span>Factory floor · sample footage</div>
+        <div class="hud r" id="feedClock">live</div>
+        <div class="box1"><b>FORKLIFT</b></div><div class="box2"><b>PERSON</b></div>
+      </div>
+      <div class="acts">
+        <div class="act hot"><div class="th"><svg viewBox="0 0 24 24"><path d="M3 17h9v-5H8l-2-4H3zM12 12V7h3l3 5v5h-6"/><circle cx="6" cy="19" r="2"/><circle cx="15" cy="19" r="2"/></svg></div><div><b>Forklift in a restricted zone</b><small>alert the floor lead, log the clip</small></div></div>
+        <div class="act"><div class="th"><svg viewBox="0 0 24 24"><path d="M3 7h11v10H3zM14 11h4l3 3v3h-7z"/><circle cx="7" cy="18" r="2"/><circle cx="17" cy="18" r="2"/></svg></div><div><b>Delivery arrived at the dock</b><small>open a case, notify receiving</small></div></div>
+        <div class="act"><div class="th"><svg viewBox="0 0 24 24"><circle cx="8" cy="8" r="3"/><circle cx="16" cy="9" r="2.5"/><path d="M2.5 20a5.5 5.5 0 0 1 11 0M13.5 19a4 4 0 0 1 8 0"/></svg></div><div><b>Queue longer than four</b><small>message the manager, note the time</small></div></div>
+        <a class="more" href="/desk" target="_blank">Open the live desk <i class="ar">→</i></a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="sectors" aria-label="Built for real-world operations">
+  <div class="wrap">
+    <div class="eyebrow">Built for real-world operations</div>
+    <div class="srow">
+      <span><svg viewBox="0 0 24 24"><path d="M3 21V9l6 3V9l6 3V9l6 3v9z"/><path d="M7 21v-4M12 21v-4M17 21v-4"/></svg>Manufacturing</span>
+      <span><svg viewBox="0 0 24 24"><path d="M3 7h11v10H3zM14 11h4l3 3v3h-7z"/><circle cx="7" cy="18" r="2"/><circle cx="17" cy="18" r="2"/></svg>Logistics</span>
+      <span><svg viewBox="0 0 24 24"><path d="M4 21h16M6 21V10l6-4 6 4v11M10 21v-6h4v6"/></svg>Construction</span>
+      <span><svg viewBox="0 0 24 24"><path d="M13 3 5 13h6l-1 8 8-10h-6l1-8Z"/></svg>Energy</span>
+      <span><svg viewBox="0 0 24 24"><path d="M4 8h16l-1.5 12h-13z"/><path d="M8 8V6a4 4 0 0 1 8 0v2"/></svg>Retail</span>
+      <span><svg viewBox="0 0 24 24"><path d="M3 21h18M5 21V8h5v13M14 21V4h5v17"/><path d="M7 11h1M7 14h1M16 8h1M16 11h1M16 14h1"/></svg>Smart cities</span>
+      <span><svg viewBox="0 0 24 24"><path d="M12 3 4.5 6v6c0 4.5 3.2 7.6 7.5 9 4.3-1.4 7.5-4.5 7.5-9V6L12 3Z"/><path d="m9 12 2 2 4-4"/></svg>Security</span>
+      <span><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></svg>And more</span>
+      <span class="tail">A more aware world.</span>
+    </div>
+  </div>
+</section>
 
 <section id="vision" class="scene" data-title="Vision">
   <div class="wrap">
@@ -166,7 +210,7 @@
 <footer class="site">
   <div class="wrap">
     <div class="fcols">
-      <div><a class="brand" href="index.html"><i></i><span data-brand>Atlas Desks</span></a><p class="muted" style="margin-top:12px;max-width:320px">AI operations desks, installed and run for you. Sales, support, bookings, research and the shop floor.</p></div>
+      <div><a class="brand" href="index.html"><svg class="mark" viewBox="0 0 48 32" aria-hidden="true"><path d="M2 16C8 6 16 2 24 2s16 4 22 14c-6 10-14 14-22 14S8 26 2 16Z"/><circle cx="24" cy="16" r="8.5"/><ellipse cx="24" cy="16" rx="3.6" ry="8.5"/><path d="M15.5 16h17M17.5 11.3h13M17.5 20.7h13"/></svg><span class="wm"><b>ATLAS</b><small>OBSERVE&nbsp;&nbsp;REASON&nbsp;&nbsp;ACT</small></span></a><p class="muted" style="margin-top:12px;max-width:320px">AI operations desks, installed and run for you. Sales, support, bookings, research and the shop floor.</p></div>
       <div><b>Company</b><a href="about.html">About</a><a href="how-it-works.html">How it works</a><a href="pricing.html">Pricing</a><a href="contact.html">Contact</a></div>
       <div><b>Desks</b><a href="desks.html#sales">Sales Desk</a><a href="desks.html#support">Support &amp; Booking</a><a href="desks.html#content">Content &amp; Outreach</a><a href="desks.html#research">Research &amp; Documents</a><a href="index.html#vision">Site &amp; Vision</a></div>
       <div><b>Product</b><a href="/signup">Sign up</a><a href="/login">Log in</a><a href="index.html#demo">Screenshots</a><a href="privacy.html">Privacy</a><a href="privacy.html#terms">Terms</a></div>
@@ -179,6 +223,7 @@
 <script defer src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/ScrollTrigger.min.js"></script>
 <script defer src="https://cdn.jsdelivr.net/npm/lenis@1.1.18/dist/lenis.min.js"></script>
 <script defer src="script.js"></script>
+<script>setInterval(function(){var e=document.getElementById("feedClock");if(e){var d=new Date();e.textContent=d.toISOString().slice(0,10)+"  "+d.toTimeString().slice(0,8)}},1000)</script>
 <script defer src="bgterm.js"></script>
 <script defer src="cinema.js"></script>
 <script defer src="orch-data.js"></script>

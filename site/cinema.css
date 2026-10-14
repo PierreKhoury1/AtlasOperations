@@ -10,16 +10,16 @@ html.lenis { scroll-behavior: auto; }
 .film canvas { position: absolute; inset: -3%; width: 106%; height: 106%; opacity: 0; transition: opacity 1.6s ease; }
 .film canvas.on { opacity: 1; }
 .film::after { content: ""; position: absolute; inset: 0; background:
-  linear-gradient(90deg, rgba(245,247,250,.82) 0%, rgba(245,247,250,.6) 36%, rgba(245,247,250,.3) 60%, rgba(245,247,250,.12) 100%),
-  linear-gradient(180deg, rgba(245,247,250,.55) 0%, rgba(245,247,250,.1) 26%, rgba(245,247,250,.1) 72%, var(--bg) 100%); }
-.phero .film::after { background: linear-gradient(90deg, rgba(245,247,250,.95) 0%, rgba(245,247,250,.85) 42%, rgba(245,247,250,.55) 100%), linear-gradient(180deg, rgba(245,247,250,.6), rgba(245,247,250,.3) 40%, var(--bg) 100%); }
-@media (max-width: 960px) { .film::after, .phero .film::after { background: rgba(245,247,250,.9); } }
+  linear-gradient(90deg, rgba(7,11,20,.82) 0%, rgba(7,11,20,.6) 36%, rgba(7,11,20,.3) 60%, rgba(7,11,20,.12) 100%),
+  linear-gradient(180deg, rgba(7,11,20,.55) 0%, rgba(7,11,20,.1) 26%, rgba(7,11,20,.1) 72%, var(--bg) 100%); }
+.phero .film::after { background: linear-gradient(90deg, rgba(7,11,20,.95) 0%, rgba(7,11,20,.85) 42%, rgba(7,11,20,.55) 100%), linear-gradient(180deg, rgba(7,11,20,.6), rgba(7,11,20,.3) 40%, var(--bg) 100%); }
+@media (max-width: 960px) { .film::after, .phero .film::after { background: rgba(7,11,20,.9); } }
 .nav, header, section, footer, .strip, main { position: relative; z-index: 1; }
 .hero > .wrap, .phero > .wrap { position: relative; z-index: 2; }
 
 /* nav: white glass, hairline appears once you move */
-.nav { position: fixed; left: 0; right: 0; top: 0; z-index: 50; background: rgba(245,247,250,.72); border-bottom-color: transparent; transition: background .35s, border-color .35s; }
-.nav.scrolled { background: rgba(245,247,250,.9); border-bottom-color: var(--line); }
+.nav { position: fixed; left: 0; right: 0; top: 0; z-index: 50; background: rgba(7,11,20,.72); border-bottom-color: transparent; transition: background .35s, border-color .35s; }
+.nav.scrolled { background: rgba(7,11,20,.9); border-bottom-color: var(--line); }
 .phero { padding-top: 160px; }
 
 /* progress + section dots */
@@ -60,7 +60,7 @@ section.scene { background: var(--bg); }
 /* pipeline scene */
 #pipeline { min-height: 100vh; display: flex; align-items: center; background: var(--bg2); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
 #pipeline > .wrap { width: 100%; position: relative; z-index: 2; }
-#pipeline .film::after { background: linear-gradient(90deg, rgba(245,247,250,.93) 0%, rgba(245,247,250,.78) 42%, rgba(245,247,250,.25) 70%, rgba(245,247,250,.05) 100%), linear-gradient(180deg, rgba(245,247,250,.6), rgba(245,247,250,0) 30%, rgba(245,247,250,0) 70%, var(--bg2) 100%); }
+#pipeline .film::after { background: linear-gradient(90deg, rgba(7,11,20,.93) 0%, rgba(7,11,20,.78) 42%, rgba(7,11,20,.25) 70%, rgba(7,11,20,.05) 100%), linear-gradient(180deg, rgba(7,11,20,.6), rgba(7,11,20,0) 30%, rgba(7,11,20,0) 70%, var(--bg2) 100%); }
 .pipe { display: grid; grid-template-columns: 56px minmax(0, 560px); gap: 28px; align-items: stretch; justify-content: start; min-height: 60vh; }
 .pipe-bar { width: 2px; background: var(--line); position: relative; margin: 8px auto; }
 .pipe-bar i { position: absolute; inset: 0; background: var(--text); transform-origin: 50% 0; transform: scaleY(0); }

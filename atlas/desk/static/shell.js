@@ -22,21 +22,25 @@
     side: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/>', plus: '<path d="M12 5v14M5 12h14"/>', out: '<path d="M15 4h4v16h-4M10 8l-4 4 4 4M6 12h11"/>',
     moon: '<path d="M20 14.5A8 8 0 0 1 9.5 4 8 8 0 1 0 20 14.5z"/>', tick: '<path d="m5 12.5 4.5 4.5L19 7.5"/>',
     play: '<path d="M7 4.5v15l12-7.5z"/>', x: '<path d="M6 6l12 12M18 6 6 18"/>', send: '<path d="M4 12 20 4l-6 16-2.5-6.5L4 12Z"/>',
+    bell: '<path d="M6 16V11a6 6 0 1 1 12 0v5l1.5 2h-15Z"/><path d="M10 20a2 2 0 0 0 4 0"/>', sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
+    help: '<circle cx="12" cy="12" r="9"/><path d="M9.6 9.3a2.5 2.5 0 1 1 3.6 2.3c-.8.4-1.2 1-1.2 1.9"/><path d="M12 16.8h.01"/>', arrow: '<path d="M5 12h13M13 6l6 6-6 6"/>',
+    box: '<path d="M12 3 3 7.5v9L12 21l9-4.5v-9L12 3Z"/><path d="M3 7.5 12 12l9-4.5M12 12v9"/>', chevd: '<path d="m6 9 6 6 6-6"/>',
   };
+  const MARK = '<svg class="mark" viewBox="0 0 48 32"><path d="M2 16C8 6 16 2 24 2s16 4 22 14c-6 10-14 14-22 14S8 26 2 16Z"/><circle cx="24" cy="16" r="8.5"/><ellipse cx="24" cy="16" rx="3.6" ry="8.5"/><path d="M15.5 16h17M17.5 11.3h13M17.5 20.7h13"/></svg>';
   const svg = k => `<svg viewBox="0 0 24 24">${IC[k] || ''}</svg>`;
   const NAV = [
-    ['Work', [['home', 'Home', '/desk#dash', 'home'], ['cases', 'Cases', '/desk/ops', 'inbox'], ['inbox', 'Messages', '/desk#inbox', 'chat'], ['studio', 'Ad studio', '/desk#studio', 'spark'], ['approvals', 'Approvals', '/desk#approvals', 'check'],
-              ['live', 'Live runs', '/desk#live', 'pulse'], ['leads', 'Leads', '/desk#leads', 'leads'], ['crm', 'Contacts', '/desk#crm', 'db']]],
-    ['See', [['cameras', 'Cameras', '/desk#cameras', 'camera'], ['objects', 'Objects', '/desk/objects', 'grid'], ['review', 'Review', '/desk/review', 'film'],
-             ['security', 'Security', '/desk/cyber', 'shield']]],
-    ['Team', [['team', 'Agents', '/desk#team', 'team'], ['design', 'Atlas workspace', '/desk/workspace', 'spark'], ['automations', 'Automations', '/desk#automations', 'clock'],
-              ['runs', 'Run history', '/desk#runs', 'list']]],
-    ['Connect', [['integrations', 'Integrations', '/desk#integrations', 'link'], ['audit', 'Audit log', '/desk#audit', 'doc'], ['report', 'Reports', '/desk#report', 'chart'],
-                 ['setup', 'Desk setup', '/desk#setup', 'gear']]],
+    ['', [['home', 'Home', '/desk#dash', 'home'], ['design', 'New desk', '/desk/workspace', 'plus'], ['live', 'Live operations', '/desk#live', 'pulse'],
+          ['cameras', 'Cameras', '/desk#cameras', 'camera'], ['team', 'Agents', '/desk#team', 'team'], ['cases', 'Cases', '/desk/ops', 'inbox'],
+          ['approvals', 'Approvals', '/desk#approvals', 'check'], ['inbox', 'Messages', '/desk#inbox', 'chat'], ['leads', 'Leads', '/desk#leads', 'leads'],
+          ['crm', 'Contacts', '/desk#crm', 'db'], ['report', 'Reports', '/desk#report', 'chart']]],
+    ['More', [['objects', 'Objects', '/desk/objects', 'box'], ['review', 'Review', '/desk/review', 'film'], ['security', 'Security', '/desk/cyber', 'shield'],
+              ['studio', 'Ad studio', '/desk#studio', 'spark'], ['automations', 'Automations', '/desk#automations', 'clock'], ['runs', 'Run history', '/desk#runs', 'list'],
+              ['integrations', 'Integrations', '/desk#integrations', 'link'], ['audit', 'Audit log', '/desk#audit', 'doc']]],
   ];
   // an owner with no desk yet: the same frame, with only the way in (Atlas drafts the first desk in the workspace)
-  const NAV_SETUP = [['Start', [['design', 'Atlas workspace', '/desk/workspace', 'spark'], ['home', 'Other ways to start', '/desk', 'grid']]]];
+  const NAV_SETUP = [['', [['design', 'New desk', '/desk/workspace', 'plus'], ['home', 'Other ways to start', '/desk', 'grid']]]];
   let SETUP = false;
+  const NOTOP = /^\/desk\/(cyber|review|theatre)/.test(location.pathname);   // full-screen consoles keep their own header
   const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
   const isIndex = () => location.pathname === '/desk' || location.pathname === '/desk/';
   function current() {
@@ -79,22 +83,20 @@
   function rail() {
     const r = document.createElement('div'); r.id = 'sh-rail'; r.setAttribute('role', 'navigation');   // not <nav>: the pages style bare nav elements
     const nav = SETUP ? NAV_SETUP : NAV;
-    r.innerHTML = `<div class="sh-top"><a class="sh-brand" href="${SETUP ? '/desk/workspace' : '/desk#dash'}" data-go="dash"><i></i><span>Atlas</span></a>
+    r.innerHTML = `<div class="sh-logo"><a href="${SETUP ? '/desk/workspace' : '/desk#dash'}" data-go="dash" title="Atlas" style="display:contents">${MARK}<span class="word">ATLAS</span></a><span class="tag">SEE FURTHER. ACT SOONER.</span>
         <button class="sh-iconbtn" id="sh-mini" title="Collapse the menu">${svg('side')}</button></div>
-      <button class="sh-desk" id="sh-desk" title="${SETUP ? 'Start a desk' : 'Switch desk'}">${svg('home')}<span class="nm"><b id="sh-dname">${SETUP ? 'No desk yet' : '…'}</b><small id="sh-dsub">${SETUP ? 'Atlas drafts it with you' : 'loading'}</small></span>${svg('chev')}</button>
-      <div class="sh-actions"><button class="sh-act ask" id="sh-askbtn" title="${SETUP ? 'Describe the business to Atlas' : 'Give the team a job or ask the cameras'}">${svg('chat')}<span>Ask Atlas</span></button>
-        <button class="sh-act" id="sh-search" title="Search and jump anywhere">${svg('search')}<span>Search</span>${location.pathname.startsWith('/desk/ops') ? '' : '<kbd>Ctrl K</kbd>'}</button></div>
-      <div class="sh-nav">${nav.map(([g, items]) => `<div class="sh-grp">${g}</div>` + items.map(([id, label, href, ic]) =>
-        `<a class="sh-item" data-id="${id}" href="${href}" title="${esc(label)}">${svg(ic)}<span class="lbl">${esc(label)}</span><span class="sh-badge" id="sh-b-${id}" hidden></span></a>`).join('')).join('')}</div>
-      <div class="sh-foot"><div class="sh-av" id="sh-av">?</div><div class="sh-who"><b id="sh-me">…</b><small id="sh-co"></small></div>
-        <button class="sh-iconbtn" id="sh-acct" title="Account">${svg('gear')}</button></div>`;
+      <button class="sh-desk" id="sh-desk" title="${SETUP ? 'Start a desk' : 'Switch desk'}">${svg('home')}<span class="nm"><b id="sh-dname">${SETUP ? 'No desk yet' : '…'}</b><small id="sh-dsub">${SETUP ? 'Atlas drafts it with you' : 'loading'}</small></span>${svg('chevd')}</button>
+      <div class="sh-nav">${nav.map(([g, items]) => (g ? `<div class="sh-grp">${g}</div>` : '') + items.map(([id, label, href, ic]) =>
+        `<a class="sh-item" data-id="${id}" href="${href}" title="${esc(label)}">${svg(ic)}<span class="lbl">${esc(label)}</span><span class="sh-badge" id="sh-b-${id}" hidden></span></a>`).join('')).join('')}
+        <div class="sh-planet" aria-hidden="true"><div class="sh-orb"></div><div class="cap">REAL-WORLD\nINTELLIGENCE\nAT SCALE.</div></div></div>
+      <div class="sh-bottom">${SETUP ? '' : `<a class="sh-item" data-id="setup" href="/desk#setup" title="Desk setup">${svg('gear')}<span class="lbl">Settings</span></a>`}<button class="sh-item" id="sh-help" title="Search and commands (Ctrl K)">${svg('help')}<span class="lbl">Help</span></button></div>
+      <div class="sh-foot" id="sh-acct" title="Account"><div class="sh-av" id="sh-av">?</div><div class="sh-who"><b id="sh-me">…</b><small id="sh-co"></small></div>${svg('chevd')}</div>`;
     document.body.prepend(r);
     document.body.classList.add('sh-on');
     document.body.classList.toggle('sh-setup', SETUP);
     if (store('sh-mini') === '1') document.body.classList.add('sh-mini');
     r.querySelector('#sh-mini').onclick = () => { const m = document.body.classList.toggle('sh-mini'); store('sh-mini', m ? '1' : '0'); window.dispatchEvent(new Event('resize')); };
-    r.querySelector('#sh-askbtn').onclick = () => askAtlas();
-    r.querySelector('#sh-search').onclick = () => pal.open();
+    r.querySelector('#sh-help').onclick = () => pal.open();
     r.querySelector('#sh-desk').onclick = e => deskMenu(e.currentTarget);
     r.querySelector('#sh-acct').onclick = e => acctMenu(e.currentTarget);
     r.addEventListener('click', e => {                       // on the main desk page, its own sections switch without a reload
@@ -104,6 +106,24 @@
     mark();
     if (!railWired) { railWired = true; window.addEventListener('hashchange', () => mark()); }
     if (isIndex()) { const og = window.go; if (typeof og === 'function' && !og.__sh) { window.go = function (p) { const r = og.apply(this, arguments); mark(p); return r; }; window.go.__sh = true; } }
+  }
+  // the top bar: search in the middle, the theme, what waits for the owner, the motto
+  function topbar() {
+    if (NOTOP) return;
+    const t = document.createElement('div'); t.id = 'sh-topbar';
+    t.innerHTML = `<button class="sh-tsearch" id="sh-search" title="Search and jump anywhere (Ctrl K)">${svg('search')}<span class="ph">${SETUP ? 'Search, or type what you want to do…' : 'Search cameras, agents, cases, people, or ask Atlas…'}</span><kbd>Ctrl K</kbd></button>
+      <button class="sh-tbtn" id="sh-askt" title="Ask Atlas">${svg('chat')}</button>
+      <button class="sh-tbtn" id="sh-theme" title="Light or dark">${svg(document.documentElement.dataset.theme === 'dark' ? 'sun' : 'moon')}</button>
+      <a class="sh-tbtn" id="sh-bell" href="/desk#approvals" title="Approvals waiting">${svg('bell')}<i class="dotb" id="sh-belldot"></i></a>
+      <span class="sh-tsep"></span><span class="sh-motto" aria-hidden="true">OBSERVE\nREASON\nACT</span>`;
+    document.body.append(t);
+    t.querySelector('#sh-search').onclick = () => pal.open();
+    t.querySelector('#sh-askt').onclick = () => askAtlas();
+    t.querySelector('#sh-theme').onclick = () => { toggleTheme(); t.querySelector('#sh-theme').innerHTML = svg(document.documentElement.dataset.theme === 'dark' ? 'sun' : 'moon'); };
+  }
+  function toggleTheme() {
+    const t = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark'; document.documentElement.dataset.theme = t; store('atlas-theme', t);
+    if (typeof window.themeLabel === 'function') window.themeLabel();
   }
   function mark(p) {
     const cur = p ? (p === 'dash' ? 'home' : p) : current();
@@ -117,6 +137,7 @@
     if (SETUP) return;
     const s = await api('/stats'); if (!s || s.needs_desk) return; S.stats = s;
     badge('approvals', s.pending || 0, 'hot');
+    { const d = document.getElementById('sh-belldot'); if (d) d.classList.toggle('on', !!(s.pending || 0)); }
     badge('cases', (s.cases && s.cases.you) || 0, 'hot');
     badge('live', s.active_runs || 0, 'live');
     badge('leads', s.leads || 0);
@@ -151,11 +172,8 @@
   }
   function acctMenu(btn) {
     const dark = document.documentElement.dataset.theme !== 'light';
-    const m = menu(btn, `<button id="sh-th">${svg('moon')}${dark ? 'Light theme' : 'Dark theme'}</button>${SETUP ? '' : `<a href="/desk#setup">${svg('gear')}Desk setup</a>`}<a href="/">${svg('home')}Website</a><hr><a href="/logout">${svg('out')}Log out</a>`);
-    m.querySelector('#sh-th').onclick = () => {
-      const t = dark ? 'light' : 'dark'; document.documentElement.dataset.theme = t; store('atlas-theme', t);
-      if (typeof window.themeLabel === 'function') window.themeLabel(); m.remove();
-    };
+    const m = menu(btn, `<button id="sh-th">${svg(dark ? 'sun' : 'moon')}${dark ? 'Light theme' : 'Dark theme'}</button>${SETUP ? '' : `<a href="/desk#setup">${svg('gear')}Desk setup</a>`}<a href="/">${svg('home')}Website</a><hr><a href="/logout">${svg('out')}Log out</a>`);
+    m.querySelector('#sh-th').onclick = () => { toggleTheme(); m.remove(); const b = document.getElementById('sh-theme'); if (b) b.innerHTML = svg(document.documentElement.dataset.theme === 'dark' ? 'sun' : 'moon'); };
   }
   function setMe(me) {
     if (!document.getElementById('sh-me')) return;
@@ -278,10 +296,11 @@
     el: null, mode: 'job',
     build() {
       const el = this.el = document.createElement('aside'); el.id = 'sh-ask';
-      el.innerHTML = `<div class="hd"><i class="mark"></i><div><b>Ask Atlas</b><small>your team lead: briefs the agents, checks their work</small></div><button title="Close (Esc)">${svg('x')}</button></div>
+      el.innerHTML = `<div class="hd"><i class="mark"></i><div><b>Atlas</b><small>your team lead: briefs the agents, checks their work</small></div><button title="Close (Esc)">${svg('x')}</button></div>
+        <div class="sh-mtn" aria-hidden="true"></div>
         <div class="tabs"><button data-m="job">Give a job</button><button data-m="ask">Ask the cameras</button><button data-m="design">Change the team</button></div>
         <div class="bd" id="sh-askbd"></div>
-        <div class="cmp"><textarea id="sh-asktx" rows="2"></textarea><button class="send" id="sh-asksend" title="Send (Enter)">${svg('send')}Send</button></div>
+        <div class="cmp"><textarea id="sh-asktx" rows="2"></textarea><button class="send" id="sh-asksend" title="Send (Enter)">${svg('arrow')}Send</button></div>
         <div class="foot">Nothing leaves without your approval · <a href="/desk#approvals">Approvals</a> · <a href="/desk#live">Live runs</a></div>`;
       document.body.append(el);
       el.querySelector('.hd button').onclick = () => this.close();
@@ -387,7 +406,8 @@
   // ---------------------------------------------------------------- boot
   let keysWired = false, polling = false;
   function mount(first) {
-    rail(); mbar();
+    rail(); topbar(); mbar();
+    document.body.classList.toggle('sh-notop', NOTOP);
     if (SETUP) { loadMe(); if (first) runAfter(); }                  // an action asked for on another page (e.g. the template form) still runs
     else {
       loadMeta(); refreshBadges(); if (first) runAfter();
@@ -410,7 +430,7 @@
   // after the first desk is built on this page: the reduced rail becomes the full one, without a reload
   async function remount() {
     const d = await api('/desks'); if (!d || !Array.isArray(d.desks)) return;
-    document.querySelectorAll('#sh-rail, #sh-mbar, .sh-menu').forEach(e => e.remove());
+    document.querySelectorAll('#sh-rail, #sh-topbar, #sh-mbar, .sh-menu').forEach(e => e.remove());
     pal.close();
     SETUP = !d.desks.length;
     mount(false);
