@@ -654,7 +654,7 @@ class Store:
 
     def named_things(self, desk_id: int, emb: bool = False) -> list[dict[str, Any]]:
         return [self._nrow(r, emb) for r in _rows(self._conn.execute(
-            "SELECT * FROM named_things WHERE desk_id=? ORDER BY name COLLATE NOCASE", (desk_id,)))]
+            "SELECT * FROM named_things WHERE desk_id=? ORDER BY LOWER(name), name", (desk_id,)))]
 
     def named_by_name(self, desk_id: int, name: str) -> dict[str, Any] | None:
         rows = _rows(self._conn.execute("SELECT * FROM named_things WHERE desk_id=? AND lower(name)=lower(?)", (desk_id, name.strip())))
