@@ -1404,8 +1404,8 @@ def _shown(prose: str, notes: list[str], design: dict[str, Any]) -> str:
     """The reply as the owner sees it: the prose, then the server's factual notes, then the open question's line; the
     prose is what gives way when the entry would pass TRANSCRIPT_CHARS."""
     tail = [n for n in notes if n]
-    line = OPS.question_line(design)
-    if line:
+    line, q = OPS.question_line(design), DST.open_question(design)
+    if line and not (q and any(OPS.plain_md(q["text"]) in n for n in tail)):   # a "still open" note already asks it
         tail.append(line)
     end = "\n\n".join(tail)
     body = DST.cut((prose or "").strip(), max(400, DST.TRANSCRIPT_CHARS - len(end) - 2))

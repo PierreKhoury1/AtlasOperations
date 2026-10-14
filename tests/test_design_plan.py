@@ -1902,8 +1902,8 @@ def test_15_a_question_shows_its_options_and_skip_then_waits_then_defaults(monke
                          "Question: Alerts in real time, or one daily report? (if you skip: Real-time alerts)")
     assert [e["kind"] for e in s.design["offered"]] == ["option", "option", "skip"]
     r2 = SC.say(s, "Call the business Kite Campus")
-    assert "\n\n_Still open: Alerts in real time, or one daily report? I use Real-time alerts after your next message._\n\n" \
-           "Question: Alerts in real time" in r2["text"]
+    assert r2["text"].endswith("\n\n_Still open: Alerts in real time, or one daily report? I use Real-time alerts after your next message._")
+    assert "Question: " not in r2["text"]                                  # the note asks it; never twice in one reply
     assert [x["label"] for x in r2["next"][:2]] == ["Real-time alerts", "Skip this question"]
     assert DST.open_question(s.design)["waited"] == 1
     r3 = SC.say(s, "Call the business Kite Campus please")
