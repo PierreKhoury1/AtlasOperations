@@ -1503,12 +1503,15 @@ def test_runs_at_once_cap_is_atomic(app_client, monkeypatch):
     out, barrier = [], threading.Barrier(6)
     hdr = {"X-Desk": str(did)}
 
+    seq = iter(range(6))
+
     def go():
+        n = next(seq)                                                      # six different jobs: one job twice is a duplicate_run 409
         cl = A.app.test_client()
         with cl.session_transaction() as s:
             s["uid"], s["desk"] = uid, did
         barrier.wait()
-        r = cl.post("/api/runs", json={"task": "Check the books"}, headers=hdr)
+        r = cl.post("/api/runs", json={"task": f"Check the books {n}"}, headers=hdr)
         out.append((r.status_code, r.get_json(), r.headers.get("Retry-After")))
     _SlowOrch.gate.clear()
     t0 = time.time()
