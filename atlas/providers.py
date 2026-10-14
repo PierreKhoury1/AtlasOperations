@@ -570,8 +570,55 @@ class HermesAgentProvider(OpenAICompatProvider):
         return super().chat(system, messages, [], want, on_token=on_token)
 
 
+# The desk app installs the runner here: (owner_id, job, on_token, timeout_s) -> answer text. See BridgeProvider.
+BRIDGE_HOOK: Callable[..., str] | None = None
+
+
+def _flat_content(c: Any) -> str:
+    """A provider-native message content as plain text (tool results included) for an agent that only reads text."""
+    if isinstance(c, str):
+        return c
+    out = []
+    for blk in c or []:
+        if isinstance(blk, dict):
+            if blk.get("type") == "tool_result":
+                out.append(f"TOOL RESULT ({blk.get('tool_use_id', '')}):\n{blk.get('content', '')}")
+            elif blk.get("text"):
+                out.append(str(blk["text"]))
+        else:
+            out.append(str(blk))
+    return "\n".join(out)
+
+
+class BridgeProvider(Provider):
+    """The owner's own agent on their own computer (scripts/atlas_bridge.py driving Claude Code, Codex or Gemini CLI on
+    the owner's subscription). Nothing of theirs is stored here: the desk queues the call, the runner answers it.
+    The desk's tools reach the agent through the text protocol (orchestrator.parse_text_calls), so no tool schemas
+    are sent and every answer is plain text."""
+    name = "bridge"
+
+    def __init__(self, pcfg: dict[str, Any]):
+        super().__init__(pcfg)
+        self.owner_id = int(pcfg.get("owner_id") or 0)
+        self.timeout = float(pcfg.get("call_max_s", 600))
+
+    def chat(self, system, messages, tools, model="", on_token=None):
+        if BRIDGE_HOOK is None:
+            raise RuntimeError("bridge: no runner hook installed")
+        job = {"system": system, "model": model if model and not str(model).startswith("your ") else "",
+               "messages": [{"role": m.get("role", "user"), "content": _flat_content(m.get("content"))} for m in messages if isinstance(m, dict)]}
+        text = BRIDGE_HOOK(self.owner_id, job, on_token, self.timeout) or ""
+        est_in = sum(len(m["content"]) for m in job["messages"]) // 4 + len(system) // 4
+        return LLMResponse(text, [], {"role": "assistant", "content": text}, "end_turn", est_in, len(text) // 4, model or self.default_model)
+
+    def tool_results(self, results):
+        return [{"role": "user", "content": "TOOL RESULTS:\n" + "\n\n".join(f"[{n}] {'ERROR: ' if e else ''}{o}" for _c, n, o, e in results)}]
+
+
 def make_provider(pcfg: dict[str, Any]) -> Provider:
     t = (pcfg.get("type") or "anthropic").lower()
+    if t == "bridge":
+        return BridgeProvider(pcfg)
     if t == "demo":
         return DemoProvider(pcfg)
     if t == "anthropic":

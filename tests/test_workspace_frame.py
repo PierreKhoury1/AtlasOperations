@@ -49,7 +49,8 @@ def test_workspace_means_my_desk_once_there_is_one(app_client, fresh_limits):
     c = app_client
     c.get("/logout")
     r = c.get("/desk/workspace?desk=5")
-    assert r.status_code == 302 and r.headers["Location"].endswith("/login?next=/desk/workspace%3Fdesk%3D5")   # the link survives the login
+    assert r.status_code == 302 and (r.headers["Location"].endswith("/login?next=/desk/workspace%3Fdesk%3D5")
+                                     or r.headers["Location"].endswith("/try?next=%2Fdesk%2Fworkspace%3Fdesk%3D5"))   # the link survives the way in (login, or a guest desk)
     _owner(c, "ws-door@example.com")
     c.get("/logout")
     r = c.post("/login?next=/desk/workspace%3Fdesk%3D5", data={"email": "ws-door@example.com", "password": "password1"})

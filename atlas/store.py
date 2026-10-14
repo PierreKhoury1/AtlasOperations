@@ -43,6 +43,9 @@ CREATE INDEX IF NOT EXISTS ix_messages_desk ON messages(desk_id, contact_key, ts
 CREATE TABLE IF NOT EXISTS users (
   id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT UNIQUE, name TEXT, company TEXT, pw_hash TEXT, created REAL, last_login REAL
 );
+CREATE TABLE IF NOT EXISTS bridges (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, owner_id INTEGER, name TEXT, agent TEXT, token_hash TEXT UNIQUE, created REAL, last_seen REAL, version TEXT DEFAULT ''
+);
 CREATE TABLE IF NOT EXISTS desks (
   id INTEGER PRIMARY KEY AUTOINCREMENT, owner_id INTEGER, name TEXT, template TEXT, tier TEXT DEFAULT 'free',
   config TEXT DEFAULT '{}', created REAL
@@ -942,9 +945,43 @@ class Store:
                 self._conn.execute("DELETE FROM desks WHERE id=?", (did,))
                 self._conn.commit()
         with self._lock:
+            self._conn.execute("DELETE FROM bridges WHERE owner_id=?", (uid,))
             self._conn.execute("DELETE FROM users WHERE id=?", (uid,))
             self._conn.commit()
         return len(desks)
+
+    # ------------------------------------------------------------------ bridges: the owner's own agent runners
+    def add_bridge(self, owner_id: int, name: str, agent: str, token_hash: str) -> dict[str, Any]:
+        with self._lock:
+            cur = self._conn.execute("INSERT INTO bridges(owner_id,name,agent,token_hash,created,last_seen) VALUES(?,?,?,?,?,?)",
+                                     (owner_id, name.strip()[:60], agent.strip()[:20], token_hash, time.time(), 0))
+            self._conn.commit()
+            return self.bridge(cur.lastrowid)  # type: ignore[return-value]
+
+    def bridge(self, bid: int) -> dict[str, Any] | None:
+        rows = _rows(self._conn.execute("SELECT id,owner_id,name,agent,created,last_seen,version FROM bridges WHERE id=?", (bid,)))
+        return rows[0] if rows else None
+
+    def bridges_for(self, owner_id: int) -> list[dict[str, Any]]:
+        return _rows(self._conn.execute("SELECT id,owner_id,name,agent,created,last_seen,version FROM bridges WHERE owner_id=? ORDER BY created", (owner_id,)))
+
+    def bridge_by_token(self, token_hash: str) -> dict[str, Any] | None:
+        rows = _rows(self._conn.execute("SELECT id,owner_id,name,agent,created,last_seen,version FROM bridges WHERE token_hash=?", (token_hash,)))
+        return rows[0] if rows else None
+
+    def touch_bridge(self, bid: int, version: str = "") -> None:
+        with self._lock:
+            if version:
+                self._conn.execute("UPDATE bridges SET last_seen=?, version=? WHERE id=?", (time.time(), version[:40], bid))
+            else:
+                self._conn.execute("UPDATE bridges SET last_seen=? WHERE id=?", (time.time(), bid))
+            self._conn.commit()
+
+    def delete_bridge(self, bid: int, owner_id: int) -> bool:
+        with self._lock:
+            cur = self._conn.execute("DELETE FROM bridges WHERE id=? AND owner_id=?", (bid, owner_id))
+            self._conn.commit()
+            return bool(cur.rowcount)
 
     def delete_desk_data(self, desk_id: int) -> None:
         with self._lock:

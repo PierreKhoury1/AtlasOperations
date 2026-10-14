@@ -42,6 +42,7 @@ from .. import designer as DS
 from .. import integrations as I
 from .. import metrics as MX
 from .. import nextsteps as NS
+from .. import providers as PV
 from .. import records as R
 from .. import templates
 from .. import tools as T
@@ -163,6 +164,15 @@ def _live_reason(desk: dict[str, Any] | None = None) -> str:
     quietly running the scripted designer/agents in its place."""
     if _mode() == "demo":
         return ""
+    if desk is None:
+        try:
+            desk = current_desk()
+        except Exception:                                   # outside a request, or no desk selected
+            desk = None
+    if _desk_byo(desk).get("default") == "agent":          # the owner's own runner answers the model calls
+        if bridge_online(int((desk or {}).get("owner_id") or 0)):
+            return ""
+        return "your agent is not connected: start atlas_bridge.py on your computer, or switch the desk back to the house models"
     if _desk_byo_default(desk):
         return ""
     prov = cfg.load("providers", cfg.DEFAULT_PROVIDERS)
@@ -266,6 +276,22 @@ def desk_configs(desk: dict[str, Any]) -> dict[str, Any]:
                 a["model"] = ov["model"]
                 if ov.get("provider") in may_use:
                     a["provider"] = ov["provider"]
+    # The owner's own agent (scripts/atlas_bridge.py on their computer: Claude Code, Codex or Gemini CLI on their own
+    # subscription). Every agent of the desk runs on it through the text tool protocol - policy, approvals and the
+    # desk's tools unchanged. When the runner is not connected the desk stays on the models configured above and says so.
+    if _desk_byo(desk).get("default") == "agent":
+        _bo = int(desk.get("owner_id") or 0)
+        br = bridge_online(_bo)
+        if br:
+            pname = f"agent:{_bo}"
+            label = f"your {br.get('agent') or 'agent'}"
+            providers.setdefault("providers", {})[pname] = {"type": "bridge", "owner_id": _bo, "default_model": label, "env_key": False}
+            providers["default_provider"] = pname
+            for a in agents:
+                a["provider"], a["model"], a["engine"], a["text_tools"] = pname, label, "agent", True
+        else:
+            for a in agents:
+                a["engine_note"] = "your agent is not connected - running on the house models (start atlas_bridge.py on your computer)"
     # Hermes Agent engine (the real Nous Research agent, via its API server). Config comes from the desk's
     # hermes_agent connector, or globally from HERMES_AGENT_URL / HERMES_AGENT_KEY env. When
     # DESK_DEFAULT_ENGINE=hermes_agent, every specialist runs on it unless the agent explicitly says engine=atlas.
@@ -316,6 +342,8 @@ def desk_configs(desk: dict[str, Any]) -> dict[str, Any]:
                 a["engine_note"] = hermes_off
             if a.get("engine") == "hermes_agent":
                 a["engine"] = "atlas"
+            continue
+        if a.get("engine") == "agent":                 # the owner's own agent keeps every seat
             continue
         if a["id"] == "atlas":
             if lead_hermes and hcfg:
@@ -500,6 +528,8 @@ def _guard():
     p = request.path
     if p.startswith("/hook/"):
         return None
+    if p.startswith("/api/bridge/"):
+        return None                                        # the owner's runner: a bearer token, checked in the handler
     if p.startswith("/api") and p not in PUBLIC_API:
         if not current_user():
             abort(401)
@@ -1191,6 +1221,177 @@ def _byo_public(name: str, e: dict[str, Any]) -> dict[str, Any]:
             "last_test": e.get("last_test") or None}
 
 
+# ---------------------------------------------------------------- the owner's own agent (scripts/atlas_bridge.py)
+# One queue per owner, in this process (gunicorn runs one process): a model call becomes a job, the runner on the
+# owner's computer long-polls it, streams chunks back and posts the answer. providers.BridgeProvider waits on it.
+_BR_LOCK = threading.Condition()
+_BR_QUEUE: dict[int, list[dict[str, Any]]] = {}
+_BR_JOBS: dict[str, dict[str, Any]] = {}
+BRIDGE_ONLINE_S = 60                                         # a runner polled within this many seconds counts as connected
+
+
+def _bridge_hash(token: str) -> str:
+    import hashlib
+    return hashlib.sha256(token.encode()).hexdigest()
+
+
+def bridge_online(owner_id: int) -> dict[str, Any] | None:
+    now = time.time()
+    for b in store.bridges_for(owner_id):
+        if (b.get("last_seen") or 0) > now - BRIDGE_ONLINE_S:
+            return b
+    return None
+
+
+def _bridge_owner() -> int:
+    """Whose runners: the signed-in owner, or owner 0 on a single-user open install."""
+    u = current_user()
+    if u:
+        return int(u["id"])
+    if OPEN:
+        return 0
+    abort(401)
+
+
+def _bridges_public(owner_id: int) -> dict[str, Any]:
+    now = time.time()
+    rows = [{**b, "online": (b.get("last_seen") or 0) > now - BRIDGE_ONLINE_S} for b in store.bridges_for(owner_id)]
+    base = os.environ.get("PUBLIC_URL", "").strip().rstrip("/") or request.url_root.rstrip("/")
+    return {"bridges": rows, "online": any(r["online"] for r in rows), "url": base, "runner": "/scripts/atlas_bridge.py"}
+
+
+def _bridge_run(owner_id: int, job: dict[str, Any], on_token, timeout: float) -> str:
+    """providers.BRIDGE_HOOK: queue one model call for the owner's runner and wait for its answer."""
+    if not bridge_online(owner_id):
+        raise RuntimeError("your agent is not connected (start atlas_bridge.py on your computer)")
+    rec = {"id": secrets.token_urlsafe(8), "owner_id": owner_id, "created": time.time(), "state": "queued", "job": job,
+           "result": None, "error": "", "on_token": on_token, "bridge": 0}
+    with _BR_LOCK:
+        _BR_JOBS[rec["id"]] = rec
+        _BR_QUEUE.setdefault(owner_id, []).append(rec)
+        _BR_LOCK.notify_all()
+    deadline = time.time() + timeout
+    try:
+        with _BR_LOCK:
+            while rec["state"] != "done":
+                left = deadline - time.time()
+                if left <= 0:
+                    rec["state"], rec["error"] = "done", f"your agent did not answer within {int(timeout)} s"
+                    break
+                _BR_LOCK.wait(timeout=min(left, 5))
+                if rec["state"] == "queued" and not bridge_online(owner_id):
+                    rec["state"], rec["error"] = "done", "your agent went offline before it took the job"
+        if rec["error"]:
+            raise RuntimeError(rec["error"])
+        return rec["result"] or ""
+    finally:
+        with _BR_LOCK:
+            _BR_JOBS.pop(rec["id"], None)
+            q = _BR_QUEUE.get(owner_id) or []
+            if rec in q:
+                q.remove(rec)
+
+
+PV.BRIDGE_HOOK = _bridge_run
+
+
+def _bridge_auth() -> dict[str, Any]:
+    tok = (request.headers.get("Authorization") or "").strip()
+    tok = tok[7:].strip() if tok.lower().startswith("bearer ") else ""
+    b = store.bridge_by_token(_bridge_hash(tok)) if tok else None
+    if not b:
+        abort(401)
+    store.touch_bridge(b["id"], re.sub(r"[^0-9A-Za-z._-]", "", request.headers.get("X-Atlas-Bridge", ""))[:20])
+    return b
+
+
+@app.get("/api/bridge/jobs")
+def api_bridge_next():
+    """The runner's long poll: the next model call for this owner, or {"job": null} after `wait` seconds."""
+    b = _bridge_auth()
+    wait = min(25.0, max(0.0, request.args.get("wait", type=float) or 0.0))
+    deadline = time.time() + wait
+    with _BR_LOCK:
+        while True:
+            rec = next((r for r in (_BR_QUEUE.get(b["owner_id"]) or []) if r["state"] == "queued"), None)
+            if rec:
+                rec["state"], rec["bridge"] = "running", b["id"]
+                break
+            left = deadline - time.time()
+            if left <= 0:
+                return jsonify({"job": None})
+            _BR_LOCK.wait(timeout=min(left, 5))
+    j = rec["job"]
+    return jsonify({"job": {"id": rec["id"], "system": j.get("system", ""), "messages": j.get("messages", []), "model": j.get("model", ""),
+                            "created": rec["created"]}})
+
+
+@app.post("/api/bridge/jobs/<jid>/chunk")
+def api_bridge_chunk(jid):
+    b = _bridge_auth()
+    rec = _BR_JOBS.get(jid)
+    if not rec or rec["owner_id"] != b["owner_id"]:
+        abort(404)
+    text = str((request.get_json(silent=True) or {}).get("text") or "")
+    if text and callable(rec.get("on_token")):
+        try:
+            rec["on_token"](text)
+        except Exception:
+            pass
+    return jsonify({"ok": True})
+
+
+@app.post("/api/bridge/jobs/<jid>")
+def api_bridge_done(jid):
+    b = _bridge_auth()
+    body = request.get_json(silent=True) or {}
+    with _BR_LOCK:
+        rec = _BR_JOBS.get(jid)
+        if not rec or rec["owner_id"] != b["owner_id"]:
+            abort(404)
+        rec["result"] = str(body.get("text") or "")
+        rec["error"] = str(body.get("error") or "")[:800]
+        rec["state"] = "done"
+        _BR_LOCK.notify_all()
+    return jsonify({"ok": True})
+
+
+@app.get("/api/bridges")
+def api_bridges():
+    return jsonify(_bridges_public(_bridge_owner()))
+
+
+@app.post("/api/bridges")
+def api_bridge_add():
+    """Connect a computer: the token is shown once; the desk keeps only its hash."""
+    uid = _bridge_owner()
+    body = request.get_json(silent=True) or {}
+    agent = str(body.get("agent") or "claude").strip().lower()
+    if agent not in ("claude", "codex", "gemini", "cmd"):
+        return jsonify({"error": "agent must be claude, codex, gemini or cmd"}), 400
+    name = str(body.get("name") or "").strip()[:60] or f"{agent} on my computer"
+    if len(store.bridges_for(uid)) >= 5:
+        return jsonify({"error": "five computers at most: remove one first"}), 400
+    token = "atb_" + secrets.token_urlsafe(24)
+    b = store.add_bridge(uid, name, agent, _bridge_hash(token))
+    base = os.environ.get("PUBLIC_URL", "").strip().rstrip("/") or request.url_root.rstrip("/")
+    cmd = f"py atlas_bridge.py --url {base} --token {token} --agent {agent}"
+    return jsonify({"ok": True, "bridge": b, "token": token, "command": cmd, "runner": base + "/scripts/atlas_bridge.py"})
+
+
+@app.delete("/api/bridges/<int:bid>")
+def api_bridge_del(bid):
+    if not store.delete_bridge(bid, _bridge_owner()):
+        abort(404)
+    return jsonify({"ok": True})
+
+
+@app.get("/scripts/atlas_bridge.py")
+def bridge_runner_file():
+    """The runner itself, to download from the desk."""
+    return send_from_directory(ROOT / "scripts", "atlas_bridge.py", mimetype="text/x-python", as_attachment=True)
+
+
 @app.get("/api/desks/<int:did>/providers")
 def api_desk_providers(did):
     d = _own_desk(did)
@@ -1199,7 +1400,7 @@ def api_desk_providers(did):
     return jsonify({"default": byo.get("default") or "", "entries": entries,
                     "presets": [{"id": k, "label": v["label"], "key_hint": v["key_hint"], "models": v["models"],
                                  "default_model": v["default_model"], "needs_url": k == "custom"} for k, v in BYO_PRESETS.items()],
-                    "house_reason": _live_reason()})
+                    "house_reason": _live_reason(), "agent": _bridges_public(int(d.get("owner_id") or 0))})
 
 
 @app.post("/api/desks/<int:did>/providers")
@@ -1269,9 +1470,11 @@ def api_desk_provider_default(did):
     name = str((request.get_json(force=True) or {}).get("name") or "")
     conf = d.get("config") or {}
     byo = conf.setdefault("byo", {})
-    if name and name not in (byo.get("entries") or {}):
+    if name and name != "agent" and name not in (byo.get("entries") or {}):
         abort(404)
-    byo["default"] = name                              # "" = back to the house models
+    if name == "agent" and not store.bridges_for(int(d.get("owner_id") or 0)):
+        return jsonify({"error": "connect a computer first (Your agent -> Connect a computer)"}), 400
+    byo["default"] = name                              # "" = back to the house models, "agent" = the owner's runner
     store.update_desk(d["id"], config=conf)
     return jsonify({"ok": True, "default": name})
 
