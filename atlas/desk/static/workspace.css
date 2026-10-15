@@ -445,7 +445,10 @@ table.team{width:100%;border-collapse:collapse;table-layout:fixed;font-size:12.5
 
 /* a draft's plan (tall screens): workflows, connections, outbound rules side by side */
 #plan-panel{grid-column:1/-1}
-.plan{display:grid;grid-template-columns:repeat(3,minmax(0,1fr))}
+.plan{display:grid;grid-template-columns:repeat(4,minmax(0,1fr))}
+.prow.gap{color:var(--muted)}.prow.gap b{color:var(--muted);font-weight:500}
+.prow.ask{cursor:pointer;border-radius:6px}.prow.ask:hover{background:var(--panel2)}.prow.ask b{color:var(--accent);font-weight:500}.prow.ask small{color:var(--muted)}
+.prow .kv{display:block;color:var(--text);font-size:12.5px;white-space:normal;overflow:hidden;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical}
 .pcol{min-width:0;border-right:1px solid var(--line);padding-bottom:6px}.pcol:last-child{border-right:0}
 .pcol .gk{display:block;padding:9px 14px 4px}
 .prow{padding:5px 14px 6px;font-size:12.5px;line-height:1.45;min-width:0;color:var(--text2)}
@@ -455,8 +458,8 @@ table.team{width:100%;border-collapse:collapse;table-layout:fixed;font-size:12.5
 .prow>span{display:block;position:relative;padding-left:12px}.prow>span::before{content:"";position:absolute;left:1px;top:9px;width:5px;height:1px;background:var(--faint)}
 .prow .wfs{margin:5px 0 2px}.prow .wfs li b{display:block;font-size:12px;overflow:hidden;text-overflow:ellipsis}   /* a workflow's steps under its name */
 #wk:not([data-phase="design"]) #plan-panel{display:none!important}
-@media (max-height:999px){#pane-overview>#plan-panel{display:none!important}}   /* only a tall screen has room for it beside the team and the steps */
-#wk[data-w="s"] #plan-panel{display:none!important}
+/* the business map shows at every height: it is how the mapping progresses */   /* only a tall screen has room for it beside the team and the steps */
+#wk[data-w="s"] .plan{grid-template-columns:repeat(2,minmax(0,1fr))}#wk[data-w="s"] .pcol:nth-child(2n){border-right:0}
 /* the Team tab of a small draft (fitTeam .snug): the chart as tall as it is, the draft plan under it, the brief beside both */
 #pane-team>#plan-panel{display:none;grid-column:1;grid-row:2}
 #pane-team.snug{grid-template-rows:max-content minmax(0,max-content) minmax(0,1fr)}   /* the plan as tall as its rows: never a stretched, half-empty panel */
@@ -912,7 +915,11 @@ body[data-w="s"] .wk{height:auto;display:block}
 #wk[data-w="s"] .wk-id{flex:none}
 #wk[data-w="s"] .wk-title h1{font-size:18px}
 #wk[data-w="s"] .eyebrow{font-size:10.5px;letter-spacing:.1em}
-#wk[data-w="s"] p.lead{white-space:normal;font-size:12.5px}
+#wk[data-w="s"] p.lead{white-space:normal;font-size:12.5px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+#wk[data-w="s"]:is([data-phase="meet"],[data-phase="design"]) .pills{display:none}      /* a draft on a phone: the engine and tier pills say nothing the page does not */
+#wk[data-w="s"] #composer{position:sticky;bottom:6px;z-index:5}                           /* the box is always a thumb away while the conversation is on screen */
+#wk[data-w="s"] #pane-overview #canvas{height:min(60vh,420px);min-height:260px}            /* the org chart has room for the build to play */
+#wk[data-w="s"] #team-panel.showing{outline:2px solid var(--accent);outline-offset:-2px;transition:outline-color .4s}
 #wk[data-w="s"] .wk-side{align-items:stretch}
 #wk[data-w="s"] .pills{flex-wrap:nowrap;justify-content:flex-start;overflow-x:auto;scrollbar-width:none;margin:0 calc(-1 * var(--pad));padding:0 var(--pad)}
 #wk[data-w="s"] .pills::-webkit-scrollbar{display:none}
