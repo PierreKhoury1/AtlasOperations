@@ -641,6 +641,10 @@ async function send(text){
   if (typeof result.rev === 'number') W.rev = result.rev;
   if (result.limit) d.append(limitLink(result.limit));                    // a limit inside the turn: the reset and the Usage page
   if (W.deskId !== desk0 || W.phase === 'run') return settle();            // the desk was built meanwhile: its team is the built one, the reply is only text
+  const fresh = result.blueprint ? (result.blueprint.agents || []).filter(a => !W.agents.has(a.id)).length : 0;
+  const show = isPhone() && fresh > 0 && !W.deskId;                         // a phone: the build plays on the org chart, in view, then the conversation comes back
+  let stay = false; const touched = () => { stay = true; };
+  if (show) { W.forceView = 'chart'; applyTeamView('chart'); const tp = $('#team-panel'); tp.classList.add('showing'); tp.scrollIntoView({behavior: 'smooth', block: 'start'}); addEventListener('touchstart', touched, {once: true, passive: true}); await sleep(450); }
   const ledger = result.changes && Array.isArray(result.changes.applied) ? result.changes.applied : null;   // the server's record of what this turn applied
   // the canvas follows the draft; an accepted park that leaves no agent (or no camera) clears it too
   try {
@@ -648,6 +652,7 @@ async function send(text){
       await applyBlueprint(result.blueprint, false, !ledger); setDeskStatus();   // with a ledger the canvas animates and the ledger lines below tell what changed
     }
   } finally { settle(); }
+  if (show) { await sleep(2200); $('#team-panel').classList.remove('showing'); removeEventListener('touchstart', touched); W.forceView = ''; if (!stay) d.scrollIntoView({behavior: 'smooth', block: 'start'}); }
   if (W.deskId !== desk0 || W.phase === 'run') return;
   if (ledger) narrateLedger(ledger);
   if (result.design) renderPlan(result.design, true);
@@ -2122,15 +2127,32 @@ function teamMeta(){
 // a draft's set-up beyond its agents, as Atlas drafted it: workflows (who hands to whom, what starts them), the
 // connections they need, and the rules every outbound message must pass. Shown on tall screens, where the draft has the
 // room. (The design plan itself, step by step, is the strip in the Atlas panel: renderPlan.)
+const MAP_FIELDS = [                                                      // the business profile Atlas maps as the conversation goes; a gap offers the words to fill it
+  ['name', 'Business', 'The business is called '],
+  ['description', 'What it does', 'What we do: '],
+  ['services', 'Services', 'Our services are '],
+  ['target_clients', 'Customers', 'Our customers are '],
+  ['availability', 'Hours', 'We are open '],
+  ['pricing_notes', 'Pricing', 'On prices: '],
+  ['tone', 'Tone', 'Our tone with customers is '],
+];
+function askMap(prefix){ const s = $('#say'); s.value = prefix; s.focus(); s.setSelectionRange(s.value.length, s.value.length); if (isPhone()) s.scrollIntoView({block: 'center'}); }
 function renderDraftPlan(){
   const bp = W.phase === 'design' ? W.bp : null, el = $('#plan-panel');
-  const wf = (bp && bp.workflows) || [], cx = (bp && bp.connectors) || [], pol = (bp && bp.policy) || {};
-  const rules = policyRules(pol), has = !!(wf.length || cx.length || rules.length);
+  const wf = (bp && bp.workflows) || [], cx = (bp && bp.connectors) || [], pol = (bp && bp.policy) || {}, biz = (bp && bp.business) || {};
+  const rules = policyRules(pol), has = !!(bp && (wf.length || cx.length || rules.length || Object.keys(biz).length || W.agents.size));
   el.classList.toggle('hide', !has); el.dataset.has = bp && has ? '1' : ''; if (!bp) return;
+  const val = v => Array.isArray(v) ? v.filter(Boolean).join(', ') : String(v || '').trim();
+  const known = MAP_FIELDS.filter(([k]) => val(biz[k])), gaps = MAP_FIELDS.filter(([k]) => !val(biz[k]));
+  const cams = (bp.cameras || []).length;
+  $('#plan-meta').textContent = `${known.length} of ${MAP_FIELDS.length} profile facts · ${plural(W.agents.size, 'agent')} · ${plural(wf.length, 'workflow')}${cams ? ' · ' + plural(cams, 'camera') : ''}${gaps.length ? ' · tap a gap to fill it' : ' · profile complete'}`;
   const col = (title, n, rows, none) => `<div class="pcol"><div class="gk">${esc(title)}${n != null ? ' · ' + n : ''}</div>${rows.length ? rows.join('') : `<div class="prow muted">${esc(none)}</div>`}</div>`;
   $('#plan-body').innerHTML =
+    col('Profile', `${known.length}/${MAP_FIELDS.length}`,
+        known.map(([k, label]) => `<div class="prow"><b>${esc(label)}</b><span class="kv">${esc(val(biz[k]))}</span></div>`)
+        .concat(gaps.map(([k, label, prefix]) => `<div class="prow ask" onclick="askMap(${jsa(prefix)})" title="Tell Atlas"><b>${esc(label)} · not yet</b><small>tap to tell Atlas</small></div>`)), '')
     // each workflow with its hand-offs as this draft's agents, in order (what a run of it shows, agent by agent)
-    col('Workflows', wf.length, wf.map(w => { const t = w.trigger || {}, st = (w.steps || []).filter(id => W.agents.has(id));
+    + col('Workflows', wf.length, wf.map(w => { const t = w.trigger || {}, st = (w.steps || []).filter(id => W.agents.has(id));
       const trig = t.kind ? `starts on ${esc(t.kind)}${t.detail ? ': ' + esc(t.detail) : ''}` : 'started by a job';
       return `<div class="prow"><b>${esc(w.name || w.id)}</b><small title="${esc(trig)}">${st.length ? trig : esc((w.steps || []).map(agentName).join(' → ')) + ' · ' + trig}</small>${st.length ? `<ol class="wfs">${st.map(id => { const a = W.agents.get(id); return `<li style="--c:${esc(a.color || '')}"><b>${esc(a.name)}</b><span>${esc(a.role || '')}</span></li>`; }).join('')}</ol>` : ''}</div>`; }), 'none: every job is planned by Atlas')
     + col('Connections', cx.length, cx.map(c => `<div class="prow"><b>${esc(c.name || c.kind)}<span class="tag${c.required ? ' warn' : ''}">${c.required ? 'needed' : 'optional'}</span></b><small>${esc([c.kind, c.purpose].filter(Boolean).join(' · '))}</small></div>`), 'none needed yet')
@@ -2225,6 +2247,7 @@ function renderTeamTable(){
 // table. Before the first draft there is only Atlas: the table.
 const tvKey = () => W.phase === 'design' ? 'ws_teamview_draft' : 'ws_teamview';
 function viewFor(){
+  if (W.forceView) return W.forceView;                                   // the build moment on a phone: the chart, whatever the default
   if (W.phase === 'meet') return 'table';
   let v = ''; try { v = localStorage.getItem(tvKey()) || ''; } catch (_) {}   // the owner's own choice wins
   return v === 'chart' || v === 'table' ? v : (W.phase === 'design' && !isPhone() ? 'chart' : 'table');
