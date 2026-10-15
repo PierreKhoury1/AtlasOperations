@@ -450,7 +450,7 @@ async function send(text){
           if (!line.startsWith('data: ')) continue;
           let ev; try { ev = JSON.parse(line.slice(6)); } catch (_) { continue; }
           if (ev.t === 'tok') { acc += ev.d; if (!raf) raf = requestAnimationFrame(paint); }
-          else if (ev.t === 'status') { setState(ev.d); }
+          else if (ev.t === 'status') { setState(ev.d); if (!acc) { d.innerHTML = '<span class="muted">' + esc(ev.d) + '</span><i class="cur"></i>'; $('#msgs').scrollTop = 1e9; } }   // nothing streamed yet: the wait is explained in the bubble
           else if (ev.t === 'done') result = ev;
           else if (ev.t === 'error') result = {error: ev.error};
         }

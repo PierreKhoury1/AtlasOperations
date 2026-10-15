@@ -5114,6 +5114,14 @@ def _design_providers(s) -> tuple[dict[str, Any] | None, str]:
     return providers, model
 
 
+def _agent_status(providers: dict[str, Any] | None, q: Any) -> None:
+    """A turn on the owner's agent answers in one go (nothing streams for half a minute or more): say so at once."""
+    pname = str((providers or {}).get("default_provider") or "")
+    if pname.startswith("agent:"):
+        label = ((providers or {}).get("providers", {}).get(pname) or {}).get("default_model") or "your agent"
+        q.put({"t": "status", "d": f"{label} is on it on your computer: it answers in one go, usually within a minute"})
+
+
 def _design_spend_gate(s) -> None:
     """Paid designer turns stop at the OpenRouter cap, the same rule as paid desk runs. Free-model turns cost nothing.
     Before this, the studio's say / study / build routes never checked the cap at all."""
@@ -5162,6 +5170,7 @@ def api_design_study(sid):
     _design_spend_gate(s)
     import queue
     q: "queue.Queue[dict[str, Any] | None]" = queue.Queue()
+    _agent_status(providers, q)
 
     def work():
         try:
@@ -5228,6 +5237,7 @@ def api_design_say(sid):
     _design_spend_gate(s)
     import queue
     q: "queue.Queue[dict[str, Any] | None]" = queue.Queue()
+    _agent_status(providers, q)
 
     def work():
         try:
