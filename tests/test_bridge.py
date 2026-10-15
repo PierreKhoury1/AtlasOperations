@@ -147,6 +147,7 @@ def test_design_turn_answered_by_the_owners_agent(app_client, monkeypatch):
     assert "job" in seen, "the runner never received the design turn: " + body[:300]
     assert "plumbing" in str(seen["job"]["messages"]).lower()
     assert "enquiries desk" in body, body[-400:]
+    assert "your claude is on it" in body                                   # the wait is announced before anything streams
 
 
 def test_lost_handoff_is_offered_again(app_client, monkeypatch):

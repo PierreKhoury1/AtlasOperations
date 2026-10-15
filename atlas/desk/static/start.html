@@ -10,7 +10,7 @@
 .steps li{display:flex;align-items:center;gap:8px}
 .steps li b{display:grid;place-items:center;width:22px;height:22px;border-radius:50%;border:1px solid var(--line2);font-weight:500;font-size:12px;color:var(--muted)}
 .steps li.on{color:#fff}.steps li.on b{background:#2F6FE4;border-color:#2F6FE4;color:#fff}
-.steps li.done b{border-color:var(--ok);color:var(--ok)}
+.steps li.did b{border-color:var(--ok);color:var(--ok)}
 .steps li+li::before{content:"";width:26px;height:1px;background:var(--line2);margin:0 4px}
 .start h1{font-weight:300;font-size:clamp(30px,4vw,42px);line-height:1.1;letter-spacing:-.02em;margin:0 0 10px;color:#fff}
 .start p.sub{color:var(--text2);font-size:16px;margin:0 0 28px;line-height:1.55}
@@ -99,7 +99,7 @@ a.go[aria-disabled="true"]{opacity:.45;pointer-events:none}
     $('#t3').classList.add('ok'); $('#wait').innerHTML = '<span>Your computer answered.</span>';
     $('#done-t').textContent = (b.name || 'your computer') + ' is running ' + (NAMES[b.agent] || b.agent) + '. Your desk thinks with it from here on.';
     $('#done').classList.remove('hide'); $('#go').removeAttribute('aria-disabled');
-    document.querySelectorAll('.steps li')[0].classList.add('done');
+    document.querySelectorAll('.steps li')[0].classList.add('did');
     if ($('#hook').classList.contains('hide'))                               // noticed while the choices were still showing
       $('#have').innerHTML = '<b>' + esc(b.name) + '</b> is connected (' + esc(NAMES[b.agent] || b.agent) + '). <a class="lnk" href="' + esc(next) + '">Continue with it →</a>';
   }
