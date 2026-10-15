@@ -1198,7 +1198,8 @@ function homeRender(s){
   $('#hm-sum').innerHTML = bits.join(' ');
   const br = $('#hm-brain');
   br.className = 'hm-pill ' + (CFG.live_reason ? 'bad' : CFG.mode === 'demo' ? 'warn' : 'ok');
-  br.innerHTML = `<i></i>${CFG.live_reason ? 'Models unreachable' : CFG.mode === 'demo' ? 'Demo agents (scripted)' : 'Live models · ' + esc(CFG.tier || '')}`;
+  const onAgent = (CFG.agents || []).find(a => a.engine === 'agent');                       // the owner's own runner answers the desk
+  br.innerHTML = `<i></i>${CFG.live_reason ? 'Models unreachable' : CFG.mode === 'demo' ? 'Demo agents (scripted)' : onAgent ? esc(String(onAgent.model || 'your agent').replace(/^your /, 'Your ')) + ' · your computer' : 'Live models · ' + esc(CFG.tier || '')}`;
   // today strip
   const cost = s.cost ? +s.cost.gbp : (((s.tokens_in || 0) * 5 + (s.tokens_out || 0) * 25) / 1e6 * 0.78);   // the server's figure, the same one the workspace shows
   const cell = (k, v, sub, cls, on, title) => `<div class="hm-stat ${cls || ''}" onclick="${on}"${title ? ` title="${esc(title)}"` : ''}><span>${k}</span><b>${v}</b><small>${sub}</small></div>`;

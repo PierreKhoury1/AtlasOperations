@@ -101,7 +101,8 @@ async function initStatus(){
   const eng = h.hermes_agent ? 'Hermes Agent' : (h.ok ? 'built-in' : 'unreachable');
   const p = $('#eng-pill');                                   // Home's wording, so the two pages never disagree
   p.className = 'pill ' + (h.ok === false || W.liveReason ? 'bad' : live ? 'ok' : 'warn');
-  $('#sb-engine').textContent = h.ok === false ? 'Engine unreachable' : W.liveReason ? 'Models unreachable' : live ? 'Live models' : 'Demo agents (scripted)';
+  const onAgent = (W.cfgAgents || []).find(a => a.engine === 'agent');
+  $('#sb-engine').textContent = h.ok === false ? 'Engine unreachable' : W.liveReason ? 'Models unreachable' : onAgent ? String(onAgent.model || 'your agent').replace(/^your /, 'Your ') : live ? 'Live models' : 'Demo agents (scripted)';
   p.title = 'Agent engine: ' + eng + (W.liveReason ? ' · ' + W.liveReason : '') + (live ? '' : ' · demo mode: agents follow a script, no model calls');
   $('#sb-mode').textContent = eng + (live ? '' : ' · ' + (W.mode || 'demo'));
   $('#sb-dot').className = 'dot ' + (h.ok === false ? 'd-err' : (live ? 'd-ok' : 'd-warn'));
