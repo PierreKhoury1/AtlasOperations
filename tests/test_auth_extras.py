@@ -92,7 +92,7 @@ def test_required_mode_signup_proves_the_address_with_a_code(client, mailbox):
     assert client.get("/api/me").get_json()["id"] is None              # the password alone is not a session
     assert mailbox[-1][0] == "fresh-2fa@example.com"
     r = client.post("/login/verify", data={"code": _code(mailbox)})
-    assert r.status_code == 302 and r.headers["Location"].endswith("/desk/workspace")
+    assert r.status_code == 302 and r.headers["Location"].endswith("/desk/start")      # a new owner starts the chain
     assert client.get("/api/me").get_json()["email"] == "fresh-2fa@example.com"
 
 
@@ -213,7 +213,7 @@ def test_google_callback_links_existing_email_and_creates_new_users(client, monk
     r = client.get("/auth/google")
     state = re.search(r"state=([^&]+)", r.headers["Location"]).group(1)
     r = client.get(f"/auth/google/callback?state={state}&code=code-A")
-    assert r.status_code == 302 and r.headers["Location"].endswith("/desk/workspace")
+    assert r.status_code == 302 and r.headers["Location"].endswith("/desk/start")      # a new owner starts the chain
     me = client.get("/api/me").get_json()
     assert me["email"] == "linked@example.com" and me["name"] == "Existing Name" and me["google"] is True
     client.get("/logout")

@@ -66,10 +66,29 @@ def _which(name: str) -> str:
 
 
 def run_claude(job: dict, model: str, timeout: int) -> str:
-    args = [_which("claude"), "-p", "--output-format", "text", "--system-prompt", job.get("system") or "", "--disallowedTools", CLAUDE_OFF]
+    """claude -p: the system brief goes in a file (--system-prompt-file: a desk's brief runs to tens of KB and Windows
+    caps a command line at 32K), the conversation on stdin. Every built-in tool is off: the desk's tools reach the
+    agent through its text protocol, and nothing on this computer is read or run."""
+    system = job.get("system") or ""
+    base = [_which("claude"), "-p", "--output-format", "text", "--disallowedTools", CLAUDE_OFF]
     if model:
-        args += ["--model", model]
-    return _run(args, transcript(job), timeout)
+        base += ["--model", model]
+    fd, sp = tempfile.mkstemp(suffix=".md", prefix="atlas-sys-")
+    os.close(fd)
+    try:
+        with open(sp, "w", encoding="utf-8") as f:
+            f.write(system)
+        try:
+            return _run(base + ["--system-prompt-file", sp], transcript(job), timeout)
+        except RuntimeError as e:
+            if "system-prompt-file" not in str(e):
+                raise
+            return _run(base + ["--system-prompt", system], transcript(job), timeout)   # an older claude: inline
+    finally:
+        try:
+            os.unlink(sp)
+        except OSError:
+            pass
 
 
 def run_codex(job: dict, model: str, timeout: int) -> str:
