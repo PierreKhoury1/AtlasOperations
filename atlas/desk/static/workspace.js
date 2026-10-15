@@ -565,6 +565,7 @@ function setMode(m){
 }
 function looksLikeQuestion(t){ return /\?\s*$/.test(t) || /^(who|what|when|where|why|how|was|were|did|does|do|is|are|has|have|had|can|could|any|anyone|anything)\b/i.test(t.trim()); }
 
+const BUILD_ASK = /(build|create|make|set ?up|deploy|launch)[^.?!]{0,40}(it|now|this|the (desk|workflow|workflows|team|framework|system))|(go ahead|do it)/i;
 async function send(text){
   const typed = typeof text !== 'string';
   text = (typed ? $('#say').value : text).trim(); if (!text) return;
@@ -652,6 +653,14 @@ async function send(text){
   draftControls(result.ready);
   if (d === lastAtlas()) setNext(result.next, d);                          // after the team settles, so a build step is real
   if (result.ready) tutHook('ready');
+  // "build it now" said in the message itself: the draft is ready and Atlas offers the build, so it happens without a
+  // second click (the chain: say it, it is built). A longer message that merely mentions building is left alone.
+  if (result.ready && W.bp && (W.bp.agents || []).length && !W.deskId && text.split(/\s+/).length <= 16 && BUILD_ASK.test(text)
+      && (result.next || []).some(n => n.action === 'build')) {
+    if (!W.deskName && W.bp.business && W.bp.business.name) { W.deskName = String(W.bp.business.name).slice(0, 60); renderHead(); }
+    addMsg('s', 'Building the desk now, as asked.');
+    buildDesk();
+  }
 }
 // /say answered before any stream. 409: another tab, device or request holds this draft's turn: nothing was taken, the
 // message goes back to the box and the page waits for that reply. Otherwise a limit or the spend cap: the server's
