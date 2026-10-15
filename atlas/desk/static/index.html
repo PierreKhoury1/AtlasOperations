@@ -2727,20 +2727,21 @@ async function loadByo(){
   BYO = await api(`/desks/${did}/providers`); if (!BYO || BYO.error) { el.innerHTML = '<div class="empty">Could not load.</div>'; return; }
   const on = BYO.default, have = Object.fromEntries(BYO.entries.map(e => [e.name, e]));
   const ag = BYO.agent || {bridges: [], online: false};
-  const agentCard = `<div class="byorow ${on === 'agent' ? 'on' : ''}" id="byo-agent">
+  const auto = !on && ag.bridges.length;                                   // no choice made: the runner when it is connected
+  const agentCard = `<div class="byorow ${on === 'agent' || (auto && ag.online) ? 'on' : ''}" id="byo-agent">
         <div class="bt"><b>Your agent</b> <span class="model">Claude Code, Codex or Gemini CLI on your computer, on your own subscription</span>
-          ${on === 'agent' ? `<span class="tag ${ag.online ? 'done' : 'pending'}">${ag.online ? 'in use · connected' : 'in use · not connected'}</span>` : (ag.online ? '<span class="tag done">connected</span>' : '')}</div>
+          ${on === 'agent' ? `<span class="tag ${ag.online ? 'done' : 'pending'}">${ag.online ? 'in use · connected' : 'in use · not connected'}</span>` : auto ? `<span class="tag ${ag.online ? 'done' : 'pending'}">${ag.online ? 'in use · connected' : 'used when connected'}</span>` : (ag.online ? '<span class="tag done">connected</span>' : '')}</div>
         <div class="hint" style="margin:0 0 8px">A small runner on your computer answers the desk's model calls with the CLI you already pay for. Your login never leaves your machine; the desk only sees the text your agent writes. Tools, approvals and the audit log work as before.</div>
         ${ag.bridges.map(b => `<div class="row" style="gap:8px;font-size:12.5px;margin:4px 0"><span class="dot ${b.online ? 'live' : ''}"></span><b>${esc(b.name)}</b><span class="model">${esc(b.agent)}${b.version ? ' · bridge ' + esc(b.version) : ''} · ${b.last_seen ? 'seen ' + new Date(b.last_seen*1000).toLocaleString() : 'never connected'}</span><span class="spacer"></span><button class="btn sm d" onclick="bridgeDel(${b.id})">Remove</button></div>`).join('')}
         <div class="row" style="gap:6px;flex-wrap:wrap;margin-top:6px">
           <select id="bridge-agent" style="width:170px"><option value="claude">Claude Code</option><option value="codex">Codex CLI</option><option value="gemini">Gemini CLI</option><option value="cmd">Any command</option></select>
           <button class="btn sm p" onclick="bridgeCreate()">Connect a computer</button>
-          ${ag.bridges.length && on !== 'agent' ? `<button class="btn sm" onclick="byoDefault('agent')">Use my agent for this desk</button>` : ''}
-          ${on === 'agent' ? `<button class="btn sm" onclick="byoDefault('')">Back to house models</button>` : ''}
+          ${ag.bridges.length && on && on !== 'agent' ? `<button class="btn sm" onclick="byoDefault('agent')">Use my agent for this desk</button>` : ''}
+          ${on === 'agent' || auto ? `<button class="btn sm" onclick="byoDefault('house')">House models instead</button>` : ''}
           <a class="btn sm" href="/scripts/atlas_bridge.py" download>Download the runner</a>
         </div>
         <div id="bridge-new" class="hide" style="margin-top:8px"></div></div>`;
-  el.innerHTML = agentCard + `<div class="hint" style="margin:0 0 10px">${on === 'agent' ? `Agents run on <b>your own agent</b>${ag.online ? '' : ' <span style="color:var(--warn)">(not connected right now: start the runner)</span>'}.` : on ? `Agents run on <b>your ${esc((have[on]||{}).label || on)}</b> account.` : 'Agents run on the house models' + (BYO.house_reason ? ` — <span style="color:var(--danger)">${esc(BYO.house_reason)}</span>` : '') + '. Add your own account below and they run (and bill) on yours instead.'}</div>`
+  el.innerHTML = agentCard + `<div class="hint" style="margin:0 0 10px">${on === 'agent' ? `Agents run on <b>your own agent</b>${ag.online ? '' : ' <span style="color:var(--warn)">(not connected right now: start the runner)</span>'}.` : auto ? (ag.online ? 'Agents run on <b>your own agent</b> while it is connected; the house models when it is off.' : 'Agents run on <b>your own agent</b> whenever the runner is connected (off right now: the house models until then).') : on === 'house' ? 'Agents run on the <b>house models</b>; your agent is not used for this desk.' : on ? `Agents run on <b>your ${esc((have[on]||{}).label || on)}</b> account.` : 'Agents run on the house models' + (BYO.house_reason ? ` — <span style="color:var(--danger)">${esc(BYO.house_reason)}</span>` : '') + '. Add your own account below and they run (and bill) on yours instead.'}</div>`
     + BYO.presets.map(p => { const e = have[p.id], isOn = on === p.id;
       return `<div class="byorow ${isOn ? 'on' : ''}">
         <div class="bt"><b>${esc(p.label)}</b>${e ? ` <span class="tag ${isOn?'done':''}">${isOn ? 'in use' : 'saved'}</span><span class="model"> key ${esc(e.key_hint)}${e.model ? ' · ' + esc(e.model) : ''}</span>` : ''}
@@ -2789,7 +2790,7 @@ async function byoDefault(name){
   const did = (CFG.desk || {}).id;
   const r = await api(`/desks/${did}/providers/default`, {method: 'POST', body: {name}});
   if (!r || r.error) return toast(r?.error || 'failed');
-  toast(name ? 'This desk now runs on your account' : 'Back on the house models'); await loadCfg(); loadByo(); renderModels();
+  toast(name === 'house' ? 'House models for this desk' : name ? 'This desk now runs on your account' : 'Back on the house models'); await loadCfg(); loadByo(); renderModels();
 }
 async function byoDel(preset){
   const did = (CFG.desk || {}).id;

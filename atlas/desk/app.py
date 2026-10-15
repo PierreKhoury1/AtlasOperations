@@ -175,10 +175,13 @@ def _live_reason(desk: dict[str, Any] | None = None) -> str:
             desk = current_desk()
         except Exception:                                   # outside a request, or no desk selected
             desk = None
-    if _desk_byo(desk).get("default") == "agent":          # the owner's own runner answers the model calls
+    byo_default = _desk_byo(desk).get("default") or ""
+    if byo_default == "agent":                              # the owner's own runner answers the model calls
         if bridge_online(int((desk or {}).get("owner_id") or 0)):
             return ""
         return "your agent is not connected: start atlas_bridge.py on your computer, or switch the desk back to the house models"
+    if desk is not None and not byo_default and bridge_online(int(desk.get("owner_id") or 0)):
+        return ""                                           # no choice made: the connected agent is the default everywhere
     if _desk_byo_default(desk):
         return ""
     if desk is None:                                        # no desk yet: the design chat runs on the owner's agent when it is connected
@@ -293,8 +296,9 @@ def desk_configs(desk: dict[str, Any]) -> dict[str, Any]:
     # The owner's own agent (scripts/atlas_bridge.py on their computer: Claude Code, Codex or Gemini CLI on their own
     # subscription). Every agent of the desk runs on it through the text tool protocol - policy, approvals and the
     # desk's tools unchanged. When the runner is not connected the desk stays on the models configured above and says so.
-    if _desk_byo(desk).get("default") == "agent":
-        _bo = int(desk.get("owner_id") or 0)
+    _byo_default = _desk_byo(desk).get("default") or ""
+    _bo = int(desk.get("owner_id") or 0)
+    if _byo_default == "agent" or (not _byo_default and store.bridges_for(_bo)):   # chosen, or the default while a runner exists
         br = bridge_online(_bo)
         if br:
             pname = f"agent:{_bo}"
@@ -303,7 +307,7 @@ def desk_configs(desk: dict[str, Any]) -> dict[str, Any]:
             providers["default_provider"] = pname
             for a in agents:
                 a["provider"], a["model"], a["engine"], a["text_tools"] = pname, label, "agent", True
-        else:
+        elif _byo_default == "agent":                   # chosen on purpose and off: say so; the default case just uses the house models
             for a in agents:
                 a["engine_note"] = "your agent is not connected - running on the house models (start atlas_bridge.py on your computer)"
     # Hermes Agent engine (the real Nous Research agent, via its API server). Config comes from the desk's
@@ -1528,11 +1532,11 @@ def api_desk_provider_default(did):
     name = str((request.get_json(force=True) or {}).get("name") or "")
     conf = d.get("config") or {}
     byo = conf.setdefault("byo", {})
-    if name and name != "agent" and name not in (byo.get("entries") or {}):
+    if name and name not in ("agent", "house") and name not in (byo.get("entries") or {}):
         abort(404)
     if name == "agent" and not store.bridges_for(int(d.get("owner_id") or 0)):
         return jsonify({"error": "connect a computer first (Your agent -> Connect a computer)"}), 400
-    byo["default"] = name                              # "" = back to the house models, "agent" = the owner's runner
+    byo["default"] = name                              # "" = the owner's runner when connected, else house; "house" = house always; "agent" = the runner, and say so when it is off
     store.update_desk(d["id"], config=conf)
     return jsonify({"ok": True, "default": name})
 

@@ -186,3 +186,30 @@ def test_lost_handoff_is_offered_again(app_client, monkeypatch):
     runner.post(f"/api/bridge/jobs/{j2['id']}", headers=h, json={"text": "answer", "seconds": 0.1})
     t.join(5)
     assert out.get("text") == "answer", out
+
+
+def test_connected_agent_is_the_default_everywhere_unless_the_desk_opts_out(app_client):
+    """A desk that never chose runs on the owner's agent while it is connected (every call of the desk: runs, the team
+    canvas, camera questions' text); "house" opts out; off-line, the default case just uses the house models quietly."""
+    c = A.app.test_client()
+    _owner(c)
+    from atlas import templates
+    me = c.get("/api/me").get_json()
+    d = A.store.add_desk(me["id"], "Nails", templates.DESK_TYPES[0]["id"], "free", {})
+    did = d["id"]
+    assert c.post(f"/api/desks/{did}/select", json={}).status_code == 200
+    tok = c.post("/api/bridges", json={"agent": "claude"}).get_json()["token"]
+    cfg = A.desk_configs(A.store.desk(did))                        # a runner exists but is off: house models, no nagging
+    assert all(a.get("engine") != "agent" and not a.get("engine_note") for a in cfg["agents"])
+    runner = A.app.test_client()
+    runner.get("/api/bridge/jobs?wait=0", headers={"Authorization": "Bearer " + tok, "X-Atlas-Bridge": "0.1"})
+    cfg = A.desk_configs(A.store.desk(did))                        # connected: the agent, without any setting
+    assert all(a["engine"] == "agent" and a.get("provider") == f"agent:{me['id']}" for a in cfg["agents"])
+    assert cfg["providers"]["default_provider"] == f"agent:{me['id']}"
+    with A.app.test_request_context():
+        assert A._live_reason(A.store.desk(did)) == ""
+    assert c.post(f"/api/desks/{did}/providers/default", json={"name": "house"}).get_json()["default"] == "house"
+    cfg = A.desk_configs(A.store.desk(did))                        # opted out: house models even though the runner is on
+    assert all(a.get("engine") != "agent" for a in cfg["agents"])
+    assert c.post(f"/api/desks/{did}/providers/default", json={"name": ""}).status_code == 200
+    assert A.desk_configs(A.store.desk(did))["providers"]["default_provider"] == f"agent:{me['id']}"
