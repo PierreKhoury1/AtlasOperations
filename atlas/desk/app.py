@@ -175,6 +175,14 @@ def _live_reason(desk: dict[str, Any] | None = None) -> str:
         return "your agent is not connected: start atlas_bridge.py on your computer, or switch the desk back to the house models"
     if _desk_byo_default(desk):
         return ""
+    if desk is None:                                        # no desk yet: the design chat runs on the owner's agent when it is connected
+        try:
+            u = current_user()
+            bo = int(u["id"]) if u else (0 if OPEN else -1)
+            if bo >= 0 and bridge_online(bo):
+                return ""
+        except Exception:                                   # outside a request
+            pass
     prov = cfg.load("providers", cfg.DEFAULT_PROVIDERS)
     name = os.environ.get("DESK_PROVIDER", "").strip() or prov.get("default_provider", "openrouter")
     pc = (prov.get("providers") or {}).get(name) or cfg.DEFAULT_PROVIDERS["providers"].get(name) or {"type": "anthropic"}
@@ -535,7 +543,7 @@ def _guard():
             abort(401)
     elif p.startswith("/desk") and not p.startswith("/desk/static/") and p != "/desk/login":
         if not current_user():
-            if GUEST_AUTO and request.method == "GET" and p.rstrip("/") in ("/desk", "/desk/workspace"):
+            if GUEST_AUTO and request.method == "GET" and p.rstrip("/") in ("/desk", "/desk/start", "/desk/workspace"):
                 return redirect("/try?next=" + quote(request.full_path.rstrip("?"), safe=""))     # straight in, as a guest
             return redirect(_login_next())
     return None
@@ -594,8 +602,9 @@ def login():
 
 
 def _front_door(u: dict[str, Any] | None) -> str:
-    """Owners with a desk land on its Home; new owners start in the workspace chat, where Atlas builds the first one."""
-    return "/desk" if u and store.desks_for(u["id"]) else "/desk/workspace"
+    """Owners with a desk land on its Home; new owners start the chain: pick the AI (/desk/start), then design the
+    first desk in the workspace, then run it."""
+    return "/desk" if u and store.desks_for(u["id"]) else "/desk/start"
 
 
 def _sign_in(uid: int) -> None:
@@ -730,7 +739,8 @@ def try_desk():
     u = store.add_user(email, "Guest", "", "")               # no password: this account can only ever be reached from its session
     _sign_in(u["id"])
     nxt = request.args.get("next") or ""
-    return redirect(nxt if nxt.startswith("/desk") else "/desk/workspace?new=1")
+    plain = nxt.rstrip("/") in ("", "/desk", "/desk/start", "/desk/workspace", "/desk/workspace?new=1")   # a desk link (?desk=) is kept
+    return redirect("/desk/start" if plain or not nxt.startswith("/desk") else nxt)   # a deeper link (the live review) still lands there
 
 
 def guest_sweep() -> int:
@@ -783,7 +793,7 @@ def signup():
             return _page("signup.html", error=_MFA_UNCONFIGURED, name=name, company=company, email=email, google=_google_cls()), 503
         u = store.add_user(email, name, company, generate_password_hash(pw))
         if required:                    # TWO_FACTOR=required: no session from a password alone, a brand-new one included
-            sess, why, code = _mfa_begin(u, "/desk/workspace")
+            sess, why, code = _mfa_begin(u, "/desk/start")                 # a new owner starts the chain
             if not sess:
                 why = "Your account is ready, but we could not send your sign-in code. Log in again in a minute."
                 if request.is_json:
@@ -797,7 +807,7 @@ def signup():
         _sign_in(u["id"])
         if request.is_json:
             return jsonify({"ok": True})
-        return redirect("/desk/workspace")                     # new owners start in the workspace chat
+        return redirect("/desk/start")                         # new owners start the chain: pick the AI, then the workspace
     if current_user():
         return redirect(_front_door(current_user()))
     return _page("signup.html", error="", name="", company="", email="", google=_google_cls())
@@ -1235,6 +1245,9 @@ def _bridge_hash(token: str) -> str:
     return hashlib.sha256(token.encode()).hexdigest()
 
 
+BRIDGE_ACK_S = 15.0        # a taken job the runner has not acknowledged (its first chunk) within this is offered again
+
+
 def bridge_online(owner_id: int) -> dict[str, Any] | None:
     now = time.time()
     for b in store.bridges_for(owner_id):
@@ -1265,7 +1278,7 @@ def _bridge_run(owner_id: int, job: dict[str, Any], on_token, timeout: float) ->
     if not bridge_online(owner_id):
         raise RuntimeError("your agent is not connected (start atlas_bridge.py on your computer)")
     rec = {"id": secrets.token_urlsafe(8), "owner_id": owner_id, "created": time.time(), "state": "queued", "job": job,
-           "result": None, "error": "", "on_token": on_token, "bridge": 0}
+           "result": None, "error": "", "on_token": on_token, "bridge": 0, "taken": 0.0, "acked": False}
     with _BR_LOCK:
         _BR_JOBS[rec["id"]] = rec
         _BR_QUEUE.setdefault(owner_id, []).append(rec)
@@ -1313,9 +1326,11 @@ def api_bridge_next():
     deadline = time.time() + wait
     with _BR_LOCK:
         while True:
-            rec = next((r for r in (_BR_QUEUE.get(b["owner_id"]) or []) if r["state"] == "queued"), None)
+            now = time.time()
+            rec = next((r for r in (_BR_QUEUE.get(b["owner_id"]) or [])
+                        if r["state"] == "queued" or (r["state"] == "running" and not r["acked"] and now - r["taken"] > BRIDGE_ACK_S)), None)
             if rec:
-                rec["state"], rec["bridge"] = "running", b["id"]
+                rec["state"], rec["bridge"], rec["taken"] = "running", b["id"], now
                 break
             left = deadline - time.time()
             if left <= 0:
@@ -1332,6 +1347,7 @@ def api_bridge_chunk(jid):
     rec = _BR_JOBS.get(jid)
     if not rec or rec["owner_id"] != b["owner_id"]:
         abort(404)
+    rec["acked"] = True                                     # the runner has the job: it is not handed out again
     text = str((request.get_json(silent=True) or {}).get("text") or "")
     if text and callable(rec.get("on_token")):
         try:
@@ -3520,6 +3536,16 @@ def desk_workspace():
     return send_from_directory(STATIC_DIR, "workspace.html")
 
 
+@app.get("/desk/start")
+def desk_start():
+    """Step 1 of the chain: which AI runs the desk - the owner's own Claude Code / Codex through the bridge, or the
+    house models. Step 2 is the workspace (Atlas drafts the first desk), step 3 the desk at work. One page, no rail:
+    nothing else to look at until the choice is made."""
+    if not current_user() and not OPEN:
+        return redirect(_login_next())
+    return send_from_directory(STATIC_DIR, "start.html")
+
+
 @app.get("/desk/theatre")
 def desk_theatre():
     need_desk()
@@ -5065,6 +5091,29 @@ def _save_design(s: DS.DesignSession) -> None:
         print("design session save failed:", exc)
 
 
+def _design_providers(s) -> tuple[dict[str, Any] | None, str]:
+    """The design chat's models: none in demo; the owner's own agent when their runner is connected (step 1 of the
+    chain: no house key needed, nothing spent here); otherwise the house providers with the tier's model, which
+    needs a key (503 no_model_key when there is none)."""
+    if s.mode == "demo":
+        return None, ""
+    u = current_user()
+    bo = int(u["id"]) if u else (0 if OPEN else -1)
+    br = bridge_online(bo) if bo >= 0 else None
+    if br:
+        pname = f"agent:{bo}"
+        providers = json.loads(json.dumps(_providers_cfg()))                 # our own copy: the shared config stays as it is
+        providers.setdefault("providers", {})[pname] = {"type": "bridge", "owner_id": bo, "default_model": f"your {br.get('agent') or 'agent'}", "env_key": False}
+        providers["default_provider"] = pname
+        return providers, ""
+    _require_live()
+    providers = _providers_cfg()
+    model = ""
+    if providers.get("default_provider") == "openrouter":
+        model = templates.STRONG_MODEL if s.tier != "free" else templates.FREE_MODEL
+    return providers, model
+
+
 def _design_spend_gate(s) -> None:
     """Paid designer turns stop at the OpenRouter cap, the same rule as paid desk runs. Free-model turns cost nothing.
     Before this, the studio's say / study / build routes never checked the cap at all."""
@@ -5109,12 +5158,10 @@ def api_design_study(sid):
     if not links:
         return jsonify({"error": "no links"}), 400
     s.links = links
-    if s.mode != "demo":
-        _require_live()
+    providers, dmodel = _design_providers(s)
     _design_spend_gate(s)
     import queue
     q: "queue.Queue[dict[str, Any] | None]" = queue.Queue()
-    providers = None if s.mode == "demo" else _providers_cfg()
 
     def work():
         try:
@@ -5122,8 +5169,7 @@ def api_design_study(sid):
             if providers:
                 from ..providers import ProviderPool
                 prov = ProviderPool(providers).get()
-                if providers.get("default_provider") == "openrouter":
-                    model = templates.STRONG_MODEL if s.tier != "free" else templates.FREE_MODEL
+                model = dmodel
             profile = ST.study(links, on_status=lambda t: q.put({"t": "status", "d": t}), provider=prov, model=model)
             with s.lock:
                 s.apply_profile(profile)
@@ -5178,15 +5224,10 @@ def api_design_say(sid):
     text = str(d.get("text") or "").strip()[:4000]
     if not text:
         return jsonify({"error": "empty"}), 400
-    if s.mode != "demo":
-        _require_live()
+    providers, model = _design_providers(s)
     _design_spend_gate(s)
     import queue
     q: "queue.Queue[dict[str, Any] | None]" = queue.Queue()
-    providers = None if s.mode == "demo" else _providers_cfg()
-    model = ""
-    if providers and providers.get("default_provider") == "openrouter":
-        model = templates.STRONG_MODEL if s.tier != "free" else templates.FREE_MODEL
 
     def work():
         try:
@@ -5283,6 +5324,8 @@ def api_design_build(sid):
     conf = DS.blueprint_to_desk(bp, tier, name=name)
     if not (bp.get("business") or {}).get("name"):                 # never show the template's placeholder business name
         conf["business"]["name"] = name
+    if store.bridges_for(int(u["id"]) if u else 0):                 # step 1 of the chain: the desk runs on the owner's own agent
+        conf.setdefault("byo", {})["default"] = "agent"
     with _build_lock:                                              # a second build of this draft updates the first one's desk
         if s.desk_id and store.desk(s.desk_id):
             store.update_desk(s.desk_id, name=name, tier=tier, config=conf)

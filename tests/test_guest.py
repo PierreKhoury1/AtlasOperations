@@ -6,7 +6,7 @@ import atlas.desk.app as A
 
 def _guest(client):
     r = client.get("/try")
-    assert r.status_code == 302 and r.headers["Location"].endswith("/desk/workspace?new=1")
+    assert r.status_code == 302 and r.headers["Location"].endswith("/desk/start")       # step 1 of the chain
     me = client.get("/api/me").get_json()
     assert me["guest"] is True and me["email"].endswith("@" + A.GUEST_DOMAIN)
     return me

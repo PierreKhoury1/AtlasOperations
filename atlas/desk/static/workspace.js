@@ -1789,7 +1789,7 @@ function renderHead(){
   const date = new Date().toLocaleDateString('en-GB', {weekday: 'long', day: 'numeric', month: 'long', timeZone: 'UTC'});
   const eb = W.phase === 'load' ? 'Atlas workspace · loading the desk'
     : built ? `Atlas workspace · desk #${W.deskId} · ${(W.template || 'custom').replace(/_/g, ' ')} · ${W.tier === 'free' ? 'free' : 'paid'} models`
-    : n ? 'Atlas workspace · draft, not built' : W.desks == null ? 'Atlas workspace' : `Atlas workspace · ${W.desks.length ? 'new desk' : 'no desk yet'}`;
+    : n ? `Atlas workspace · ${W.desks && !W.desks.length ? 'step 2 of 3 · ' : ''}draft, not built` : W.desks == null ? 'Atlas workspace' : `Atlas workspace · ${W.desks.length ? 'new desk' : 'step 2 of 3 · your first desk'}`;
   $('#ph-k').innerHTML = `<span class="eb-d">${esc(date)} · </span>` + esc(eb).replace(/^Atlas workspace · /, '<span class="eb-w">Atlas workspace · </span>');
   $('#ph-title').textContent = W.phase === 'load' ? 'Loading the desk…' : (W.deskName || 'New desk');
   document.title = (W.deskName ? W.deskName + ' · ' : '') + 'Atlas workspace';

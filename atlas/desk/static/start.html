@@ -1,0 +1,148 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Start — Atlas Desk</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/desk/static/auth.css">
+<style>
+/* Step 1 of the chain. One question on the page, nothing else: no rail, no top bar, no stats. */
+.start{position:relative;z-index:2;max-width:720px;margin:56px auto 80px;padding:0 24px}
+.steps{list-style:none;display:flex;gap:6px;align-items:center;padding:0;margin:0 0 34px;font-size:13px;color:var(--muted)}
+.steps li{display:flex;align-items:center;gap:8px}
+.steps li b{display:grid;place-items:center;width:22px;height:22px;border-radius:50%;border:1px solid var(--line2);font-weight:500;font-size:12px;color:var(--muted)}
+.steps li.on{color:#fff}.steps li.on b{background:#2F6FE4;border-color:#2F6FE4;color:#fff}
+.steps li.done b{border-color:var(--ok);color:var(--ok)}
+.steps li+li::before{content:"";width:26px;height:1px;background:var(--line2);margin:0 4px}
+.start h1{font-weight:300;font-size:clamp(30px,4vw,42px);line-height:1.1;letter-spacing:-.02em;margin:0 0 10px;color:#fff}
+.start p.sub{color:var(--text2);font-size:16px;margin:0 0 28px;line-height:1.55}
+.opts{display:grid;gap:12px}
+.opt{display:grid;grid-template-columns:44px 1fr auto;gap:14px;align-items:center;width:100%;margin:0;text-align:left;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px 18px;color:var(--text);cursor:pointer;font:inherit}
+.opt:hover{background:var(--panel2);border-color:var(--line2)}
+.opt:focus-visible{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px rgba(76,141,255,.25)}
+.opt .ic{width:44px;height:44px;border-radius:10px;display:grid;place-items:center;background:var(--panel2);border:1px solid var(--line2);font-family:var(--mono);font-size:12px;letter-spacing:.06em;color:var(--accent2)}
+.opt b{display:block;font-size:16px;font-weight:500;color:#fff;margin-bottom:3px}
+.opt span.d{display:block;font-size:13.5px;color:var(--text2);line-height:1.45}
+.opt .arrow{color:var(--muted);font-size:18px}
+.small{color:var(--muted);font-size:13px;margin:16px 0 0}.small a{color:var(--accent2);cursor:pointer;text-decoration:none}
+.hide{display:none!important}
+/* the hook-up card: three things to do, then the page notices the runner on its own */
+.hook{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:26px 28px;box-shadow:0 2px 6px rgba(0,0,0,.5),0 30px 80px -24px rgba(0,0,0,.8)}
+.hk-h{display:flex;justify-content:space-between;align-items:center;margin-bottom:18px}
+.hk-h b{font-size:19px;font-weight:500;color:#fff}
+.lnk{background:none;border:0;color:var(--accent2);font:inherit;font-size:13.5px;cursor:pointer;padding:0;margin:0;width:auto;text-decoration:none}
+.lnk:hover{background:none;color:#fff}
+.todo{list-style:none;padding:0;margin:0;display:grid;gap:16px}
+.todo li{display:grid;grid-template-columns:26px 1fr;gap:12px;align-items:start;font-size:14.5px;color:var(--text2);line-height:1.5}
+.todo .n{display:grid;place-items:center;width:24px;height:24px;border-radius:50%;background:var(--panel2);border:1px solid var(--line2);font-size:12px;color:var(--text);margin-top:1px}
+.todo li.ok .n{background:rgba(61,214,140,.15);border-color:var(--ok);color:var(--ok)}
+.todo a.dl{display:inline-block;margin:6px 0 0;background:#E6ECF7;color:#0B1220;text-decoration:none;font-weight:500;font-size:13.5px;padding:8px 14px;border-radius:8px}
+.todo a.dl:hover{background:#fff}
+.cmd{display:flex;align-items:center;gap:8px;margin-top:8px}
+.cmd code{flex:1;display:block;padding:10px 12px;background:#070B14;border:1px solid var(--line2);border-radius:8px;font-family:var(--mono);font-size:12.5px;color:#DCE5F4;word-break:break-all;user-select:all}
+.cmd button{width:auto;margin:0;padding:9px 12px;font-size:13px;background:transparent;color:var(--text2);border-color:var(--line2)}
+.cmd button:hover{background:var(--panel2);color:#fff}
+.note{font-size:12.5px;color:var(--muted);margin-top:6px}
+.wait{display:flex;align-items:center;gap:10px}
+.spin{width:14px;height:14px;border:2px solid var(--line2);border-top-color:var(--accent);border-radius:50%;animation:sp 1s linear infinite;display:inline-block}
+@keyframes sp{to{transform:rotate(360deg)}}
+.done{margin-top:18px;padding:12px 14px;border-radius:10px;background:rgba(61,214,140,.1);border:1px solid rgba(61,214,140,.4);color:#BFF2D6;font-size:14px}
+.done b{color:#fff;font-weight:500}
+.acts{display:flex;align-items:center;justify-content:space-between;gap:14px;margin-top:22px;flex-wrap:wrap}
+a.go{display:inline-flex;align-items:center;gap:8px;background:#2F6FE4;color:#fff;text-decoration:none;font-weight:500;font-size:15px;padding:12px 20px;border-radius:8px}
+a.go:hover{background:#2457C4}
+a.go[aria-disabled="true"]{opacity:.45;pointer-events:none}
+.have{margin-bottom:18px;padding:12px 14px;border-radius:10px;background:var(--panel2);border:1px solid var(--line2);font-size:13.5px;color:var(--text2)}
+.have b{color:#fff;font-weight:500}
+@media(max-width:600px){.opt{grid-template-columns:1fr;gap:8px}.opt .ic,.opt .arrow{display:none}.hook{padding:20px}}
+</style>
+</head>
+<body>
+<div class="top"><a class="brand" href="/"><img class="mark" src="/desk/static/mark.png" alt="" width="44" height="24"><span class="wm"><b>ATLAS</b><small>OBSERVE&nbsp;&nbsp;REASON&nbsp;&nbsp;ACT</small></span></a><a class="alt" id="top-skip" href="/desk/workspace?new=1">Skip for now <b>→</b></a></div>
+<div class="start">
+  <ol class="steps"><li class="on"><b>1</b>Your AI</li><li><b>2</b>Your desk</li><li><b>3</b>At work</li></ol>
+
+  <div id="pick">
+    <h1>Which AI runs your desk?</h1>
+    <p class="sub">Pick one. Your desk's agents think with it; the desk itself stays the same. You can change this later in Desk setup.</p>
+    <div class="have hide" id="have"></div>
+    <div class="opts">
+      <button class="opt" data-agent="claude"><span class="ic">CC</span><span><b>Claude Code</b><span class="d">On your own Claude subscription, on your computer. Your login never leaves your machine; the desk only sees the text it writes.</span></span><span class="arrow">→</span></button>
+      <button class="opt" data-agent="codex"><span class="ic">CX</span><span><b>Codex</b><span class="d">The same, on your ChatGPT subscription.</span></span><span class="arrow">→</span></button>
+      <button class="opt" data-agent="house"><span class="ic">AT</span><span><b>Atlas models</b><span class="d">Free models, nothing to install. Start now; plug your own AI in later.</span></span><span class="arrow">→</span></button>
+    </div>
+    <p class="small">Also works with <a data-agent="gemini">Gemini CLI</a>.</p>
+  </div>
+
+  <div class="hook hide" id="hook">
+    <div class="hk-h"><b id="hk-title">Connect Claude Code</b><button class="lnk" id="hk-back" type="button">Change</button></div>
+    <ol class="todo">
+      <li id="t1"><span class="n">1</span><div>On the computer where <span class="ag">Claude Code</span> is installed and signed in, download the runner.<br><a class="dl" href="/scripts/atlas_bridge.py" download>Download atlas_bridge.py</a></div></li>
+      <li id="t2"><span class="n">2</span><div>Run it there and leave it open. It answers the desk's model calls with your AI; nothing of yours is stored here.
+        <div class="cmd"><code id="cmd">…</code><button type="button" id="copy">Copy</button></div>
+        <div class="note">Needs Python 3. On Mac or Linux write <code>python3</code> instead of <code>py</code>. The token is shown once.</div></div></li>
+      <li id="t3"><span class="n">3</span><div class="wait" id="wait"><i class="spin"></i><span>Waiting for your computer…</span></div></li>
+    </ol>
+    <div class="done hide" id="done"><b>Connected.</b> <span id="done-t"></span></div>
+    <div class="acts"><a class="go" id="go" href="/desk/workspace?new=1" aria-disabled="true">Continue to your desk →</a><a class="lnk" id="skip" href="/desk/workspace?new=1">Use Atlas models for now</a></div>
+  </div>
+</div>
+<script>
+(function () {
+  const $ = s => document.querySelector(s);
+  const NAMES = {claude: 'Claude Code', codex: 'Codex', gemini: 'Gemini CLI'};
+  let next = '/desk/workspace?new=1', timer = null, mine = {bridges: [], online: false};
+  const api = (p, o) => fetch('/api' + p, Object.assign({headers: {'Content-Type': 'application/json'}}, o || {}, o && o.body ? {body: JSON.stringify(o.body)} : {})).then(r => r.json()).catch(() => null);
+  const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c]));
+
+  function setNext(href) { next = href; $('#go').href = href; $('#skip').href = href; $('#top-skip').href = href; }
+  function connected(b) {
+    clearInterval(timer); timer = null;
+    $('#t3').classList.add('ok'); $('#wait').innerHTML = '<span>Your computer answered.</span>';
+    $('#done-t').textContent = (b.name || 'your computer') + ' is running ' + (NAMES[b.agent] || b.agent) + '. Your desk thinks with it from here on.';
+    $('#done').classList.remove('hide'); $('#go').removeAttribute('aria-disabled');
+    document.querySelectorAll('.steps li')[0].classList.add('done');
+    if ($('#hook').classList.contains('hide'))                               // noticed while the choices were still showing
+      $('#have').innerHTML = '<b>' + esc(b.name) + '</b> is connected (' + esc(NAMES[b.agent] || b.agent) + '). <a class="lnk" href="' + esc(next) + '">Continue with it →</a>';
+  }
+  function poll() {
+    timer = setInterval(async () => {
+      const r = await api('/bridges'); if (!r || !r.bridges) return;
+      const on = r.bridges.find(b => b.online); if (on) connected(on);
+    }, 3000);
+  }
+  async function choose(agent) {
+    if (agent === 'house') { location.href = next; return; }
+    const r = await api('/bridges', {method: 'POST', body: {agent}});
+    if (!r || r.error) { alert((r && r.error) || 'Could not create a token. Try again.'); return; }
+    $('#hk-title').textContent = 'Connect ' + NAMES[agent]; document.querySelectorAll('.ag').forEach(e => e.textContent = NAMES[agent]);
+    $('#cmd').textContent = r.command;
+    $('#pick').classList.add('hide'); $('#hook').classList.remove('hide');
+    $('#t3').classList.remove('ok'); $('#done').classList.add('hide'); $('#go').setAttribute('aria-disabled', 'true');
+    $('#wait').innerHTML = '<i class="spin"></i><span>Waiting for your computer…</span>';
+    history.replaceState(null, '', '/desk/start?agent=' + agent);
+    poll();
+  }
+  document.querySelectorAll('[data-agent]').forEach(el => el.addEventListener('click', e => { e.preventDefault(); choose(el.dataset.agent); }));
+  $('#hk-back').addEventListener('click', () => { clearInterval(timer); timer = null; $('#hook').classList.add('hide'); $('#pick').classList.remove('hide'); history.replaceState(null, '', '/desk/start'); });
+  $('#copy').addEventListener('click', async () => { try { await navigator.clipboard.writeText($('#cmd').textContent); $('#copy').textContent = 'Copied'; setTimeout(() => $('#copy').textContent = 'Copy', 1500); } catch (e) {} });
+
+  (async () => {
+    const [d, b] = await Promise.all([api('/desks'), api('/bridges')]);
+    if (d && Array.isArray(d.desks) && d.desks.length) setNext('/desk');      // an owner with a desk: step 1 again, then back to it
+    mine = b || mine;
+    if (mine.bridges && mine.bridges.length) {
+      const on = mine.bridges.find(x => x.online);
+      const h = $('#have'); h.classList.remove('hide');
+      if (on) {
+        h.innerHTML = '<b>' + esc(on.name) + '</b> is connected (' + esc(NAMES[on.agent] || on.agent) + '). <a class="lnk" id="use-on" href="' + esc(next) + '">Continue with it →</a>';
+      } else {
+        const x = mine.bridges[0];
+        h.innerHTML = '<b>' + esc(x.name) + '</b> (' + esc(NAMES[x.agent] || x.agent) + ') is set up but not running. Start the runner there and this page will notice, or pick again below.';
+        poll();
+      }
+    }
+    const want = new URLSearchParams(location.search).get('agent');
+    if (want && NAMES[want]) choose(want);
+  })();
+})();
+</script>
+</body></html>

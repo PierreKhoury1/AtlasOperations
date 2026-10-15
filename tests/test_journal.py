@@ -262,7 +262,7 @@ def test_login_lands_in_workspace_then_home(app_client):
     c.post("/signup", json={"name": "L", "company": "L", "email": "ws-land@example.com", "password": "password1"})
     c.get("/logout")
     r = c.post("/login", data={"email": "ws-land@example.com", "password": "password1"})
-    assert r.status_code == 302 and r.headers["Location"].endswith("/desk/workspace")
+    assert r.status_code == 302 and r.headers["Location"].endswith("/desk/start")      # a new owner starts the chain
     r = c.get("/desk/workspace")
     page = r.get_data(as_text=True)
     assert r.status_code == 200 and "<title>Atlas Desk · Workspace</title>" in page and "/desk/static/workspace.js" in page
