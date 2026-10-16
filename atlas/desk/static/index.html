@@ -702,9 +702,10 @@ aside.simple [data-lvl="full"]{display:none}
     <span class="lv-stat">tokens <b id="lv-in">0</b> in · <b id="lv-out">0</b> out</span>
     <span class="lv-stat">events <b id="lv-n">0</b></span>
     <button class="btn sm d" id="lv-stop" style="display:none" onclick="lvStop()">Stop</button>
+    <button class="btn sm" id="lv-replay" style="display:none" onclick="lvReplayToggle()">▶ Replay</button>
   </div>
-  <div class="lv-grid">
-    <div class="lv-col"><div class="hd">Team<span class="n">Atlas leads</span></div><div class="bd lv-team" id="lv-team"></div></div>
+  <div class="lv-graphwrap"><canvas id="lv-graph"></canvas><div class="lv-glegend"><span><i style="background:var(--ok)"></i>you</span><span><i data-atlas style="background:#ea580c"></i>Atlas</span><span><i style="background:var(--warn)"></i>held for approval</span><span><i style="background:var(--accent)"></i>written to the desk</span><span class="hint">click an agent to find it in the feed · click a bin to open it</span></div></div>
+  <div class="lv-grid two">
     <div class="lv-col">
       <div class="lv-filters">
         <button data-f="all" class="on" onclick="lvSetFilter('all')">Everything</button>
@@ -2715,6 +2716,7 @@ async function loadMem(){ const M = await api('/memory'); if(!M) return; $('#mem
 async function addMem(){ const k=$('#m-key').value.trim(), v=$('#m-val').value.trim(); if(!k) return; await api('/memory',{method:'POST',body:{key:k,value:v}}); $('#m-key').value=''; $('#m-val').value=''; loadMem(); }
 init();
 </script>
+<script src="/desk/static/live-graph.js"></script>
 <script src="/desk/static/live.js"></script>
 <script src="/desk/static/studio.js"></script>
 </body>

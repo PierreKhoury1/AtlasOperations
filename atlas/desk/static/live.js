@@ -25,11 +25,12 @@ async function pickLive(id){
   liveState = { id, active: r.active, t0: r.created, tEnd: r.ended || null, task: r.task || '', agents: {}, n: 0, tin: r.tokens_in, tout: r.tokens_out,
                 feed: [], ticks: [], out: { approvals: [], cases: {}, records: {}, deliverables: [], policy: [], sent: 0, tools: 0, handoffs: 0 }, status: r.status };
   if (r.active) { const L = await api('/live'); const me = L && L.runs.find(x => x.id === id); if (me) { liveState.tin = me.tokens_in; liveState.tout = me.tokens_out; } }
-  LV.stick = true;
-  lvBuildTeam();
+  LV.stick = true; liveState.raw = r.events || []; LV.replaying = false;
+  lvBuildTeam(); LVG.mount(); LVG.build(CFG.agents); const _lg = document.querySelector('.lv-glegend i[data-atlas]'); if (_lg) _lg.style.background = colors.atlas || '#ea580c';
   $('#lv-feed').innerHTML = '';
   (r.events || []).forEach(e => lvApply(e, false));
-  lvRenderAll();
+  lvSyncGraphCounts(); lvRenderAll(); LVG.redraw();
+  $('#lv-replay').style.display = r.active ? 'none' : '';
   if (liveES) { liveES.close(); liveES = null; }
   if (r.active) {
     liveES = new EventSource('/api/stream?since=now&run=' + encodeURIComponent(id));
@@ -80,8 +81,8 @@ function lvApply(e, live){
     a.status = 'thinking'; a.done = false; a.turns = 0; a.say = null; a.think = '';
     if (e.data.assignment) a.assignment = e.data.assignment;
     if (e.data.model) a.model = e.data.model;
-    if (a.base !== 'atlas') { S.out.handoffs++; lvPush({ type: 'hand', ts: e.ts, from: e.data.parent || 'atlas', to: a, text: e.data.assignment || e.text }); tick('hand'); lvHandoffFlash(a); }
-    else lvPush({ type: 'start', ts: e.ts, a, text: e.data.assignment || S.task });
+    if (a.base !== 'atlas') { S.out.handoffs++; lvPush({ type: 'hand', ts: e.ts, from: e.data.parent || 'atlas', to: a, text: e.data.assignment || e.text }); tick('hand'); lvHandoffFlash(a); if (live) LVG.on('handoff', a); }
+    else { lvPush({ type: 'start', ts: e.ts, a, text: e.data.assignment || S.task }); if (live) LVG.on('start', a); }
     return;
   }
   if (k === 'token' && a) {
@@ -107,25 +108,25 @@ function lvApply(e, live){
     if (last && last.type === 'tools' && last.a === a && e.ts - last.ts < 90) { last.rows.push(p); lvUpdateTools(last); }
     else lvPush({ type: 'tools', ts: e.ts, a, rows: [p] });
     tick('tool');
-    lvOutcomeFromTool(a, p);
+    lvOutcomeFromTool(a, p); if (live) LVG.on('tool', a, p.name);
     if (p.name === 'finish') a.status = 'finishing';
     return;
   }
   if (k === 'approval') {
     const item = { ts: e.ts, kind: e.data.action_kind || 'action', to: e.data.to || '', text: e.text.replace(/^[a-z_]+ → [^:]*: ?/i, ''), id: e.data.action_id, by: a ? a.name : '' };
     S.out.approvals.push(item); if (a) a.spark.push('a');
-    lvPush({ type: 'appr', ts: e.ts, a, item }); tick('appr'); return;
+    lvPush({ type: 'appr', ts: e.ts, a, item }); tick('appr'); if (live) LVG.on('approval', a, item.kind); return;
   }
-  if (k === 'policy') { const v = e.data.violations || [e.text]; S.out.policy.push({ ts: e.ts, by: a ? a.name : '', text: e.text, v }); if (a) a.spark.push('p'); lvPush({ type: 'pol', ts: e.ts, a, text: e.text, v }); tick('pol'); return; }
+  if (k === 'policy') { const v = e.data.violations || [e.text]; S.out.policy.push({ ts: e.ts, by: a ? a.name : '', text: e.text, v }); if (a) a.spark.push('p'); lvPush({ type: 'pol', ts: e.ts, a, text: e.text, v }); tick('pol'); if (live) LVG.on('policy', a); return; }
   if (k === 'deliverable') { const f = String(e.text).split(/[\\/]/).pop(); S.out.deliverables.push(f); lvPush({ type: 'deliv', ts: e.ts, files: [f] }); tick('deliv'); return; }
   if (k === 'sent') { S.out.sent++; lvPush({ type: 'sys', ts: e.ts, text: '📤 ' + e.text }); return; }
-  if (k === 'agent_end' && a) { a.status = 'done'; a.done = true; a.now = ''; if (a.say && !a.say.closed) { a.say.closed = true; a.say.live = false; lvUpdateSay(a.say); a.say = null; } if (a.base !== 'atlas') lvPush({ type: 'back', ts: e.ts, a, text: e.text.replace(/^.*? done — /, '') }); return; }
-  if (k === 'error') { if (a) a.status = 'error'; lvPush({ type: 'err', ts: e.ts, a, text: e.text }); tick('pol'); return; }
+  if (k === 'agent_end' && a) { a.status = 'done'; a.done = true; a.now = ''; if (a.say && !a.say.closed) { a.say.closed = true; a.say.live = false; lvUpdateSay(a.say); a.say = null; } if (a.base !== 'atlas') { lvPush({ type: 'back', ts: e.ts, a, text: e.text.replace(/^.*? done — /, '') }); if (live) LVG.on('back', a); } return; }
+  if (k === 'error') { if (a) a.status = 'error'; lvPush({ type: 'err', ts: e.ts, a, text: e.text }); tick('pol'); if (live) LVG.on('error', a); return; }
   if (k === 'done') {
     S.active = false; S.tEnd = e.ts; S.status = (e.data && e.data.status) || 'done';
     Object.values(S.agents).forEach(x => { if (!x.done && x.status !== 'idle') { x.status = 'done'; x.done = true; x.now = ''; } });
     const lastSay = [...S.feed].reverse().find(x => x.type === 'say'); if (lastSay && lastSay.el && lvStrip(lastSay.text).slice(0, 80) === String(e.text).slice(0, 80)) lastSay.el.style.display = 'none';
-    lvPush({ type: 'end', ts: e.ts, text: e.text, status: S.status }); return;
+    lvPush({ type: 'end', ts: e.ts, text: e.text, status: S.status }); if (live) LVG.on('done'); return;
   }
 }
 
@@ -183,7 +184,7 @@ function lvUpdateTools(it, el){
 
 /* ---------------- team rail */
 function lvBuildTeam(){
-  const g = $('#lv-team'); const lead = CFG.agents.find(a => a.id === 'atlas'); const rest = CFG.agents.filter(a => a.id !== 'atlas');
+  const g = $('#lv-team'); if (!g) return; const lead = CFG.agents.find(a => a.id === 'atlas'); const rest = CFG.agents.filter(a => a.id !== 'atlas');
   g.innerHTML = (lead ? lvAgentNode(lvAgent('atlas'), true) : '') + `<div class="lv-sub" id="lv-sub">${rest.map(a => lvAgentNode(lvAgent(a.id))).join('')}</div>`;
 }
 function lvAgentNode(a, lead){
@@ -195,10 +196,10 @@ function lvAgentNode(a, lead){
     <div class="spark" id="lvsp-${lvId(a.id)}"></div>
     <div class="meta" id="lvm-${lvId(a.id)}"></div></div>`;
 }
-function lvAddAgentNode(a){ const sub = $('#lv-sub'); if (!sub) return; const t = document.createElement('div'); t.innerHTML = lvAgentNode(a); const el = t.firstElementChild; const sib = document.getElementById('lva-' + lvId(a.base)); if (sib && sib.parentElement === sub && sib.nextSibling) sub.insertBefore(el, sib.nextSibling); else sub.appendChild(el); }
+function lvAddAgentNode(a){ const sub = $('#lv-sub'); if (!sub) { LVG.on('_add', a); return; } const t = document.createElement('div'); t.innerHTML = lvAgentNode(a); const el = t.firstElementChild; const sib = document.getElementById('lva-' + lvId(a.base)); if (sib && sib.parentElement === sub && sib.nextSibling) sub.insertBefore(el, sib.nextSibling); else sub.appendChild(el); }
 function lvHandoffFlash(a){ const el = document.getElementById('lva-' + lvId(a.id)); if (!el) return; el.classList.remove('handoff'); void el.offsetWidth; el.classList.add('handoff'); setTimeout(() => el.classList.remove('handoff'), 1000); }
 function lvRenderTeam(){
-  const S = liveState;
+  const S = liveState; if (!$('#lv-team')) { LVG.redraw(); return; }
   Object.values(S.agents).forEach(a => {
     const el = document.getElementById('lva-' + lvId(a.id)); if (!el) return;
     el.classList.toggle('busy', !a.done && a.status !== 'idle'); el.classList.toggle('fin', a.done);
@@ -256,3 +257,26 @@ async function lvStop(){ if (!liveState) return; await api('/runs/' + liveState.
 let lvQueued = false;
 function lvSchedule(){ if (lvQueued) return; lvQueued = true; requestAnimationFrame(() => { lvQueued = false; lvRenderAll(); }); }
 function lvRenderAll(){ if (!liveState || page !== 'live') return; lvRenderHead(); lvRenderTeam(); lvRenderOut(); lvTimeline(); }
+
+/* ---------------- graph glue */
+function lvSyncGraphCounts(){ const O = liveState.out; LVG.setCounts(O.approvals.length, Object.keys(O.cases).length + Object.keys(O.records).length); }
+function lvFocusAgent(id){ const S = liveState; if (!S) return; const it = [...S.feed].reverse().find(x => x.a && (x.a.id === id || x.a.base === id)); if (it) lvGoto(it.i); }
+function lvReplay(){
+  const S = liveState; if (!S || S.active || !S.raw || !S.raw.length || LV.replaying) return;
+  LV.replaying = true; const raw = S.raw, id = S.id;
+  // rebuild from zero, then play the events back with time compressed so the whole run takes about 40 s
+  liveState = { ...S, active: true, agents: {}, n: 0, feed: [], ticks: [], out: { approvals: [], cases: {}, records: {}, deliverables: [], policy: [], sent: 0, tools: 0, handoffs: 0 } };
+  lvBuildTeam(); LVG.build(CFG.agents); $('#lv-feed').innerHTML = ''; LV.stick = true;
+  const t0 = raw[0].ts, span = Math.max(1, raw[raw.length - 1].ts - t0), scale = Math.min(1, 40 / span);
+  let i = 0, start = performance.now(), gap = 0;
+  $('#lv-replay').textContent = '■ Stop replay';
+  const tickFn = () => {
+    if (!LV.replaying || liveState.id !== id) return;
+    const now = (performance.now() - start) / 1000;
+    while (i < raw.length && ((raw[i].ts - t0) * scale + gap) <= now) { lvApply(raw[i], true); gap += 0.12; i++; }
+    lvSchedule();
+    if (i < raw.length) LV.rt = setTimeout(tickFn, 60); else { LV.replaying = false; liveState.active = false; $('#lv-replay').textContent = '\u25B6 Replay'; lvSchedule(); }
+  };
+  liveState.t0 = Date.now() / 1000; tickFn();
+}
+function lvReplayToggle(){ if (LV.replaying) { LV.replaying = false; clearTimeout(LV.rt); $('#lv-replay').textContent = '\u25B6 Replay'; pickLive(liveState.id); } else lvReplay(); }
