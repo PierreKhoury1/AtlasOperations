@@ -649,6 +649,17 @@ aside.simple [data-lvl="full"]{display:none}
       <span class="hm-pill" id="hm-hpill" onclick="document.getElementById('hm-hz').scrollIntoView({behavior:'smooth'})" title="system health"><i></i><span>checking…</span></span>
     </div>
   </div>
+  <div class="hm-how" id="hm-how">
+    <div class="hm-how-h"><b>How this desk works</b><span>one back office for one business, run by a small team of AI agents that never send anything without you</span><button class="link" onclick="howHide()">Hide</button></div>
+    <ol class="hm-how-steps">
+      <li onclick="document.getElementById('d-task').focus()"><i>1</i><b>You give a job</b><span>in plain words, here on Home, or a lead / message / camera alert starts one on its own</span></li>
+      <li onclick="go('live')"><i>2</i><b>Atlas briefs the team</b><span>the lead reads the records, splits the work and hands each specialist a brief. Watch it on the Live desk</span></li>
+      <li onclick="go('team')"><i>3</i><b>Specialists use the desk's tools</b><span>records, cases, CRM, cameras, calendar. Each one has a goal, a few rules and only the tools you allowed</span></li>
+      <li onclick="go('approvals')"><i>4</i><b>Outbound waits for you</b><span>every email, WhatsApp, SMS or booking lands in Approvals as a draft. Approve, edit or reject. Nothing is sent otherwise</span></li>
+      <li onclick="location.href='/desk/ops'"><i>5</i><b>Cases and records are updated</b><span>a case is one piece of work that lasts days (a repair, an enquiry, an incident) with a playbook and a state. Records are what the desk knows: people, places, invoices</span></li>
+      <li onclick="go('report')"><i>6</i><b>You get the report</b><span>a short owner report per job and a daily one: what was done, what is queued, the decisions only you can make</span></li>
+    </ol>
+  </div>
 
   <div class="panel hm-cmd">
     <div class="hm-modes" id="hm-modes"><button data-m="job" class="on">Give a job</button><button data-m="ask">Ask the cameras</button><button data-m="design">Change the team</button></div>
@@ -704,6 +715,7 @@ aside.simple [data-lvl="full"]{display:none}
     <button class="btn sm d" id="lv-stop" style="display:none" onclick="lvStop()">Stop</button>
     <button class="btn sm" id="lv-replay" style="display:none" onclick="lvReplayToggle()">▶ Replay</button>
   </div>
+  <div class="lv-explain" id="lv-explain"><span class="s"><i style="background:var(--ok)"></i>You give a job</span><em>→</em><span class="s"><i style="background:#ea580c"></i>Atlas briefs specialists</span><em>→</em><span class="s"><i style="background:#5B93F0"></i>they read and write the desk's records and cases</span><em>→</em><span class="s"><i style="background:#E0A33A"></i>anything outbound waits in Approvals</span><em>→</em><span class="s"><i style="background:var(--ok)"></i>you get the report</span><span class="sp"></span><span class="hint">Click a card to configure that agent. Drag to arrange. Replay any finished job.</span><button class="link" onclick="lvExplainHide()">Got it</button></div>
   <div class="lv-ws">
     <div class="lv-board">
       <div class="lv-graphwrap"><canvas id="lv-graph"></canvas><div class="lv-insp" id="lv-insp" onpointerdown="event.stopPropagation()" onwheel="event.stopPropagation()"></div>
@@ -792,7 +804,7 @@ aside.simple [data-lvl="full"]{display:none}
 
 <!-- LEADS -->
 <section id="p-leads" class="hide">
-  <h1>Leads</h1><p class="lead">Every inbound lead becomes a run. Add one manually or seed demo leads.</p>
+  <h1>Leads</h1><p class="lead">New enquiries, from your website form, email, WhatsApp or typed in here. Each one opens a case and the team drafts the first reply for your approval.</p>
   <div class="grid g2">
     <div class="card">
       <h2>New lead</h2>
@@ -809,7 +821,7 @@ aside.simple [data-lvl="full"]{display:none}
 
 <!-- APPROVALS -->
 <section id="p-approvals" class="hide">
-  <h1>Approvals</h1><p class="lead">Outbound actions the agents want to take. Edit, approve or reject. Approved = sent (simulated in demo) and logged.</p>
+  <h1>Approvals</h1><p class="lead">Every message or booking the agents drafted is held here until you say yes. Edit the wording, approve, or reject with a note the agents learn from. Nothing leaves the desk any other way.</p>
   <div class="tabs"><button class="on" data-f="pending" onclick="setAf('pending')">Pending</button><button data-f="sent" onclick="setAf('sent')">Sent</button><button data-f="rejected" onclick="setAf('rejected')">Rejected</button><button data-f="" onclick="setAf('')">All</button></div>
   <div id="approvals" class="grid"></div>
 </section>
@@ -842,14 +854,14 @@ aside.simple [data-lvl="full"]{display:none}
 
 <!-- CRM -->
 <section id="p-crm" class="hide">
-  <h1>CRM</h1><p class="lead">Contacts the desk maintains. Stage moves as work happens.</p>
+  <h1>Contacts</h1><p class="lead">People the desk talks to, with a stage that moves as work happens. For places, invoices and everything else the desk knows, open Records.</p>
   <div class="row" style="margin-bottom:12px"><input id="crm-q" placeholder="search name / company / email" style="max-width:320px" oninput="loadCrm()"></div>
   <div class="card" id="crm-table"></div>
 </section>
 
 <!-- RUNS -->
 <section id="p-runs" class="hide">
-  <h1>Runs</h1><p class="lead">One run per task. Click to see every agent step, tool call and deliverable.</p>
+  <h1>Run history</h1><p class="lead">One run per job the team did: who was briefed, every tool call, every draft, what it cost. The receipt behind each result.</p>
   <div class="card" style="margin-bottom:14px"><h2>Ad-hoc task</h2><div class="row"><input id="r-task" placeholder="e.g. Draft a follow-up sequence for landlords who went quiet" style="flex:1"><select id="r-mode" style="width:200px"></select><button class="btn p" onclick="runTask()">Run</button></div></div>
   <div class="grid g2"><div class="card" id="runs-table"></div><div class="card" id="run-detail"><div class="empty">Select a run</div></div></div>
 </section>
@@ -981,7 +993,7 @@ aside.simple [data-lvl="full"]{display:none}
 
 <!-- REPORT -->
 <section id="p-report" class="hide">
-  <h1>Reports</h1><p class="lead">The daily camera report by name, and the monthly business report.</p>
+  <h1>Reports</h1><p class="lead">What the desk did, written for the owner: the daily report (sent at the time you set) and the monthly business report. Short, factual, with the decisions that need you.</p>
   <div class="panel" style="margin-bottom:14px"><div class="ph"><h2>Daily camera report</h2>
     <div class="ctl"><input type="date" id="dr-date" style="width:150px" onchange="loadDayReport()"><a class="btn sm" id="dr-dl" target="_blank">Download</a><button class="btn sm p" onclick="sendDayReport(this)">Send it to me now</button></div></div>
     <div class="pb"><div class="hint" id="dr-sched" style="margin:0 0 10px"></div><div id="dr-body" class="repmd"><div class="empty">Loading…</div></div></div></div>

@@ -224,6 +224,7 @@ body.sh-on .bar>.brand{display:none}   /* inside the app frame the rail carries 
     <div class="panel">
       <div class="ph"><h2 id="list-title">Open cases</h2><span class="chip" id="list-count">0</span><div class="sp"></div>
         <input id="filter" placeholder="Filter   /" autocomplete="off"></div>
+      <div class="ops-intro" id="ops-intro"><b>A case</b> is one piece of work that lasts longer than a single job: a repair, an enquiry, an incident, a renewal. It has a playbook (the steps), a state (where it is), and someone it is waiting on: you, the customer, time, or Atlas. Agents move it; you decide. <b>Records</b> are what the desk knows: people, places, invoices, bookings, linked to each other and to the cases that touch them.<button onclick="this.parentElement.style.display='none';try{localStorage.setItem('ops-intro-hidden','1')}catch(e){}">Hide</button></div>
       <div class="pb" id="list"><div class="empty">Loading…</div></div>
     </div>
     <div class="panel" style="border-bottom:0">
@@ -383,7 +384,7 @@ function renderCases(){
   $('#list-count').textContent = rows.length;
   if (!rows.length) {
     $('#list').innerHTML = S.cases.length ? `<div class="empty"><b>Nothing in this queue</b>Switch the queue on the left, or clear the filter.</div>`
-      : `<div class="empty"><b>No cases yet</b>A case opens when a lead or message arrives, a camera rule fires, or you start one.<br><button class="btn p" onclick="newCase()">${ic('plus')}New case</button></div>`;
+      : `<div class="empty"><b>No cases yet</b>A case opens when a lead or message arrives, a camera rule fires, an agent opens one during a job, or you start one here.<br><button class="btn p" onclick="newCase()">${ic('plus')}New case</button></div>`;
     return;
   }
   const now = Date.now()/1000;
@@ -730,5 +731,7 @@ document.addEventListener('keydown', e => {
 $('#themebtn').onclick = () => { const t = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark'; document.documentElement.dataset.theme = t; try { localStorage.setItem('atlas-theme', t); } catch (e) {} };
 boot();
 </script>
+<script>try{if(localStorage.getItem('ops-intro-hidden')){var _oi=document.getElementById('ops-intro');if(_oi)_oi.style.display='none'}}catch(e){}</script>
+<style>.ops-intro{position:relative;margin:0 0 8px;padding:10px 72px 10px 14px;border:1px solid var(--line);border-radius:10px;background:var(--panel2);font-size:12.5px;color:var(--text2);line-height:1.5;display:block}.ops-intro b{color:var(--text)}.ops-intro button{position:absolute;right:12px;top:9px;background:none;border:0;color:var(--accent2);font-weight:600;cursor:pointer;font-size:12px;white-space:nowrap}</style>
 </body>
 </html>

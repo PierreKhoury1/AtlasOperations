@@ -311,3 +311,8 @@ function lvSeriesTool(S, a, p, ts){
 
 function lvAfterTeamChange(){ if (!liveState) return; LVG.build(CFG.agents); Object.keys(liveState.agents).forEach(k => { const a = liveState.agents[k]; const c = CFG.agents.find(x => x.id === a.base); if (c) { a.name = c.name + (k.includes('#') ? ' #' + k.split('#')[1] : ''); a.role = c.role; a.color = c.color || a.color; } }); LVG.redraw(); lvRenderAll(); }
 document.addEventListener('keydown', e => { if (e.key === 'Escape' && typeof LVI !== 'undefined' && LVI.state.open) LVI.close(); });
+
+/* ---------------- first-visit explainers */
+function lvExplainHide(){ try { localStorage.setItem('lv-explain-hidden', '1'); } catch (_) {} const e = document.getElementById('lv-explain'); if (e) e.style.display = 'none'; }
+function howHide(){ try { localStorage.setItem('hm-how-hidden', '1'); } catch (_) {} const e = document.getElementById('hm-how'); if (e) e.style.display = 'none'; }
+(() => { try { if (localStorage.getItem('lv-explain-hidden')) { const e = document.getElementById('lv-explain'); if (e) e.style.display = 'none'; } if (localStorage.getItem('hm-how-hidden')) { const e = document.getElementById('hm-how'); if (e) e.style.display = 'none'; } } catch (_) {} })();

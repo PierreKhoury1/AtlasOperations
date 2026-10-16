@@ -82,14 +82,28 @@
   };
   const MARK = '<img class="mark" src="/desk/static/mark.png" alt="">';
   const svg = k => `<svg viewBox="0 0 24 24">${IC[k] || ''}</svg>`;
+  // what a desk does, in the order work flows: you give work -> the team does it -> you approve -> the business record grows
   const NAV = [
-    ['', [['home', 'Home', '/desk#dash', 'home'], ['design', 'New desk', '/desk/workspace', 'plus'], ['live', 'Live operations', '/desk#live', 'pulse'],
-          ['cameras', 'Cameras', '/desk#cameras', 'camera'], ['team', 'Agents', '/desk#team', 'team'], ['cases', 'Cases', '/desk/ops', 'inbox'],
-          ['approvals', 'Approvals', '/desk#approvals', 'check'], ['inbox', 'Messages', '/desk#inbox', 'chat'], ['leads', 'Leads', '/desk#leads', 'leads'],
-          ['crm', 'Contacts', '/desk#crm', 'db'], ['report', 'Reports', '/desk#report', 'chart'], ['usage', 'Usage', '/desk/usage', 'gauge']]],
-    ['More', [['objects', 'Objects', '/desk/objects', 'box'], ['review', 'Review', '/desk/review', 'film'], ['security', 'Security', '/desk/cyber', 'shield'],
-              ['studio', 'Ad studio', '/desk#studio', 'spark'], ['automations', 'Automations', '/desk#automations', 'clock'], ['runs', 'Run history', '/desk#runs', 'list'],
-              ['integrations', 'Integrations', '/desk#integrations', 'link'], ['audit', 'Audit log', '/desk#audit', 'doc']]],
+    ['Work', [['home', 'Home', '/desk#dash', 'home', 'give the team a job, see what needs you'],
+              ['live', 'Live desk', '/desk#live', 'pulse', 'watch the team work, in real time'],
+              ['cases', 'Cases', '/desk/ops', 'inbox', 'work that lasts days: repairs, enquiries, incidents'],
+              ['approvals', 'Approvals', '/desk#approvals', 'check', 'every message drafted for you, waiting for your yes']]],
+    ['The business', [['crm', 'Records', '/desk/ops#records', 'db', 'people, places, invoices: what the desk knows'],
+                      ['inbox', 'Messages', '/desk#inbox', 'chat', 'one thread per customer, every channel'],
+                      ['leads', 'Leads', '/desk#leads', 'leads', 'new enquiries as they arrive'],
+                      ['cameras', 'Cameras', '/desk#cameras', 'camera', 'the desk\'s eyes, counted and described']]],
+    ['The team', [['team', 'Agents', '/desk#team', 'team', 'who works here and what each may do'],
+                  ['automations', 'Automations', '/desk#automations', 'clock', 'jobs that run on a schedule'],
+                  ['integrations', 'Integrations', '/desk#integrations', 'link', 'email, WhatsApp, calendar, CRM'],
+                  ['design', 'New desk', '/desk/workspace', 'plus', 'another business, another back office']]],
+    ['Oversight', [['report', 'Reports', '/desk#report', 'chart', 'the daily and monthly report'],
+                   ['runs', 'Run history', '/desk#runs', 'list', 'every job, every step, every token'],
+                   ['usage', 'Usage', '/desk/usage', 'gauge', 'what it costs and where the limits are'],
+                   ['audit', 'Audit log', '/desk#audit', 'doc', 'who approved what, when'],
+                   ['objects', 'Objects', '/desk/objects', 'box', 'everything the cameras ever tracked'],
+                   ['review', 'Review', '/desk/review', 'film', 'multi-camera playback, measured'],
+                   ['security', 'Security', '/desk/cyber', 'shield', 'log detections, incidents, containment'],
+                   ['studio', 'Ad studio', '/desk#studio', 'spark', 'copy and images for a campaign']]],
   ];
   // an owner with no desk yet: the same frame, with only the way in (Atlas drafts the first desk in the workspace)
   // (design chat counts against the account's allowance before any desk exists, so Usage is here too)
@@ -101,7 +115,7 @@
   const isIndex = () => location.pathname === '/desk' || location.pathname === '/desk/';
   function current() {
     const p = location.pathname.replace(/\/$/, '');
-    if (p === '/desk/ops') return 'cases';
+    if (p === '/desk/ops') return location.hash.startsWith('#rec') ? 'crm' : 'cases';
     if (p === '/desk/objects') return 'objects';
     if (p === '/desk/review') return 'review';
     if (p === '/desk/cyber' || p === '/desk/static/cyber.html') return 'security';
@@ -143,8 +157,8 @@
     r.innerHTML = `<div class="sh-logo"><a href="${SETUP ? '/desk/workspace' : '/desk#dash'}" data-go="dash" title="Atlas" style="display:contents">${MARK}<span class="word">ATLAS</span></a><span class="tag">SEE FURTHER. ACT SOONER.</span>
         <button class="sh-iconbtn" id="sh-mini" title="Collapse the menu">${svg('side')}</button></div>
       <button class="sh-desk" id="sh-desk" title="${SETUP ? 'Start a desk' : 'Switch desk'}">${svg('home')}<span class="nm"><b id="sh-dname">${SETUP ? 'No desk yet' : '…'}</b><small id="sh-dsub">${SETUP ? 'Atlas drafts it with you' : 'loading'}</small></span>${svg('chevd')}</button>
-      <div class="sh-nav">${nav.map(([g, items]) => (g ? `<div class="sh-grp">${g}</div>` : '') + items.map(([id, label, href, ic]) =>
-        `<a class="sh-item" data-id="${id}" href="${href}" title="${esc(label)}">${svg(ic)}<span class="lbl">${esc(label)}</span><span class="sh-badge" id="sh-b-${id}" hidden></span></a>`).join('')).join('')}
+      <div class="sh-nav">${nav.map(([g, items]) => (g ? `<div class="sh-grp">${g}</div>` : '') + items.map(([id, label, href, ic, hint]) =>
+        `<a class="sh-item ${hint ? 'two' : ''}" data-id="${id}" href="${href}" title="${esc(hint || label)}">${svg(ic)}<span class="lbl">${esc(label)}${hint ? `<small>${esc(hint)}</small>` : ''}</span><span class="sh-badge" id="sh-b-${id}" hidden></span></a>`).join('')).join('')}
         <div class="sh-planet" aria-hidden="true"><div class="sh-orb"></div><div class="cap">CAMERAS
 INBOX
 APPROVALS</div></div></div>

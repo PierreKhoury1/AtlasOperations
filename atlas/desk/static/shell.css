@@ -191,3 +191,13 @@ body.sh-on .layout{grid-template-columns:minmax(0,1fr)!important}
 body.sh-on .layout>aside{display:none!important}
 /* pages that position their own stage against the body (the security console) start after the rail */
 body.sh-on #stage{left:var(--sh-w)}
+
+/* two-line nav items: what the page is for, under its name */
+.sh-item.two{height:auto;padding:6px 11px;align-items:flex-start}
+.sh-item.two svg{margin-top:2px;flex:none}
+.sh-item.two .lbl{display:flex;flex-direction:column;gap:1px;white-space:normal;line-height:1.25}
+.sh-item.two .lbl small{font-size:10.5px;color:var(--sh-muted);font-weight:400;line-height:1.25;letter-spacing:0}
+.sh-item.two.on .lbl small{color:#9CC0FF}
+.sh-item.two .sh-badge{margin-top:2px}
+.sh-grp{margin-top:10px}
+body.sh-mini #sh-rail .sh-item.two{height:36px;padding:0;align-items:center}
