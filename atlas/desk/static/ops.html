@@ -316,6 +316,7 @@ async function boot(){
   const h = location.hash.slice(1).split('/');
   if (h[0] === 'case' && h[1]) { S.tab = 'cases'; S.sel = {kind:'case', id:+h[1]}; }
   if (h[0] === 'record' && h[1]) { S.tab = 'records'; S.sel = {kind:'record', id:+h[1]}; }
+  if (h[0] === 'records') S.tab = 'records';                     // the sidebar's Records link
   setTab(S.tab, true);
   await refresh(true);
   if (S.sel) openSel();
@@ -350,6 +351,7 @@ function setTab(tab, silent){
   if (!silent) { renderSide(); if (tab === 'records') loadRecords(); else renderCases(); }
 }
 document.querySelectorAll('.tabs button').forEach(b => b.onclick = () => setTab(b.dataset.tab));
+window.addEventListener('hashchange', () => { const h = location.hash.slice(1).split('/'); if (h[0] === 'records' && S.tab !== 'records') setTab('records'); if ((h[0] === 'case' || h[0] === '') && S.tab !== 'cases' && h[0] !== 'record') setTab('cases'); });
 
 // ------------------------------------------------------------------ side
 function renderSide(){
