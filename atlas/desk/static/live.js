@@ -26,7 +26,7 @@ async function pickLive(id){
                 feed: [], ticks: [], out: { approvals: [], cases: {}, records: {}, deliverables: [], policy: [], sent: 0, tools: 0, handoffs: 0 }, status: r.status, series: lvSeries(r.created) };
   if (r.active) { const L = await api('/live'); const me = L && L.runs.find(x => x.id === id); if (me) { liveState.tin = me.tokens_in; liveState.tout = me.tokens_out; } }
   LV.stick = true; liveState.raw = r.events || []; LV.replaying = false;
-  lvBuildTeam(); LVG.mount(); LVG.build(CFG.agents); const _lg = document.querySelector('.lv-glegend i[data-atlas]'); if (_lg) _lg.style.background = colors.atlas || '#ea580c';
+  lvBuildTeam(); LVG.mount(); try { const cams = await api('/cameras'); LVG.setCams(cams && cams.cameras ? cams.cameras : (Array.isArray(cams) ? cams : [])); } catch (_) {} LVG.build(CFG.agents); const _lg = document.querySelector('.lv-glegend i[data-atlas]'); if (_lg) _lg.style.background = colors.atlas || '#ea580c';
   $('#lv-feed').innerHTML = '';
   (r.events || []).forEach(e => lvApply(e, false));
   lvSyncGraphCounts(); lvRenderAll(); LVG.redraw();

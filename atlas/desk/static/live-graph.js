@@ -12,7 +12,7 @@ const LVG = (() => {
   function mount(){
     G.cv = document.getElementById('lv-graph'); if (!G.cv) return;
     G.ctx = G.cv.getContext('2d');
-    if (!G.cv._wired) { G.cv._wired = true; G.cv.addEventListener('pointerdown', onDown); G.cv.addEventListener('pointermove', onMove); G.cv.addEventListener('pointerup', onUp); G.cv.addEventListener('pointercancel', onUp); G.cv.addEventListener('mouseleave', () => { if (!G.drag) G.hover = null; }); G.cv.addEventListener('wheel', onWheel, { passive: false }); G.cv.addEventListener('dblclick', () => fit()); new ResizeObserver(resize).observe(G.cv.parentElement); }
+    if (!G.cv._wired) { G.cv._wired = true; G.cv.addEventListener('pointerdown', onDown); G.cv.addEventListener('pointermove', onMove); G.cv.addEventListener('pointerup', onUp); G.cv.addEventListener('pointercancel', onUp); G.cv.addEventListener('mouseleave', () => { if (!G.drag) G.hover = null; }); G.cv.addEventListener('wheel', onWheel, { passive: false }); G.cv.addEventListener('dblclick', ev => { const m = mouse(ev), nd = hit(m.x, m.y); if (nd && (nd.kind === 'agent' || nd.kind === 'lead')) editAgent(nd.id); else fit(); }); new ResizeObserver(resize).observe(G.cv.parentElement); }
     G.deskKey = 'lv-pos-' + ((typeof CFG !== 'undefined' && CFG.desk && CFG.desk.id) || 'x'); try { G.pos = JSON.parse(localStorage.getItem(G.deskKey) || '{}'); } catch (_) { G.pos = {}; }
     resize();
   }
@@ -24,24 +24,40 @@ const LVG = (() => {
   /* ---- nodes */
   function build(agents){
     G.nodes = {}; G.order = []; G.parts = []; G.chips = []; G.ripples = []; G.counts = { out: 0, desk: 0 };
+    // the Agents page arrangement (saved with the team) is the default layout here, scaled into the board
+    G.teamPos = null; const withPos = agents.filter(a => a.pos && isFinite(a.pos.x)); if (withPos.length >= 2) { const xs = withPos.map(a => +a.pos.x), ys = withPos.map(a => +a.pos.y); const x0 = Math.min(...xs), x1 = Math.max(...xs) + 220, y0 = Math.min(...ys), y1 = Math.max(...ys) + 90; const k = Math.min((G.w * .62) / Math.max(1, x1 - x0), (G.h - 60) / Math.max(1, y1 - y0)); G.teamPos = {}; withPos.forEach(a => { G.teamPos[a.id] = { x: Math.max(150, G.w * .22) + (a.pos.x - x0) * k + 100, y: 40 + (a.pos.y - y0) * k + 36 }; }); }
     G.nodes.you = { id: 'you', kind: 'you', name: 'You', sub: 'the owner', color: T().ok, w: 136, h: 58 };
     const lead = agents.find(a => a.id === 'atlas');
     G.nodes.atlas = { id: 'atlas', kind: 'lead', name: lead ? lead.name : 'Atlas', sub: lead ? lead.role : 'lead', color: (lead && lead.color) || '#ea580c', w: 224, h: 80 };
     agents.filter(a => a.id !== 'atlas').forEach(a => { G.nodes[a.id] = { id: a.id, kind: 'agent', name: a.name, sub: a.role, color: a.color || '#7c3aed', w: 206, h: 70 }; G.order.push(a.id); });
+    (G.cams || []).forEach((cm, i) => { G.nodes['cam:' + cm.name] = { id: 'cam:' + cm.name, kind: 'cam', name: cm.name, sub: cm.live ? 'live · watched' : (cm.source_kind || 'camera'), color: '#7FB5FF', w: 150, h: 48, cam: cm }; });
     G.nodes.out = { id: 'out', kind: 'sink', name: 'Approval queue', sub: 'waits for you', color: T().warn, w: 178, h: 60, icon: 'inbox' };
     G.nodes.desk = { id: 'desk', kind: 'sink', name: 'Desk records', sub: 'cases · records · CRM', color: T().accent, w: 178, h: 60, icon: 'db' };
     layout();
   }
+  function setCams(list){ G.cams = (list || []).map(c => ({ name: c.name, live: !!(c.status && c.status.state === 'live'), source_kind: c.source_kind })); }
   function addAgent(a){ if (G.nodes[a.id]) return; G.nodes[a.id] = { id: a.id, kind: 'agent', name: a.name, sub: a.role, color: a.color, w: 206, h: 70 }; G.order.push(a.id); layout(); }
   function layout(){
     const w = G.w, h = G.h, n = G.order.length || 1, pad = 18;
     const put = (nd, x, y) => { if (!nd) return; nd.x = x; nd.y = y; };
-    put(G.nodes.you, pad + 59, h / 2);
-    put(G.nodes.atlas, Math.max(230, w * 0.30), h / 2);
-    const colX = Math.max(430, w * 0.60), top = pad + 40, bot = h - pad - 40, step = n > 1 ? (bot - top) / (n - 1) : 0;
-    G.order.forEach((id, i) => put(G.nodes[id], colX, n > 1 ? top + i * step : h / 2));
-    put(G.nodes.out, w - pad - 89, h * 0.30); put(G.nodes.desk, w - pad - 89, h * 0.70);
-    Object.values(G.nodes).forEach(nd => { const p = G.pos[nd.id]; if (p && !nd.moved) { nd.x = p.x; nd.y = p.y; nd.moved = true; } });
+    const cams = Object.values(G.nodes).filter(nd => nd.kind === 'cam'); const hasCams = cams.length > 0;
+    // widths scale with the board so five columns always fit: you/cams | atlas | agents | bins
+    const k = Math.max(.72, Math.min(1, w / 1180));
+    const camW = Math.round(150 * k), youW = Math.round(136 * k), atlasW = Math.round(224 * k), agW = Math.round(206 * k), binW = Math.round(178 * k);
+    if (G.nodes.you) G.nodes.you.w = youW; if (G.nodes.atlas) G.nodes.atlas.w = atlasW; G.order.forEach(id => { if (G.nodes[id]) G.nodes[id].w = agW; }); cams.forEach(c => c.w = camW); ['out', 'desk'].forEach(id => { if (G.nodes[id]) G.nodes[id].w = binW; });
+    const leftW = hasCams ? Math.max(camW, youW) : youW;
+    const x0 = pad + leftW / 2;                                        // you + cameras
+    const x3 = w - pad - binW / 2;                                      // bins
+    const gap = Math.max(28, (w - pad * 2 - leftW - atlasW - agW - binW) / 3);
+    const x1 = pad + leftW + gap + atlasW / 2, x2 = x1 + atlasW / 2 + gap + agW / 2;
+    const youY = hasCams ? Math.max(40, h / 2 - (cams.length * 56) / 2 - 20) : h / 2;
+    put(G.nodes.you, x0, youY);
+    cams.forEach((cm, i) => put(cm, x0, youY + 50 + i * 56 + 6));
+    put(G.nodes.atlas, x1, h / 2);
+    const top = pad + 62, bot = h - pad - 46, step = n > 1 ? (bot - top) / (n - 1) : 0;
+    G.order.forEach((id, i) => put(G.nodes[id], x2, n > 1 ? top + i * step : h / 2));
+    put(G.nodes.out, x3, h * 0.32); put(G.nodes.desk, x3, h * 0.70);
+    Object.values(G.nodes).forEach(nd => { const p = G.pos[nd.id] || (G.teamPos && G.teamPos[nd.id]); if (p && !nd.moved) { nd.x = p.x; nd.y = p.y; nd.moved = true; } });
   }
   function savePos(){ try { localStorage.setItem(G.deskKey, JSON.stringify(G.pos)); } catch (_) {} }
   function resetLayout(){ G.pos = {}; savePos(); Object.values(G.nodes).forEach(nd => nd.moved = false); G.view = { x: 0, y: 0, k: 1 }; layout(); redraw(); }
@@ -67,6 +83,7 @@ const LVG = (() => {
     if (a && !G.nodes[a.id] && a.base !== 'atlas') { addAgent(a); }
     if (kind === 'start') { G.youText = 'You'; flow('you', 'atlas', t.ok, 6, { speed: .7, label: 'the job' }); ripple('atlas', G.nodes.atlas.color); }
     else if (kind === 'handoff') { flow('atlas', id, G.nodes[id] ? G.nodes[id].color : '#7c3aed', 9, { speed: .6, label: 'brief', onEnd: () => ripple(id, G.nodes[id].color) }); }
+    else if (kind === 'tool' && /^camera_(look|events|ask)$/.test(x || '')) { const cams = Object.values(G.nodes).filter(n => n.kind === 'cam'); const name = x; chip(id || 'atlas', name, a ? a.color : '#ea580c'); const srcs = cams.length ? cams : []; srcs.slice(0, 5).forEach(cm => flow(cm.id, id || 'atlas', cm.color, 2, { speed: .9, r: 2.6 })); }
     else if (kind === 'tool') { const name = x || ''; if (name !== 'delegate' && name !== 'finish') chip(id || 'atlas', name, a ? a.color : '#ea580c'); if (/^(record_save|case_open|case_update|crm_update)$/.test(name)) flow(id || 'atlas', 'desk', t.accent, 2, { speed: .9, r: 2.6, onEnd: () => count('desk') }); }
     else if (kind === 'approval') { flow(id || 'atlas', 'out', t.warn, 3, { speed: .7, r: 3.4, label: x || 'draft', onEnd: () => { count('out'); ripple('out', t.warn); } }); }
     else if (kind === 'policy') { ripple(id || 'atlas', t.danger); chip(id || 'atlas', 'blocked by policy', t.danger); }
@@ -102,6 +119,7 @@ const LVG = (() => {
       if (mode === 'on') { c.strokeStyle = rgba(color, .95); c.lineWidth = 2.2; c.setLineDash([7, 9]); c.lineDashOffset = -now * 40; c.shadowColor = rgba(color, .6); c.shadowBlur = 8; } else if (mode === 'done') { c.strokeStyle = rgba(color, .55); c.lineWidth = 1.6; c.setLineDash([]); } else { c.strokeStyle = B.edge; c.lineWidth = 1.2; c.setLineDash([]); } c.stroke(); c.setLineDash([]); c.shadowBlur = 0; };
     const S = liveState; const lead = state('atlas');
     drawEdge('you', 'atlas', t.ok, lead ? (S.active ? 'on' : 'done') : '');
+    Object.values(G.nodes).filter(n => n.kind === 'cam').forEach(cm => drawEdge(cm.id, 'atlas', cm.color, cm.cam && cm.cam.live ? 'done' : ''));
     G.order.forEach(id => { const s = state(id); drawEdge('atlas', id, G.nodes[id].color, s ? (s.done ? 'done' : 'on') : ''); });
     drawEdge('atlas', 'out', t.warn, G.counts.out ? 'done' : ''); drawEdge('atlas', 'desk', t.accent, G.counts.desk ? 'done' : '');
     // particles
@@ -117,7 +135,14 @@ const LVG = (() => {
     // hover tooltip
     if (G.hover) tooltip(G.hover, t);
   }
+  function drawCam(nd, now, t){ const c = G.ctx, x = nd.x - nd.w / 2, y = nd.y - nd.h / 2, live = nd.cam && nd.cam.live;
+    c.shadowColor = 'rgba(0,0,0,.35)'; c.shadowBlur = 12; c.shadowOffsetY = 3; rr(x, y, nd.w, nd.h, 10); c.fillStyle = '#1B2537'; c.fill(); c.shadowBlur = 0; c.shadowOffsetY = 0; c.strokeStyle = live ? rgba(nd.color, .8) : 'rgba(255,255,255,.12)'; c.lineWidth = 1; c.stroke();
+    c.strokeStyle = nd.color; c.lineWidth = 1.4; rr(x + 12, y + 15, 16, 12, 2); c.stroke(); c.beginPath(); c.moveTo(x + 28, y + 19); c.lineTo(x + 34, y + 15); c.lineTo(x + 34, y + 27); c.lineTo(x + 28, y + 23); c.closePath(); c.stroke();
+    c.fillStyle = '#E6ECF7'; c.font = '600 12px Inter, system-ui, sans-serif'; c.fillText(clip(nd.name, nd.w - 62), x + 42, y + 20);
+    c.fillStyle = live ? '#4ADE80' : '#8FA0BA'; c.font = '500 10px "IBM Plex Mono", Consolas, monospace'; c.fillText(live ? 'live' : (nd.sub || ''), x + 42, y + 35);
+    if (live) { const k = (now * 1.2) % 1; c.beginPath(); c.arc(x + nd.w - 14, y + 14, 3 + k * 5, 0, Math.PI * 2); c.strokeStyle = rgba('#4ADE80', (1 - k) * .8); c.lineWidth = 1.5; c.stroke(); c.beginPath(); c.arc(x + nd.w - 14, y + 14, 3, 0, Math.PI * 2); c.fillStyle = '#4ADE80'; c.fill(); } }
   function drawNode(nd, now, t){
+    if (nd.kind === 'cam') return drawCam(nd, now, t);
     const c = G.ctx, s = nd.kind === 'agent' || nd.kind === 'lead' ? state(nd.id) : null;
     const idle = (nd.kind === 'agent') && !s, busy = s && !s.done && s.status !== 'idle', done = s && s.done;
     const x = nd.x - nd.w / 2, y = nd.y - nd.h / 2;
@@ -150,6 +175,7 @@ const LVG = (() => {
     if (s && nd.kind !== 'sink') { const line = busy ? (s.status === 'tool' ? s.now : s.status === 'writing' ? 'writing…' : 'thinking…') : done ? `${s.turns} turn${s.turns === 1 ? '' : 's'} · ${s.tools} tool call${s.tools === 1 ? '' : 's'}` : '';
       c.fillStyle = busy ? nd.color : t.faint; c.font = '500 10.5px "IBM Plex Mono", Consolas, monospace'; c.fillText(clip(line, nd.w - 100), x + 14, y + nd.h - 11); }
     else if (nd.kind === 'sink') { c.fillStyle = t.faint; c.font = '500 10.5px "IBM Plex Mono", Consolas, monospace'; c.fillText(nd.id === 'out' ? (G.counts.out ? `${G.counts.out} held for approval` : 'nothing queued yet') : (G.counts.desk ? `${G.counts.desk} writes` : 'nothing written yet'), x + 14, y + nd.h - 11); }
+    if (G.hover === nd && (nd.kind === 'agent' || nd.kind === 'lead')) { c.fillStyle = rgba(nd.color, .12); rr(x + nd.w - 58, y + nd.h - 22, 48, 16, 6); c.fill(); c.fillStyle = nd.color; c.font = '600 9.5px Inter, system-ui, sans-serif'; c.fillText('edit ›', x + nd.w - 50, y + nd.h - 11); }
     c.globalAlpha = 1;
   }
   function clip(s, w){ const c = G.ctx; s = String(s || ''); if (c.measureText(s).width <= w) return s; while (s.length > 1 && c.measureText(s + '…').width > w) s = s.slice(0, -1); return s + '…'; }
@@ -167,12 +193,15 @@ const LVG = (() => {
       if (d.pan) { G.view.x = d.vx + (m.x - d.sx); G.view.y = d.vy + (m.y - d.sy); }
       else { const p = toWorld(m.x, m.y); d.nd.x = p.x - d.dx; d.nd.y = p.y - d.dy; d.nd.moved = true; }
       redraw(); return; }
-    const nd = hit(m.x, m.y); if (nd !== G.hover) { G.hover = nd; G.cv.style.cursor = nd ? 'grab' : 'default'; draw(performance.now() / 1000); } }
+    G.lastMouse = toWorld(m.x, m.y); const nd = hit(m.x, m.y); if (nd !== G.hover) { G.hover = nd; G.cv.style.cursor = nd ? 'grab' : 'default'; } draw(performance.now() / 1000); }
   function onUp(ev){ const d = G.drag; if (!d) return; G.drag = null; try { G.cv.releasePointerCapture(ev.pointerId); } catch (_) {}
     if (d.nd && d.moved) { G.pos[d.nd.id] = { x: Math.round(d.nd.x), y: Math.round(d.nd.y) }; savePos(); redraw(); return; }
     if (!d.moved && d.nd) onClick(d.nd); else redraw(); }
-  function onClick(nd){ if (nd.id === 'out') go('approvals'); else if (nd.id === 'desk') location.href = '/desk/ops'; else if (typeof lvFocusAgent === 'function') lvFocusAgent(nd.id); }
+  function onClick(nd){ if (nd.id === 'out') go('approvals'); else if (nd.id === 'desk') location.href = '/desk/ops'; else if (nd.kind === 'cam') go('cameras');
+    else if (G.hover === nd && G.lastMouse && G.lastMouse.x > nd.x + nd.w / 2 - 60 && G.lastMouse.y > nd.y + nd.h / 2 - 24) editAgent(nd.id); else if (typeof lvFocusAgent === 'function') lvFocusAgent(nd.id); }
+  function editAgent(id){ go('team'); if (typeof teamOpenId === 'function') setTimeout(() => teamOpenId(id.split('#')[0]), 200); }
+  function addAgentUI(){ go('team'); if (typeof teamAddReady === 'function') setTimeout(teamAddReady, 400); }
   function onWheel(ev){ ev.preventDefault(); const m = mouse(ev); zoom(ev.deltaY < 0 ? 1.12 : 1 / 1.12, m.x, m.y); }
   function redraw(){ if (G.cv) { draw(performance.now() / 1000); wake(); } }
-  return { mount, build, on, setCounts, redraw, resize, fit, zoom, resetLayout, state: G };
+  return { mount, build, on, setCounts, redraw, resize, fit, zoom, resetLayout, setCams, editAgent, addAgentUI, state: G };
 })();

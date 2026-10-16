@@ -175,3 +175,16 @@
 .lv-ws{height:calc(100vh - 122px)}
 @media(max-width:1400px){.lv-charts{grid-template-columns:1fr 1fr}}
 @media(max-width:960px){.lv-charts{grid-template-columns:1fr}}
+
+/* ---- dock: chat density */
+.lv-dock .lv-feed{padding:8px 10px 14px;gap:6px}
+.lv-dock .lv-ev{padding:7px 10px 7px 12px;font-size:12.5px;line-height:1.45}
+.lv-dock .lv-ev .who{margin-bottom:2px;font-size:10.5px}
+.lv-dock .lv-ev.tools .row{grid-template-columns:118px minmax(0,1fr) auto;font-size:11px;gap:8px}
+.lv-dock .lv-ev.tools .rs{max-width:140px}
+.lv-dock .lv-ev.say{background:linear-gradient(90deg,color-mix(in srgb,var(--c) 6%,var(--panel)),var(--panel) 70%)}
+.lv-dock .lv-ev.say .tx{max-height:220px}
+.lv-dock .lv-filters{padding:6px 10px;gap:4px}
+.lv-dock .lv-filters button{padding:3px 8px;font-size:11.5px}
+.lv-gtools button.txt{width:auto;padding:0 9px;font-size:11.5px;font-weight:600;letter-spacing:.01em}
+.lv-gtools .sep{width:1px;background:#2E3F5C;margin:4px 3px}
