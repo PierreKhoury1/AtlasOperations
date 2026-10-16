@@ -19,7 +19,7 @@ const LVG = (() => {
   function resize(){
     if (!G.cv) return; const r = G.cv.parentElement.getBoundingClientRect(); G.dpr = Math.min(2, window.devicePixelRatio || 1);
     G.w = Math.max(320, r.width); G.h = Math.max(240, r.height); G.cv.width = G.w * G.dpr; G.cv.height = G.h * G.dpr; G.cv.style.width = G.w + 'px'; G.cv.style.height = G.h + 'px';
-    layout(); draw(0);
+    layout(); if (!G.userView) fit(); else draw(0);
   }
   /* ---- nodes */
   function build(agents){
@@ -33,7 +33,7 @@ const LVG = (() => {
     (G.cams || []).forEach((cm, i) => { G.nodes['cam:' + cm.name] = { id: 'cam:' + cm.name, kind: 'cam', name: cm.name, sub: cm.live ? 'live · watched' : (cm.source_kind || 'camera'), color: '#7FB5FF', w: 150, h: 48, cam: cm }; });
     G.nodes.out = { id: 'out', kind: 'sink', name: 'Approval queue', sub: 'waits for you', color: T().warn, w: 178, h: 60, icon: 'inbox' };
     G.nodes.desk = { id: 'desk', kind: 'sink', name: 'Desk records', sub: 'cases · records · CRM', color: T().accent, w: 178, h: 60, icon: 'db' };
-    layout();
+    layout(); if (!G.userView) fit();
   }
   function setCams(list){ G.cams = (list || []).map(c => ({ name: c.name, live: !!(c.status && c.status.state === 'live'), source_kind: c.source_kind })); }
   function addAgent(a){ if (G.nodes[a.id]) return; G.nodes[a.id] = { id: a.id, kind: 'agent', name: a.name, sub: a.role, color: a.color, w: 206, h: 70 }; G.order.push(a.id); layout(); }
@@ -42,7 +42,7 @@ const LVG = (() => {
     const put = (nd, x, y) => { if (!nd) return; nd.x = x; nd.y = y; };
     const cams = Object.values(G.nodes).filter(nd => nd.kind === 'cam'); const hasCams = cams.length > 0;
     // widths scale with the board so five columns always fit: you/cams | atlas | agents | bins
-    const k = Math.max(.72, Math.min(1, w / 1180));
+    const k = 1;                                                        // full-size cards; the view is fitted to the board instead
     const camW = Math.round(150 * k), youW = Math.round(136 * k), atlasW = Math.round(224 * k), agW = Math.round(206 * k), binW = Math.round(178 * k);
     if (G.nodes.you) G.nodes.you.w = youW; if (G.nodes.atlas) G.nodes.atlas.w = atlasW; G.order.forEach(id => { if (G.nodes[id]) G.nodes[id].w = agW; }); cams.forEach(c => c.w = camW); ['out', 'desk'].forEach(id => { if (G.nodes[id]) G.nodes[id].w = binW; });
     const leftW = hasCams ? Math.max(camW, youW) : youW;
@@ -60,7 +60,7 @@ const LVG = (() => {
     Object.values(G.nodes).forEach(nd => { const p = G.pos[nd.id] || (G.teamPos && G.teamPos[nd.id]); if (p && !nd.moved) { nd.x = p.x; nd.y = p.y; nd.moved = true; } });
   }
   function savePos(){ try { localStorage.setItem(G.deskKey, JSON.stringify(G.pos)); } catch (_) {} }
-  function resetLayout(){ G.pos = {}; savePos(); Object.values(G.nodes).forEach(nd => nd.moved = false); G.view = { x: 0, y: 0, k: 1 }; layout(); redraw(); }
+  function resetLayout(){ G.pos = {}; savePos(); Object.values(G.nodes).forEach(nd => nd.moved = false); G.userView = false; layout(); fit(); }
   function fit(){ const ns = Object.values(G.nodes); if (!ns.length) return; const x0 = Math.min(...ns.map(n => n.x - n.w / 2)) - 24, x1 = Math.max(...ns.map(n => n.x + n.w / 2)) + 24, y0 = Math.min(...ns.map(n => n.y - n.h / 2)) - 24, y1 = Math.max(...ns.map(n => n.y + n.h / 2)) + 40; const k = Math.min(1.6, Math.max(.35, Math.min(G.w / (x1 - x0), G.h / (y1 - y0)))); G.view = { k, x: (G.w - (x1 - x0) * k) / 2 - x0 * k, y: (G.h - (y1 - y0) * k) / 2 - y0 * k }; redraw(); }
   function zoom(f, cx, cy){ cx = cx == null ? G.w / 2 : cx; cy = cy == null ? G.h / 2 : cy; const k2 = Math.min(2.2, Math.max(.35, G.view.k * f)); G.view.x = cx - (cx - G.view.x) * (k2 / G.view.k); G.view.y = cy - (cy - G.view.y) * (k2 / G.view.k); G.view.k = k2; redraw(); }
   const toWorld = (mx, my) => ({ x: (mx - G.view.x) / G.view.k, y: (my - G.view.y) / G.view.k });
@@ -190,7 +190,7 @@ const LVG = (() => {
     G.drag = nd ? { nd, dx: toWorld(m.x, m.y).x - nd.x, dy: toWorld(m.x, m.y).y - nd.y, moved: false, sx: m.x, sy: m.y } : { pan: true, sx: m.x, sy: m.y, vx: G.view.x, vy: G.view.y, moved: false }; }
   function onMove(ev){ const m = mouse(ev);
     if (G.drag) { const d = G.drag; if (Math.hypot(m.x - d.sx, m.y - d.sy) > 3) d.moved = true;
-      if (d.pan) { G.view.x = d.vx + (m.x - d.sx); G.view.y = d.vy + (m.y - d.sy); }
+      if (d.pan) { G.userView = true; G.view.x = d.vx + (m.x - d.sx); G.view.y = d.vy + (m.y - d.sy); }
       else { const p = toWorld(m.x, m.y); d.nd.x = p.x - d.dx; d.nd.y = p.y - d.dy; d.nd.moved = true; }
       redraw(); return; }
     G.lastMouse = toWorld(m.x, m.y); const nd = hit(m.x, m.y); if (nd !== G.hover) { G.hover = nd; G.cv.style.cursor = nd ? 'grab' : 'default'; } draw(performance.now() / 1000); }
@@ -201,7 +201,7 @@ const LVG = (() => {
     else if (G.hover === nd && G.lastMouse && G.lastMouse.x > nd.x + nd.w / 2 - 60 && G.lastMouse.y > nd.y + nd.h / 2 - 24) editAgent(nd.id); else if (typeof lvFocusAgent === 'function') lvFocusAgent(nd.id); }
   function editAgent(id){ go('team'); if (typeof teamOpenId === 'function') setTimeout(() => teamOpenId(id.split('#')[0]), 200); }
   function addAgentUI(){ go('team'); if (typeof teamAddReady === 'function') setTimeout(teamAddReady, 400); }
-  function onWheel(ev){ ev.preventDefault(); const m = mouse(ev); zoom(ev.deltaY < 0 ? 1.12 : 1 / 1.12, m.x, m.y); }
+  function onWheel(ev){ ev.preventDefault(); G.userView = true; const m = mouse(ev); zoom(ev.deltaY < 0 ? 1.12 : 1 / 1.12, m.x, m.y); }
   function redraw(){ if (G.cv) { draw(performance.now() / 1000); wake(); } }
   return { mount, build, on, setCounts, redraw, resize, fit, zoom, resetLayout, setCams, editAgent, addAgentUI, state: G };
 })();
