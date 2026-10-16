@@ -33,12 +33,12 @@ LEAD_TOOLS = ["delegate", "list_agents", "save_deliverable", "read_file", "list_
 ALLOWED_TOOLS = ["read_file", "list_files", "web_fetch", "run_python", "save_deliverable", "browse", "crm_lookup",
                  "crm_update", "queue_action", "camera_look", "camera_events", "camera_ask", "video_describe",
                  "remember", "recall", "http_request", "calendar_free_slots", "calendar_book", "generate_media", "mcp",
-                 "record_find", "record_get", "record_save", "log_search", "enrich", "correlate"]
+                 "record_find", "record_get", "record_save", "case_open", "case_update", "case_list", "log_search", "enrich", "correlate"]
 NEVER_TOOLS = {"finish", "assemble_team"}
 # tools that DO something (anything but reading/saving the run's own files and the desk's notes)
 FUNCTION_TOOLS = {"web_fetch", "run_python", "browse", "crm_lookup", "crm_update", "queue_action", "camera_look", "camera_events",
                   "camera_ask", "video_describe", "http_request", "calendar_free_slots", "calendar_book", "generate_media",
-                  "record_find", "record_get", "record_save", "log_search", "enrich", "correlate", "delegate"}
+                  "record_find", "record_get", "record_save", "case_open", "case_update", "case_list", "log_search", "enrich", "correlate", "delegate"}
 MAX_RULES = 3                 # an agent's text: a one-line goal and at most three short rules
 RULE_CHARS = 120
 GOAL_CHARS = 160

@@ -348,8 +348,8 @@ def desk_configs(desk: dict[str, Any]) -> dict[str, Any]:
             a["tools"] = list(dict.fromkeys(list(a.get("tools", [])) + ["assemble_team", "video_describe"] + T.RECORD_TOOLS
                                             + (T.CASE_TOOLS if ops_on else [])))
         elif any(t in a.get("tools", []) for t in RECORD_GRANT_WITH):
-            a["tools"] = list(dict.fromkeys(list(a["tools"]) + T.RECORD_TOOLS))   # anyone who touches customers or cameras
-                                                                                   # can read and save business records
+            a["tools"] = list(dict.fromkeys(list(a["tools"]) + T.RECORD_TOOLS     # anyone who touches customers or cameras
+                                            + (T.CASE_TOOLS if ops_on else [])))  # can read and save records and open cases
         if "camera_events" in a.get("tools", []) and "camera_ask" not in a["tools"]:   # desks built before the RAG tool existed
             a["tools"] = list(a["tools"]) + ["camera_ask"]
     deny = set(business.get("deny_tools") or [])     # e.g. a security desk: log text is attacker-controlled, so no code,
@@ -1004,7 +1004,7 @@ def _desk_public(d: dict[str, Any]) -> dict[str, Any]:
 # finish / assemble_team are never assignable. Approvals still gate every outbound tool.
 SPECIALIST_OK = {"crm_lookup", "crm_update", "queue_action", "camera_look", "camera_events", "camera_ask", "remember", "recall",
                  "browse", "http_request", "calendar_free_slots", "calendar_book", "generate_media", "video_describe",
-                 "log_search", "enrich", "correlate", "record_find", "record_get", "record_save"}
+                 "log_search", "enrich", "correlate", "record_find", "record_get", "record_save", "case_open", "case_update", "case_list"}
 NEVER_ASSIGN = {"finish", "assemble_team"}
 _COLOURS = ["#7c3aed", "#1f9d63", "#db2777", "#ea580c", "#b45309", "#0891b2"]
 
