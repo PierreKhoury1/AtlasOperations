@@ -94,6 +94,18 @@ $U prune                                  # the hourly retention, once
   (still counted). The note is shown to the owner on their Usage page.
 * The service applies a change within 30 s. The command calls no provider and sends nothing.
 
+## The house agent (one connected Claude Code / Codex for every account)
+
+`HOUSE_BRIDGE_OWNER=<email>` in `/etc/atlas/atlas.env` names an account. While that account's runner is connected
+(`py atlas_bridge.py --url https://... --token atb_... --agent claude --parallel 4` on any machine with the CLI
+signed in), every desk that did not pick an AI of its own runs on it: each model call is one `claude -p` process
+with every built-in tool off, so the machine is used as a model and nothing on it is read or run. It is house work:
+every request counts on the account's `ai_requests_day` / `ai_requests_auto_day` and on `USAGE_HOUSE_AGENT_DAY`
+(default 300 a day for everyone together; 0 = no cap). A desk that picks "Atlas models" in Desk setup (`house`)
+opts out; the owner's own runner, when connected, still comes first. The named account's own desks keep the
+BYO rule (metered, never limited). The runner's machine must stay on: when it is off, desks fall back to the house
+models quietly, as before.
+
 ## Moving data off Supabase / Render (if anything worth keeping is there)
 
 ```bash

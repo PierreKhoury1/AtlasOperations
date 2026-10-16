@@ -9,6 +9,7 @@ desk only ever sees the text your agent writes. Standard library only.
     py atlas_bridge.py --url ... --token ... --agent codex
     py atlas_bridge.py --url ... --token ... --agent gemini
     py atlas_bridge.py --url ... --token ... --agent cmd --cmd "ollama run llama3"      # prompt on stdin, answer on stdout
+    py atlas_bridge.py --url ... --token ... --agent claude --parallel 4                 # up to 4 CLI processes at once
 
 Get the token from the desk: Desk setup -> Your AI accounts -> Your agent -> Connect a computer.
 The desk's tools (CRM, approvals, cameras, records) reach the agent through a text protocol in the prompt, so the
@@ -23,11 +24,12 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import urllib.error
 import urllib.request
 
-VERSION = "0.1"
+VERSION = "0.2"
 CLAUDE_OFF = "Bash,Edit,Write,Read,Glob,Grep,WebFetch,WebSearch,Task,NotebookEdit,TodoWrite,MultiEdit,KillShell,BashOutput"
 
 
@@ -146,13 +148,34 @@ def main() -> int:
     ap.add_argument("--model", default="", help="model name to pass to the CLI (optional)")
     ap.add_argument("--timeout", type=int, default=480, help="seconds per answer")
     ap.add_argument("--once", action="store_true", help="answer one job and exit (testing)")
+    ap.add_argument("--parallel", type=int, default=1, help="CLI processes at once (a machine serving many desks: 2-8)")
     a = ap.parse_args()
     if a.agent == "cmd" and not a.cmd:
         ap.error("--agent cmd needs --cmd")
     if a.agent != "cmd":
         _which(a.agent)
     desk = Desk(a.url, a.token)
-    log(f"atlas bridge {VERSION}: {a.agent} on this computer <- {a.url}")
+    n = max(1, min(16, int(a.parallel or 1)))
+    log(f"atlas bridge {VERSION}: {a.agent} on this computer <- {a.url}" + (f" ({n} at once)" if n > 1 else ""))
+    if n == 1 or a.once:
+        return serve(desk, a, 0)
+    stop = {"code": None}
+
+    def worker(slot: int):
+        code = serve(desk, a, slot)
+        stop["code"] = code
+
+    threads = [threading.Thread(target=worker, args=(i,), daemon=True) for i in range(n)]
+    for t in threads:
+        t.start()
+    while any(t.is_alive() for t in threads) and stop["code"] is None:
+        time.sleep(1)
+    return int(stop["code"] or 0)
+
+
+def serve(desk: "Desk", a, slot: int) -> int:
+    """One poll loop: take a job, answer it with the CLI, repeat. `slot` names the loop in the log when several run."""
+    tag = f"[{slot}] " if a.parallel and a.parallel > 1 else ""
     backoff = 2
     while True:
         try:
@@ -160,14 +183,14 @@ def main() -> int:
             backoff = 2
         except urllib.error.HTTPError as e:
             if e.code == 401:
-                log("the desk rejected this token (removed in Desk setup?) - stopping")
+                log(tag + "the desk rejected this token (removed in Desk setup?) - stopping")
                 return 2
-            log(f"desk answered {e.code}; retrying in {backoff}s")
+            log(f"{tag}desk answered {e.code}; retrying in {backoff}s")
             time.sleep(backoff)
             backoff = min(60, backoff * 2)
             continue
         except Exception as e:
-            log(f"cannot reach the desk ({e}); retrying in {backoff}s")
+            log(f"{tag}cannot reach the desk ({e}); retrying in {backoff}s")
             time.sleep(backoff)
             backoff = min(60, backoff * 2)
             continue
@@ -175,7 +198,7 @@ def main() -> int:
         if not job:
             continue
         jid = job["id"]
-        log(f"job {jid}: {len(job.get('messages') or [])} turns -> {a.agent}")
+        log(f"{tag}job {jid}: {len(job.get('messages') or [])} turns -> {a.agent}")
         t0 = time.time()
         try:
             desk.call("POST", f"/api/bridge/jobs/{jid}/chunk", {"text": ""})       # "working": the desk shows the agent is on it
@@ -188,16 +211,16 @@ def main() -> int:
             else:
                 text = run_cmd(a.cmd, job, a.timeout)
             desk.call("POST", f"/api/bridge/jobs/{jid}", {"text": text, "seconds": round(time.time() - t0, 1)}, timeout=60)
-            log(f"job {jid}: answered, {len(text)} chars in {time.time() - t0:.1f}s")
+            log(f"{tag}job {jid}: answered, {len(text)} chars in {time.time() - t0:.1f}s")
         except subprocess.TimeoutExpired:
             desk.call("POST", f"/api/bridge/jobs/{jid}", {"error": f"{a.agent} took longer than {a.timeout}s"}, timeout=60)
-            log(f"job {jid}: timed out")
+            log(f"{tag}job {jid}: timed out")
         except Exception as e:
             try:
                 desk.call("POST", f"/api/bridge/jobs/{jid}", {"error": str(e)[:800]}, timeout=60)
             except Exception:
                 pass
-            log(f"job {jid}: failed: {e}")
+            log(f"{tag}job {jid}: failed: {e}")
         if a.once:
             return 0
 

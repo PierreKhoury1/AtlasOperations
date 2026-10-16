@@ -182,6 +182,8 @@ def _live_reason(desk: dict[str, Any] | None = None) -> str:
         return "your agent is not connected: start atlas_bridge.py on your computer, or switch the desk back to the house models"
     if desk is not None and not byo_default and bridge_online(int(desk.get("owner_id") or 0)):
         return ""                                           # no choice made: the connected agent is the default everywhere
+    if not byo_default and house_bridge_online():
+        return ""                                           # no choice made: the house agent answers (HOUSE_BRIDGE_OWNER)
     if _desk_byo_default(desk):
         return ""
     if desk is None:                                        # no desk yet: the design chat runs on the owner's agent when it is connected
@@ -310,6 +312,13 @@ def desk_configs(desk: dict[str, Any]) -> dict[str, Any]:
         elif _byo_default == "agent":                   # chosen on purpose and off: say so; the default case just uses the house models
             for a in agents:
                 a["engine_note"] = "your agent is not connected - running on the house models (start atlas_bridge.py on your computer)"
+    if not _byo_default and not (providers.get("default_provider") or "").startswith("agent:"):
+        hb = house_bridge_online()                      # no choice made and no runner of their own: the house agent
+        if hb and _bo != house_bridge_owner():
+            pname = _house_agent_provider(providers, hb)
+            label = providers["providers"][pname]["default_model"]
+            for a in agents:
+                a["provider"], a["model"], a["engine"], a["text_tools"] = pname, label, "agent", True
     # Hermes Agent engine (the real Nous Research agent, via its API server). Config comes from the desk's
     # hermes_agent connector, or globally from HERMES_AGENT_URL / HERMES_AGENT_KEY env. When
     # DESK_DEFAULT_ENGINE=hermes_agent, every specialist runs on it unless the agent explicitly says engine=atlas.
@@ -1290,6 +1299,47 @@ def _bridge_hash(token: str) -> str:
 
 
 BRIDGE_ACK_S = 15.0        # a taken job the runner has not acknowledged (its first chunk) within this is offered again
+# The house agent: HOUSE_BRIDGE_OWNER=<email of an account>. While that account's runner is connected, every desk that
+# did not choose an AI of its own runs on it (Claude Code / Codex on the operator's machine, one CLI process per model
+# call). It is house work: each request counts on the account's daily allowance (ai_requests_day) and on
+# USAGE_HOUSE_AGENT_DAY for everyone together. The operator's own desks keep the BYO rule (metered, never limited).
+HOUSE_BRIDGE_EMAIL = os.environ.get("HOUSE_BRIDGE_OWNER", "").strip().lower()
+_HB_CACHE: dict[str, Any] = {"ts": 0.0, "id": -1, "email": ""}
+AGENT_NAMES = {"claude": "Claude Code", "codex": "Codex", "gemini": "Gemini CLI"}
+
+
+def house_bridge_owner() -> int:
+    """The account whose connected runner is the house agent (HOUSE_BRIDGE_OWNER), -1 when there is none."""
+    email = HOUSE_BRIDGE_EMAIL
+    if not email:
+        return -1
+    now = time.time()
+    if now - _HB_CACHE["ts"] > 30 or _HB_CACHE["email"] != email:
+        try:
+            u = store.user_by_email(email)
+        except Exception:
+            u = None
+        _HB_CACHE.update(ts=now, id=int(u["id"]) if u else -1, email=email)
+    return int(_HB_CACHE["id"])
+
+
+def house_bridge_online() -> dict[str, Any] | None:
+    o = house_bridge_owner()
+    return bridge_online(o) if o >= 0 else None
+
+
+def house_agent_label(br: dict[str, Any] | None) -> str:
+    return f"Atlas agent ({AGENT_NAMES.get((br or {}).get('agent') or '', (br or {}).get('agent') or 'agent')})"
+
+
+def _house_agent_provider(providers: dict[str, Any], br: dict[str, Any] | None = None) -> str:
+    """Add the house agent to a providers config as its default. Returns the provider name."""
+    br = br or house_bridge_online() or {}
+    pname = "agent:house"
+    providers.setdefault("providers", {})[pname] = {"type": "bridge", "owner_id": house_bridge_owner(), "house": True,
+                                                    "default_model": house_agent_label(br), "env_key": False}
+    providers["default_provider"] = pname
+    return pname
 
 
 def bridge_online(owner_id: int) -> dict[str, Any] | None:
@@ -1314,7 +1364,9 @@ def _bridges_public(owner_id: int) -> dict[str, Any]:
     now = time.time()
     rows = [{**b, "online": (b.get("last_seen") or 0) > now - BRIDGE_ONLINE_S} for b in store.bridges_for(owner_id)]
     base = os.environ.get("PUBLIC_URL", "").strip().rstrip("/") or request.url_root.rstrip("/")
-    return {"bridges": rows, "online": any(r["online"] for r in rows), "url": base, "runner": "/scripts/atlas_bridge.py"}
+    hb = house_bridge_online()
+    return {"bridges": rows, "online": any(r["online"] for r in rows), "url": base, "runner": "/scripts/atlas_bridge.py",
+            "house": {"online": bool(hb), "agent": (hb or {}).get("agent") or "", "label": house_agent_label(hb) if hb else ""}}
 
 
 def _bridge_run(owner_id: int, job: dict[str, Any], on_token, timeout: float) -> str:
@@ -1702,7 +1754,10 @@ def _preflight(desk: dict[str, Any]) -> dict[str, Any]:
     """Refuse a run the desk cannot pay for or has no model for (503 no key / 402 spend cap). Returns the configs."""
     _require_live(desk)
     configs = desk_configs(desk)
-    paid = any(":free" not in (a.get("model") or "") and a.get("model") for a in configs["agents"])
+    provs = (configs.get("providers") or {}).get("providers") or {}
+    default = (configs.get("providers") or {}).get("default_provider") or ""
+    paid = any(":free" not in (a.get("model") or "") and a.get("model")
+               and (provs.get(a.get("provider") or default) or {}).get("type") != "bridge" for a in configs["agents"])
     if configs["mode"] != "demo" and paid:                # free-tier desks cost nothing and are never blocked by the spend cap
         blocked = _spend_blocked()
         if blocked:
@@ -1745,6 +1800,10 @@ def _run_pools(configs: dict[str, Any]) -> dict[str, bool]:
                 out["house"] = out["free"] = True
             continue
         if pc.get("url_guard"):
+            continue
+        if kind == "bridge":
+            if pc.get("house"):                       # the house agent: a run slot (L5); its requests are counted one by one
+                out["house"] = True
             continue
         out["house"] = True
         name = "anthropic" if kind == "anthropic" else "hermes" if kind == "hermes_agent" else provider_id(pc.get("base_url") or "")
@@ -5847,7 +5906,7 @@ def _design_precheck(s: DS.DesignSession, surface: str = "design.say") -> None:
     if s.mode == "demo":
         return
     # usage spec §1.4: a design turn draws on the free pool on the free tier (L1), on the paid allowance otherwise (L3)
-    U.precheck(_design_meter(s, surface), pool="free:openrouter" if s.tier == "free" else "paid")
+    U.precheck(_design_meter(s, surface), pool=_design_pool(s))
 
 
 def _design_refusal(s: DS.DesignSession, surface: str = "design.say") -> Response | None:
@@ -5855,7 +5914,7 @@ def _design_refusal(s: DS.DesignSession, surface: str = "design.say") -> Respons
     limit (its own status and body, 429 for an allowance, with Retry-After when it says when). The body adds the steps
     that still work (accept and decline while a proposal waits: they are server-only) and the design state with what
     Phase A kept (the plan seeded, an option's answer). None: the turn goes on."""
-    if s.mode != "demo" and s.tier != "free":
+    if s.mode != "demo" and s.tier != "free" and _design_pool(s) == "paid":
         blocked = _spend_blocked()
         if blocked:
             return _design_refused(s, {"error": blocked}, 402)
@@ -5897,9 +5956,29 @@ def _design_providers(s) -> tuple[dict[str, Any] | None, str, bool]:
         providers.setdefault("providers", {})[pname] = {"type": "bridge", "owner_id": bo, "default_model": f"your {br.get('agent') or 'agent'}", "env_key": False}
         providers["default_provider"] = pname
         return providers, "", True                   # on the owner's agent: no house request, so no usage check either
+    hb = house_bridge_online()
+    if hb:
+        providers = json.loads(json.dumps(_providers_cfg()))
+        _house_agent_provider(providers, hb)
+        return providers, "", False                  # the house agent: metered per account, so the usage check runs
     _require_live()
     providers = _providers_cfg()
     return providers, _design_model(s, providers), False
+
+
+def _design_pool(s) -> str:
+    """The usage pool a design turn draws on: the owner's own agent (byo), the house agent, else the free pool on the
+    free tier and the paid allowance otherwise (usage spec §1.4)."""
+    try:
+        u = current_user()
+        bo = int(u["id"]) if u else (0 if OPEN else -1)
+    except RuntimeError:
+        bo = -1
+    if bo >= 0 and bridge_online(bo):
+        return "byo"
+    if house_bridge_online():
+        return "free:bridge"
+    return "free:openrouter" if s.tier == "free" else "paid"
 
 
 def _agent_status(providers: dict[str, Any] | None, q: Any) -> None:
@@ -5907,13 +5986,14 @@ def _agent_status(providers: dict[str, Any] | None, q: Any) -> None:
     pname = str((providers or {}).get("default_provider") or "")
     if pname.startswith("agent:"):
         label = ((providers or {}).get("providers", {}).get(pname) or {}).get("default_model") or "your agent"
-        q.put({"t": "status", "d": f"{label} is on it on your computer: it answers in one go, usually within a minute"})
+        where = "" if pname == "agent:house" else " on your computer"
+        q.put({"t": "status", "d": f"{label} is on it{where}: it answers in one go, usually within a minute"})
 
 
 def _design_spend_gate(s) -> None:
     """Paid designer turns stop at the OpenRouter cap, the same rule as paid desk runs. Free-model turns cost nothing.
     Before this, the studio's say / study / build routes never checked the cap at all."""
-    if s.mode != "demo" and s.tier != "free":
+    if s.mode != "demo" and s.tier != "free" and _design_pool(s) == "paid":
         blocked = _spend_blocked()
         if blocked:
             abort(Response(json.dumps({"error": blocked}), 402, mimetype="application/json"))

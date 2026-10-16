@@ -67,7 +67,7 @@ a.go[aria-disabled="true"]{opacity:.45;pointer-events:none}
     <div class="opts">
       <button class="opt" data-agent="claude"><span class="ic">CC</span><span><b>Claude Code</b><span class="d">On your own Claude subscription, on your computer. Your login never leaves your machine; the desk only sees the text it writes.</span></span><span class="arrow">→</span></button>
       <button class="opt" data-agent="codex"><span class="ic">CX</span><span><b>Codex</b><span class="d">The same, on your ChatGPT subscription.</span></span><span class="arrow">→</span></button>
-      <button class="opt" data-agent="house"><span class="ic">AT</span><span><b>Atlas models</b><span class="d">Free models, nothing to install. Start now; plug your own AI in later.</span></span><span class="arrow">→</span></button>
+      <button class="opt" data-agent="house" id="opt-house"><span class="ic">AT</span><span><b id="house-t">Atlas models</b><span class="d" id="house-d">Free models, nothing to install. Start now; plug your own AI in later.</span></span><span class="arrow">→</span></button>
     </div>
     <p class="small">Also works with <a data-agent="gemini">Gemini CLI</a>.</p>
   </div>
@@ -129,6 +129,10 @@ a.go[aria-disabled="true"]{opacity:.45;pointer-events:none}
     const [d, b] = await Promise.all([api('/desks'), api('/bridges')]);
     if (d && Array.isArray(d.desks) && d.desks.length) setNext('/desk');      // an owner with a desk: step 1 again, then back to it
     mine = b || mine;
+    if (mine.house && mine.house.online) {                                       // the house agent: Atlas's own Claude Code / Codex
+      $('#house-t').textContent = mine.house.label || 'Atlas agent';
+      $('#house-d').textContent = (NAMES[mine.house.agent] || 'An agent') + ' run by Atlas. Nothing to install; a daily allowance applies (see Usage).';
+    }
     if (mine.bridges && mine.bridges.length) {
       const on = mine.bridges.find(x => x.online);
       const h = $('#have'); h.classList.remove('hide');

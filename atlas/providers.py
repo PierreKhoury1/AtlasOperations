@@ -789,15 +789,28 @@ class BridgeProvider(Provider):
         super().__init__(pcfg)
         self.owner_id = int(pcfg.get("owner_id") or 0)
         self.timeout = float(pcfg.get("call_max_s", 600))
-        self.key_kind = "byo"          # the owner's own agent on their own subscription: no house key is spent
+        self.house = bool(pcfg.get("house"))
+        self.usage_provider = "bridge"
+        # The owner's own agent on their own subscription: no house key is spent, metered and never limited. The
+        # operator's agent serving other accounts (app.house_bridge_owner, pcfg house=True) is house work: each
+        # request counts on that account's daily allowance and on USAGE_HOUSE_AGENT_DAY (usage pool free:bridge).
+        self.key_kind = "house" if self.house else "byo"
 
     def chat(self, system, messages, tools, model="", on_token=None):
         if BRIDGE_HOOK is None:
             raise RuntimeError("bridge: no runner hook installed")
-        job = {"system": system, "model": model if model and not str(model).startswith("your ") else "",
+        label = str(model or "")
+        job = {"system": system, "model": label if label and not label.startswith(("your ", "Atlas")) else "",
                "messages": [{"role": m.get("role", "user"), "content": _flat_content(m.get("content"))} for m in messages if isinstance(m, dict)]}
-        text = BRIDGE_HOOK(self.owner_id, job, on_token, self.timeout) or ""
         est_in = sum(len(m["content"]) for m in job["messages"]) // 4 + len(system) // 4
+        ticket = U.before(self.meter, provider=self.usage_provider, model=label or self.default_model, key_kind=self.key_kind)
+        try:
+            text = BRIDGE_HOOK(self.owner_id, job, on_token, self.timeout) or ""
+        except BaseException as exc:
+            U.after(ticket, http_status=0, error=f"{type(exc).__name__}: {exc}")
+            raise
+        U.after(ticket, http_status=200, usage={"input_tokens": est_in, "output_tokens": len(text) // 4},
+                meta={"cost_basis": "estimate: characters / 4, no bill"})
         return LLMResponse(text, [], {"role": "assistant", "content": text}, "end_turn", est_in, len(text) // 4, model or self.default_model)
 
     def tool_results(self, results):

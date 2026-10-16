@@ -67,6 +67,7 @@ class Config:
     auto_sends_day: int = 144                  # L8: alerts 6/h x 24
     storage_mb: int = 4096                     # L9: 2 x the 2,048 MB camera upload maximum
     disk_floor_pct: float = 10.0               # uploads must leave this much of the data disk free
+    house_agent_day: int | None = 300          # L14: requests a day through the operator's own agent (HOUSE_BRIDGE_OWNER); 0 = no cap
     hermes_meter: str = "off"                  # off | proxy | unmetered
     hermes_proxy_token: str = ""
     proxy_max_inflight: int = 8
@@ -148,6 +149,8 @@ def load_config(env=None) -> Config:
     c.auto_sends_day = _env_num(env, "USAGE_AUTO_SENDS_DAY", 144, cast=int, lo=0)
     c.storage_mb = _env_num(env, "USAGE_STORAGE_MB", 4096, cast=int, lo=0)
     c.disk_floor_pct = _env_num(env, "USAGE_DISK_FLOOR_PCT", 10.0, lo=0)
+    had = _env_num(env, "USAGE_HOUSE_AGENT_DAY", 300, cast=int, lo=0)
+    c.house_agent_day = int(had) if had else None
     mode = str(env.get("USAGE_HERMES_METER", "off") or "off").strip().lower()
     c.hermes_meter = mode if mode in ("off", "proxy", "unmetered") else "off"
     if mode not in ("off", "proxy", "unmetered"):
@@ -187,6 +190,7 @@ LIMITS: dict[str, dict[str, str]] = {
     "public_requests_day": {"label": "Website demos today", "unit": "requests", "window": "D", "scope": "public"},
     "house_paid_usd_month": {"label": "Paid models on Atlas's account this month", "unit": "usd", "window": "M", "scope": "house"},
     "paid_unpriced": {"label": "Paid model with no reported cost", "unit": "usd", "window": "rule", "scope": "house"},
+    "house_agent_day": {"label": "Atlas's own agent today, all accounts", "unit": "requests", "window": "D", "scope": "house"},
 }
 _UNLIMITED_IDS = ("ai_requests_day", "ai_requests_auto_day", "paid_usd_month", "runs_at_once")   # USAGE_UNLIMITED_EMAILS
 # The limits an operator override changes for one account (spec §7.2): each is read as limit_value(<owner>, id). The
@@ -201,6 +205,7 @@ HOUSE_SETTINGS = {
     "disk_floor": "USAGE_DISK_FLOOR_PCT",
     "paid_unpriced": "USAGE_PRICE_TABLE",
     "reply_window": "Meta's 24-hour reply window (USAGE_WINDOW_MARGIN_S is its margin)",
+    "house_agent_day": "USAGE_HOUSE_AGENT_DAY (requests answered by the operator's own connected agent, every account together)",
 }
 _CHANNELS = ("email", "whatsapp", "sms", "instagram", "slack")
 # background surfaces never wait for a per-minute slot: they skip the tick instead (spec §1.3 L11)
@@ -802,6 +807,8 @@ def limit_value(owner_id: int, limit_id: str) -> int | float | None:
         return CFG.pool_min.get("free:openrouter")
     if limit_id == "house_paid_usd_month":
         return float(CFG.house_paid_usd_month)
+    if limit_id == "house_agent_day":
+        return int(CFG.house_agent_day) if CFG.house_agent_day else None
     return {"run_requests": CFG.run_max_requests, "runs_at_once": CFG.runs_at_once,
             "sms_segments_day": CFG.sms_segments_day, "auto_sends_day": CFG.auto_sends_day,
             "storage_mb": float(CFG.storage_mb)}.get(limit_id)
@@ -1107,6 +1114,8 @@ def classify(provider: str, model: str, key_kind: str = "house") -> str:
     if key_kind == "byo":
         return "byo"
     p = (provider or "").lower()
+    if p == "bridge":                      # the operator's own agent (HOUSE_BRIDGE_OWNER): no provider bill, counted per account
+        return "free:bridge"
     if p == "groq":
         return "free:groq"
     if p == "gemini":
@@ -1131,8 +1140,13 @@ def _owner_rows(m: Meter) -> list[Row]:
 
 
 def _metric(pool: str) -> str:
-    return {"free:openrouter": "req:free", "free:groq": "req:free:groq", "free:gemini": "req:free:gemini",
+    return {"free:openrouter": "req:free", "free:bridge": "req:free", "free:groq": "req:free:groq", "free:gemini": "req:free:gemini",
             "paid": "req:paid", "byo": "req:byo"}.get(pool, "req:demo")
+
+
+def _house_agent_rows() -> list[Row]:
+    """L14: the day's cap on the operator's own agent, every account together (USAGE_HOUSE_AGENT_DAY)."""
+    return [Row("house", "req:bridge", limit_value(0, "house_agent_day"), "house_agent_day")]
 
 
 def _demo_enforced() -> bool:
@@ -1189,6 +1203,9 @@ def before(meter: Meter | None = None, *, provider: str = "", model: str = "", k
             t.pool_taken = True
             t.taken = take(_owner_rows(m), force=True, now=now)
             t.owner_taken = True
+        elif pool == "free:bridge":
+            t.taken = take(_owner_rows(m) + _house_agent_rows(), force=True, now=now)
+            t.owner_taken = True
         return t
     if not m._reserve():                             # 2. L4, the run's cap, on any key
         exc = _limit("run_requests", used=m.requests, limit=m.run_cap, now=now)
@@ -1208,6 +1225,9 @@ def before(meter: Meter | None = None, *, provider: str = "", model: str = "", k
             t.minute_ts = _minute_take(pool, m, t.surface)
             if pool == "free:openrouter":
                 t.taken = take(_owner_rows(m), meter=m, now=now)
+                t.owner_taken = True
+            elif pool == "free:bridge":              # L1/L2 per account, then L14 for everyone
+                t.taken = take(_owner_rows(m) + _house_agent_rows(), meter=m, now=now)
                 t.owner_taken = True
             return t
         _check_paid(m, provider, model, kk, now)     # 5. paid: L13, L3, unpriced Anthropic
@@ -1236,12 +1256,12 @@ def precheck(meter: Meter, *, pool: str | None = None, provider: str = "", model
             raise _limit("run_requests", used=meter.requests, limit=meter.run_cap, now=now)
         if pool == "byo":
             return
-        if pool in ("free:openrouter", "demo"):
+        if pool in ("free:openrouter", "demo", "free:bridge"):
             if pool == "free:openrouter":
                 p, used = pool_size(), pool_used(now)
                 if pool_exhausted(now) or used >= p:
                     raise _limit("pool_free_day", used=max(used, p), limit=p, now=now)
-            for r in _owner_rows(meter):
+            for r in _owner_rows(meter) + (_house_agent_rows() if pool == "free:bridge" else []):
                 n = counter_n(r.scope_key, r.metric, r.period, None, now)
                 if r.limit is not None and n + 1 > r.limit:
                     raise _limit(r.limit_id, used=n, limit=r.limit, now=now)
