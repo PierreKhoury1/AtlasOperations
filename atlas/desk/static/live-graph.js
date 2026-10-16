@@ -61,7 +61,7 @@ const LVG = (() => {
   }
   function savePos(){ try { localStorage.setItem(G.deskKey, JSON.stringify(G.pos)); } catch (_) {} }
   function resetLayout(){ G.pos = {}; savePos(); Object.values(G.nodes).forEach(nd => nd.moved = false); G.userView = false; layout(); fit(); }
-  function fit(){ const ns = Object.values(G.nodes); if (!ns.length) return; const x0 = Math.min(...ns.map(n => n.x - n.w / 2)) - 24, x1 = Math.max(...ns.map(n => n.x + n.w / 2)) + 24, y0 = Math.min(...ns.map(n => n.y - n.h / 2)) - 24, y1 = Math.max(...ns.map(n => n.y + n.h / 2)) + 40; const k = Math.min(1.6, Math.max(.35, Math.min(G.w / (x1 - x0), G.h / (y1 - y0)))); G.view = { k, x: (G.w - (x1 - x0) * k) / 2 - x0 * k, y: (G.h - (y1 - y0) * k) / 2 - y0 * k }; redraw(); }
+  function fit(){ const ns = Object.values(G.nodes); if (!ns.length) return; const x0 = Math.min(...ns.map(n => n.x - n.w / 2)) - 24, x1 = Math.max(...ns.map(n => n.x + n.w / 2)) + 24, y0 = Math.min(...ns.map(n => n.y - n.h / 2)) - 24, y1 = Math.max(...ns.map(n => n.y + n.h / 2)) + 40; const top = 46, bottom = 30, k = Math.min(1.6, Math.max(.35, Math.min(G.w / (x1 - x0), (G.h - top - bottom) / (y1 - y0)))); G.view = { k, x: (G.w - (x1 - x0) * k) / 2 - x0 * k, y: top + ((G.h - top - bottom) - (y1 - y0) * k) / 2 - y0 * k }; redraw(); }
   function zoom(f, cx, cy){ cx = cx == null ? G.w / 2 : cx; cy = cy == null ? G.h / 2 : cy; const k2 = Math.min(2.2, Math.max(.35, G.view.k * f)); G.view.x = cx - (cx - G.view.x) * (k2 / G.view.k); G.view.y = cy - (cy - G.view.y) * (k2 / G.view.k); G.view.k = k2; redraw(); }
   const toWorld = (mx, my) => ({ x: (mx - G.view.x) / G.view.k, y: (my - G.view.y) / G.view.k });
   const port = (nd, side) => ({ x: nd.x + (side === 'r' ? nd.w / 2 : -nd.w / 2), y: nd.y });
