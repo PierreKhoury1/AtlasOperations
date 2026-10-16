@@ -704,35 +704,43 @@ aside.simple [data-lvl="full"]{display:none}
     <button class="btn sm d" id="lv-stop" style="display:none" onclick="lvStop()">Stop</button>
     <button class="btn sm" id="lv-replay" style="display:none" onclick="lvReplayToggle()">▶ Replay</button>
   </div>
-  <div class="lv-graphwrap"><canvas id="lv-graph"></canvas><div class="lv-glegend"><span><i style="background:var(--ok)"></i>you</span><span><i data-atlas style="background:#ea580c"></i>Atlas</span><span><i style="background:var(--warn)"></i>held for approval</span><span><i style="background:var(--accent)"></i>written to the desk</span><span class="hint">click an agent to find it in the feed · click a bin to open it</span></div></div>
-  <div class="lv-grid two">
-    <div class="lv-col">
-      <div class="lv-filters">
-        <button data-f="all" class="on" onclick="lvSetFilter('all')">Everything</button>
-        <button data-f="say" onclick="lvSetFilter('say')">Reasoning</button>
-        <button data-f="tools" onclick="lvSetFilter('tools')">Tool calls</button>
-        <button data-f="hand" onclick="lvSetFilter('hand')">Hand-offs</button>
-        <button data-f="appr" onclick="lvSetFilter('appr')">Needs you</button>
-        <button data-f="pol" onclick="lvSetFilter('pol')">Policy</button>
-        <span class="sp"></span>
-        <button class="jump" id="lv-jump" onclick="lvJump()">↓ Jump to live</button>
+  <div class="lv-ws">
+    <div class="lv-board">
+      <div class="lv-graphwrap"><canvas id="lv-graph"></canvas>
+        <div class="lv-gtools"><button title="Fit" onclick="LVG.fit()">⤢</button><button title="Reset layout" onclick="LVG.resetLayout()">↺</button><button title="Zoom in" onclick="LVG.zoom(1.2)">+</button><button title="Zoom out" onclick="LVG.zoom(1/1.2)">−</button></div>
+        <div class="lv-glegend"><span><i style="background:var(--ok)"></i>you</span><span><i data-atlas style="background:#ea580c"></i>Atlas</span><span><i style="background:#E0A33A"></i>held for approval</span><span><i style="background:#5B93F0"></i>written to the desk</span><span class="hint">drag to move · wheel to zoom · drag the board to pan · click an agent to find it in the feed</span></div>
       </div>
-      <div class="bd" id="lv-feedwrap" onscroll="lvOnScroll()"><div class="lv-feed" id="lv-feed"></div></div>
+      <div class="lv-tl"><div class="hd">Timeline<span class="lg"><span><i style="background:var(--text2)"></i>tool call</span><span><i style="background:var(--warn)"></i>needs you</span><span><i style="background:var(--danger)"></i>policy / error</span></span></div><div class="track" id="lv-track"></div><div class="ax"><span id="lv-ax0"></span><span id="lv-ax1"></span></div></div>
     </div>
-    <div class="lv-col">
-      <div class="hd">What came out</div>
-      <div class="bd lv-out">
-        <div class="lv-task" id="lv-task"></div>
-        <div class="lv-k"><div><b id="lvk-appr">0</b><span>waiting for you</span></div><div><b id="lvk-cases">0</b><span>cases touched</span></div><div><b id="lvk-rec">0</b><span>records written</span></div><div><b id="lvk-tools">0</b><span>tool calls</span></div></div>
-        <div class="lv-sec"><h4>Approvals <span class="n" id="lvo-appr-n">0</span><a onclick="go('approvals')">Open queue ›</a></h4><ul id="lvo-appr"></ul></div>
-        <div class="lv-sec"><h4>Cases <span class="n" id="lvo-cases-n">0</span><a href="/desk/ops">Open ›</a></h4><ul id="lvo-cases"></ul></div>
-        <div class="lv-sec"><h4>Records <span class="n" id="lvo-rec-n">0</span><a href="/desk/ops#records">Open ›</a></h4><ul id="lvo-rec"></ul></div>
-        <div class="lv-sec pol"><h4>Policy blocks <span class="n" id="lvo-pol-n">0</span></h4><ul id="lvo-pol"></ul></div>
-        <div class="lv-sec"><h4>Deliverables <span class="n" id="lvo-deliv-n">0</span><a onclick="go('runs')">Run detail ›</a></h4><ul id="lvo-deliv"></ul></div>
+    <div class="lv-dock">
+      <div class="lv-tabs"><button class="on" data-t="feed" onclick="lvTab('feed')">Feed</button><button data-t="out" onclick="lvTab('out')">What came out <span class="n" id="lvk-appr-tab">0</span></button></div>
+      <div class="lv-pane" id="lv-pane-feed">
+        <div class="lv-filters">
+          <button data-f="all" class="on" onclick="lvSetFilter('all')">All</button>
+          <button data-f="say" onclick="lvSetFilter('say')">Reasoning</button>
+          <button data-f="tools" onclick="lvSetFilter('tools')">Tools</button>
+          <button data-f="hand" onclick="lvSetFilter('hand')">Hand-offs</button>
+          <button data-f="appr" onclick="lvSetFilter('appr')">Needs you</button>
+          <button data-f="pol" onclick="lvSetFilter('pol')">Policy</button>
+          <span class="sp"></span>
+          <button class="jump" id="lv-jump" onclick="lvJump()">↓ live</button>
+        </div>
+        <div class="bd" id="lv-feedwrap" onscroll="lvOnScroll()"><div class="lv-feed" id="lv-feed"></div></div>
       </div>
+      <div class="lv-pane hide" id="lv-pane-out">
+        <div class="bd lv-out">
+          <div class="lv-task" id="lv-task"></div>
+          <div class="lv-k"><div><b id="lvk-appr">0</b><span>waiting for you</span></div><div><b id="lvk-cases">0</b><span>cases touched</span></div><div><b id="lvk-rec">0</b><span>records written</span></div><div><b id="lvk-tools">0</b><span>tool calls</span></div></div>
+          <div class="lv-sec"><h4>Approvals <span class="n" id="lvo-appr-n">0</span><a onclick="go('approvals')">Open queue ›</a></h4><ul id="lvo-appr"></ul></div>
+          <div class="lv-sec"><h4>Cases <span class="n" id="lvo-cases-n">0</span><a href="/desk/ops">Open ›</a></h4><ul id="lvo-cases"></ul></div>
+          <div class="lv-sec"><h4>Records <span class="n" id="lvo-rec-n">0</span><a href="/desk/ops#records">Open ›</a></h4><ul id="lvo-rec"></ul></div>
+          <div class="lv-sec pol"><h4>Policy blocks <span class="n" id="lvo-pol-n">0</span></h4><ul id="lvo-pol"></ul></div>
+          <div class="lv-sec"><h4>Deliverables <span class="n" id="lvo-deliv-n">0</span><a onclick="go('runs')">Run detail ›</a></h4><ul id="lvo-deliv"></ul></div>
+        </div>
+      </div>
+      <div class="lv-compose"><textarea id="lv-say" rows="2" placeholder="Give the team the next job, or a follow-up on this one…" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();lvSend()}"></textarea><button class="btn p" id="lv-send" onclick="lvSend()">Send</button><div class="hint">Enter sends · Shift+Enter new line · anything outbound still waits for your approval</div></div>
     </div>
   </div>
-  <div class="lv-tl"><div class="hd">Timeline<span class="lg"><span><i style="background:var(--text2)"></i>tool call</span><span><i style="background:var(--warn)"></i>needs you</span><span><i style="background:var(--danger)"></i>policy / error</span></span></div><div class="track" id="lv-track"></div><div class="ax"><span id="lv-ax0"></span><span id="lv-ax1"></span></div></div>
 </section>
 
 <!-- AD STUDIO -->

@@ -216,7 +216,7 @@ function lvBump(id, v){ const el = $(id); if (!el) return; const s = String(v); 
 function lvRenderOut(){
   const S = liveState, O = S.out;
   $('#lv-task').innerHTML = `<b>The job</b>${esc(S.task.split('\n')[0].slice(0, 400))}`;
-  lvBump('#lvk-appr', O.approvals.length); lvBump('#lvk-cases', Object.keys(O.cases).length); lvBump('#lvk-rec', Object.keys(O.records).length); lvBump('#lvk-tools', O.tools);
+  lvBump('#lvk-appr', O.approvals.length); const tb = $('#lvk-appr-tab'); if (tb) { tb.textContent = O.approvals.length || ''; } lvBump('#lvk-cases', Object.keys(O.cases).length); lvBump('#lvk-rec', Object.keys(O.records).length); lvBump('#lvk-tools', O.tools);
   const li = (tg, tx, by) => `<li><span class="tg">${esc(tg)}</span><span class="tx" title="${esc(tx)}">${esc(tx)}</span>${by ? `<span class="by">${esc(by)}</span>` : ''}</li>`;
   $('#lvo-appr').innerHTML = O.approvals.length ? O.approvals.slice(-6).reverse().map(x => li(x.kind, x.text, x.by)).join('') : '<div class="empty">Nothing queued yet. Outbound waits here for you.</div>';
   $('#lvo-appr-n').textContent = O.approvals.length;
@@ -241,13 +241,15 @@ function lvRenderHead(){
 }
 function lvTimeline(){
   const S = liveState, tr = $('#lv-track'); if (!tr) return;
-  const t0 = S.t0, t1 = S.active ? Date.now() / 1000 : (S.tEnd || (S.ticks.length ? S.ticks[S.ticks.length - 1].ts : t0 + 1));
+  const rep = LV.replaying && S.raw && S.raw.length; const t0 = rep ? S.raw[0].ts : S.t0;
+  const t1 = rep ? (S.ticks.length ? S.ticks[S.ticks.length - 1].ts : t0 + 1) : (S.active ? Date.now() / 1000 : (S.tEnd || (S.ticks.length ? S.ticks[S.ticks.length - 1].ts : t0 + 1)));
   const span = Math.max(5, t1 - t0);
   const lanes = ['atlas', ...CFG.agents.filter(a => a.id !== 'atlas').map(a => a.id)];
   const laneY = k => { const i = Math.max(0, lanes.indexOf(String(k).split('#')[0])); return 6 + i * (42 / Math.max(1, lanes.length - 1 || 1)); };
   let html = lanes.map(k => `<div class="lane" style="top:${laneY(k) + 4}px"></div>`).join('');
   html += S.ticks.map(t => `<div class="tick ${t.cls}" style="left:${((t.ts - t0) / span * 100).toFixed(2)}%;top:${laneY(t.key)}px;height:9px;--c:${t.color}" title="${esc(hms(t.ts))} ${esc(String(t.key))}" onclick="lvGoto(${t.i})"></div>`).join('');
   if (S.active) html += `<div class="cur" style="left:${((t1 - t0) / span * 100).toFixed(2)}%"></div>`;
+  if (rep) { const full = Math.max(5, S.raw[S.raw.length - 1].ts - t0); tr.style.setProperty('--prog', ((t1 - t0) / full * 100).toFixed(1) + '%'); }
   tr.innerHTML = html;
   $('#lv-ax0').textContent = hms(t0); $('#lv-ax1').textContent = S.active ? 'now · ' + lvDur(span) : lvDur(span);
 }
@@ -280,3 +282,15 @@ function lvReplay(){
   liveState.t0 = Date.now() / 1000; tickFn();
 }
 function lvReplayToggle(){ if (LV.replaying) { LV.replaying = false; clearTimeout(LV.rt); $('#lv-replay').textContent = '\u25B6 Replay'; pickLive(liveState.id); } else lvReplay(); }
+
+/* ---------------- dock */
+function lvTab(t){ document.querySelectorAll('.lv-tabs button').forEach(b => b.classList.toggle('on', b.dataset.t === t)); $('#lv-pane-feed').classList.toggle('hide', t !== 'feed'); $('#lv-pane-out').classList.toggle('hide', t !== 'out'); if (t === 'feed') lvStickScroll(true); }
+async function lvSend(){
+  const ta = $('#lv-say'), text = ta.value.trim(); if (!text) return;
+  const btn = $('#lv-send'); btn.disabled = true;
+  try {
+    const r = await api('/runs', { method: 'POST', body: { task: text, mode: 'auto' } });
+    if (!r || r.error) { toast((r && (r.message || r.error)) || 'could not start'); return; }
+    ta.value = ''; liveWant = r.run_id; toast('Atlas has it'); liveRefreshList();
+  } finally { btn.disabled = false; }
+}
