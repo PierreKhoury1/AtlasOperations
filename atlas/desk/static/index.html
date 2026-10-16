@@ -710,6 +710,12 @@ aside.simple [data-lvl="full"]{display:none}
         <div class="lv-gtools"><button title="Fit" onclick="LVG.fit()">⤢</button><button title="Reset layout" onclick="LVG.resetLayout()">↺</button><button title="Zoom in" onclick="LVG.zoom(1.2)">+</button><button title="Zoom out" onclick="LVG.zoom(1/1.2)">−</button></div>
         <div class="lv-glegend"><span><i style="background:var(--ok)"></i>you</span><span><i data-atlas style="background:#ea580c"></i>Atlas</span><span><i style="background:#E0A33A"></i>held for approval</span><span><i style="background:#5B93F0"></i>written to the desk</span><span class="hint">drag to move · wheel to zoom · drag the board to pan · click an agent to find it in the feed</span></div>
       </div>
+      <div class="lv-charts">
+        <div class="lvc"><div class="hd">Tool mix</div><canvas id="lvc-mix" data-h="92"></canvas></div>
+        <div class="lvc"><div class="hd">Load per agent <span class="k"><i style="background:#E0A33A"></i>approval queued</span></div><canvas id="lvc-load" data-h="92"></canvas></div>
+        <div class="lvc wide"><div class="hd">Activity over the run <span class="k"><i style="background:#E0A33A"></i>needs you <i style="background:#F26B5B;margin-left:8px"></i>blocked</span></div><canvas id="lvc-act" data-h="92"></canvas></div>
+        <div class="lvc wide"><div class="hd">Who touched what</div><canvas id="lvc-matrix" data-h="92"></canvas></div>
+      </div>
       <div class="lv-tl"><div class="hd">Timeline<span class="lg"><span><i style="background:var(--text2)"></i>tool call</span><span><i style="background:var(--warn)"></i>needs you</span><span><i style="background:var(--danger)"></i>policy / error</span></span></div><div class="track" id="lv-track"></div><div class="ax"><span id="lv-ax0"></span><span id="lv-ax1"></span></div></div>
     </div>
     <div class="lv-dock">
@@ -2724,6 +2730,7 @@ async function loadMem(){ const M = await api('/memory'); if(!M) return; $('#mem
 async function addMem(){ const k=$('#m-key').value.trim(), v=$('#m-val').value.trim(); if(!k) return; await api('/memory',{method:'POST',body:{key:k,value:v}}); $('#m-key').value=''; $('#m-val').value=''; loadMem(); }
 init();
 </script>
+<script src="/desk/static/live-charts.js"></script>
 <script src="/desk/static/live-graph.js"></script>
 <script src="/desk/static/live.js"></script>
 <script src="/desk/static/studio.js"></script>

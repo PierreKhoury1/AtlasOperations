@@ -157,3 +157,21 @@
 @media(max-width:1180px){.lv-ws{grid-template-columns:minmax(0,1fr) 360px}}
 @media(max-width:960px){.lv-ws{grid-template-columns:1fr;height:auto}.lv-graphwrap{height:340px;flex:none}.lv-dock{max-height:70vh}}
 .lv-tl .track::after{content:"";position:absolute;left:0;top:0;bottom:0;width:var(--prog,0%);background:rgba(47,111,228,.06);pointer-events:none}
+
+/* ---- charts strip (dark, matches the board) */
+.lv-charts{display:grid;grid-template-columns:1.05fr .95fr 1.15fr 1.45fr;gap:10px}
+.lvc{background:#121A2B;border:1px solid #223049;border-radius:12px;padding:8px 12px 8px;min-width:0;box-shadow:var(--card-shadow)}
+.lvc .hd{display:flex;align-items:center;gap:8px;font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:#8FA0BA;font-weight:600;margin-bottom:6px;white-space:nowrap;overflow:hidden}
+.lvc .hd .k{margin-left:auto;letter-spacing:0;text-transform:none;font-weight:500;color:#5A6A85;font-size:10.5px}
+.lvc .hd .k i{display:inline-block;width:7px;height:7px;border-radius:2px;margin-right:4px;vertical-align:-1px}
+.lvc canvas{display:block}
+.lv-tl{background:#121A2B;border-color:#223049}
+.lv-tl .hd{color:#8FA0BA}.lv-tl .hd .lg{color:#8FA0BA}
+.lv-tl .track{background:#0D1422;border-color:#223049}
+.lv-tl .lane{background:rgba(255,255,255,.06)}
+.lv-tl .ax{color:#5A6A85}
+.lv-tl .track::after{background:rgba(91,147,240,.08)}
+.lv-graphwrap{min-height:300px}
+.lv-ws{height:calc(100vh - 122px)}
+@media(max-width:1400px){.lv-charts{grid-template-columns:1fr 1fr}}
+@media(max-width:960px){.lv-charts{grid-template-columns:1fr}}

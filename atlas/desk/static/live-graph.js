@@ -78,7 +78,7 @@ const LVG = (() => {
 
   /* ---- drawing */
   function wake(){ if (!G.raf) { G.last = performance.now(); G.raf = requestAnimationFrame(frame); } }
-  function frame(now){ const dt = Math.min(.05, (now - G.last) / 1000); G.last = now; step(dt); draw(now / 1000); const busy = G.parts.length || G.ripples.length || G.chips.length || (liveState && liveState.active) || Object.values(G.bump).some(v => v > 0); G.raf = busy && page === 'live' ? requestAnimationFrame(frame) : 0; }
+  function frame(now){ const dt = Math.min(.05, (now - G.last) / 1000); G.last = now; step(dt); draw(now / 1000); const busy = G.parts.length || G.ripples.length || G.chips.length || (liveState && liveState.active) || Object.values(G.bump).some(v => v > 0) || G.hover; G.raf = busy && page === 'live' ? requestAnimationFrame(frame) : 0; }
   function step(dt){
     G.parts.forEach(p => { p.t += p.speed * dt; }); G.parts = G.parts.filter(p => { if (p.t >= 1) { if (p.onEnd) p.onEnd(); return false; } return true; });
     G.ripples.forEach(r => r.t += dt * 1.6); G.ripples = G.ripples.filter(r => r.t < 1);
@@ -89,6 +89,11 @@ const LVG = (() => {
   function state(id){ if (!liveState) return null; return liveState.agents[id] || null; }
   function draw(now){
     const c = G.ctx; if (!c) return; const t = T(); c.setTransform(G.dpr, 0, 0, G.dpr, 0, 0); c.clearRect(0, 0, G.w, G.h);
+    // aurora: two slow blobs in the lead's and the busiest agent's colours
+    const busyA = liveState ? Object.values(liveState.agents).filter(a => !a.done && a.status !== 'idle') : [];
+    const c1 = G.nodes.atlas ? G.nodes.atlas.color : '#2F6FE4', c2 = busyA.length ? busyA[busyA.length - 1].color : '#5B93F0';
+    const bx = G.w * (0.35 + 0.1 * Math.sin(now * .25)), by = G.h * (0.4 + 0.1 * Math.cos(now * .2)); let rg = c.createRadialGradient(bx, by, 0, bx, by, G.w * .45); rg.addColorStop(0, rgba(c1, .13)); rg.addColorStop(1, rgba(c1, 0)); c.fillStyle = rg; c.fillRect(0, 0, G.w, G.h);
+    const ex = G.w * (0.7 + 0.08 * Math.cos(now * .18)), ey = G.h * (0.6 + 0.12 * Math.sin(now * .22)); rg = c.createRadialGradient(ex, ey, 0, ex, ey, G.w * .4); rg.addColorStop(0, rgba(c2, busyA.length ? .16 : .08)); rg.addColorStop(1, rgba(c2, 0)); c.fillStyle = rg; c.fillRect(0, 0, G.w, G.h);
     // dot grid, in screen space but moving with the view
     const gs = 24 * G.view.k, ox = ((G.view.x % gs) + gs) % gs, oy = ((G.view.y % gs) + gs) % gs; c.fillStyle = B.grid; for (let x = ox; x < G.w; x += gs) for (let y = oy; y < G.h; y += gs) { c.fillRect(x, y, 1.4, 1.4); }
     c.setTransform(G.dpr * G.view.k, 0, 0, G.dpr * G.view.k, G.dpr * G.view.x, G.dpr * G.view.y);
@@ -119,6 +124,7 @@ const LVG = (() => {
     c.globalAlpha = idle ? .78 : 1;
     if (busy) { c.shadowColor = rgba(nd.color, .55); c.shadowBlur = 28; } else { c.shadowColor = 'rgba(0,0,0,.35)'; c.shadowBlur = 16; c.shadowOffsetY = 4; }
     rr(x, y, nd.w, nd.h, 12); c.fillStyle = idle ? '#E9EEF6' : B.card; c.fill(); c.shadowBlur = 0; c.shadowOffsetY = 0;
+    if (!idle) { const gr = c.createLinearGradient(x, y, x + nd.w, y + nd.h); gr.addColorStop(0, rgba(nd.color, 0)); gr.addColorStop(1, rgba(nd.color, busy ? .22 : .10)); c.fillStyle = gr; c.fill(); }
     c.strokeStyle = busy ? rgba(nd.color, 1) : done ? rgba(nd.color, .6) : 'rgba(16,24,40,.12)'; c.lineWidth = busy ? 1.8 : 1; c.stroke();
     if (G.drag && G.drag.nd === nd) { c.strokeStyle = rgba('#5B93F0', .9); c.lineWidth = 1.5; c.setLineDash([4, 4]); rr(x - 4, y - 4, nd.w + 8, nd.h + 8, 15); c.stroke(); c.setLineDash([]); }
     // colour bar
@@ -140,8 +146,9 @@ const LVG = (() => {
     c.fillStyle = t.text; c.font = `600 ${nd.kind === 'lead' ? 14 : 13}px Inter, system-ui, sans-serif`; c.fillText(clip(nd.id === 'you' ? G.youText : nd.name, nd.w - (tx - x) - 28), tx, y + 20);
     let sub = nd.sub; if (s && s.assignment && nd.kind === 'agent') sub = s.assignment; if (nd.kind === 'lead' && liveState) sub = liveState.task.split('\n')[0];
     c.fillStyle = s && s.assignment && nd.kind === 'agent' ? t.text2 : t.muted; c.font = `${s && s.assignment ? 'italic ' : ''}400 11px Inter, system-ui, sans-serif`; c.fillText(clip(sub, nd.w - (tx - x) - 12), tx, y + 36);
+    if (s && nd.kind !== 'sink' && typeof LVC !== 'undefined') { LVC.spark(c, s, liveState, x + nd.w - 72, y + nd.h - 24, 58, 12); }
     if (s && nd.kind !== 'sink') { const line = busy ? (s.status === 'tool' ? s.now : s.status === 'writing' ? 'writing…' : 'thinking…') : done ? `${s.turns} turn${s.turns === 1 ? '' : 's'} · ${s.tools} tool call${s.tools === 1 ? '' : 's'}` : '';
-      c.fillStyle = busy ? nd.color : t.faint; c.font = '500 10.5px "IBM Plex Mono", Consolas, monospace'; c.fillText(clip(line, nd.w - 26), x + 14, y + nd.h - 11); }
+      c.fillStyle = busy ? nd.color : t.faint; c.font = '500 10.5px "IBM Plex Mono", Consolas, monospace'; c.fillText(clip(line, nd.w - 100), x + 14, y + nd.h - 11); }
     else if (nd.kind === 'sink') { c.fillStyle = t.faint; c.font = '500 10.5px "IBM Plex Mono", Consolas, monospace'; c.fillText(nd.id === 'out' ? (G.counts.out ? `${G.counts.out} held for approval` : 'nothing queued yet') : (G.counts.desk ? `${G.counts.desk} writes` : 'nothing written yet'), x + 14, y + nd.h - 11); }
     c.globalAlpha = 1;
   }

@@ -23,7 +23,7 @@ async function pickLive(id){
   liveId = id; if ($('#live-run')) $('#live-run').value = id;
   const r = await api('/runs/' + id); if (!r || r.error) return;
   liveState = { id, active: r.active, t0: r.created, tEnd: r.ended || null, task: r.task || '', agents: {}, n: 0, tin: r.tokens_in, tout: r.tokens_out,
-                feed: [], ticks: [], out: { approvals: [], cases: {}, records: {}, deliverables: [], policy: [], sent: 0, tools: 0, handoffs: 0 }, status: r.status };
+                feed: [], ticks: [], out: { approvals: [], cases: {}, records: {}, deliverables: [], policy: [], sent: 0, tools: 0, handoffs: 0 }, status: r.status, series: lvSeries(r.created) };
   if (r.active) { const L = await api('/live'); const me = L && L.runs.find(x => x.id === id); if (me) { liveState.tin = me.tokens_in; liveState.tout = me.tokens_out; } }
   LV.stick = true; liveState.raw = r.events || []; LV.replaying = false;
   lvBuildTeam(); LVG.mount(); LVG.build(CFG.agents); const _lg = document.querySelector('.lv-glegend i[data-atlas]'); if (_lg) _lg.style.background = colors.atlas || '#ea580c';
@@ -74,7 +74,7 @@ function lvApply(e, live){
   if (typeof e.data === 'string') { try { e.data = JSON.parse(e.data || '{}'); } catch (_) { e.data = {}; } }
   e.data = e.data || {};
   const k = e.kind, sys = e.agent === 'system' || e.agent === 'owner';
-  if (k === 'usage') { S.tin = e.data.tokens_in; S.tout = e.data.tokens_out; return; }
+  if (k === 'usage') { const d = (e.data.tokens_in || 0) - (S.tin || 0); if (d > 0 && !sys) { const ag = lvAgent(lvKey(e)); ag.tokens = (ag.tokens || 0) + d; } S.tin = e.data.tokens_in; S.tout = e.data.tokens_out; return; }
   const a = sys ? null : lvAgent(lvKey(e));
   const tick = (cls) => S.ticks.push({ ts: e.ts, key: a ? a.id : 'system', color: a ? a.color : '#9aa3b2', cls, i: S.feed.length });
   if (k === 'agent_start' && a) {
@@ -102,6 +102,7 @@ function lvApply(e, live){
   if (k === 'log' && sys) { if (!/^run \S+\s+mode=/.test(e.text)) lvPush({ type: 'sys', ts: e.ts, text: e.text }); return; }
   if (k === 'tool' && a) {
     const p = lvParseTool(e.text); a.tools++; S.out.tools++; a.status = 'tool'; a.now = p.name + (p.args ? '(' + p.args.slice(0, 40) + ')' : '');
+    lvSeriesTool(S, a, p, e.ts);
     a.spark.push(p.name === 'queue_action' ? 'a' : 't'); if (a.spark.length > 40) a.spark.shift();
     if (a.say && !a.say.closed) { a.say.closed = true; a.say.live = false; lvUpdateSay(a.say); a.say = null; }
     const last = S.feed[S.feed.length - 1];
@@ -114,7 +115,7 @@ function lvApply(e, live){
   }
   if (k === 'approval') {
     const item = { ts: e.ts, kind: e.data.action_kind || 'action', to: e.data.to || '', text: e.text.replace(/^[a-z_]+ → [^:]*: ?/i, ''), id: e.data.action_id, by: a ? a.name : '' };
-    S.out.approvals.push(item); if (a) a.spark.push('a');
+    S.out.approvals.push(item); if (a) { a.spark.push('a'); lvSeriesCell(S, a, 'message'); }
     lvPush({ type: 'appr', ts: e.ts, a, item }); tick('appr'); if (live) LVG.on('approval', a, item.kind); return;
   }
   if (k === 'policy') { const v = e.data.violations || [e.text]; S.out.policy.push({ ts: e.ts, by: a ? a.name : '', text: e.text, v }); if (a) a.spark.push('p'); lvPush({ type: 'pol', ts: e.ts, a, text: e.text, v }); tick('pol'); if (live) LVG.on('policy', a); return; }
@@ -258,7 +259,7 @@ async function lvStop(){ if (!liveState) return; await api('/runs/' + liveState.
 
 let lvQueued = false;
 function lvSchedule(){ if (lvQueued) return; lvQueued = true; requestAnimationFrame(() => { lvQueued = false; lvRenderAll(); }); }
-function lvRenderAll(){ if (!liveState || page !== 'live') return; lvRenderHead(); lvRenderTeam(); lvRenderOut(); lvTimeline(); }
+function lvRenderAll(){ if (!liveState || page !== 'live') return; lvRenderHead(); lvRenderTeam(); lvRenderOut(); lvTimeline(); if (typeof LVC !== 'undefined') LVC.render(liveState); }
 
 /* ---------------- graph glue */
 function lvSyncGraphCounts(){ const O = liveState.out; LVG.setCounts(O.approvals.length, Object.keys(O.cases).length + Object.keys(O.records).length); }
@@ -267,7 +268,7 @@ function lvReplay(){
   const S = liveState; if (!S || S.active || !S.raw || !S.raw.length || LV.replaying) return;
   LV.replaying = true; const raw = S.raw, id = S.id;
   // rebuild from zero, then play the events back with time compressed so the whole run takes about 40 s
-  liveState = { ...S, active: true, agents: {}, n: 0, feed: [], ticks: [], out: { approvals: [], cases: {}, records: {}, deliverables: [], policy: [], sent: 0, tools: 0, handoffs: 0 } };
+  liveState = { ...S, active: true, agents: {}, n: 0, feed: [], ticks: [], out: { approvals: [], cases: {}, records: {}, deliverables: [], policy: [], sent: 0, tools: 0, handoffs: 0 }, series: lvSeries(raw[0].ts) };
   lvBuildTeam(); LVG.build(CFG.agents); $('#lv-feed').innerHTML = ''; LV.stick = true;
   const t0 = raw[0].ts, span = Math.max(1, raw[raw.length - 1].ts - t0), scale = Math.min(1, 40 / span);
   let i = 0, start = performance.now(), gap = 0;
@@ -293,4 +294,17 @@ async function lvSend(){
     if (!r || r.error) { toast((r && (r.message || r.error)) || 'could not start'); return; }
     ta.value = ''; liveWant = r.run_id; toast('Atlas has it'); liveRefreshList();
   } finally { btn.disabled = false; }
+}
+
+/* ---------------- series for the charts */
+function lvSeries(t0){ return { t0, calls: {}, tools: {}, matrix: {} }; }
+function lvSeriesCell(S, a, type){ const M = S.series.matrix; (M[a.id] = M[a.id] || {}); M[a.id][type] = (M[a.id][type] || 0) + 1; }
+function lvSeriesTool(S, a, p, ts){
+  const se = S.series; (se.calls[a.id] = se.calls[a.id] || []).push(ts); se.tools[p.name] = (se.tools[p.name] || 0) + 1;
+  const r = p.result || '', args = p.args || '';
+  if (p.name === 'record_save' || p.name === 'record_get' || p.name === 'record_find') { const m = r.match(/\b(person|organisation|place|invoice|booking|order|product|camera)\b/) || args.match(/\b(person|organisation|place|invoice|booking|order|product|camera)\b/); if (m) lvSeriesCell(S, a, m[1]); else if (p.name !== 'record_find') lvSeriesCell(S, a, 'record'); }
+  else if (/^case_(open|update)$/.test(p.name)) lvSeriesCell(S, a, 'case');
+  else if (p.name === 'crm_lookup' || p.name === 'crm_update') lvSeriesCell(S, a, 'person');
+  else if (p.name === 'remember' || p.name === 'recall') lvSeriesCell(S, a, 'memory');
+  else if (p.name === 'read_file' || p.name === 'save_deliverable' || p.name === 'list_files') lvSeriesCell(S, a, 'file');
 }
