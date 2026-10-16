@@ -29,7 +29,7 @@ import time
 import urllib.error
 import urllib.request
 
-VERSION = "0.2"
+VERSION = "0.3"
 CLAUDE_OFF = "Bash,Edit,Write,Read,Glob,Grep,WebFetch,WebSearch,Task,NotebookEdit,TodoWrite,MultiEdit,KillShell,BashOutput"
 
 
@@ -123,6 +123,77 @@ def run_gemini(job: dict, model: str, timeout: int) -> str:
     return _run(args, prompt, timeout)
 
 
+HOST_DIR = os.path.join(os.path.expanduser("~"), ".atlas-host")
+
+
+def run_host(job: dict, model: str, timeout: int, on_line) -> str:
+    """A hosted turn: one Claude Code session per desk, resumed every turn. Built-in tools off, only the desk's MCP
+    tools (the job's mcp url + token). Every stream-json line goes back to the desk as it is printed; the desk may
+    answer {"stop": true} (a usage limit) and the process is killed. Returns the final result text."""
+    ws = os.path.join(HOST_DIR, str(job.get("desk_id") or "0"))
+    os.makedirs(ws, exist_ok=True)
+    sid = str(job.get("session_id") or "")
+    mcp = job.get("mcp") or {}
+    mcp_path = os.path.join(ws, "atlas-mcp.json")
+    with open(mcp_path, "w", encoding="utf-8") as f:
+        json.dump({"mcpServers": {str(mcp.get("name") or "atlas"): {"type": "http", "url": mcp.get("url", ""),
+                                                                      "headers": {"Authorization": "Bearer " + str(mcp.get("token") or "")}}}}, f)
+    brief_path = os.path.join(ws, "ATLAS_BRIEF.md")
+    with open(brief_path, "w", encoding="utf-8") as f:
+        f.write(job.get("system") or "")
+    base = [_which("claude"), "-p", "--output-format", "stream-json", "--verbose",
+            "--strict-mcp-config", "--mcp-config", mcp_path, "--tools", "", "--allowedTools", "mcp__" + str(mcp.get("name") or "atlas"),
+            "--setting-sources", "", "--system-prompt-file", brief_path, "--max-turns", str(int(job.get("max_turns") or 60))]
+    if model:
+        base += ["--model", model]
+    task = str(job.get("task") or "")
+
+    def attempt(resume: bool):
+        args = base + (["--resume", sid] if resume else ["--session-id", sid])
+        cmd, shell = args, False
+        if sys.platform == "win32" and str(cmd[0]).lower().endswith(".cmd"):
+            cmd, shell = subprocess.list2cmdline(cmd), True
+        p = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                             encoding="utf-8", errors="replace", shell=shell, cwd=ws)
+        result, stopped = "", False
+        t_end = time.time() + timeout
+        try:
+            p.stdin.write(task)
+            p.stdin.close()
+            for line in p.stdout:
+                line = line.rstrip("\n")
+                if not line:
+                    continue
+                try:
+                    ev = json.loads(line)
+                except ValueError:
+                    ev = {}
+                if ev.get("type") == "result":
+                    result = str(ev.get("result") or "")
+                if on_line(line) is False:
+                    stopped = True
+                    p.kill()
+                    break
+                if time.time() > t_end:
+                    p.kill()
+                    raise subprocess.TimeoutExpired(cmd, timeout)
+        finally:
+            try:
+                p.wait(timeout=30)
+            except Exception:
+                p.kill()
+        err = (p.stderr.read() or "").strip() if p.stderr else ""
+        return p.returncode, result, err, stopped
+
+    code, result, err, stopped = attempt(bool(job.get("resume")) and bool(sid))
+    if code != 0 and not stopped and job.get("resume") and ("No conversation found" in err or "session" in err.lower()):
+        log(f"session {sid[:8]} not on this machine; starting it afresh")
+        code, result, err, stopped = attempt(False)
+    if code != 0 and not result and not stopped:
+        raise RuntimeError(f"claude exited {code}: {err[-600:] or 'no output'}")
+    return result
+
+
 def run_cmd(cmd: str, job: dict, timeout: int) -> str:
     prompt = "SYSTEM:\n" + (job.get("system") or "") + "\n\n" + transcript(job)
     return _run(cmd, prompt, timeout, shell=True)
@@ -202,7 +273,15 @@ def serve(desk: "Desk", a, slot: int) -> int:
         t0 = time.time()
         try:
             desk.call("POST", f"/api/bridge/jobs/{jid}/chunk", {"text": ""})       # "working": the desk shows the agent is on it
-            if a.agent == "claude":
+            if job.get("kind") == "host":
+                if a.agent != "claude":
+                    raise RuntimeError(f"hosted sessions need --agent claude (this runner is {a.agent})")
+
+                def relay(line: str):
+                    r = desk.call("POST", f"/api/bridge/jobs/{jid}/chunk", {"text": line}, timeout=60)
+                    return not (r or {}).get("stop")
+                text = run_host(job, a.model, max(a.timeout, int(job.get("timeout") or 1500)), relay)
+            elif a.agent == "claude":
                 text = run_claude(job, a.model, a.timeout)
             elif a.agent == "codex":
                 text = run_codex(job, a.model, a.timeout)

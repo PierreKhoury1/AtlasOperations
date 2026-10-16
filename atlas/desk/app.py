@@ -52,6 +52,7 @@ from .. import vision as V
 from .. import rag as RAG
 from .. import team as TM
 from .. import usage as U
+from .. import host as HOST
 from . import scheduler
 from . import auth as AUTH
 from . import hermes_proxy
@@ -182,8 +183,8 @@ def _live_reason(desk: dict[str, Any] | None = None) -> str:
         return "your agent is not connected: start atlas_bridge.py on your computer, or switch the desk back to the house models"
     if desk is not None and not byo_default and bridge_online(int(desk.get("owner_id") or 0)):
         return ""                                           # no choice made: the connected agent is the default everywhere
-    if not byo_default and house_bridge_online():
-        return ""                                           # no choice made: the house agent answers (HOUSE_BRIDGE_OWNER)
+    if byo_default in ("", "host") and house_bridge_online():
+        return ""                                           # no choice made, or a hosted session: the house agent answers
     if _desk_byo_default(desk):
         return ""
     if desk is None:                                        # no desk yet: the design chat runs on the owner's agent when it is connected
@@ -319,6 +320,18 @@ def desk_configs(desk: dict[str, Any]) -> dict[str, Any]:
             label = providers["providers"][pname]["default_model"]
             for a in agents:
                 a["provider"], a["model"], a["engine"], a["text_tools"] = pname, label, "agent", True
+    if _byo_default == "host":                          # a hosted session: Claude Code on the house agent IS the lead
+        hb = house_bridge_online()
+        if hb:
+            pname = _house_agent_provider(providers, hb)
+            label = providers["providers"][pname]["default_model"] + " session"
+            for a in agents:
+                a["provider"], a["model"], a["engine"], a["text_tools"] = pname, label, "host", True
+            host_cfg = (desk.get("config") or {}).get("host") or {}
+            providers["host"] = {"session_id": str(host_cfg.get("session_id") or ""), "agent": hb.get("agent") or "claude"}
+        else:
+            for a in agents:
+                a["engine_note"] = "Atlas agent is offline right now - running on the house models until it is back"
     # Hermes Agent engine (the real Nous Research agent, via its API server). Config comes from the desk's
     # hermes_agent connector, or globally from HERMES_AGENT_URL / HERMES_AGENT_KEY env. When
     # DESK_DEFAULT_ENGINE=hermes_agent, every specialist runs on it unless the agent explicitly says engine=atlas.
@@ -579,8 +592,8 @@ def _guard():
     p = request.path
     if p.startswith("/hook/"):
         return None
-    if p.startswith("/api/bridge/"):
-        return None                                        # the owner's runner: a bearer token, checked in the handler
+    if p.startswith("/api/bridge/") or p == "/mcp":
+        return None                                        # the owner's runner / a hosted session: a bearer token, checked in the handler
     if p.startswith("/api") and p not in PUBLIC_API:
         if not current_user():
             abort(401)
@@ -1313,6 +1326,8 @@ def house_bridge_owner() -> int:
     email = HOUSE_BRIDGE_EMAIL
     if not email:
         return -1
+    if email.isdigit():                                    # an owner id (0 = the single owner of an open install)
+        return int(email)
     now = time.time()
     if now - _HB_CACHE["ts"] > 30 or _HB_CACHE["email"] != email:
         try:
@@ -1433,7 +1448,8 @@ def api_bridge_next():
                 return jsonify({"job": None})
             _BR_LOCK.wait(timeout=min(left, 5))
     j = rec["job"]
-    return jsonify({"job": {"id": rec["id"], "system": j.get("system", ""), "messages": j.get("messages", []), "model": j.get("model", ""),
+    return jsonify({"job": {**{k: v for k, v in j.items() if k not in ("system", "messages", "model")},
+                            "id": rec["id"], "system": j.get("system", ""), "messages": j.get("messages", []), "model": j.get("model", ""),
                             "created": rec["created"]}})
 
 
@@ -1445,12 +1461,13 @@ def api_bridge_chunk(jid):
         abort(404)
     rec["acked"] = True                                     # the runner has the job: it is not handed out again
     text = str((request.get_json(silent=True) or {}).get("text") or "")
+    stop = False
     if text and callable(rec.get("on_token")):
         try:
-            rec["on_token"](text)
+            stop = rec["on_token"](text) is False
         except Exception:
             pass
-    return jsonify({"ok": True})
+    return jsonify({"ok": True, "stop": stop})
 
 
 @app.post("/api/bridge/jobs/<jid>")
@@ -1498,6 +1515,101 @@ def api_bridge_del(bid):
     return jsonify({"ok": True})
 
 
+def _public_base() -> str:
+    try:
+        return request.url_root.rstrip("/")
+    except RuntimeError:                                   # a scheduler thread: no request
+        return ""
+
+
+def _host_save_session(desk_id: int, session_id: str) -> None:
+    """The hosted session's id, kept on the desk so the next turn resumes it (one desk = one session)."""
+    d = store.desk(int(desk_id))
+    if not d:
+        return
+    conf = d.get("config") or {}
+    h = dict(conf.get("host") or {})
+    if h.get("session_id") == session_id:
+        h["turns"] = int(h.get("turns") or 0) + 1
+        h["last_turn"] = time.time()
+    else:
+        h.update(session_id=session_id, created=time.time(), turns=1, last_turn=time.time())
+    conf["host"] = h
+    store.update_desk(int(desk_id), config=conf)
+
+
+def _host_status(desk: dict[str, Any] | None) -> dict[str, Any]:
+    hb = house_bridge_online()
+    h = ((desk or {}).get("config") or {}).get("host") or {}
+    byo = _desk_byo(desk).get("default") or ""
+    return {"available": house_bridge_owner() >= 0, "online": bool(hb), "agent": (hb or {}).get("agent") or "",
+            "label": house_agent_label(hb) if hb else "Atlas agent", "synced": byo == "host",
+            "session_id": str(h.get("session_id") or "")[:8], "turns": int(h.get("turns") or 0),
+            "live_runs": HOST.live_count()}
+
+
+@app.get("/api/host")
+def api_host():
+    try:
+        d = current_desk()
+    except Exception:
+        d = None
+    return jsonify(_host_status(d))
+
+
+@app.post("/api/host/sync")
+def api_host_sync():
+    """Sync session: this desk runs as one hosted Claude Code session on the house agent from now on. Before a desk
+    exists, the choice is remembered for the desk the workspace is about to build."""
+    _bridge_owner()                                        # signed in (or open mode)
+    if house_bridge_owner() < 0:
+        return jsonify({"error": "no house agent on this server (HOUSE_BRIDGE_OWNER is not set)"}), 404
+    body = request.get_json(silent=True) or {}
+    did = body.get("desk_id")
+    d = None
+    if did:
+        d = _own_desk(int(did))
+    else:
+        try:
+            d = current_desk()
+        except Exception:
+            d = None
+    if d is None:
+        session["host_pref"] = True
+        return jsonify({"ok": True, "pending": True, **_host_status(None)})
+    conf = d.get("config") or {}
+    conf.setdefault("byo", {})["default"] = "host"
+    conf.setdefault("host", {})
+    store.update_desk(d["id"], config=conf)
+    session.pop("host_pref", None)
+    return jsonify({"ok": True, "pending": False, **_host_status(store.desk(d["id"]))})
+
+
+@app.post("/mcp")
+def mcp_endpoint():
+    """The hosted session's desk tools (MCP over HTTP, JSON-RPC in one POST). The bearer token is the run's: it is
+    minted when the hosted turn starts and dies with it, so a token names exactly one desk, one run, one owner."""
+    auth = request.headers.get("Authorization", "")
+    tok = auth[7:].strip() if auth.lower().startswith("bearer ") else ""
+    hr = HOST.live(tok) if tok else None
+    if hr is None:
+        return Response(json.dumps({"jsonrpc": "2.0", "id": None, "error": {"code": -32001, "message": "unknown or ended session"}}),
+                        401, mimetype="application/json")
+    body = request.get_json(silent=True)
+    if isinstance(body, list):                             # a batch
+        out = [r for r in (HOST.mcp_handle(hr, b) for b in body) if r is not None]
+        return Response(json.dumps(out), 200, mimetype="application/json") if out else Response("", 202)
+    r = HOST.mcp_handle(hr, body)
+    if r is None:
+        return Response("", 202)
+    return Response(json.dumps(r, ensure_ascii=False), 200, mimetype="application/json")
+
+
+@app.get("/mcp")
+def mcp_get():
+    return Response(json.dumps({"error": "POST JSON-RPC here"}), 405, mimetype="application/json")
+
+
 @app.get("/scripts/atlas_bridge.py")
 def bridge_runner_file():
     """The runner itself, to download from the desk."""
@@ -1512,7 +1624,7 @@ def api_desk_providers(did):
     return jsonify({"default": byo.get("default") or "", "entries": entries,
                     "presets": [{"id": k, "label": v["label"], "key_hint": v["key_hint"], "models": v["models"],
                                  "default_model": v["default_model"], "needs_url": k == "custom"} for k, v in BYO_PRESETS.items()],
-                    "house_reason": _live_reason(), "agent": _bridges_public(int(d.get("owner_id") or 0))})
+                    "house_reason": _live_reason(), "agent": _bridges_public(int(d.get("owner_id") or 0)), "host": _host_status(d)})
 
 
 @app.post("/api/desks/<int:did>/providers")
@@ -1584,10 +1696,12 @@ def api_desk_provider_default(did):
     name = str((request.get_json(force=True) or {}).get("name") or "")
     conf = d.get("config") or {}
     byo = conf.setdefault("byo", {})
-    if name and name not in ("agent", "house") and name not in (byo.get("entries") or {}):
+    if name and name not in ("agent", "house", "host") and name not in (byo.get("entries") or {}):
         abort(404)
     if name == "agent" and not store.bridges_for(int(d.get("owner_id") or 0)):
         return jsonify({"error": "connect a computer first (Your agent -> Connect a computer)"}), 400
+    if name == "host" and house_bridge_owner() < 0:
+        return jsonify({"error": "no house agent on this server"}), 400
     byo["default"] = name                              # "" = the owner's runner when connected, else house; "house" = house always; "agent" = the runner, and say so when it is off
     store.update_desk(d["id"], config=conf)
     return jsonify({"ok": True, "default": name})
@@ -1850,10 +1964,28 @@ def _start_run(desk: dict[str, Any], task: str, mode: str, lead_id: int | None =
     holder: dict[str, Any] = {"events": events, "orch": orch, "task": task, "desk_id": desk["id"], "started": time.time(),
                               "lead_lock": threading.Lock()}
 
+    hosted = (configs.get("providers") or {}).get("host")
+
+    def _host_turn(o) -> str:
+        sid = str(hosted.get("session_id") or "")
+        resume = bool(sid)
+        if not sid:
+            import uuid as _uuid
+            sid = str(_uuid.uuid4())
+        base = os.environ.get("PUBLIC_URL", "").strip().rstrip("/") or _public_base()
+
+        def remember(session_id: str):
+            _host_save_session(desk["id"], session_id)
+
+        return HOST.drive(o, task=task, desk_id=int(desk["id"]), session_id=sid, resume=resume, mcp_url=base + "/mcp",
+                          send=lambda job, on_chunk, t: _bridge_run(house_bridge_owner(), job, on_chunk, t),
+                          timeout=float(os.environ.get("HOST_TURN_MAX_S", "1500") or 1500), on_session=remember,
+                          agent_name=str(hosted.get("agent") or "claude"))
+
     def work():
         res = None
         try:
-            res = orch.run(task, mode)
+            res = orch.run_external(task, _host_turn, mode="host") if hosted else orch.run(task, mode)
             status = res.status
         except BaseException as exc:               # the orchestrator already catches run errors; this is the last line of defence
             status = "error"
@@ -6315,6 +6447,9 @@ def api_design_build(sid):
             conf["business"]["name"] = name
         if store.bridges_for(int(u["id"]) if u else 0):                 # step 1 of the chain: the desk runs on the owner's own agent
             conf.setdefault("byo", {})["default"] = "agent"
+        elif session.get("host_pref") and house_bridge_owner() >= 0:    # "Sync session": one hosted Claude Code session for this desk
+            conf.setdefault("byo", {})["default"] = "host"
+            session.pop("host_pref", None)
         if built and store.desk(built):
             store.update_desk(built, name=name, tier=tier, config=conf)
             desk = store.desk(built)

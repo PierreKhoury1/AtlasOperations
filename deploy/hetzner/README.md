@@ -106,6 +106,14 @@ opts out; the owner's own runner, when connected, still comes first. The named a
 BYO rule (metered, never limited). The runner's machine must stay on: when it is off, desks fall back to the house
 models quietly, as before.
 
+**Hosted sessions ("Sync session").** With the house agent on and `--agent claude`, a desk can go one step further:
+its lead *is* a Claude Code session. The owner presses Sync session (start page, or Desk setup -> Atlas agent); from
+then on each task is one turn of one `claude -p --resume <session>` process per desk on the runner's machine, in
+`~/.atlas-host/<desk id>/`, with `--tools ""` (no files, no shell on that machine) and the desk's tools served back
+to it as MCP tools from `POST /mcp` with a per-run token. The session remembers every turn. Metered per assistant
+message on the same allowances. `PUBLIC_URL` must be the desk's public address (the runner's Claude Code connects to
+`PUBLIC_URL/mcp`); `HOST_TURN_MAX_S` (default 1500) caps one turn.
+
 ## Moving data off Supabase / Render (if anything worth keeping is there)
 
 ```bash

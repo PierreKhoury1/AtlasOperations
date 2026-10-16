@@ -110,7 +110,10 @@ a.go[aria-disabled="true"]{opacity:.45;pointer-events:none}
     }, 3000);
   }
   async function choose(agent) {
-    if (agent === 'house') { location.href = next; return; }
+    if (agent === 'house') {
+      if (mine.house && mine.house.online) await api('/host/sync', {method: 'POST', body: {}});   // Sync session: hosted from the first turn
+      location.href = next; return;
+    }
     const r = await api('/bridges', {method: 'POST', body: {agent}});
     if (!r || r.error) { alert((r && r.error) || 'Could not create a token. Try again.'); return; }
     $('#hk-title').textContent = 'Connect ' + NAMES[agent]; document.querySelectorAll('.ag').forEach(e => e.textContent = NAMES[agent]);
@@ -130,8 +133,8 @@ a.go[aria-disabled="true"]{opacity:.45;pointer-events:none}
     if (d && Array.isArray(d.desks) && d.desks.length) setNext('/desk');      // an owner with a desk: step 1 again, then back to it
     mine = b || mine;
     if (mine.house && mine.house.online) {                                       // the house agent: Atlas's own Claude Code / Codex
-      $('#house-t').textContent = mine.house.label || 'Atlas agent';
-      $('#house-d').textContent = (NAMES[mine.house.agent] || 'An agent') + ' run by Atlas. Nothing to install; a daily allowance applies (see Usage).';
+      $('#house-t').textContent = 'Sync session · ' + (mine.house.label || 'Atlas agent');
+      $('#house-d').textContent = 'One live ' + (NAMES[mine.house.agent] || 'agent') + ' session for your desk, run by Atlas. Nothing to install; it remembers every turn. A daily allowance applies (see Usage).';
     }
     if (mine.bridges && mine.bridges.length) {
       const on = mine.bridges.find(x => x.online);

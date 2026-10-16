@@ -1275,6 +1275,15 @@ class Orchestrator:
 
     # ------------------------------------------------------------------ entry
     def run(self, task: str, mode: str = "auto") -> RunResult:
+        return self._run(task, mode, None)
+
+    def run_external(self, task: str, driver: Callable[["Orchestrator"], str], mode: str = "host") -> RunResult:
+        """A run whose lead loop is somewhere else (atlas/host.py: a hosted Claude Code session). The run record, the
+        workspace, the events and the usage meter are this orchestrator's; `driver(self)` does the work and returns
+        the summary (or raises UsageLimit / Cancelled like run_agent would)."""
+        return self._run(task, mode, driver)
+
+    def _run(self, task: str, mode: str, driver: Callable[["Orchestrator"], str] | None) -> RunResult:
         self._cancel.clear()
         self._task = task
         self.tokens_in = self.tokens_out = 0
@@ -1309,7 +1318,12 @@ class Orchestrator:
         status, summary = "done", ""
         limit: dict[str, Any] | None = None
         try:
-            if mode == "auto":
+            if driver is not None:
+                self._delegated = True                      # the hosted lead is the whole team: no "delegate first" nudge
+                summary = driver(self)
+                if summary.startswith("ERROR from "):
+                    status = "error"
+            elif mode == "auto":
                 summary = self.run_agent("atlas", task)
                 if summary.startswith("ERROR from "):      # a model call of the lead failed (on its first turn or a later one): a failed run, not a result
                     status = "error"
