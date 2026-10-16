@@ -175,7 +175,8 @@ const LVG = (() => {
     if (s && nd.kind !== 'sink') { const line = busy ? (s.status === 'tool' ? s.now : s.status === 'writing' ? 'writing…' : 'thinking…') : done ? `${s.turns} turn${s.turns === 1 ? '' : 's'} · ${s.tools} tool call${s.tools === 1 ? '' : 's'}` : '';
       c.fillStyle = busy ? nd.color : t.faint; c.font = '500 10.5px "IBM Plex Mono", Consolas, monospace'; c.fillText(clip(line, nd.w - 100), x + 14, y + nd.h - 11); }
     else if (nd.kind === 'sink') { c.fillStyle = t.faint; c.font = '500 10.5px "IBM Plex Mono", Consolas, monospace'; c.fillText(nd.id === 'out' ? (G.counts.out ? `${G.counts.out} held for approval` : 'nothing queued yet') : (G.counts.desk ? `${G.counts.desk} writes` : 'nothing written yet'), x + 14, y + nd.h - 11); }
-    if (G.hover === nd && (nd.kind === 'agent' || nd.kind === 'lead')) { c.fillStyle = rgba(nd.color, .12); rr(x + nd.w - 58, y + nd.h - 22, 48, 16, 6); c.fill(); c.fillStyle = nd.color; c.font = '600 9.5px Inter, system-ui, sans-serif'; c.fillText('edit ›', x + nd.w - 50, y + nd.h - 11); }
+    if (G.hover === nd && (nd.kind === 'agent' || nd.kind === 'lead')) { c.fillStyle = rgba(nd.color, .12); rr(x + nd.w - 72, y + nd.h - 22, 62, 16, 6); c.fill(); c.fillStyle = nd.color; c.font = '600 9.5px Inter, system-ui, sans-serif'; c.fillText('configure ›', x + nd.w - 66, y + nd.h - 11); }
+    if (typeof LVI !== 'undefined' && LVI.state.open && LVI.state.open === nd.id) { c.strokeStyle = rgba(nd.color, .9); c.lineWidth = 2; c.setLineDash([5, 4]); c.lineDashOffset = -now * 20; rr(x - 5, y - 5, nd.w + 10, nd.h + 10, 15); c.stroke(); c.setLineDash([]); }
     c.globalAlpha = 1;
   }
   function clip(s, w){ const c = G.ctx; s = String(s || ''); if (c.measureText(s).width <= w) return s; while (s.length > 1 && c.measureText(s + '…').width > w) s = s.slice(0, -1); return s + '…'; }
@@ -198,9 +199,9 @@ const LVG = (() => {
     if (d.nd && d.moved) { G.pos[d.nd.id] = { x: Math.round(d.nd.x), y: Math.round(d.nd.y) }; savePos(); redraw(); return; }
     if (!d.moved && d.nd) onClick(d.nd); else redraw(); }
   function onClick(nd){ if (nd.id === 'out') go('approvals'); else if (nd.id === 'desk') location.href = '/desk/ops'; else if (nd.kind === 'cam') go('cameras');
-    else if (G.hover === nd && G.lastMouse && G.lastMouse.x > nd.x + nd.w / 2 - 60 && G.lastMouse.y > nd.y + nd.h / 2 - 24) editAgent(nd.id); else if (typeof lvFocusAgent === 'function') lvFocusAgent(nd.id); }
-  function editAgent(id){ go('team'); if (typeof teamOpenId === 'function') setTimeout(() => teamOpenId(id.split('#')[0]), 200); }
-  function addAgentUI(){ go('team'); if (typeof teamAddReady === 'function') setTimeout(teamAddReady, 400); }
+    else if (nd.kind === 'agent' || nd.kind === 'lead') editAgent(nd.id); else if (typeof lvFocusAgent === 'function') lvFocusAgent(nd.id); }
+  function editAgent(id){ if (typeof LVI !== 'undefined') { LVI.open(id.split('#')[0]); redraw(); } else go('team'); }
+  function addAgentUI(){ if (typeof LVI !== 'undefined') { LVI.open(''); redraw(); } else go('team'); }
   function onWheel(ev){ ev.preventDefault(); G.userView = true; const m = mouse(ev); zoom(ev.deltaY < 0 ? 1.12 : 1 / 1.12, m.x, m.y); }
   function redraw(){ if (G.cv) { draw(performance.now() / 1000); wake(); } }
   return { mount, build, on, setCounts, redraw, resize, fit, zoom, resetLayout, setCams, editAgent, addAgentUI, state: G };

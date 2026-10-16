@@ -308,3 +308,6 @@ function lvSeriesTool(S, a, p, ts){
   else if (p.name === 'remember' || p.name === 'recall') lvSeriesCell(S, a, 'memory');
   else if (p.name === 'read_file' || p.name === 'save_deliverable' || p.name === 'list_files') lvSeriesCell(S, a, 'file');
 }
+
+function lvAfterTeamChange(){ if (!liveState) return; LVG.build(CFG.agents); Object.keys(liveState.agents).forEach(k => { const a = liveState.agents[k]; const c = CFG.agents.find(x => x.id === a.base); if (c) { a.name = c.name + (k.includes('#') ? ' #' + k.split('#')[1] : ''); a.role = c.role; a.color = c.color || a.color; } }); LVG.redraw(); lvRenderAll(); }
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && typeof LVI !== 'undefined' && LVI.state.open) LVI.close(); });

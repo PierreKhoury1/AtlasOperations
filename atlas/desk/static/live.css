@@ -188,3 +188,54 @@
 .lv-dock .lv-filters button{padding:3px 8px;font-size:11.5px}
 .lv-gtools button.txt{width:auto;padding:0 9px;font-size:11.5px;font-weight:600;letter-spacing:.01em}
 .lv-gtools .sep{width:1px;background:#2E3F5C;margin:4px 3px}
+
+/* ---- inspector: a glass panel over the right of the board */
+.lv-insp{position:absolute;top:10px;right:10px;bottom:10px;width:min(400px,46%);background:rgba(20,28,46,.92);border:1px solid #2E3F5C;border-radius:14px;box-shadow:0 24px 70px rgba(0,0,0,.5);backdrop-filter:blur(14px);display:none;flex-direction:column;color:#E6ECF7;z-index:3;overflow:hidden;transform:translateX(16px);opacity:0;transition:transform .22s ease,opacity .22s ease}
+.lv-insp.on{display:flex;transform:none;opacity:1}
+.lvi-head{display:grid;grid-template-columns:44px minmax(0,1fr) 28px;gap:10px 12px;padding:14px 14px 10px;border-bottom:1px solid #2E3F5C;background:linear-gradient(135deg,color-mix(in srgb,var(--c) 22%,transparent),transparent 60%)}
+.lvi-av{width:44px;height:44px;border-radius:50%;background:color-mix(in srgb,var(--c) 28%,#141C2E);border:1.5px solid var(--c);color:#fff;display:grid;place-items:center;font-weight:700;font-size:15px}
+.lvi-title{display:flex;flex-direction:column;gap:4px;min-width:0}
+.lvi-title input{background:transparent;border:0;border-bottom:1px solid transparent;color:#F3F6FB;font:600 15px Inter,system-ui,sans-serif;padding:2px 0;border-radius:0;min-width:0}
+.lvi-title input+input{font:400 12px Inter,system-ui,sans-serif;color:#C7D2E3}
+.lvi-title input:focus{outline:0;border-bottom-color:var(--c);box-shadow:none}
+.lvi-x{width:28px;height:28px;border:0;background:transparent;color:#8FA0BA;font-size:20px;cursor:pointer;border-radius:7px}
+.lvi-x:hover{background:#243350;color:#fff}
+.lvi-sub{grid-column:1 / span 3;display:flex;gap:8px;align-items:center;font-size:11px;color:#8FA0BA}
+.lvi-sub .sp{flex:1}
+.lvi-save,.lvi-foot .p{background:var(--accent);color:#fff;border:0;border-radius:8px;padding:6px 12px;font-weight:600;font-size:12px;cursor:pointer}
+.lvi-save:disabled{opacity:.35;cursor:default}
+.lvi-stats{display:grid;grid-template-columns:repeat(5,1fr);gap:1px;background:#2E3F5C;border-bottom:1px solid #2E3F5C}
+.lvi-stats>div{background:#161F33;padding:8px 10px}
+.lvi-stats b{display:block;font-size:16px;font-weight:600;letter-spacing:-.01em;font-variant-numeric:tabular-nums}
+.lvi-stats span{font-size:10px;color:#8FA0BA;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.lvi-stats .st b{font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:#FBBF24;padding-top:3px}
+.lvi-stats .st.done b{color:#4ADE80}
+.lvi-stats.none{display:block;padding:10px 14px;font-size:12px;color:#8FA0BA;background:#161F33}
+.lvi-body{flex:1;overflow:auto;padding:10px 14px 14px}
+.lvi-body label{display:block;font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:#8FA0BA;font-weight:600;margin:12px 0 6px}
+.lvi-body label small{letter-spacing:0;text-transform:none;font-weight:400;color:#5A6A85;margin-left:6px}
+.lvi-body textarea,.lvi-body select,.lvi-rule input{width:100%;background:#0F1627;border:1px solid #2E3F5C;color:#E6ECF7;border-radius:8px;padding:7px 9px;font:12.5px/1.45 Inter,system-ui,sans-serif;resize:vertical}
+.lvi-body textarea:focus,.lvi-body select:focus,.lvi-rule input:focus{outline:0;border-color:var(--accent);box-shadow:0 0 0 3px rgba(47,111,228,.25)}
+.lvi-colors{display:flex;gap:7px}
+.lvi-colors button{width:22px;height:22px;border-radius:50%;border:2px solid transparent;background:var(--c);cursor:pointer;box-shadow:0 0 0 1px rgba(255,255,255,.08)}
+.lvi-colors button.on{border-color:#fff;box-shadow:0 0 0 2px var(--c)}
+.lvi-rule{display:grid;grid-template-columns:18px minmax(0,1fr) 22px;gap:6px;align-items:center;margin-bottom:6px}
+.lvi-rule span{font-family:var(--mono);font-size:10.5px;color:#5A6A85;text-align:right}
+.lvi-rule button{border:0;background:transparent;color:#5A6A85;font-size:16px;cursor:pointer;border-radius:6px;height:22px}
+.lvi-rule button:hover{color:#F87171;background:#243350}
+.lvi-add{border:1px dashed #2E3F5C;background:transparent;color:#8FA0BA;border-radius:8px;padding:5px 10px;font-size:12px;cursor:pointer;margin-left:24px}
+.lvi-add:hover{color:#fff;border-color:#5B93F0}
+.lvi-group{margin-bottom:8px}
+.lvi-gname{font-size:11px;color:#8FA0BA;margin:4px 0 4px}
+.lvi-tools{display:flex;flex-wrap:wrap;gap:5px}
+.lvi-tool{font-family:var(--mono);font-size:11px;padding:3px 8px;border-radius:7px;border:1px solid #2E3F5C;background:#0F1627;color:#9FB0C9;cursor:pointer;transition:all .15s}
+.lvi-tool:hover{border-color:#5B93F0;color:#fff}
+.lvi-tool.on{background:color-mix(in srgb,var(--accent) 30%,#0F1627);border-color:var(--accent);color:#fff}
+.lvi-tool.na{opacity:.35;cursor:not-allowed}
+.lvi-foot{display:flex;gap:8px;align-items:center;padding:10px 14px;border-top:1px solid #2E3F5C;background:#141C2E}
+.lvi-foot .sp{flex:1}
+.lvi-foot button{border:1px solid #2E3F5C;background:#1B2537;color:#E6ECF7;border-radius:8px;padding:6px 12px;font-size:12px;cursor:pointer}
+.lvi-foot button:hover{border-color:#5B93F0}
+.lvi-foot .lvi-danger{color:#F87171;border-color:rgba(248,113,113,.35)}
+.lvi-foot .lvi-danger:hover{background:rgba(248,113,113,.12)}
+@media(max-width:960px){.lv-insp{width:auto;left:10px}}
