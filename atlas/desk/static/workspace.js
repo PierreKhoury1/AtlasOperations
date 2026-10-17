@@ -113,6 +113,7 @@ async function initStatus(){
 window.addEventListener('DOMContentLoaded', boot);
 async function boot(){
   const q = new URLSearchParams(location.search);
+  window.__siteBrief = q.get('brief') || '';                          // the home page's team builder: its brief, before ?new=1 is rewritten
   W.pin = parseInt(q.get('desk') || '', 10) || 0;
   W.phase = $('#wk').dataset.phase || 'meet';                              // 'load' for a desk link: never a flash of the new-desk copy
   W.sayPh = $('#say').placeholder;
@@ -2628,3 +2629,11 @@ window.shellPage = {
     return c;
   },
 };
+
+
+// the home page's team builder opens the workspace with ?brief=: it lands in the composer, nothing is sent until the owner does
+(function () {
+  const b = window.__siteBrief; if (!b) return;
+  const put = () => { const t = document.getElementById('say'); if (!t) return false; if (!t.value) t.value = b; t.focus(); return true; };
+  if (!put()) document.addEventListener('DOMContentLoaded', put);
+})();

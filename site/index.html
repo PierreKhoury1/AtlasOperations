@@ -66,7 +66,7 @@
       <div>
         <div class="eyebrow">From live feed to action</div>
         <h2>From a camera feed to a reply you approved.</h2>
-        <p>One square, seven cameras, up to forty people at once. The desk tracks each person across views and scores itself against human labels every instant: matches in green, misses in red, the count the cameras agree on at the bottom. Then the agents turn what was seen into work, and every outbound action waits for your approval.</p>
+        <p>One square, four of its seven cameras on screen, up to forty people at once. The desk tracks each person across views and scores itself against human labels every instant: matches in green, misses in red, the count the cameras agree on at the bottom. Below: what the agents do with what was seen.</p>
         <a class="play" href="/desk/review?cams=C1,C2,C3,C6"><i></i>Open this review live</a>
       </div>
       <div class="cam">
@@ -80,6 +80,30 @@
         <div class="act"><div class="th"><svg viewBox="0 0 24 24"><circle cx="8" cy="8" r="3"/><circle cx="16" cy="9" r="2.5"/><path d="M2.5 20a5.5 5.5 0 0 1 11 0M13.5 19a4 4 0 0 1 8 0"/></svg></div><div><b>Queue longer than four</b><small>message the manager, note the time</small></div></div>
         <a class="more" href="/try">Open the live desk <i class="ar">→</i></a>
       </div>
+    </div>
+
+    <div class="flow" id="flow" aria-label="One run: three specialists report to Atlas, Atlas drafts, you approve the send">
+      <div class="fl-head"><div><div class="eyebrow">What happens next</div><h3>Three specialists report to Atlas. Atlas writes the summary and the draft. You approve the send.</h3></div><span class="fl-state" id="f-state">waiting for the cameras</span></div>
+      <div class="fl-grid">
+        <div class="fl-agents">
+          <div class="fa" data-a="vision"><div class="fa-h"><b>Vision agent</b><span class="m">claude · own session</span></div><div class="src">cameras · detector + journal</div><div class="out"></div></div>
+          <div class="fa" data-a="inbox"><div class="fa-h"><b>Inbox agent</b><span class="m">claude · own session</span></div><div class="src">inbox · delivery notes, invoices</div><div class="out"></div></div>
+          <div class="fa" data-a="research"><div class="fa-h"><b>Researcher</b><span class="m">claude · own session</span></div><div class="src">records · orders, rota</div><div class="out"></div></div>
+        </div>
+        <div class="fl-wires" aria-hidden="true"><span class="wire" data-a="vision"></span><span class="wire" data-a="inbox"></span><span class="wire" data-a="research"></span></div>
+        <div class="fl-lead" id="f-lead"><div class="fa-h"><b>Atlas · lead</b><span class="m">claude · own session</span></div><div class="src">briefs the specialists, checks their work, writes the summary · sends nothing itself</div><div class="sum" id="f-sum"></div></div>
+        <div class="fl-phone">
+          <div class="chans" role="radiogroup" aria-label="Channel"><button type="button" data-chan="whatsapp" class="on">WhatsApp</button><button type="button" data-chan="telegram">Telegram</button><button type="button" data-chan="email">Email</button></div>
+          <div class="phone" id="f-phone">
+            <div class="ph-top"><b id="f-to">Sam · Receiving</b><small id="f-ch">WhatsApp</small></div>
+            <div class="ph-body">
+              <div class="appr"><div class="eyebrow">Approval · run 4820</div><div class="msg" id="f-draft"></div><div class="btns"><span class="ok">Approve &amp; send</span><span>Edit</span><span>Reject</span></div></div>
+              <div class="bubble"><span id="f-sent"></span><em id="f-stamp"></em></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <p class="fl-note">An illustration of one run, drawn in the page; the recording above is real, and so is the desk the button opens.</p>
     </div>
   </div>
 </section>
@@ -145,24 +169,31 @@
   </div>
 </section>
 
-<section id="desks" class="scene" data-title="Desks">
+<section id="build" class="scene" data-title="Build">
+  <a id="desks"></a>
   <div class="wrap">
-    <div class="eyebrow">What we install</div>
-    <h2>One desk per function. As many functions as you <b>need</b>.</h2>
-    <p class="lead">A desk is a team of AI agents built around one job in your business — an orchestrator that plans and delegates, specialists that do the work, and an approval queue for you. Start with the desk that pays back fastest, then add the next. They share one memory, one CRM and one approval inbox.</p>
-    <div class="cards five">
-      <div class="card"><div class="ic">📈</div><h3>Sales Desk</h3><p>Finds leads, researches them, drafts personalised outreach, updates your CRM and prepares follow-ups — you approve before anything is sent.</p>
-        <ul><li>Lead sourcing &amp; enrichment</li><li>Personalised email / WhatsApp drafts</li><li>CRM hygiene &amp; follow-up cadence</li><li>Weekly pipeline report</li></ul><div class="for">Estate agents · B2B services</div></div>
-      <div class="card"><div class="ic">📅</div><h3>Support &amp; Booking Desk</h3><p>Answers enquiries, books and reschedules appointments, sends reminders, escalates anything it shouldn't decide.</p>
-        <ul><li>Email / chat / WhatsApp triage</li><li>Calendar booking &amp; reminders</li><li>FAQ &amp; policy answers from your docs</li><li>Escalation with full context</li></ul><div class="for">Clinics · Salons · Trades</div></div>
-      <div class="card"><div class="ic">✍️</div><h3>Content &amp; Outreach Desk</h3><p>Plans and drafts content, product copy, email flows and partner outreach, then reports on what moved the numbers.</p>
-        <ul><li>Content calendar &amp; drafts</li><li>Product / collection copy</li><li>Email &amp; promo campaigns</li><li>Monthly performance report</li></ul><div class="for">E-commerce · Agencies</div></div>
-      <div class="card"><div class="ic">📚</div><h3>Research &amp; Documents Desk</h3><p>Turns a brief into research, strategy, pricing and a client-ready proposal, reviewed by a QA agent before it reaches you.</p>
-        <ul><li>Market &amp; client research briefs</li><li>Proposals, SOWs, reports</li><li>Pricing &amp; business cases</li><li>Partner-level QA pass</li></ul><div class="for">Consultancies · Professional services</div></div>
-      <div class="card"><div class="ic">📷</div><h3>Site &amp; Vision Desk</h3><p>Your cameras and sensors become an input. Shelf gaps, queues, doors and docks turn into reorder drafts, staff messages and bookings — approved by you.</p>
-        <ul><li>Works with existing IP cameras or £10 nodes</li><li>Rules: what, how many, when</li><li>"Ask the cameras" over the event log</li><li>Alerts become drafts, not just alarms</li></ul><div class="for">Retail · Warehouses · Venues</div></div>
+    <div class="eyebrow">Build your own team</div>
+    <h2>Configure the agents. Watch the team <b>form</b>.</h2>
+    <p class="lead">Pick your business and the work that eats your time. The team drafts itself on the right: one lead, the specialists the work needs, the inputs they read, the channels they write on, the rules they keep. Then build it for real; it opens in your workspace with this brief.</p>
+    <div class="builder">
+      <div class="cfg">
+        <div class="grp"><label>Your business</label><div class="chips" id="b-biz"></div></div>
+        <div class="grp"><label>What eats your time</label><div class="chips" id="b-work"></div></div>
+        <div class="grp"><label>Inputs the desk may read</label><div class="chips" id="b-inputs"></div></div>
+        <div class="grp"><label>Channels it may write on</label><div class="chips" id="b-chan"></div></div>
+        <div class="grp"><label>Model</label><div class="chips" id="b-model"></div></div>
+        <div class="grp"><label>Rules</label><div class="rules" id="b-rules"></div></div>
+      </div>
+      <div class="team">
+        <div class="t-head"><b>Your team</b><span id="b-count"></span></div>
+        <div class="stage" id="b-stage">
+          <svg id="b-wires" class="wires" aria-hidden="true"></svg>
+          <div class="ag lead" id="b-lead"><div class="ag-h"><svg viewBox="0 0 24 24"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"/><path d="M12 12l8-4.5M12 12v9M12 12L4 7.5"/></svg><b>Atlas · lead</b><span class="m"></span></div><p></p><div class="tools"><span>Plans</span><span>Briefs</span><span>Checks</span><span>Journal</span></div></div>
+          <div class="agents" id="b-agents"></div>
+        </div>
+        <div class="brief"><div class="eyebrow">The brief Atlas receives</div><p id="b-brief"></p><div class="cta"><a class="btn primary" id="b-go" href="/try">Build this desk <i class="ar">→</i></a><small>Opens your workspace with this brief. Nothing runs until you press Build desk there.</small></div></div>
+      </div>
     </div>
-    <p style="margin-top:26px"><a class="btn ghost" href="desks.html">All desks in detail <i class="ar">→</i></a></p>
   </div>
 </section>
 
@@ -225,6 +256,8 @@
 <script>setInterval(function(){var e=document.getElementById("feedClock");if(e){var d=new Date();e.textContent=d.toISOString().slice(0,10)+"  "+d.toTimeString().slice(0,8)}},1000)</script>
 <script defer src="bgterm.js"></script>
 <script defer src="herofilm.js"></script>
+<script defer src="flow.js"></script>
+<script defer src="team.js"></script>
 <script defer src="cinema.js"></script>
 <script defer src="orch-data.js"></script>
 <script defer src="orch.js"></script>
