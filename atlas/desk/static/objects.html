@@ -14,12 +14,14 @@
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:Inter,system-ui,sans-serif;background:var(--bg);color:var(--text);font-size:14px;line-height:1.5}
 a{color:inherit;text-decoration:none}
-header{display:flex;align-items:center;gap:14px;padding:12px 20px;border-bottom:1px solid var(--line);background:var(--panel);position:sticky;top:0;z-index:5}
-header .brand{font-weight:600;display:flex;align-items:center;gap:8px}
-header .brand i{width:16px;height:16px;border-radius:2px;background:var(--accent);display:inline-block}
-header h1{font-size:16px;font-weight:600}
-header .lead{color:var(--muted);font-size:13px}
+/* the workspace page header: eyebrow, title, one honest sentence, the page's actions on the right */
+header{display:flex;align-items:flex-end;gap:10px 24px;padding:16px 24px 14px;min-width:0}
+header .eyebrow{font-family:var(--mono);font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--faint);font-weight:500;margin-bottom:6px}
+header h1{font-size:21px;font-weight:600;letter-spacing:-.015em;line-height:1.2}
+header .lead{color:var(--muted);font-size:13.5px;margin-top:2px;max-width:720px}
 header .spacer{flex:1}
+header .acts{display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end;padding-bottom:2px}
+main{padding-top:4px}
 .tag{font-family:var(--mono);font-size:11px;border:1px solid var(--line);border-radius:3px;padding:2px 7px;color:var(--muted);white-space:nowrap}
 .tag.ok{color:var(--ok);border-color:var(--ok)} .tag.warn{color:var(--warn);border-color:var(--warn)} .tag.bad{color:var(--danger);border-color:var(--danger)}
 main{display:grid;grid-template-columns:230px 1fr;gap:18px;padding:18px 20px;max-width:1500px}
@@ -75,14 +77,15 @@ label.chk{display:flex;gap:8px;align-items:center;font-size:13px;color:var(--tex
 </head>
 <body>
 <header>
-  <a class="brand" href="/desk#cameras" title="Back to the desk"><i></i>Atlas Desk</a>
-  <div><h1>Objects</h1><div class="lead">Every distinct thing the cameras saw, tracked while it stayed in view. Nothing here comes from a single frame; every row says who vouched for it.</div></div>
+  <div><div class="eyebrow">Atlas desk · cameras</div><h1>Objects</h1><div class="lead">Every distinct thing the cameras saw, tracked while it stayed in view. Nothing here comes from a single frame; every row says who vouched for it.</div></div>
   <div class="spacer"></div>
-  <span class="tag" id="t-workers">workers: –</span>
-  <span class="tag" id="t-audit" title="Latest run of `py -m atlas audit` against human ground truth">audit: –</span>
-  <span class="tag" id="t-live">–</span>
-  <a class="btn sm" href="/desk/review" title="Synced multi-camera review against human labels">Review ↗</a>
-  <a class="btn sm" href="/api/report/day?format=md" target="_blank" title="Today's report by name: who was where and for how long, alerts, summaries, what is disputed">Today's report ↗</a>
+  <div class="acts">
+    <span class="tag" id="t-workers">workers: –</span>
+    <span class="tag" id="t-audit" title="Latest run of `py -m atlas audit` against human ground truth">audit: –</span>
+    <span class="tag" id="t-live">–</span>
+    <a class="btn sm" href="/desk/review" title="Synced multi-camera review against human labels">Review</a>
+    <a class="btn sm" href="/api/report/day?format=md" target="_blank" title="Today's report by name: who was where and for how long, alerts, summaries, what is disputed">Today's report</a>
+  </div>
 </header>
 <main>
   <aside class="filters">
