@@ -90,7 +90,7 @@ def test_start_page_then_design_chat_on_the_owners_agent(app_client):
     c = A.app.test_client()
     assert c.get("/try").headers["Location"].endswith("/desk/start")
     page = c.get("/desk/start")
-    assert page.status_code == 200 and b"Which AI runs your desk" in page.data
+    assert page.status_code == 200 and b"Sync session" in page.data
     me = c.get("/api/me").get_json()
     tok = c.post("/api/bridges", json={"agent": "codex"}).get_json()["token"]
     with c.session_transaction() as sess:

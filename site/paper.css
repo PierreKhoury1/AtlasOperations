@@ -169,8 +169,10 @@ h2 { font-weight: 500; }
 
 /* the hero: the desk itself plays behind the page, blurred and washed to paper; a sharp playback panel on the right */
 .hero.cine.eye { position: relative; overflow: hidden; }
-.herofilm { position: absolute; inset: -6%; z-index: 0; filter: blur(7px) saturate(1.15); opacity: 1; pointer-events: none; }
-.herofilm video { width: 100%; height: 100%; object-fit: cover; display: block; }
+/* the hero film (site/herofilm.js): camera clips with live motion tracks, the agent chain, model panes streaming tokens;
+   drawn at half resolution on a canvas, a light blur so the wash reads as paper, never sharp enough to fight the headline */
+.herofilm { position: absolute; inset: -3%; z-index: 0; filter: blur(1.6px) saturate(1.15); opacity: 1; pointer-events: none; }
+.herofilm canvas, .herofilm video { width: 100%; height: 100%; object-fit: cover; display: block; }
 .hero.eye::before { content: ""; position: absolute; inset: 0; z-index: 1; pointer-events: none; background:
   linear-gradient(90deg, rgba(255,255,255,.93) 0%, rgba(255,255,255,.84) 38%, rgba(255,255,255,.5) 66%, rgba(255,255,255,.4) 100%),
   linear-gradient(180deg, rgba(255,255,255,.8) 0%, rgba(255,255,255,.2) 24%, rgba(255,255,255,.2) 70%, #fff 100%); }
