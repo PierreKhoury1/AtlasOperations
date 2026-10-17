@@ -18,6 +18,69 @@ from .config import INPUTS_DIR
 # be able to print those or send them anywhere, so only what Python needs to start survives.
 _SNIPPET_ENV_KEEP = ("PATH", "SYSTEMROOT", "SYSTEMDRIVE", "WINDIR", "TEMP", "TMP", "LANG", "LC_ALL")
 
+# On Linux the script also runs inside bubblewrap (ATLAS_SANDBOX=auto|bwrap|off, default auto): its own user, pid and
+# network namespaces, a read-only view of /usr and the interpreter, the run folder as /work and nothing else. A stripped
+# environment alone is not enough: the portal's user can read the database socket, the deploy checkout and whatever
+# the secrets file allows, and a script can open sockets to localhost (the database, Caddy's admin API, the portal).
+# "bwrap" refuses to run scripts when bubblewrap is missing; "auto" runs them unsandboxed (with a warning once).
+_SANDBOX_RO = ("/usr", "/lib", "/lib64", "/bin", "/sbin", "/etc/ld.so.cache", "/etc/alternatives",
+               "/etc/python3", "/etc/python3.12", "/etc/python3.13")
+_SANDBOX_MEM = 1024 * 1024 * 1024      # address space per script
+_SANDBOX_PROCS = 64
+_sandbox_warned = False
+
+
+def sandbox_mode() -> str:
+    v = (os.environ.get("ATLAS_SANDBOX") or "auto").strip().lower()
+    return v if v in ("auto", "bwrap", "off") else "auto"
+
+
+def _bwrap_path() -> str:
+    import shutil
+    return shutil.which("bwrap") or "" if os.name != "nt" else ""
+
+
+def sandbox_argv(script_in_work: str, work_dir: str, python: str) -> list[str] | None:
+    """The command that runs `script_in_work` (a path under /work) inside bubblewrap, or None to run it directly.
+    Raises RuntimeError when ATLAS_SANDBOX=bwrap and bubblewrap is not installed."""
+    global _sandbox_warned
+    mode = sandbox_mode()
+    if mode == "off":
+        return None
+    bw = _bwrap_path()
+    if not bw:
+        if mode == "bwrap":
+            raise RuntimeError("run_python is off: ATLAS_SANDBOX=bwrap but bubblewrap (bwrap) is not installed")
+        if not _sandbox_warned:
+            _sandbox_warned = True
+            if os.name != "nt":
+                print("run_python: bubblewrap not found, scripts run unsandboxed (apt install bubblewrap, or ATLAS_SANDBOX=off to silence)")
+        return None
+    argv = [bw, "--unshare-all", "--die-with-parent", "--new-session", "--clearenv"]
+    binds = list(_SANDBOX_RO)
+    import sys as _sys
+    prefix = str(Path(_sys.prefix).resolve())        # a venv outside /usr: the interpreter's own files, read-only
+    if not any(prefix == r or prefix.startswith(r + "/") for r in _SANDBOX_RO):
+        binds.append(prefix)
+    for r in binds:
+        if os.path.exists(r):
+            argv += ["--ro-bind", r, r]
+    argv += ["--tmpfs", "/tmp", "--proc", "/proc", "--dev", "/dev", "--bind", work_dir, "/work", "--chdir", "/work",
+             "--setenv", "HOME", "/work", "--setenv", "PATH", "/usr/local/bin:/usr/bin:/bin",
+             "--setenv", "PYTHONIOENCODING", "utf-8", "--setenv", "PYTHONUTF8", "1", "--setenv", "LANG", "C.UTF-8",
+             python, "-I", script_in_work]
+    return argv
+
+
+def _snippet_limits() -> None:
+    """preexec_fn (POSIX only): cap the script's memory and process count whether or not bubblewrap is there."""
+    try:
+        import resource
+        resource.setrlimit(resource.RLIMIT_AS, (_SANDBOX_MEM, _SANDBOX_MEM))
+        resource.setrlimit(resource.RLIMIT_NPROC, (_SANDBOX_PROCS, _SANDBOX_PROCS))
+    except Exception:
+        pass
+
 
 def _snippet_env(run_dir: Path) -> dict[str, str]:
     env = {k: os.environ[k] for k in _SNIPPET_ENV_KEEP if k in os.environ}
@@ -526,8 +589,17 @@ class WorkspaceTools:
         script = run_dir / f"_snippet_{int(__import__('time').time() * 1000)}.py"
         script.write_text(code, encoding="utf-8")
         try:
-            r = subprocess.run([_sys.executable, "-I", str(script)], cwd=str(run_dir), capture_output=True,
-                               text=True, timeout=60, encoding="utf-8", errors="replace", env=_snippet_env(run_dir))
+            try:
+                argv = sandbox_argv("/work/" + script.name, str(run_dir), _sys.executable)
+            except RuntimeError as exc:
+                return f"error: {exc}"
+            kw: dict[str, Any] = {}
+            if os.name != "nt":
+                kw["preexec_fn"] = _snippet_limits
+            if argv is None:
+                argv = [_sys.executable, "-I", str(script)]
+            r = subprocess.run(argv, cwd=str(run_dir), capture_output=True, text=True, timeout=60, encoding="utf-8",
+                               errors="replace", env=_snippet_env(run_dir), **kw)
         except subprocess.TimeoutExpired:
             return "error: script exceeded 60s"
         finally:

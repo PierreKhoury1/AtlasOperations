@@ -200,6 +200,21 @@ fi
 # a model-written run_python script (which runs as that user) could read every key in it.
 chown root:root "$ENVF"; chmod 600 "$ENVF"
 
+# run_python sandbox: bubblewrap, plus the AppArmor profile Ubuntu 24.04 needs before an unprivileged user may
+# create user namespaces (without it bwrap dies with "loopback: Failed RTM_NEWADDR: Operation not permitted")
+DEBIAN_FRONTEND=noninteractive apt-get install -y -qq bubblewrap >/dev/null
+cat > /etc/apparmor.d/bwrap <<'EOF_AA'
+abi <abi/4.0>,
+include <tunables/global>
+
+profile bwrap /usr/bin/bwrap flags=(unconfined) {
+  userns,
+  include if exists <local/bwrap>
+}
+EOF_AA
+apparmor_parser -r /etc/apparmor.d/bwrap || true
+grep -q '^ATLAS_SANDBOX=' "$ENVF" || echo 'ATLAS_SANDBOX=bwrap' >> "$ENVF"
+
 echo "== systemd"
 cat > /etc/systemd/system/hermes.service <<EOT
 [Unit]
