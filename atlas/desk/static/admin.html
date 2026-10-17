@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Atlas Desk · Admin</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<script>try{var t=localStorage.getItem("atlas-theme");document.documentElement.dataset.theme=t||"light"}catch(e){document.documentElement.dataset.theme="light"}</script>
+<script>try{if(localStorage.getItem("sh-mini")==="1")document.documentElement.classList.add("sh-mini-pre")}catch(e){}</script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/desk/static/usage.css">
+<link rel="stylesheet" href="/desk/static/admin.css">
+<link rel="stylesheet" href="/desk/static/shell.css">
+<script src="/desk/static/shell.js" defer></script>
+<script src="/desk/static/admin.js" defer></script>
+</head>
+<body>
+<!-- Operator admin (usage spec §7.2): every account, today's use against the limits in force, and the per-account
+     overrides. Numbers come from /api/admin/accounts; a change is PUT /api/admin/accounts/<id>/limits. -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></symbol>
+  <symbol id="i-moon" viewBox="0 0 24 24"><path d="M20 14.5A8 8 0 0 1 9.5 4 8 8 0 1 0 20 14.5z"/></symbol>
+  <symbol id="i-alert" viewBox="0 0 24 24"><path d="M12 3 2 20h20L12 3Z"/><path d="M12 10v4"/><path d="M12 17h.01"/></symbol>
+  <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3 4 6v6c0 5 3.5 8 8 9 4.5-1 8-4 8-9V6l-8-3Z"/></symbol>
+  <symbol id="i-chev" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></symbol>
+</svg>
+
+<main class="up" id="up" aria-busy="true">
+  <header class="uh">
+    <div class="uh-t">
+      <h1><svg class="i" aria-hidden="true"><use href="#i-shield"/></svg>Admin</h1>
+      <p class="sub" id="a-sub">Reading accounts…</p>
+    </div>
+    <div class="uh-c">
+      <label class="sel" for="a-filter"><span class="vh">Show</span><select id="a-filter"><option value="real">Accounts</option><option value="all">Accounts + guests</option><option value="over">With overrides</option></select></label>
+      <input class="srch mono" id="a-q" type="search" placeholder="email, name, company" aria-label="Find an account">
+      <span class="upd mono" id="a-upd" aria-live="polite"></span>
+      <button class="btn sm ic" id="a-refresh" type="button" title="Refresh now (R)" aria-label="Refresh now"><svg class="i"><use href="#i-refresh"/></svg></button>
+      <button class="btn sm ic" id="a-theme" type="button" title="Dark theme" aria-label="Switch to the dark theme"><svg class="i"><use href="#i-moon"/></svg></button>
+    </div>
+  </header>
+
+  <div class="errbar hide" id="a-err" role="alert"><svg class="i"><use href="#i-alert"/></svg><span id="a-err-t">Could not load accounts.</span><button class="btn sm" id="a-retry" type="button">Retry</button></div>
+
+  <div class="kpis" id="a-stats" aria-label="All accounts today">
+    <div class="kpi sk"><span class="l">Accounts</span><span class="v">&nbsp;</span><span class="s">&nbsp;</span></div>
+    <div class="kpi sk"><span class="l">Active today</span><span class="v">&nbsp;</span><span class="s">&nbsp;</span></div>
+    <div class="kpi sk"><span class="l">AI requests</span><span class="v">&nbsp;</span><span class="s">&nbsp;</span></div>
+    <div class="kpi sk"><span class="l">Paid this month</span><span class="v">&nbsp;</span><span class="s">&nbsp;</span></div>
+    <div class="kpi sk"><span class="l">Refused today</span><span class="v">&nbsp;</span><span class="s">&nbsp;</span></div>
+    <div class="kpi sk"><span class="l">Overrides</span><span class="v">&nbsp;</span><span class="s">&nbsp;</span></div>
+  </div>
+
+  <section class="panel" id="p-accounts" aria-labelledby="h-accounts">
+    <div class="ph"><h2 id="h-accounts">Accounts</h2><span class="meta" id="a-meta"></span></div>
+    <div class="tscroll"><table class="tbl acct" id="a-table">
+      <thead><tr><th></th><th>Account</th><th>Company · role</th><th class="n">Desks</th><th class="n">AI today</th><th class="n">Auto</th><th class="n">Paid / month</th><th class="n">Refused</th><th>Last seen</th><th>Limits</th></tr></thead>
+      <tbody id="a-rows"><tr><td colspan="10"><div class="skrows"><i></i><i></i><i></i><i></i></div></td></tr></tbody>
+    </table></div>
+    <div class="pf"><span class="meta" id="a-foot"></span></div>
+  </section>
+</main>
+</body>
+</html>

@@ -103,7 +103,8 @@
                    ['objects', 'Objects', '/desk/objects', 'box', 'everything the cameras ever tracked'],
                    ['review', 'Review', '/desk/review', 'film', 'multi-camera playback, measured'],
                    ['security', 'Security', '/desk/cyber', 'shield', 'log detections, incidents, containment'],
-                   ['studio', 'Ad studio', '/desk#studio', 'spark', 'copy and images for a campaign']]],
+                   ['studio', 'Ad studio', '/desk#studio', 'spark', 'copy and images for a campaign'],
+                   ['admin', 'Admin', '/desk/admin', 'shield', 'operator only: every account, its use and limits']]],
   ];
   // an owner with no desk yet: the same frame, with only the way in (Atlas drafts the first desk in the workspace)
   // (design chat counts against the account's allowance before any desk exists, so Usage is here too)
@@ -121,6 +122,7 @@
     if (p === '/desk/cyber' || p === '/desk/static/cyber.html') return 'security';
     if (p === '/desk/workspace') return 'design';
     if (p === '/desk/usage') return 'usage';
+    if (p === '/desk/admin') return 'admin';
     const h = location.hash.slice(1) || 'dash';
     return h === 'dash' ? 'home' : h;
   }
@@ -257,6 +259,7 @@ APPROVALS</div></div></div>
     m.querySelector('#sh-th').onclick = () => { toggleTheme(); m.remove(); const b = document.getElementById('sh-theme'); if (b) b.innerHTML = svg(document.documentElement.dataset.theme === 'dark' ? 'sun' : 'moon'); };
   }
   function setMe(me) {
+    document.documentElement.classList.toggle('sh-op', !!(me && me.operator));   // the Admin link shows for the operator only
     if (!document.getElementById('sh-me')) return;
     if (me && me.id && me.guest) {
       document.getElementById('sh-me').textContent = 'Guest desk'; document.getElementById('sh-co').textContent = 'no account yet · sign up to keep it';

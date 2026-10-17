@@ -952,6 +952,7 @@ def api_me():
     out["google"] = bool(u.get("google_sub"))
     out["guest"] = _is_guest(u)
     out["profile_complete"] = _is_guest(u) or store.profile_complete(u)
+    out["operator"] = bool(OPEN or U.is_operator(u))
     required = AUTH.two_factor_mode() == "required"
     out["two_factor"] = AUTH.two_factor_active() and (required or bool(int(u.get("two_factor") or 0)))
     out["two_factor_available"] = AUTH.two_factor_active()
@@ -2897,6 +2898,117 @@ def api_usage_house():
     if not operator:
         return jsonify({"error": "operator_only", "message": "The house view is for the operator."}), 403
     return jsonify(U.house_view())
+
+
+# ---------------------------------------------------------------------------- operator admin: every account's limits
+_ADMIN_NONE = ("none", "unlimited", "off", "no limit", "null")
+
+
+def _operator_or_403():
+    u = current_user()
+    if not (OPEN or U.is_operator(u)):
+        abort(Response(json.dumps({"error": "operator_only", "message": "The admin page is for the operator "
+                                                                        "(USAGE_OPERATOR_EMAILS)."}), 403, mimetype="application/json"))
+    return u
+
+
+def _admin_value(lid: str, raw) -> tuple[Any, str]:
+    """A limit value from the admin page: (value, "") or (None, error). None value = no Atlas limit."""
+    if raw is None or (isinstance(raw, str) and raw.strip().lower() in _ADMIN_NONE):
+        return None, ""
+    unit = U.LIMITS[lid]["unit"]
+    try:
+        v = float(raw)
+    except (TypeError, ValueError):
+        return None, "give a number, or 'none' for no limit"
+    if v != v or v in (float("inf"), float("-inf")) or v < 0:
+        return None, "give 0 or more, or 'none' for no limit"
+    if unit in ("usd", "MB"):
+        return round(v, 4), ""
+    if not v.is_integer():
+        return None, f"{lid} counts whole {unit}"
+    if lid == "run_requests" and v < 1:
+        return None, "run_requests must be 1 or more ('none' for no per-run cap)"
+    return int(v), ""
+
+
+def _admin_row(u: dict[str, Any], today: dict[int, dict[str, Any]], desks: dict[int, int]) -> dict[str, Any]:
+    oid = int(u["id"])
+    t = today.get(oid) or {}
+    ov = {r["limit_id"]: r for r in U.overrides(oid)}
+    return {"id": oid, "email": u.get("email") or "", "name": u.get("name") or "", "company": u.get("company") or "",
+            "role": u.get("role") or "", "created": u.get("created"), "last_login": u.get("last_login"),
+            "guest": _is_guest(u), "google": bool(u.get("google_sub")), "desks": desks.get(oid, 0),
+            "unlimited": U.is_unlimited(oid),
+            "today": {"ai_requests_day": int(t.get("ai_requests_day") or 0),
+                      "ai_requests_auto_day": int(t.get("ai_requests_auto_day") or 0),
+                      "paid_usd_month": float(t.get("paid_usd_month") or 0.0), "refused": int(t.get("refused_today") or 0)},
+            "limits": [{"id": lid, "label": U.LIMITS[lid]["label"], "unit": U.LIMITS[lid]["unit"],
+                        "window": U.LIMITS[lid]["window"], "value": U.limit_value(oid, lid),
+                        "override": ({"value": ov[lid]["value"], "note": ov[lid].get("note") or "",
+                                      "set_by": ov[lid].get("set_by") or "", "updated": ov[lid].get("updated")}
+                                     if lid in ov else None)} for lid in U.OWNER_LIMITS]}
+
+
+def _admin_accounts() -> list[dict[str, Any]]:
+    rows = _rows_dicts(store._conn.execute(
+        "SELECT id,email,name,company,role,created,last_login,google_sub FROM users ORDER BY id"))
+    desks = {int(o or 0): int(n or 0) for o, n in store._conn.execute("SELECT owner_id, COUNT(*) FROM desks GROUP BY owner_id").fetchall()}
+    today = {int(r["owner_id"]): r for r in (U.house_view().get("owners") or [])}
+    return [_admin_row(u, today, desks) for u in rows]
+
+
+def _rows_dicts(cur) -> list[dict[str, Any]]:
+    cols = [c[0] for c in cur.description]
+    return [dict(zip(cols, r)) for r in cur.fetchall()]
+
+
+@app.get("/desk/admin")
+def desk_admin_page():
+    if not current_user() and not OPEN:
+        return redirect(_login_next())
+    if not (OPEN or U.is_operator(current_user())):
+        return _page("login.html", error="The admin page is for the operator. Sign in with the operator account.",
+                     email="", google=_google_cls()), 403
+    return send_from_directory(STATIC_DIR, "admin.html")
+
+
+@app.get("/api/admin/accounts")
+def api_admin_accounts():
+    """Operator only: every account with today's use, the limits in force and any overrides (usage spec §7.2)."""
+    _operator_or_403()
+    resp = jsonify({"as_of": int(time.time()), "enforced": U.CFG.enforce, "limits": [
+        {"id": lid, "label": U.LIMITS[lid]["label"], "unit": U.LIMITS[lid]["unit"], "window": U.LIMITS[lid]["window"]}
+        for lid in U.OWNER_LIMITS], "accounts": _admin_accounts(), "applies_s": int(U._OV_TTL)})
+    resp.headers["Cache-Control"] = "no-store"
+    return resp
+
+
+@app.put("/api/admin/accounts/<int:oid>/limits")
+def api_admin_set_limit(oid: int):
+    """Operator only: {limit_id, value, note}. value: a number, 'none' (no limit) or 'default' (drop the override)."""
+    op = _operator_or_403()
+    d = request.get_json(silent=True) or {}
+    lid = str(d.get("limit_id") or "")
+    if lid not in U.OWNER_LIMITS:
+        return jsonify({"error": "bad_limit", "message": f"not a per-account limit; one of {', '.join(U.OWNER_LIMITS)}"}), 400
+    u = store.user(oid)
+    if not u:
+        return jsonify({"error": "no_such_account"}), 404
+    raw = d.get("value")
+    note = str(d.get("note") or "").strip()[:200]
+    set_by = ("web:" + str(op.get("email") or "operator"))[:120] if op else "web:open"
+    if isinstance(raw, str) and raw.strip().lower() == "default":
+        U.clear_override(oid, lid)
+    else:
+        value, err = _admin_value(lid, raw)
+        if err:
+            return jsonify({"error": "bad_value", "message": err}), 400
+        U.set_override(oid, lid, value, note=note, set_by=set_by)
+    print(f"admin: {set_by} set {lid} for account {oid} ({u.get('email')}) -> {raw!r}")
+    today = {int(r["owner_id"]): r for r in (U.house_view().get("owners") or [])}
+    desks = {int(o or 0): int(n or 0) for o, n in store._conn.execute("SELECT owner_id, COUNT(*) FROM desks GROUP BY owner_id").fetchall()}
+    return jsonify({"ok": True, "account": _admin_row(store.user(oid), today, desks), "applies_s": int(U._OV_TTL)})
 
 
 _last_prune = [0.0]
