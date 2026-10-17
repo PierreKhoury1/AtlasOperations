@@ -106,7 +106,9 @@ def merge_secrets(old: dict[str, Any], new: dict[str, Any]) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------- email out
-def send_email(cfg: dict[str, Any], to: str, subject: str, body: str) -> str:
+def send_email(cfg: dict[str, Any], to: str, subject: str, body: str, in_reply_to: str = "") -> str:
+    """One plain-text mail through the owner's SMTP. in_reply_to (the Message-ID of the mail being answered) sets
+    In-Reply-To and References so Gmail and Outlook keep the reply in the customer's thread."""
     host = cfg.get("host", "").strip()
     port = int(cfg.get("port") or 587)
     user = cfg.get("user", "").strip()
@@ -119,6 +121,10 @@ def send_email(cfg: dict[str, Any], to: str, subject: str, body: str) -> str:
     msg["From"] = f"{from_name} <{from_email}>" if from_name else from_email
     msg["To"] = to
     msg["Subject"] = subject or "(no subject)"
+    msg["Message-ID"] = email.utils.make_msgid(domain=from_email.split("@")[-1] if "@" in from_email else None)
+    if in_reply_to:
+        msg["In-Reply-To"] = in_reply_to
+        msg["References"] = in_reply_to
     msg.set_content(body)
     ctx = ssl.create_default_context()
     if port == 465:
@@ -185,7 +191,99 @@ def _body_of(msg) -> str:
         return str(msg.get_payload())
 
 
-def fetch_unseen(cfg: dict[str, Any], limit: int = 10, mark_seen: bool = True) -> list[dict[str, str]]:
+_BULK_LOCAL = ("noreply", "no-reply", "no_reply", "donotreply", "do-not-reply", "mailer-daemon", "postmaster", "bounce",
+               "notifications", "notification", "newsletter", "news", "marketing", "alerts", "alert", "info-noreply")
+ATTACH_TEXT_MAX = 6000          # characters of attachment text appended to a mail's body
+ATTACH_BYTES_MAX = 8 << 20      # an attachment bigger than this is listed, not read
+
+
+def is_bulk(msg, from_email: str) -> str:
+    """Why a mail is machine mail that must not become a lead or a run ('' = a person wrote it): auto-submitted
+    replies, list mail, bulk precedence, bounces and no-reply senders."""
+    auto = str(msg.get("Auto-Submitted", "")).strip().lower()
+    if auto and auto != "no":
+        return "auto-submitted"
+    if msg.get("List-Unsubscribe") or msg.get("List-Id"):
+        return "mailing list"
+    prec = str(msg.get("Precedence", "") or msg.get("X-Priority-Bulk", "")).strip().lower()
+    if prec in ("bulk", "list", "junk"):
+        return "bulk precedence"
+    if str(msg.get("X-Auto-Response-Suppress", "")).strip():
+        return "auto-response"
+    ctype = (msg.get_content_type() or "").lower()
+    if ctype == "multipart/report":
+        return "delivery report"
+    local = (from_email.split("@")[0] if "@" in from_email else from_email).lower()
+    if any(local == b or local.startswith(b + "+") or local.startswith(b + ".") or local.startswith(b + "-") or local.startswith(b + "_") for b in _BULK_LOCAL):
+        return "no-reply sender"
+    return ""
+
+
+def _attachment_text(part) -> str:
+    """Readable text from one attachment: text/* as is, PDF through pypdf when installed, else ''."""
+    ctype = (part.get_content_type() or "").lower()
+    try:
+        raw = part.get_payload(decode=True) or b""
+    except Exception:
+        return ""
+    if not raw or len(raw) > ATTACH_BYTES_MAX:
+        return ""
+    if ctype.startswith("text/") or ctype in ("application/json", "application/csv"):
+        try:
+            return raw.decode(part.get_content_charset() or "utf-8", errors="replace")
+        except Exception:
+            return ""
+    if ctype == "application/pdf" or (part.get_filename() or "").lower().endswith(".pdf"):
+        try:
+            import io
+            from pypdf import PdfReader
+            r = PdfReader(io.BytesIO(raw))
+            return "\n".join((p.extract_text() or "") for p in r.pages[:20])
+        except Exception:
+            return ""
+    return ""
+
+
+def attachments_of(msg) -> list[dict[str, Any]]:
+    """[{name, type, size, text}] for every attachment part (text truncated to ATTACH_TEXT_MAX in total by the caller)."""
+    out: list[dict[str, Any]] = []
+    if not msg.is_multipart():
+        return out
+    for part in msg.walk():
+        disp = str(part.get("Content-Disposition", "")).lower()
+        name = part.get_filename() or ""
+        if "attachment" not in disp and not (name and part.get_content_maintype() not in ("text", "multipart")):
+            continue
+        if part.get_content_maintype() == "multipart":
+            continue
+        try:
+            size = len(part.get_payload(decode=True) or b"")
+        except Exception:
+            size = 0
+        out.append({"name": _decode(name) or "(unnamed)", "type": part.get_content_type(), "size": size,
+                    "text": _attachment_text(part).strip()})
+    return out
+
+
+def _with_attachments(body: str, atts: list[dict[str, Any]]) -> str:
+    if not atts:
+        return body
+    budget = ATTACH_TEXT_MAX
+    lines = [body.rstrip(), "", f"[{len(atts)} attachment{'s' if len(atts) != 1 else ''}: " + ", ".join(
+        f"{a['name']} ({a['type']}, {a['size'] // 1024} KB)" for a in atts) + "]"]
+    for a in atts:
+        if not a["text"] or budget <= 0:
+            continue
+        chunk = a["text"][:budget]
+        budget -= len(chunk)
+        lines += ["", f"--- {a['name']} ---", chunk + ("" if len(chunk) == len(a["text"]) else "\n...[truncated]")]
+    return "\n".join(lines)
+
+
+def fetch_unseen(cfg: dict[str, Any], limit: int = 10, mark_seen: bool = True) -> list[dict[str, Any]]:
+    """Unread mails, oldest first, each {uid, from_name, from_email, subject, body, date, message_id, in_reply_to,
+    bulk, attachments}. bulk names why a mail is machine mail (the caller skips it); attachments' text is folded
+    into body so the desk reads a PDF invoice or a .txt the way it reads the mail."""
     host = cfg.get("host", "").strip()
     port = int(cfg.get("port") or 993)
     folder = cfg.get("folder") or "INBOX"
@@ -202,9 +300,13 @@ def fetch_unseen(cfg: dict[str, Any], limit: int = 10, mark_seen: bool = True) -
                 continue
             msg = email.message_from_bytes(raw[0][1])
             name, addr = email.utils.parseaddr(_decode(msg.get("From")))
+            atts = attachments_of(msg)
             out.append({"uid": uid.decode(), "from_name": name or addr.split("@")[0], "from_email": addr,
-                        "subject": _decode(msg.get("Subject")), "body": _body_of(msg).strip()[:4000],
-                        "date": msg.get("Date", "")})
+                        "subject": _decode(msg.get("Subject")),
+                        "body": _with_attachments(_body_of(msg).strip()[:4000], atts)[:4000 + ATTACH_TEXT_MAX + 400],
+                        "date": msg.get("Date", ""), "message_id": str(msg.get("Message-ID", "") or "").strip(),
+                        "in_reply_to": str(msg.get("In-Reply-To", "") or "").strip(), "bulk": is_bulk(msg, addr),
+                        "attachments": [{k: a[k] for k in ("name", "type", "size")} for a in atts]})
             if mark_seen:
                 M.store(uid, "+FLAGS", "\\Seen")
         return out
@@ -974,7 +1076,8 @@ def deliver(conn: dict[str, Any], kind: str, to: str, subject: str, body: str, m
     if meta is not None:
         meta["provider"] = _SENDERS.get(str(k), str(k or ""))
     if kind == "email":
-        return send_email(cfg, to, subject, body) if k == "smtp" else send_resend(cfg, to, subject, body)
+        reply_to = str((meta or {}).get("in_reply_to") or "")
+        return send_email(cfg, to, subject, body, in_reply_to=reply_to) if k == "smtp" else send_resend(cfg, to, subject, body)
     if kind == "whatsapp":
         text = (subject + "\n\n" + body).strip() if subject and subject not in body else body
         return send_whatsapp(cfg, to, text) if k == "whatsapp" else send_twilio(cfg, to, text, "whatsapp", meta)

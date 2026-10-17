@@ -5,3 +5,4 @@ anthropic>=1.0
 Pillow>=10
 numpy>=1.26
 psycopg[binary]>=3.1
+pypdf>=4            # text of PDF attachments on inbound mail (atlas/integrations.py)

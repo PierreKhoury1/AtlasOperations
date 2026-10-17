@@ -3238,6 +3238,8 @@ def _deliver_metered(desk: dict[str, Any], conn: dict[str, Any], kind: str, to: 
     reservation goes back when nothing went out (the ledger keeps the error's type and HTTP status, never its text)."""
     res = res or U.channel_send(desk, kind, to, meter=meter)
     meta: dict[str, Any] = {}
+    if kind == "email":
+        meta["in_reply_to"] = store.last_inbound_msg_id(desk["id"], to)     # threads the reply under their mail
     try:
         out = I.deliver(conn, kind, to, subject, body, meta=meta)
     except BaseException as exc:

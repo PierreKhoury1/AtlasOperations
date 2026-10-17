@@ -1081,8 +1081,15 @@ def _run_job(store, job: dict[str, Any], start_run: Callable, desk_for: Callable
         # S46 (usage spec §1.6): the fetch already marked these mails \Seen, so every one is stored first (message,
         # lead, contact); only then do runs start, each on its own, so a refusal can never lose the rest of the batch
         work: list[tuple[dict[str, Any], Any]] = []
+        skipped: list[str] = []
         for m in mails:
-            ds.add_message("email", "in", m["from_email"], m["body"], subject=m["subject"], actor=m["from_name"] or m["from_email"])
+            if m.get("bulk"):                            # newsletters, bounces, auto-replies: logged, never a lead or a run
+                skipped.append(f"{m['from_email']} ({m['bulk']})")
+                ds.add_message("email", "in", m["from_email"], m["body"], subject=m["subject"],
+                               actor=m["from_name"] or m["from_email"], status="bulk", msg_id=m.get("message_id") or "")
+                continue
+            ds.add_message("email", "in", m["from_email"], m["body"], subject=m["subject"], actor=m["from_name"] or m["from_email"],
+                           msg_id=m.get("message_id") or "")
             open_ = C.match_open(store, desk["id"], email=m["from_email"]) if cases_on else None
             if open_:                                    # a reply to a conversation the desk is already having
                 work.append((m, open_))
@@ -1134,6 +1141,8 @@ def _run_job(store, job: dict[str, Any], start_run: Callable, desk_for: Callable
                 ds.set_lead(lid, status="running", run_id=rid)
                 started.append(rid)
         out = f"{len(mails)} new email(s)" + (f", runs {', '.join(started)}" if started else "")
+        if skipped:
+            out += f"; skipped {len(skipped)} machine mail: " + "; ".join(skipped[:3])
         if held is not None:
             until = U.until_text(held)
             out += f"; {len(waiting)} waiting: {U.brief(held)}" + (f", runs after {until}" if until else "")

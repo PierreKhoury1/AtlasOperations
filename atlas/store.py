@@ -166,6 +166,7 @@ _MIGRATIONS = [
     ("leads", "desk_id", "INTEGER DEFAULT 1"),
     ("desks", "hook_token", "TEXT"),
     ("jobs", "last_status", "TEXT DEFAULT ''"),
+    ("messages", "msg_id", "TEXT DEFAULT ''"),                    # the mail's Message-ID (inbound), for reply threading
     ("jobs", "at", "TEXT DEFAULT ''"),                            # clock schedule: HH:MM in tz (atlas/desk/scheduler.py next_due)
     ("jobs", "on_days", "TEXT DEFAULT ''"),                       # daily | weekdays | weekends | mon,tue,... ("" = daily)
     ("jobs", "tz", "TEXT DEFAULT ''"),                            # IANA zone for `at` ("" = ATLAS_TZ, else Europe/London)
@@ -1187,16 +1188,24 @@ class Store:
         return None
 
     def add_message(self, channel: str, direction: str, addr: str, body: str, subject: str = "", actor: str = "",
-                    status: str = "sent", run_id: str = "", action_id: int = 0, desk_id: int = 1, ts: float | None = None) -> int:
+                    status: str = "sent", run_id: str = "", action_id: int = 0, desk_id: int = 1, ts: float | None = None,
+                    msg_id: str = "") -> int:
         with self._lock:
             self._conn.execute(
-                "INSERT INTO messages(desk_id,contact_key,channel,dir,addr,actor,subject,body,status,ts,run_id,action_id) "
-                "VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+                "INSERT INTO messages(desk_id,contact_key,channel,dir,addr,actor,subject,body,status,ts,run_id,action_id,msg_id) "
+                "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (desk_id, self.message_key(addr), channel, direction, (addr or "").strip(), actor or "", subject or "",
-                 (body or "")[:8000], status, ts if ts is not None else time.time(), run_id or "", int(action_id or 0)))
+                 (body or "")[:8000], status, ts if ts is not None else time.time(), run_id or "", int(action_id or 0),
+                 (msg_id or "")[:300]))
             mid = self._conn.execute("SELECT last_insert_rowid()").fetchone()[0]
             self._conn.commit()
         return int(mid)
+
+    def last_inbound_msg_id(self, desk_id: int, addr: str) -> str:
+        """The Message-ID of the newest mail this customer sent the desk, so a reply threads under it."""
+        row = self._conn.execute("SELECT msg_id FROM messages WHERE desk_id=? AND contact_key=? AND channel='email' AND dir='in' "
+                                 "AND msg_id<>'' ORDER BY ts DESC LIMIT 1", (desk_id, self.message_key(addr))).fetchone()
+        return str(row[0]) if row and row[0] else ""
 
     def messages(self, contact_key: str, limit: int = 300, desk_id: int = 1) -> list[dict[str, Any]]:
         return _rows(self._conn.execute("SELECT * FROM messages WHERE desk_id=? AND contact_key=? ORDER BY ts DESC, id DESC LIMIT ?",
