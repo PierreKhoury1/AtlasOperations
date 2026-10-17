@@ -139,7 +139,7 @@ input:focus, select:focus, textarea:focus { box-shadow: 0 0 0 3px rgba(45,114,21
 .row { background: var(--panel); border-color: var(--line); }
 .row .tag { background: var(--panel2); border-color: var(--line); }
 .film { background: var(--bg2); }
-.film:not(.hero-film) canvas { opacity: 0 !important; }   /* the terminal film stays off on inner pages: plain paper */
+.film canvas { opacity: 0 !important; }   /* the terminal film stays off: plain paper */
 .film::after, .phero .film::after, #pipeline .film::after { background: var(--bg2); }
 .shots-track figure { background: var(--panel); border-color: var(--line); }
 .shots-track img { border-bottom-color: var(--line); }
@@ -169,21 +169,11 @@ h2 { font-weight: 500; }
 
 /* the hero: the desk itself plays behind the page, blurred and washed to paper; a sharp playback panel on the right */
 .hero.cine.eye { position: relative; overflow: hidden; }
-/* the hero film: desk terminals running real workflows and two model panes streaming tokens (bgterm.js), drawn
-   sharp at 0.6 scale, washed to paper on the left so the headline stays crisp; a faint blueprint grid and a slow
-   light sweep under it */
-.hero-film { background: #fff; }
-.hero-film::before { content: ""; position: absolute; inset: 0; z-index: 0; pointer-events: none; opacity: .55; background-image:
-  linear-gradient(rgba(45,114,210,.07) 1px, transparent 1px), linear-gradient(90deg, rgba(45,114,210,.07) 1px, transparent 1px);
-  background-size: 48px 48px; mask-image: radial-gradient(ellipse 70% 80% at 70% 45%, #000 20%, transparent 80%); -webkit-mask-image: radial-gradient(ellipse 70% 80% at 70% 45%, #000 20%, transparent 80%); }
-.hero-film canvas { inset: -2%; width: 104%; height: 104%; opacity: .8 !important; transition: none; }   /* first paint already has history on it */
-.hero-film::after { content: ""; position: absolute; inset: 0; z-index: 2; pointer-events: none; background:
-  linear-gradient(90deg, rgba(255,255,255,.98) 0%, rgba(255,255,255,.96) 30%, rgba(255,255,255,.8) 44%, rgba(255,255,255,.38) 60%, rgba(255,255,255,.12) 80%, rgba(255,255,255,.3) 100%),
-  linear-gradient(180deg, rgba(255,255,255,.9) 0%, rgba(255,255,255,.1) 22%, rgba(255,255,255,.06) 70%, #fff 100%); }
-.hero-film .sweep { position: absolute; inset: -20% -40%; z-index: 1; pointer-events: none; background: linear-gradient(100deg, transparent 40%, rgba(45,114,210,.07) 50%, transparent 60%); animation: heroSweep 14s linear infinite; }
-@keyframes heroSweep { from { transform: translateX(-30%); } to { transform: translateX(30%); } }
-@media (prefers-reduced-motion: reduce) { .hero-film .sweep { animation: none; } }
-.hero.eye::before { display: none; }
+.herofilm { position: absolute; inset: -6%; z-index: 0; filter: blur(7px) saturate(1.15); opacity: 1; pointer-events: none; }
+.herofilm video { width: 100%; height: 100%; object-fit: cover; display: block; }
+.hero.eye::before { content: ""; position: absolute; inset: 0; z-index: 1; pointer-events: none; background:
+  linear-gradient(90deg, rgba(255,255,255,.93) 0%, rgba(255,255,255,.84) 38%, rgba(255,255,255,.5) 66%, rgba(255,255,255,.4) 100%),
+  linear-gradient(180deg, rgba(255,255,255,.8) 0%, rgba(255,255,255,.2) 24%, rgba(255,255,255,.2) 70%, #fff 100%); }
 .hero.eye .grid { position: relative; z-index: 2; }
 .eyevid.play { aspect-ratio: auto; background: #fff; border: 1px solid var(--line2); border-radius: 12px; box-shadow: var(--shadow-lg); }
 .eyevid.play::after { display: none; }
@@ -191,4 +181,4 @@ h2 { font-weight: 500; }
 .eyevid.play .pbar .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); flex: 0 0 7px; box-shadow: 0 0 0 3px var(--ok-soft); }
 .eyevid.play .pbar .t { margin-left: auto; color: var(--faint); }
 .eyevid.play video { position: static; width: 100%; height: auto; aspect-ratio: 16 / 9; display: block; background: #f6f8fb; }
-@media (max-width: 960px) { .hero-film canvas.on { opacity: .5 !important; } .hero-film::after { background: linear-gradient(180deg, rgba(255,255,255,.97), rgba(255,255,255,.85) 55%, #fff 100%); } }
+@media (max-width: 960px) { .herofilm { opacity: .45; } .hero.eye::before { background: linear-gradient(180deg, rgba(255,255,255,.96), rgba(255,255,255,.8) 60%, #fff 100%); } }

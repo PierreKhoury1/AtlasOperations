@@ -40,19 +40,6 @@
     [["[hermes]   ", "y"], ["browser fallback: bot-walled site · 2 retries · ok", "t"]],
     [["$ ", "p"], ["py -m atlas scenario corner-store --minutes 8", "t"]],
     [["[vision]   ", "b"], ["frame 41 · motion .18 · person=1 · snapshot saved", "t"]],
-    [["$ ", "p"], ["atlas desk \"Hollis & Grey lettings\" --run \"arrears sweep\"", "t"]],
-    [["[inbox]    ", "b"], ["12 new · 3 machine mail skipped (noreply, list) · 9 to the desk", "t"]],
-    [["[inbox]    ", "b"], ["invoice.pdf read (2 pages) · meter photo listed, not read", "m"]],
-    [["[arrears]  ", "k"], ["7 tenants > 7 days late · 2 on a payment plan → skip", "t"]],
-    [["[writer]   ", "k"], ["5 reminders drafted · tone: firm, polite · no fees quoted", "t"]],
-    [["[approval] ", "w"], ["5 messages waiting · manager@hollis-grey · WhatsApp + email", "w"]],
-    [["[schedule] ", "b"], ["08:00 on weekdays (Europe/London) · next Mon 26 Oct", "t"]],
-    [["[viewings] ", "g"], ["3 slots offered · Flat 4 Browning St · Tue 11:00 booked", "g"]],
-    [["[repairs]  ", "y"], ["boiler · tenant photo · gas engineer asked for Thu AM", "t"]],
-    [["[session]  ", "m"], ["claude session for account 14 · 2.1 s warm · $0.04 this run", "m"]],
-    [["[team]     ", "b"], ["tam@ joined as member · viewer rights for the landlord", "t"]],
-    [["[compliance]", "w"], ["EICR expires in 21 days · 2 flats · reminder drafted", "w"]],
-    [["✓ ", "g"], ["run 4819 done · 11 steps · 2 m 06 s · nothing sent without you", "g"]],
   ];
   const TOKENS = [
     "The lead is a two-person plumbing firm in Pimlico. Their site lists emergency call-outs but no gas-safety page, so the reply should mention the check explicitly. Tone: direct, no prices in writing. Booking window tomorrow 08:00–10:00 is free.",
@@ -60,8 +47,6 @@
     "Three of the twelve leads today came from the web form, the rest from WhatsApp. Two need a same-day visit. I have drafted replies for all and queued the two that mention a boiler fault for owner approval.",
     "QA note: the draft claims a 30-minute response time, which is not in the policy. Replaced with 'same day'. Removed markdown. Word count 87.",
     "Shelf three is half empty and one customer is waiting at the counter. Recommend restocking before the 17:00 rush; last week the same shelf emptied by 16:40.",
-    "Tenant at Flat 2 reports the boiler has been off since Tuesday. The tenancy says the landlord repairs within 24 hours for heating. I have drafted a message to the gas engineer for Thursday morning and a holding reply to the tenant; both wait for your approval.",
-    "Seven tenants are more than seven days late. Two are on agreed payment plans and are skipped. For the other five I drafted firm, polite reminders with the amount, the date and the bank details, no late fees mentioned because the agreement does not allow them.",
     "Monthly summary: 1 284 runs, 96% approved without edits, median 2 m 14 s from lead to queued reply. Model spend $2.85. Two prompts tuned, one workflow added for cancellations.",
   ];
   const COL = { p: C.blue, t: C.text, m: C.muted, b: C.blue, w: C.warn, k: C.purple, y: C.pink, g: C.ok };
@@ -109,15 +94,9 @@
     const ctx = off.getContext("2d", { alpha: true });
     const panes = [];
     const seed = i * 7;
-    const names = ["atlas · run 4819", "lettings desk · arrears", "research · northgate", "vision · yard cam", "qa · policy", "scheduler"];
-    const tokPanes = Math.max(1, Math.min(3, parseInt(film.dataset.tokens || "1", 10) || 1));
-    const tokAt = tokPanes >= 2 ? [2, 5] : [2];
-    if (tokPanes >= 3) tokAt.push(0);
-    const tokNames = ["claude · streaming", "claude · drafting reply", "claude · summary"];
-    for (let k = 0; k < 6; k++) panes.push({ m: tokAt.includes(k) ? mkTokens(tokNames[tokAt.indexOf(k)], seed + k) : mkTerm(names[k], seed + k * 5), u: 0, v: 0, w: 0, h: 0, ph: Math.random() * 6.28 });
-    const sharp = film.dataset.sharp === "1";
-    if (sharp) { const sw = document.createElement("div"); sw.className = "sweep"; film.appendChild(sw); }
-    const state = { cv, vctx, off, ctx, panes, W: 0, H: 0, S: sharp ? 0.5 : 0.45, blur: sharp ? 0.9 : 2, visible: true, last: 0, film };
+    const names = ["atlas · run 4812", "bash — deploy", "research · northgate", "vision · yard cam", "qa · policy", "scheduler"];
+    for (let k = 0; k < 6; k++) panes.push({ m: k === 2 ? mkTokens("claude-haiku-4.5 · streaming", seed + k) : mkTerm(names[k], seed + k * 5), u: 0, v: 0, w: 0, h: 0, ph: Math.random() * 6.28 });
+    const state = { cv, vctx, off, ctx, panes, W: 0, H: 0, S: 0.45, visible: false, last: 0, film };
     const size = () => {
       const r = film.getBoundingClientRect();
       state.W = Math.max(320, r.width); state.H = Math.max(240, r.height);
@@ -130,7 +109,6 @@
         p.w = cw * (0.88 + (k % 3) * 0.05); p.h = ch * (0.84 + (k % 2) * 0.1);
         p.u = c * cw + cw * 0.05 - (k % 2) * 30; p.v = rr * ch + ch * 0.06 + (k % 3) * 12;
       });
-      if (state.repaint) state.repaint();                   // a resize clears the canvas: paint again at once
     };
     size();
     new ResizeObserver(size).observe(film);
@@ -199,11 +177,9 @@
 
   const states = films.map(build);
   const canFilter = "filter" in CanvasRenderingContext2D.prototype;
-  // a sharp (hero) film starts with history on screen: a few seconds of work already done, no empty panes on first paint
-  states.forEach((s) => { if (s.film.dataset.sharp === "1") s.panes.forEach((p) => { for (let k = 0; k < 30; k++) p.m.kind === "term" ? stepTerm(p.m, 400) : stepTok(p.m, 400); }); });
   function blit(s) {                                       // one blur pass at half resolution, then the GPU only upscales
     const v = s.vctx; v.clearRect(0, 0, s.cv.width, s.cv.height);
-    if (canFilter) v.filter = `blur(${s.blur}px) saturate(1.05)`;
+    if (canFilter) v.filter = "blur(2px) saturate(1.05)";
     v.drawImage(s.off, 0, 0);
     if (canFilter) v.filter = "none";
   }
@@ -216,15 +192,6 @@
     return;
   }
 
-  function paint(s, now) {
-    const ctx = s.ctx; ctx.clearRect(0, 0, s.cv.width, s.cv.height);
-    ctx.strokeStyle = "rgba(45,114,210,.05)"; ctx.lineWidth = 1;
-    for (let gx = 0; gx < s.cv.width; gx += 48 * s.S) { ctx.beginPath(); ctx.moveTo(gx, 0); ctx.lineTo(gx, s.cv.height); ctx.stroke(); }
-    for (let gy = 0; gy < s.cv.height; gy += 48 * s.S) { ctx.beginPath(); ctx.moveTo(0, gy); ctx.lineTo(s.cv.width, gy); ctx.stroke(); }
-    s.panes.forEach((p) => drawPane(ctx, p, s.S, now));
-    blit(s);
-  }
-  states.forEach((s) => { s.repaint = () => paint(s, performance.now()); s.repaint(); });   // first frame now, before any animation frame runs
   let last = performance.now();
   function frame(now) {
     const dt = Math.min(80, now - last); last = now;
@@ -233,7 +200,12 @@
       if (!s.visible) return;
       if (now - s.last < 50) return;                       // 20 fps is plenty under a blur
       s.last = now;
-      paint(s, now);
+      const ctx = s.ctx; ctx.clearRect(0, 0, s.cv.width, s.cv.height);
+      ctx.strokeStyle = "rgba(45,114,210,.05)"; ctx.lineWidth = 1;
+      for (let gx = 0; gx < s.cv.width; gx += 48 * s.S) { ctx.beginPath(); ctx.moveTo(gx, 0); ctx.lineTo(gx, s.cv.height); ctx.stroke(); }
+      for (let gy = 0; gy < s.cv.height; gy += 48 * s.S) { ctx.beginPath(); ctx.moveTo(0, gy); ctx.lineTo(s.cv.width, gy); ctx.stroke(); }
+      s.panes.forEach((p) => drawPane(ctx, p, s.S, now));
+      blit(s);
     });
     requestAnimationFrame(frame);
   }
