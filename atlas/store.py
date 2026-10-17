@@ -173,7 +173,15 @@ _MIGRATIONS = [
     ("users", "google_sub", "TEXT DEFAULT ''"),                   # Google account id when the owner signs in with Google
     ("users", "two_factor", "INTEGER DEFAULT 1"),                 # mailed code on password login (atlas/desk/auth.py)
     ("users", "mfa", "TEXT DEFAULT ''"),                          # the live sign-in code challenge, JSON (store.mfa_*)
+    ("users", "role", "TEXT DEFAULT ''"),                         # signup profile: job title
+    ("users", "phone", "TEXT DEFAULT ''"),                        # signup profile: phone (optional)
+    ("users", "team_size", "TEXT DEFAULT ''"),                    # signup profile: company size band
+    ("users", "use_case", "TEXT DEFAULT ''"),                     # signup profile: what the desk should do
+    ("users", "source", "TEXT DEFAULT ''"),                       # signup profile: how they heard of Atlas
 ]
+
+PROFILE_FIELDS = ("role", "phone", "team_size", "use_case", "source")
+PROFILE_LIMITS = {"role": 80, "phone": 40, "team_size": 20, "use_case": 600, "source": 80}
 
 STAGES = ("New", "Contacted", "Qualified", "Proposal", "Won", "Lost")
 
@@ -1321,15 +1329,36 @@ class Store:
             self._conn.commit()
 
     # ------------------------------------------------------------------ users
-    def add_user(self, email: str, name: str, company: str, pw_hash: str, google_sub: str = "") -> dict[str, Any]:
+    def add_user(self, email: str, name: str, company: str, pw_hash: str, google_sub: str = "", **profile: str) -> dict[str, Any]:
+        prof = {k: str(profile.get(k) or "").strip()[:PROFILE_LIMITS[k]] for k in PROFILE_FIELDS}
         with self._lock:
-            cur = self._conn.execute("INSERT INTO users(email,name,company,pw_hash,created,google_sub) VALUES(?,?,?,?,?,?)",
-                                     (email.strip().lower(), name.strip(), company.strip(), pw_hash, time.time(), google_sub))
+            cur = self._conn.execute(
+                "INSERT INTO users(email,name,company,pw_hash,created,google_sub,role,phone,team_size,use_case,source) "
+                "VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+                (email.strip().lower(), name.strip(), company.strip(), pw_hash, time.time(), google_sub,
+                 prof["role"], prof["phone"], prof["team_size"], prof["use_case"], prof["source"]))
             self._conn.commit()
             return self.user(cur.lastrowid)  # type: ignore[return-value]
 
+    def update_profile(self, uid: int, **profile: str) -> None:
+        """Signup-profile fields (PROFILE_FIELDS, plus company); unknown keys ignored, values clipped to PROFILE_LIMITS."""
+        sets = {k: str(v or "").strip()[:PROFILE_LIMITS[k]] for k, v in profile.items() if k in PROFILE_FIELDS}
+        if "company" in profile:
+            sets["company"] = str(profile["company"] or "").strip()[:120]
+        if not sets:
+            return
+        with self._lock:
+            self._conn.execute("UPDATE users SET " + ",".join(f"{k}=?" for k in sets) + " WHERE id=?", (*sets.values(), uid))
+            self._conn.commit()
+
+    @staticmethod
+    def profile_complete(u: dict[str, Any] | None) -> bool:
+        return bool(u and u.get("company") and u.get("role") and u.get("use_case"))
+
     def user(self, uid: int) -> dict[str, Any] | None:
-        rows = _rows(self._conn.execute("SELECT id,email,name,company,created,last_login,google_sub,two_factor FROM users WHERE id=?", (uid,)))
+        rows = _rows(self._conn.execute(
+            "SELECT id,email,name,company,created,last_login,google_sub,two_factor,role,phone,team_size,use_case,source "
+            "FROM users WHERE id=?", (uid,)))
         return rows[0] if rows else None
 
     def user_by_email(self, email: str) -> dict[str, Any] | None:

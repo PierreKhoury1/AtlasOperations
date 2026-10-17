@@ -776,7 +776,10 @@ def auth_google_callback():
         else:
             u = store.add_user(g["email"], g["name"], "", "", google_sub=g["sub"])
     _sign_in(u["id"])
-    return redirect(pend.get("next") or _front_door(u))
+    nxt = pend.get("next") or _front_door(u)
+    if not store.profile_complete(u):                         # a Google account knows the name, not the company or the job
+        return redirect("/signup/profile?next=" + quote(nxt, safe="/?=&"))
+    return redirect(nxt)
 
 
 def _google_redirect() -> str:
@@ -822,6 +825,41 @@ def _guest_sweeper() -> None:
         time.sleep(6 * 3600)
 
 
+TEAM_SIZES = ("1", "2-5", "6-20", "21-100", "100+")
+SOURCES = ("Search", "Instagram", "LinkedIn", "A friend or colleague", "Event", "Other")
+_PHONE_RE = re.compile(r"[+()\d\s.-]{6,40}")
+
+
+def _profile_from(d) -> dict[str, str]:
+    return {"role": (d.get("role") or "").strip(), "phone": (d.get("phone") or "").strip(),
+            "team_size": (d.get("team_size") or "").strip(), "use_case": (d.get("use_case") or "").strip(),
+            "source": (d.get("source") or "").strip()}
+
+
+def _profile_problem(p: dict[str, str], company: str) -> str:
+    """Why a signup profile is not acceptable, or ''. Company, role and a one-line use case are required; the rest optional."""
+    if not company:
+        return "Tell us your company or team name."
+    if not p["role"]:
+        return "Tell us your role, so the desk knows who it works for."
+    if p["team_size"] and p["team_size"] not in TEAM_SIZES:
+        return "Pick a team size from the list."
+    if len(p["use_case"]) < 12:
+        return "Say in a sentence what the desk should do for you (at least 12 characters)."
+    if p["source"] and p["source"] not in SOURCES:
+        return "Pick where you heard of Atlas from the list."
+    if p["phone"] and not _PHONE_RE.fullmatch(p["phone"]):
+        return "That phone number does not look right."
+    return ""
+
+
+def _profile_vars(d, **extra) -> dict:
+    p = _profile_from(d)
+    v = {"company": (d.get("company") or "").strip(), **p, "sizes": TEAM_SIZES, "sources": SOURCES}
+    v.update(extra)
+    return v
+
+
 @app.route("/signup", methods=["GET", "POST"])
 def signup():
     if request.method == "POST":
@@ -830,6 +868,7 @@ def signup():
         company = (d.get("company") or "").strip()
         email = (d.get("email") or "").strip().lower()
         pw = d.get("password") or ""
+        prof = _profile_from(d)
         err = ""
         if not name or not email or "@" not in email:
             err = "Name and a valid email are required."
@@ -837,17 +876,19 @@ def signup():
             err = "Password must be at least 8 characters."
         elif store.user_by_email(email):
             err = "An account with that email already exists — log in instead."
+        elif request.form or any(prof.values()):               # the form asks for the profile; the JSON API may add it later
+            err = _profile_problem(prof, company)
         if err:
             if request.is_json:
                 return jsonify({"error": err}), 400
-            return _page("signup.html", error=err, name=name, company=company, email=email, google=_google_cls()), 400
+            return _page("signup.html", **_profile_vars(d, error=err, name=name, email=email, google=_google_cls())), 400
         required = AUTH.two_factor_mode() == "required"
         if required and AUTH.two_factor_problem():               # refuse before an account exists that cannot sign in
             print("2fa:", AUTH.two_factor_problem())
             if request.is_json:
                 return jsonify({"error": _MFA_UNCONFIGURED}), 503
-            return _page("signup.html", error=_MFA_UNCONFIGURED, name=name, company=company, email=email, google=_google_cls()), 503
-        u = store.add_user(email, name, company, generate_password_hash(pw))
+            return _page("signup.html", **_profile_vars(d, error=_MFA_UNCONFIGURED, name=name, email=email, google=_google_cls())), 503
+        u = store.add_user(email, name, company, generate_password_hash(pw), **prof)
         if required:                    # TWO_FACTOR=required: no session from a password alone, a brand-new one included
             sess, why, code = _mfa_begin(u, "/desk/start")                 # a new owner starts the chain
             if not sess:
@@ -866,7 +907,34 @@ def signup():
         return redirect("/desk/start")                         # new owners start the chain: pick the AI, then the workspace
     if current_user():
         return redirect(_front_door(current_user()))
-    return _page("signup.html", error="", name="", company="", email="", google=_google_cls())
+    return _page("signup.html", **_profile_vars({}, error="", name="", email="", google=_google_cls()))
+
+
+@app.route("/signup/profile", methods=["GET", "POST"])
+def signup_profile():
+    """The rest of the signup for accounts that arrived without it (Google sign-in, accounts from before the profile
+    fields): company, role, team size, what the desk should do, where they heard of us. Guests are never asked."""
+    u = current_user()
+    if not u:
+        return redirect("/login?next=/signup/profile")
+    if _is_guest(u):
+        return redirect(_front_door(u))
+    nxt = request.args.get("next") or "/desk/start"
+    if not nxt.startswith("/") or nxt.startswith("//"):
+        nxt = "/desk/start"
+    if request.method == "POST":
+        d = request.form if request.form else (request.get_json(silent=True) or {})
+        prof = _profile_from(d)
+        err = _profile_problem(prof, (d.get("company") or "").strip())
+        if err:
+            if request.is_json:
+                return jsonify({"error": err}), 400
+            return _page("profile.html", **_profile_vars(d, error=err, name=u["name"], email=u["email"], next=nxt)), 400
+        store.update_profile(u["id"], company=(d.get("company") or "").strip(), **prof)
+        if request.is_json:
+            return jsonify({"ok": True})
+        return redirect(nxt)
+    return _page("profile.html", **_profile_vars(u, error="", name=u["name"], email=u["email"], next=nxt))
 
 
 @app.route("/logout", methods=["GET", "POST"])
@@ -883,6 +951,7 @@ def api_me():
     out = {k: v for k, v in u.items() if k != "google_sub"}
     out["google"] = bool(u.get("google_sub"))
     out["guest"] = _is_guest(u)
+    out["profile_complete"] = _is_guest(u) or store.profile_complete(u)
     required = AUTH.two_factor_mode() == "required"
     out["two_factor"] = AUTH.two_factor_active() and (required or bool(int(u.get("two_factor") or 0)))
     out["two_factor_available"] = AUTH.two_factor_active()

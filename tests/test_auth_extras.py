@@ -220,9 +220,10 @@ def test_google_callback_links_existing_email_and_creates_new_users(client, monk
     # unknown email -> a new password-less account; its password login is refused
     r = client.get("/auth/google")
     state = re.search(r"state=([^&]+)", r.headers["Location"]).group(1)
-    assert client.get(f"/auth/google/callback?state={state}&code=code-B").status_code == 302
+    r = client.get(f"/auth/google/callback?state={state}&code=code-B")
+    assert r.status_code == 302 and r.headers["Location"].startswith("/signup/profile?next=")   # Google knows the name, not the job
     me = client.get("/api/me").get_json()
-    assert me["email"] == "fresh@example.com" and me["google"] is True
+    assert me["email"] == "fresh@example.com" and me["google"] is True and me["profile_complete"] is False
     client.get("/logout")
     assert client.post("/login", json={"email": "fresh@example.com", "password": ""}).status_code == 401
     # a used state cannot be replayed
