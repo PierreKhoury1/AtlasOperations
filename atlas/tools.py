@@ -26,7 +26,8 @@ _SNIPPET_ENV_KEEP = ("PATH", "SYSTEMROOT", "SYSTEMDRIVE", "WINDIR", "TEMP", "TMP
 _SANDBOX_RO = ("/usr", "/lib", "/lib64", "/bin", "/sbin", "/etc/ld.so.cache", "/etc/alternatives",
                "/etc/python3", "/etc/python3.12", "/etc/python3.13")
 _SANDBOX_MEM = 1024 * 1024 * 1024      # address space per script
-_SANDBOX_PROCS = 64
+_SANDBOX_PROCS = 512          # RLIMIT_NPROC counts every process and thread of the portal's user (gunicorn's threads, the
+                              # runners); too low and bwrap's clone() fails with EAGAIN before the script even starts
 _sandbox_warned = False
 
 
