@@ -1,11 +1,11 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" class="deck-html">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Atlas — See more. Know first. Act with confidence.</title>
+<title>Atlas Desks — AI agent teams for your business</title>
 <meta name="description" content="Atlas deploys multi-agent AI with computer vision and language models to document, understand and act on real-world operations, in real time, with a person approving anything sensitive.">
-<meta property="og:title" content="Atlas — See more. Know first. Act with confidence.">
+<meta property="og:title" content="Atlas Desks — build AI agent teams that integrate into your business">
 <meta property="og:description" content="One orchestrator assembles the right specialists for each job, runs them in parallel, and puts anything sensitive in front of you to approve. Cameras can be an input too.">
 <meta property="og:type" content="website">
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
@@ -14,31 +14,41 @@
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css">
 <link rel="stylesheet" href="cinema.css">
-<link rel="stylesheet" href="orch.css">
 <link rel="stylesheet" href="vision.css">
 <link rel="stylesheet" href="paper.css">
+<link rel="stylesheet" href="deck.css">
 </head>
-<body>
-<!-- multipage -->
-
-<nav class="nav">
+<body class="deck-page">
+<nav class="nav deck-nav">
   <div class="wrap">
     <a class="brand" href="index.html"><img class="mark" src="img/mark.png" alt="" width="44" height="24"><span class="wm"><b>ATLAS</b><small>OBSERVE&nbsp;&nbsp;REASON&nbsp;&nbsp;ACT</small></span></a>
-    <ul id="menu"><li><a href="index.html" class="on">Home</a></li><li><a href="desks.html">Desks</a></li><li><a href="how-it-works.html">How it works</a></li><li><a href="pricing.html">Pricing</a></li><li><a href="about.html">About</a></li><li><a href="contact.html">Contact</a></li><li class="cta"><a href="/login" class="btn ghost sm">Sign in</a></li><li><a href="/try" class="btn primary sm">Get started <i class="ar">→</i></a></li></ul>
+    <ul id="menu" class="tabs-nav">
+      <li><a href="#overview" data-screen="overview" class="on">Overview</a></li>
+      <li><a href="#see" data-screen="see">See it work</a></li>
+      <li><a href="#vision" data-screen="vision">Vision demo</a></li>
+      <li><a href="#build" data-screen="build">Build your team</a></li>
+      <li><a href="#how" data-screen="how">How it works</a></li>
+      <li><a href="pricing.html">Pricing</a></li>
+      <li><a href="contact.html">Contact</a></li>
+      <li class="cta"><a href="/login" class="btn ghost sm">Sign in</a></li><li><a href="/try" class="btn primary sm">Get started <i class="ar">→</i></a></li>
+    </ul>
     <button class="burger" id="burger" aria-label="menu">☰</button>
   </div>
 </nav>
 
+<main class="deck" id="deck" aria-label="Atlas, one screen at a time">
+  <div class="track">
+    <section class="screen" id="s-overview" data-title="Overview">
 <header class="hero cine eye" id="top" data-title="Atlas">
   <div class="herofilm" aria-hidden="true"></div>
   <div class="wrap grid">
     <div class="h-in">
       <div class="eyebrow">Operations desks with eyes</div>
-      <h1><span class="l1">Build an AI team</span><span class="l2">that sees your business.</span><span class="l3">Live in minutes.</span></h1>
-      <p class="lead">Describe your business. Atlas drafts a team of agents, gives them your cameras, inbox and apps, and they watch, read and act. Nothing is sent without your OK.</p>
+      <h1><span class="l1">Build AI agent teams</span><span class="l2">that integrate into</span><span class="l3">your business.</span></h1>
+      <p class="lead">Describe the work. Atlas drafts the team, connects your inbox, cameras and apps, and runs it. Nothing is sent without your OK.</p>
       <div class="cta">
         <a class="btn primary" href="/try">Open the desk <i class="ar">→</i></a>
-        <a class="btn ghost" href="#feed"><i class="pl"></i>Watch demo</a>
+        <a class="btn ghost" href="#see" data-screen="see"><i class="pl"></i>See it work</a>
       </div>
     </div>
     <div class="eyevid" aria-hidden="true">
@@ -50,7 +60,6 @@
     </div>
   </div>
 </header>
-
 <section class="verbs" aria-label="What Atlas does">
   <div class="wrap">
     <div class="verb"><div class="ic"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="13" rx="2"/><path d="M8 21h8M12 18v3"/><circle cx="12" cy="11.5" r="3"/></svg></div><div><b>Watch</b><span>Your cameras, one journal, asked in plain English</span></div></div>
@@ -59,14 +68,16 @@
     <div class="verb"><div class="ic"><svg viewBox="0 0 24 24"><path d="M13 3 5 13h6l-1 8 8-10h-6l1-8Z"/></svg></div><div><b>Act</b><span>Messages and updates, each one waiting for your OK</span></div></div>
   </div>
 </section>
-
-<section class="feed" id="feed" aria-label="From live feed to action">
+    </section>
+    <section class="screen" id="s-see" data-title="See it work">
+      <div class="screen-in">
+<section class="feed" aria-label="From live feed to action">
   <div class="wrap">
     <div class="box">
       <div>
         <div class="eyebrow">From live feed to action</div>
         <h2>From a camera feed to a reply you approved.</h2>
-        <p>One square, four of its seven cameras on screen, up to forty people at once. The desk tracks each person across views and scores itself against human labels every instant: matches in green, misses in red, the count the cameras agree on at the bottom. Below: what the agents do with what was seen.</p>
+        <p>One square, four of its seven cameras on screen, up to forty people at once. The desk tracks each person across views and scores itself against human labels every instant: matches in green, misses in red, the count the cameras agree on at the bottom.</p>
         <a class="play" href="/desk/review?cams=C1,C2,C3,C6"><i></i>Open this review live</a>
       </div>
       <div class="cam">
@@ -82,49 +93,25 @@
       </div>
     </div>
 
-    <div class="flow" id="flow" aria-label="One run: three specialists report to Atlas, Atlas drafts, you approve the send">
-      <div class="fl-head"><div><div class="eyebrow">What happens next</div><h3>Three specialists report to Atlas. Atlas writes the summary and the draft. You approve the send.</h3></div><span class="fl-state" id="f-state">waiting for the cameras</span></div>
-      <div class="fl-grid">
-        <div class="fl-agents">
-          <div class="fa" data-a="vision"><div class="fa-h"><b>Vision agent</b><span class="m">claude · own session</span></div><div class="src">cameras · detector + journal</div><div class="out"></div></div>
-          <div class="fa" data-a="inbox"><div class="fa-h"><b>Inbox agent</b><span class="m">claude · own session</span></div><div class="src">inbox · delivery notes, invoices</div><div class="out"></div></div>
-          <div class="fa" data-a="research"><div class="fa-h"><b>Researcher</b><span class="m">claude · own session</span></div><div class="src">records · orders, rota</div><div class="out"></div></div>
-        </div>
-        <div class="fl-wires" aria-hidden="true"><span class="wire" data-a="vision"></span><span class="wire" data-a="inbox"></span><span class="wire" data-a="research"></span></div>
-        <div class="fl-lead" id="f-lead"><div class="fa-h"><b>Atlas · lead</b><span class="m">claude · own session</span></div><div class="src">briefs the specialists, checks their work, writes the summary · sends nothing itself</div><div class="sum" id="f-sum"></div></div>
-        <div class="fl-phone">
-          <div class="chans" role="radiogroup" aria-label="Channel"><button type="button" data-chan="whatsapp" class="on">WhatsApp</button><button type="button" data-chan="telegram">Telegram</button><button type="button" data-chan="email">Email</button></div>
-          <div class="phone" id="f-phone">
-            <div class="ph-top"><b id="f-to">Sam · Receiving</b><small id="f-ch">WhatsApp</small></div>
-            <div class="ph-body">
-              <div class="appr"><div class="eyebrow">Approval · run 4820</div><div class="msg" id="f-draft"></div><div class="btns"><span class="ok">Approve &amp; send</span><span>Edit</span><span>Reject</span></div></div>
-              <div class="bubble"><span id="f-sent"></span><em id="f-stamp"></em></div>
-            </div>
-          </div>
-        </div>
+    <div class="after" aria-label="The desk, recorded">
+      <div class="desk-rec">
+        <div class="pbar"><span class="dot"></span><span>Atlas desk &middot; Hollis &amp; Grey Lettings &middot; recorded run, nothing staged</span><span class="t">16 Oct 2026 &middot; 1:56</span></div>
+        <video autoplay muted loop playsinline preload="metadata" poster="video/desk.jpg" disablepictureinpicture tabindex="-1"><source src="video/desk.mp4" type="video/mp4"></video>
       </div>
-      <p class="fl-note">An illustration of one run, drawn in the page; the recording above is real, and so is the desk the button opens.</p>
+      <div class="after-txt">
+        <div class="eyebrow">What happens next</div>
+        <h3>The desk, recorded: the team works the job, every outbound message waits in one queue for your approval.</h3>
+        <p>Specialists each run on their own model session and report to Atlas, the lead. Atlas drafts; you approve, edit or reject; the journal keeps every step.</p>
+        <div class="chan-list"><b>Sends through</b><span>Email <small>SMTP / Resend</small></span><span>WhatsApp <small>Twilio or Meta</small></span><span>SMS <small>Twilio</small></span><span>Instagram <small>DMs</small></span><span>Google Calendar <small>bookings</small></span></div>
+      </div>
     </div>
   </div>
 </section>
-
-<section class="sectors" aria-label="Built for real-world operations">
-  <div class="wrap">
-    <div class="eyebrow">Where a desk fits</div>
-    <div class="srow">
-      <span><svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c0-3.5 3-6 6.5-6s6.5 2.5 6.5 6"/><path d="M17 8h5M19.5 5.5v5"/></svg>Sales</span>
-      <span><svg viewBox="0 0 24 24"><path d="M4 5.5h16v10H9l-5 4v-14Z"/></svg>Support &amp; bookings</span>
-      <span><svg viewBox="0 0 24 24"><rect x="3" y="6" width="13" height="12" rx="2"/><path d="m16 10.5 5-3v9l-5-3"/></svg>Site watch</span>
-      <span><svg viewBox="0 0 24 24"><path d="M12 3 4.5 6v6c0 4.5 3.2 7.6 7.5 9 4.3-1.4 7.5-4.5 7.5-9V6L12 3Z"/><path d="m9 12 2 2 4-4"/></svg>Security operations</span>
-      <span><svg viewBox="0 0 24 24"><path d="M6 3h8l4 4v14H6z"/><path d="M14 3v4h4M9 12h6M9 16h6"/></svg>Consultancy</span>
-      <span><svg viewBox="0 0 24 24"><path d="M3 21V9l6 3V9l6 3V9l6 3v9z"/><path d="M7 21v-4M12 21v-4M17 21v-4"/></svg>Agency</span>
-      <span><svg viewBox="0 0 24 24"><path d="M4 8h16l-1.5 12h-13z"/><path d="M8 8V6a4 4 0 0 1 8 0v2"/></svg>E-commerce</span>
-      <span class="tail">Seven ready-made desks, or your own.</span>
-    </div>
-  </div>
-</section>
-
-<section id="vision" class="scene" data-title="Vision">
+      </div>
+    </section>
+    <section class="screen" id="s-vision" data-title="Vision demo">
+      <div class="screen-in">
+<section id="vision" class="vision-sec" data-title="Vision">
   <div class="wrap">
     <div class="eyebrow">Agents that see the room</div>
     <h2>Real footage, a real detector, a real model, a real memory — <b>live in this page</b>.</h2>
@@ -168,9 +155,11 @@
     </div>
   </div>
 </section>
-
-<section id="build" class="scene" data-title="Build">
-  <a id="desks"></a>
+      </div>
+    </section>
+    <section class="screen" id="s-build" data-title="Build your team">
+      <div class="screen-in">
+<section id="builder" class="build-sec">
   <div class="wrap">
     <div class="eyebrow">Build your own team</div>
     <h2>Configure the agents. Watch the team <b>form</b>.</h2>
@@ -196,8 +185,11 @@
     </div>
   </div>
 </section>
-
-<section id="flow" class="scene flow" data-title="One job">
+      </div>
+    </section>
+    <section class="screen" id="s-how" data-title="How it works">
+      <div class="screen-in">
+<section class="onejob">
   <div class="wrap">
     <div class="eyebrow">One job, end to end</div>
     <h2>Brief it once. Watch it <b>land</b>.</h2>
@@ -212,8 +204,22 @@
     <div class="cta" style="margin:30px 0 0;display:flex;gap:14px;flex-wrap:wrap"><a class="btn primary" href="/try">Open a guest desk <i class="ar">→</i></a><a class="btn ghost" href="contact.html#form">Book a scoping call</a></div>
   </div>
 </section>
-
-<section id="how" class="scene" data-title="How it works">
+<section class="sectors" aria-label="Built for real-world operations">
+  <div class="wrap">
+    <div class="eyebrow">Where a desk fits</div>
+    <div class="srow">
+      <span><svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c0-3.5 3-6 6.5-6s6.5 2.5 6.5 6"/><path d="M17 8h5M19.5 5.5v5"/></svg>Sales</span>
+      <span><svg viewBox="0 0 24 24"><path d="M4 5.5h16v10H9l-5 4v-14Z"/></svg>Support &amp; bookings</span>
+      <span><svg viewBox="0 0 24 24"><rect x="3" y="6" width="13" height="12" rx="2"/><path d="m16 10.5 5-3v9l-5-3"/></svg>Site watch</span>
+      <span><svg viewBox="0 0 24 24"><path d="M12 3 4.5 6v6c0 4.5 3.2 7.6 7.5 9 4.3-1.4 7.5-4.5 7.5-9V6L12 3Z"/><path d="m9 12 2 2 4-4"/></svg>Security operations</span>
+      <span><svg viewBox="0 0 24 24"><path d="M6 3h8l4 4v14H6z"/><path d="M14 3v4h4M9 12h6M9 16h6"/></svg>Consultancy</span>
+      <span><svg viewBox="0 0 24 24"><path d="M3 21V9l6 3V9l6 3V9l6 3v9z"/><path d="M7 21v-4M12 21v-4M17 21v-4"/></svg>Agency</span>
+      <span><svg viewBox="0 0 24 24"><path d="M4 8h16l-1.5 12h-13z"/><path d="M8 8V6a4 4 0 0 1 8 0v2"/></svg>E-commerce</span>
+      <span class="tail">Seven ready-made desks, or your own.</span>
+    </div>
+  </div>
+</section>
+<section class="how-sec">
   <div class="wrap">
     <div class="eyebrow">How it works</div>
     <h2>A repeatable operating system, not a one-off <b>build</b>.</h2>
@@ -227,8 +233,11 @@
     <p style="margin-top:26px"><a class="btn ghost" href="how-it-works.html">Control, trust and the stack <i class="ar">→</i></a></p>
   </div>
 </section>
-
-<section class="tight scene" id="start" data-title="Start">
+      </div>
+    </section>
+    <section class="screen" id="s-start" data-title="Start">
+      <div class="screen-in">
+<section class="start-sec">
   <div class="wrap">
     <div class="band">
       <div><div class="eyebrow">Start with one function, prove it, expand</div><h2>First desk live in 30 <b>days</b>.</h2></div>
@@ -236,7 +245,6 @@
     </div>
   </div>
 </section>
-
 <footer class="site">
   <div class="wrap">
     <div class="fcols">
@@ -248,19 +256,19 @@
     <div class="fbar"><span>© <span id="yr"></span> <span data-brand>Atlas Desks</span></span><a href="mailto:hello@atlasdesks.com" data-email>hello@atlasdesks.com</a></div>
   </div>
 </footer>
+      </div>
+    </section>
+  </div>
+  <button class="arrow prev" type="button" aria-label="Previous screen"><svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg></button>
+  <button class="arrow next" type="button" aria-label="Next screen"><svg viewBox="0 0 24 24"><path d="M9 5l7 7-7 7"/></svg></button>
+  <div class="deck-foot"><div class="deck-dots" role="tablist" aria-label="Screens"></div><span class="arrow-label"></span><span class="hint">← → or swipe</span></div>
+</main>
 
-<script defer src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
-<script defer src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/ScrollTrigger.min.js"></script>
-<script defer src="https://cdn.jsdelivr.net/npm/lenis@1.1.18/dist/lenis.min.js"></script>
 <script defer src="script.js"></script>
-<script>setInterval(function(){var e=document.getElementById("feedClock");if(e){var d=new Date();e.textContent=d.toISOString().slice(0,10)+"  "+d.toTimeString().slice(0,8)}},1000)</script>
 <script defer src="bgterm.js"></script>
 <script defer src="herofilm.js"></script>
-<script defer src="flow.js"></script>
 <script defer src="team.js"></script>
-<script defer src="cinema.js"></script>
-<script defer src="orch-data.js"></script>
-<script defer src="orch.js"></script>
+<script defer src="deck.js"></script>
 <script defer src="vision.js"></script>
 </body>
 </html>

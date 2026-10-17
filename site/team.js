@@ -3,7 +3,7 @@
    brief that Atlas will receive is written out. "Build this desk" opens the workspace with that brief; nothing runs
    on the site itself. Everything here is a draft of what the desk would be, drawn from the same rules the desk uses. */
 (function () {
-  const root = document.getElementById("build");
+  const root = document.getElementById("builder");
   if (!root) return;
   const $ = (s, el) => (el || root).querySelector(s);
   const $$ = (s, el) => Array.from((el || root).querySelectorAll(s));
