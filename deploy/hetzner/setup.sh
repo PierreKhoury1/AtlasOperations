@@ -215,6 +215,24 @@ EOF_AA
 apparmor_parser -r /etc/apparmor.d/bwrap || true
 grep -q '^ATLAS_SANDBOX=' "$ENVF" || echo 'ATLAS_SANDBOX=bwrap' >> "$ENVF"
 
+# systemd sandbox for the portal process itself (live on atlas-1 since 17 Oct 2026): read-only system and home,
+# writes only under /srv/atlas (+ gunicorn's control dir), no new privileges, private /tmp
+mkdir -p /etc/systemd/system/atlas.service.d
+cat > /etc/systemd/system/atlas.service.d/hardening.conf <<'EOF_HD'
+[Service]
+ProtectSystem=strict
+ReadWritePaths=/srv/atlas /home/atlas/.gunicorn
+ProtectHome=read-only
+PrivateTmp=yes
+NoNewPrivileges=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+EOF_HD
+systemctl daemon-reload
+
 echo "== systemd"
 cat > /etc/systemd/system/hermes.service <<EOT
 [Unit]
