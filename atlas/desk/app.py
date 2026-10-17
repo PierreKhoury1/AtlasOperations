@@ -52,6 +52,8 @@ from .. import vision as V
 from .. import rag as RAG
 from .. import team as TM
 from .. import usage as U
+from . import pool as POOLM
+from .pool import POOL
 from .. import host as HOST
 from . import scheduler
 from . import auth as AUTH
@@ -824,6 +826,13 @@ def _sign_in(uid: int) -> None:
     session.permanent = True
     session["uid"] = uid
     store.touch_login(uid)
+    _pool_warm(uid)
+
+
+def _pool_warm(uid: int) -> None:
+    """Start the account's own Claude session (the pool) so the desk is ready by the time they open it."""
+    if POOLM.enabled() and not _is_guest(store.user(uid)):
+        threading.Thread(target=lambda: POOL.ensure(uid), name=f"pool-warm-{uid}", daemon=True).start()
 
 
 def _google_cls() -> str:
@@ -1612,13 +1621,78 @@ def _bridges_public(owner_id: int) -> dict[str, Any]:
     base = os.environ.get("PUBLIC_URL", "").strip().rstrip("/") or request.url_root.rstrip("/")
     hb = house_bridge_online()
     return {"bridges": rows, "online": any(r["online"] for r in rows), "url": base, "runner": "/scripts/atlas_bridge.py",
-            "house": {"online": bool(hb), "agent": (hb or {}).get("agent") or "", "label": house_agent_label(hb) if hb else ""}}
+            "house": {"online": bool(hb), "agent": (hb or {}).get("agent") or "", "label": house_agent_label(hb) if hb else ""},
+            "pool": POOL.status(owner_id)}
+
+
+# ---------------------------------------------------------------- the session pool (atlas/desk/pool.py)
+def _pool_mint(owner_id: int) -> tuple[int, str]:
+    token = "atb_" + secrets.token_urlsafe(24)
+    b = store.add_bridge(owner_id, "Atlas session", "claude", _bridge_hash(token))
+    return int(b["id"]), token
+
+
+POOL.mint = _pool_mint
+POOL.online = lambda owner_id: bridge_online(owner_id) is not None
+POOL.drop = lambda bridge_id, owner_id: store.delete_bridge(bridge_id, owner_id)
+
+
+@app.post("/api/pool/start")
+def api_pool_start():
+    """The signed-in account's own Claude session, started if needed (the start page calls it; sign-in does too)."""
+    u = current_user()
+    if not u:
+        abort(401)
+    if not POOLM.enabled():
+        return jsonify({"error": "pool_off", "message": "This server does not run sessions for accounts (no ANTHROPIC_API_KEY)."}), 404
+    if _is_guest(u):
+        return jsonify({"error": "guest", "message": "Sign up to get a session of your own."}), 403
+    s = POOL.ensure(int(u["id"]))
+    if s is None:
+        return jsonify({"error": "pool_full", "message": "Every session slot is busy right now; try again in a minute."}), 503
+    return jsonify(POOL.status(int(u["id"])))
+
+
+@app.get("/api/pool")
+def api_pool_list():
+    _operator_or_403()
+    return jsonify({"enabled": POOLM.enabled(), "sessions": POOL.all(), "max": POOLM._int("POOL_MAX", 24), "idle_s": POOLM._int("POOL_IDLE_S", 1800)})
+
+
+@app.delete("/api/pool/<int:owner_id>")
+def api_pool_stop(owner_id):
+    _operator_or_403()
+    return jsonify({"ok": POOL.stop(owner_id)})
+
+
+@app.route("/pool/<int:owner_id>/<ptoken>/<path:rest>", methods=["GET", "POST"])
+def pool_proxy(owner_id, ptoken, rest):
+    """ANTHROPIC_BASE_URL of a pooled runner: /v1/messages etc. forwarded to Anthropic with the real key, metered."""
+    s = POOL.session_for(owner_id, ptoken)
+    if s is None:
+        return Response(json.dumps({"type": "error", "error": {"type": "authentication_error", "message": "unknown session"}}),
+                        401, mimetype="application/json")
+    try:
+        status, headers, body = POOL.proxy(s, request.method, "/" + rest, dict(request.headers), request.get_data(),
+                                           request.query_string.decode())
+    except U.UsageLimit as exc:
+        msg = exc.body().get("message") or "usage limit"
+        return Response(json.dumps({"type": "error", "error": {"type": "rate_limit_error", "message": f"Atlas: {msg}"}}),
+                        429, mimetype="application/json", headers=exc.headers())
+    except Exception as exc:
+        return Response(json.dumps({"type": "error", "error": {"type": "api_error", "message": f"Atlas could not reach Anthropic: {type(exc).__name__}"}}),
+                        502, mimetype="application/json")
+    return Response(body, status, headers=headers, direct_passthrough=True)
 
 
 def _bridge_run(owner_id: int, job: dict[str, Any], on_token, timeout: float) -> str:
     """providers.BRIDGE_HOOK: queue one model call for the owner's runner and wait for its answer."""
     if not bridge_online(owner_id):
-        raise RuntimeError("your agent is not connected (start atlas_bridge.py on your computer)")
+        if POOLM.enabled():
+            POOL.ensure(owner_id, wait=POOLM.ONLINE_WAIT_S)
+        if not bridge_online(owner_id):
+            raise RuntimeError("your agent is not connected" + ("" if POOLM.enabled() else " (start atlas_bridge.py on your computer)"))
+    POOL.touch(owner_id)
     rec = {"id": secrets.token_urlsafe(8), "owner_id": owner_id, "created": time.time(), "state": "queued", "job": job,
            "result": None, "error": "", "on_token": on_token, "bridge": 0, "taken": 0.0, "acked": False}
     with _BR_LOCK:
@@ -7143,6 +7217,7 @@ C.NOTIFY = lambda desk_id, text: I.notify(store.connectors(desk_id), text)
 scheduler.BASE_URL = lambda: os.environ.get("PUBLIC_URL", "").strip()
 U.OPEN_MODE = lambda: OPEN                        # desks of user 0 count as public only while accounts are on
 U.start(store)                                    # the usage ledger + the provider key snapshot thread
+POOL.start(os.environ.get("POOL_DESK_URL", "").strip() or f"http://127.0.0.1:{int(os.environ.get('PORT', '8094'))}")
 scheduler.start(store, _start_run, store.desk)
 if os.environ.get("GUEST_SWEEP", "1").strip() not in ("0", "false", "no"):
     threading.Thread(target=_guest_sweeper, daemon=True, name="guest-sweep").start()

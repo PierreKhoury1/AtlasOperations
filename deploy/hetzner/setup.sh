@@ -215,6 +215,11 @@ EOF_AA
 apparmor_parser -r /etc/apparmor.d/bwrap || true
 grep -q '^ATLAS_SANDBOX=' "$ENVF" || echo 'ATLAS_SANDBOX=bwrap' >> "$ENVF"
 
+# the session pool (atlas/desk/pool.py): Claude Code on the box, one runner per account, billed to ANTHROPIC_API_KEY in $ENVF
+DEBIAN_FRONTEND=noninteractive apt-get install -y -qq nodejs npm >/dev/null
+command -v claude >/dev/null || npm i -g @anthropic-ai/claude-code >/dev/null 2>&1 || true
+mkdir -p /srv/atlas/data/pool && chown atlas:atlas /srv/atlas/data/pool
+
 # systemd sandbox for the portal process itself (live on atlas-1 since 17 Oct 2026): read-only system and home,
 # writes only under /srv/atlas (+ gunicorn's control dir), no new privileges, private /tmp
 mkdir -p /etc/systemd/system/atlas.service.d

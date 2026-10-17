@@ -97,7 +97,7 @@ a.go[aria-disabled="true"]{opacity:.45;pointer-events:none}
   function connected(b) {
     clearInterval(timer); timer = null;
     $('#t3').classList.add('ok'); $('#wait').innerHTML = '<span>Your computer answered.</span>';
-    $('#done-t').textContent = (b.name || 'your computer') + ' is running ' + (NAMES[b.agent] || b.agent) + '. Your desk thinks with it from here on.';
+    $('#done-t').textContent = (b.name === 'Atlas session' ? 'Your own Claude session is running, hosted by Atlas' : (b.name || 'your computer') + ' is running ' + (NAMES[b.agent] || b.agent)) + '. Your desk thinks with it from here on.';
     $('#done').classList.remove('hide'); $('#go').removeAttribute('aria-disabled');
     document.querySelectorAll('.steps li')[0].classList.add('did');
     if ($('#hook').classList.contains('hide'))                               // noticed while the choices were still showing
@@ -132,6 +132,18 @@ a.go[aria-disabled="true"]{opacity:.45;pointer-events:none}
     const [d, b] = await Promise.all([api('/desks'), api('/bridges')]);
     if (d && Array.isArray(d.desks) && d.desks.length) setNext('/desk');      // an owner with a desk: step 1 again, then back to it
     mine = b || mine;
+    if (mine.pool && mine.pool.enabled) {                                        // the session pool: Atlas runs a Claude session for this account
+      $('#pick').classList.add('hide'); $('#hook').classList.remove('hide');
+      $('#hk-title').textContent = 'Your Claude session'; $('#hk-back').classList.add('hide');
+      $('#t1').classList.add('hide'); $('#t2').classList.add('hide'); $('#t3').querySelector('.n').textContent = '';
+      $('#wait').innerHTML = '<i class="spin"></i><span>Atlas is starting a Claude session for your account…</span>';
+      $('#skip').textContent = 'Use Atlas models instead';
+      const on = (mine.bridges || []).find(x => x.online);
+      if (on) { connected(on); return; }
+      api('/pool/start', {method: 'POST', body: {}}).then(r => { if (r && r.error) { $('#wait').innerHTML = '<span>' + esc(r.message || r.error) + '</span>'; } });
+      poll();
+      return;
+    }
     if (mine.house && mine.house.online) {                                       // the house agent: Atlas's own Claude Code / Codex
       $('#house-t').textContent = 'Sync session · ' + (mine.house.label || 'Atlas agent');
       $('#house-d').textContent = 'One live ' + (NAMES[mine.house.agent] || 'agent') + ' session for your desk, run by Atlas. Nothing to install; it remembers every turn. A daily allowance applies (see Usage).';

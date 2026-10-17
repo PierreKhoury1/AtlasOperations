@@ -123,7 +123,7 @@ def run_gemini(job: dict, model: str, timeout: int) -> str:
     return _run(args, prompt, timeout)
 
 
-HOST_DIR = os.path.join(os.path.expanduser("~"), ".atlas-host")
+HOST_DIR = os.environ.get("ATLAS_HOST_DIR") or os.path.join(os.path.expanduser("~"), ".atlas-host")
 
 
 def run_host(job: dict, model: str, timeout: int, on_line) -> str:
