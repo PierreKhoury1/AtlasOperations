@@ -14,7 +14,7 @@
     <ul><li>Your desks, cameras and journals kept</li><li>Paid models when the free ones run out</li><li>Approval queue, audit log, monthly report</li></ul>
     <div class="guest"><b>No account yet? Walk straight in.</b><p>A guest desk opens in one click: brief Atlas, watch the team draft, add a camera. Free models only, nothing is sent without your say-so. Sign up later to keep it.</p><a href="/try">Open a guest desk <span>→</span></a></div>
   </div>
-  <form method="post" action="/signup">
+  <form method="post" action="/signup" id="signup-form">
     <h2>Create your account</h2>
     <p class="sub">A minute, then your desk knows who it works for.</p>
     <div class="err">{{error}}</div>
@@ -40,5 +40,5 @@
     <p class="fine">By signing up you agree to our <a href="/privacy.html">privacy policy &amp; terms</a>. Demo data is shared and reset periodically.</p>
   </form>
 </div>
-<script>(function(){var t=document.getElementById('team_size'),s=document.getElementById('source');if(t)t.value="{{team_size}}";if(s)s.value="{{source}}";})();</script>
+<script>(function(){var q=new URLSearchParams(location.search),n=q.get('next');if(n&&n.indexOf('/invite/')===0){var f=document.getElementById('signup-form');f.action='/signup?next='+encodeURIComponent(n);}var t=document.getElementById('team_size'),s=document.getElementById('source');if(t)t.value="{{team_size}}";if(s)s.value="{{source}}";})();</script>
 </body></html>

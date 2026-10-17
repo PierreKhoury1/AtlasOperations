@@ -463,12 +463,168 @@ def _pinned_desk_id() -> int | None:
     return v if v > 0 else None
 
 
+ROLE_WORDS = {"owner": "owner", "manager": "manager: runs and configures the desk, invites teammates",
+              "member": "member: works the desk, approves and sends", "viewer": "viewer: looks, changes nothing"}
+INVITE_TTL_S = 7 * 86400
+
+
+
+def desk_role(d: dict[str, Any] | None, u: dict[str, Any] | None) -> str:
+    """What this account is to this desk: owner, manager, member, viewer, or '' (no access)."""
+    if not d or not u:
+        return ""
+    if int(d.get("owner_id") or 0) == int(u["id"]):
+        return "owner"
+    return store.member_role(int(d["id"]), int(u["id"]))
+
+
+@app.before_request
+def _viewer_read_only():
+    """A viewer sees the desk and changes nothing: every writing API call on the current desk is refused, except
+    picking a desk, their own account and the usage pages."""
+    if request.method in ("GET", "HEAD", "OPTIONS") or not request.path.startswith("/api/"):
+        return None
+    p = request.path
+    if p == "/api/me" or p.startswith(("/api/bridge", "/api/usage", "/api/invite")) or re.fullmatch(r"/api/desks/\d+/select", p):
+        return None
+    if request.method == "DELETE" and re.fullmatch(r"/api/desks/\d+/members/\d+", p):
+        return None                                            # leaving a desk is the one change a viewer may make
+    u = current_user()
+    if not u:
+        return None
+    d = current_desk()
+    if d and desk_role(d, u) == "viewer":
+        return Response(json.dumps({"error": "viewer", "message": "You are a viewer on this desk: you can look, not change."}),
+                        403, mimetype="application/json")
+    return None
+
+
+def _invite_hash(token: str) -> str:
+    import hashlib
+    return hashlib.sha256(("invite:" + token).encode()).hexdigest()
+
+
+def _members_desk(did: int) -> dict[str, Any]:
+    u = current_user()
+    d = store.desk(did)
+    if not d or (u and desk_role(d, u) not in ("owner", "manager") and not OPEN) or (not u and not OPEN):
+        abort(404)
+    return d
+
+
+@app.get("/api/desks/<int:did>/members")
+def api_members(did):
+    d = _members_desk(did)
+    owner = store.user(int(d.get("owner_id") or 0)) or {}
+    me = current_user() or {}
+    return jsonify({"role": desk_role(d, me) or ("owner" if OPEN else ""), "roles": ROLE_WORDS,
+                    "owner": {"user_id": owner.get("id"), "email": owner.get("email", ""), "name": owner.get("name", "")},
+                    "members": store.members(did), "invites": store.invites(did), "mail": AUTH.mail_ready()})
+
+
+@app.post("/api/desks/<int:did>/members")
+def api_invite_member(did):
+    """{email, role}: an invite link mailed to a teammate (or returned when the portal has no mail), good for 7 days.
+    An address that already has an account joins on the link; one that does not signs up first."""
+    d = _members_desk(did)
+    me = current_user() or {}
+    b = request.get_json(force=True) or {}
+    email_ = str(b.get("email") or "").strip().lower()
+    role = str(b.get("role") or "member")
+    if "@" not in email_ or len(email_) > 200:
+        return jsonify({"error": "bad_email", "message": "Give a teammate's email address."}), 400
+    if role not in store.ROLES:
+        return jsonify({"error": "bad_role", "message": "role must be manager, member or viewer"}), 400
+    if email_ == str(me.get("email") or "").lower() or email_ == str((store.user(int(d["owner_id"])) or {}).get("email") or "").lower():
+        return jsonify({"error": "is_owner", "message": "That is the desk's owner."}), 400
+    existing = store.user_by_email(email_)
+    if existing and store.member_role(did, int(existing["id"])):
+        store.add_member(did, int(existing["id"]), role, int(me.get("id") or 0))      # a role change
+        return jsonify({"ok": True, "joined": True, "members": store.members(did)})
+    token = secrets.token_urlsafe(24)
+    inv = store.add_invite(did, email_, role, _invite_hash(token), int(me.get("id") or 0), INVITE_TTL_S)
+    base = os.environ.get("PUBLIC_URL", "").strip().rstrip("/") or request.url_root.rstrip("/")
+    link = f"{base}/invite/{token}"
+    biz = ((d.get("config") or {}).get("business") or {}).get("name") or d["name"]
+    mailed = False
+    if AUTH.mail_ready():
+        try:
+            AUTH.send_mail(email_, f"{me.get('name') or 'A teammate'} invited you to the {biz} desk on Atlas",
+                           f"{me.get('name') or me.get('email') or 'A teammate'} added you to the {biz} desk as {role}.\n\n"
+                           f"Open this link to join (it works for 7 days):\n{link}\n\n"
+                           "If you do not have an Atlas account yet, the link lets you create one with this address.")
+            mailed = True
+        except Exception as exc:
+            print("invite mail failed:", exc)
+    return jsonify({"ok": True, "invite": {"id": inv["id"], "email": email_, "role": role, "expires": inv["expires"]},
+                    "mailed": mailed, "link": None if mailed else link, "invites": store.invites(did)})
+
+
+@app.patch("/api/desks/<int:did>/members/<int:uid>")
+def api_member_role(did, uid):
+    _members_desk(did)
+    role = str((request.get_json(force=True) or {}).get("role") or "")
+    if role not in store.ROLES or not store.member_role(did, uid):
+        return jsonify({"error": "bad_role"}), 400
+    store.add_member(did, uid, role, int((current_user() or {}).get("id") or 0))
+    return jsonify({"ok": True, "members": store.members(did)})
+
+
+@app.delete("/api/desks/<int:did>/members/<int:uid>")
+def api_member_remove(did, uid):
+    me = current_user() or {}
+    d0 = store.desk(did)
+    if d0 and me and uid == int(me.get("id") or 0) and desk_role(d0, me) in ("manager", "member", "viewer"):
+        store.remove_member(did, uid)                              # leaving the desk: any teammate may
+        if session.get("desk") == did:
+            session.pop("desk", None)
+        return jsonify({"ok": True, "left": True})
+    d = _members_desk(did)
+    if uid == int(d.get("owner_id") or 0):
+        return jsonify({"error": "owner", "message": "The owner cannot be removed."}), 400
+    store.remove_member(did, uid)
+    return jsonify({"ok": True, "members": store.members(did)})
+
+
+@app.delete("/api/desks/<int:did>/invites/<int:iid>")
+def api_invite_revoke(did, iid):
+    _members_desk(did)
+    store.revoke_invite(did, iid)
+    return jsonify({"ok": True, "invites": store.invites(did)})
+
+
+@app.get("/invite/<token>")
+def invite_accept(token):
+    """The link from the invite mail. Signed out: to login (or signup) and back here. Signed in with the invited
+    address: joins the desk and opens it. Another address: told which account the invite is for."""
+    inv = store.invite_by_hash(_invite_hash(token))
+    if not inv or inv.get("accepted") or float(inv.get("expires") or 0) < time.time():
+        return _page("login.html", error="This invite link has expired or was already used. Ask for a new one.",
+                     email="", google=_google_cls()), 410
+    u = current_user()
+    nxt = quote(request.path, safe="/")
+    if not u or _is_guest(u):
+        has = store.user_by_email(inv["email"])
+        return redirect((f"/login?next={nxt}" if has else f"/signup?next={nxt}&email={quote(inv['email'])}"))
+    if str(u.get("email") or "").lower() != str(inv["email"]).lower():
+        return _page("login.html", error=f"This invite is for {inv['email']}. Log out and sign in with that address.",
+                     email=inv["email"], google=_google_cls()), 403
+    d = store.desk(int(inv["desk_id"]))
+    if not d:
+        return _page("login.html", error="That desk no longer exists.", email="", google=_google_cls()), 410
+    if int(d["owner_id"]) != int(u["id"]):
+        store.add_member(int(d["id"]), int(u["id"]), str(inv["role"]), int(inv.get("invited_by") or 0))
+    store.accept_invite(int(inv["id"]), int(u["id"]))
+    session["desk"] = int(d["id"])
+    return redirect("/desk")
+
+
 def current_desk() -> dict[str, Any] | None:
     u = current_user()
     pin = _pinned_desk_id()
     if pin:                                # same ownership rule as /api/desks/<id>/select; anything else falls through
         d = store.desk(pin)
-        if d and (OPEN or (u and d["owner_id"] == u["id"])):
+        if d and (OPEN or (u and desk_role(d, u))):
             return d
     if OPEN and not u:                     # testing mode: any desk, no account
         did = session.get("desk")
@@ -478,7 +634,7 @@ def current_desk() -> dict[str, Any] | None:
         return None
     did = session.get("desk")
     d = store.desk(int(did)) if did else None
-    if d and d["owner_id"] == u["id"]:
+    if d and desk_role(d, u):
         return d
     ds_ = store.desks_for(u["id"])
     if ds_:
@@ -904,10 +1060,14 @@ def signup():
         _sign_in(u["id"])
         if request.is_json:
             return jsonify({"ok": True})
+        nxt = str(d.get("next") or request.args.get("next") or "")
+        if nxt.startswith("/invite/"):                         # invited teammates join the desk instead of building one
+            return redirect(nxt)
         return redirect("/desk/start")                         # new owners start the chain: pick the AI, then the workspace
     if current_user():
         return redirect(_front_door(current_user()))
-    return _page("signup.html", **_profile_vars({}, error="", name="", email="", google=_google_cls()))
+    return _page("signup.html", **_profile_vars({}, error="", name="", email=(request.args.get("email") or "").strip()[:200],
+                                                google=_google_cls()))
 
 
 @app.route("/signup/profile", methods=["GET", "POST"])
@@ -1066,7 +1226,7 @@ def _desk_public(d: dict[str, Any]) -> dict[str, Any]:
     b = (d.get("config") or {}).get("business") or {}
     from .. import alerts as AL
     return {"id": d["id"], "name": d["name"], "template": d["template"], "tier": d.get("tier", "free"),
-            "business_name": b.get("name", d["name"]), "created": d.get("created"),
+            "business_name": b.get("name", d["name"]), "created": d.get("created"), "role": d.get("role") or "owner",
             "ui_level": (d.get("config") or {}).get("ui_level") or "simple", "notify": AL.config(d)}
 
 
@@ -1187,7 +1347,7 @@ def api_create_desk():
 def api_select_desk(did):
     u = current_user()
     d = store.desk(did)
-    if not d or (u and d["owner_id"] != u["id"] and not OPEN) or (not u and not OPEN):
+    if not d or (u and not desk_role(d, u) and not OPEN) or (not u and not OPEN):
         abort(404)
     session["desk"] = did
     return jsonify(_desk_public(d))
@@ -1197,7 +1357,7 @@ def api_select_desk(did):
 def api_update_desk(did):
     u = current_user()
     d = store.desk(did)
-    if not d or (u and d["owner_id"] != u["id"] and not OPEN):
+    if not d or (u and desk_role(d, u) not in ("owner", "manager") and not OPEN):
         abort(404)
     body = request.get_json(force=True) or {}
     fields: dict[str, Any] = {}
@@ -1351,9 +1511,10 @@ BYO_PRESETS: dict[str, dict[str, Any]] = {
 
 
 def _own_desk(did: int) -> dict[str, Any]:
+    """A desk the caller may configure: its owner or a manager (OPEN: anyone)."""
     u = current_user()
     d = store.desk(did)
-    if not d or (u and d["owner_id"] != u["id"] and not OPEN):
+    if not d or (u and desk_role(d, u) not in ("owner", "manager") and not OPEN):
         abort(404)
     return d
 
@@ -4109,7 +4270,7 @@ def desk_objects_page():
     did = request.args.get("desk", type=int)
     if did:
         u, d = current_user(), store.desk(did)
-        if d and (OPEN or (u and d["owner_id"] == u["id"])):
+        if d and (OPEN or (u and desk_role(d, u))):
             session["desk"] = did
     return send_from_directory(STATIC_DIR, "objects.html")
 
@@ -4479,7 +4640,7 @@ def desk_workspace():
     did = request.args.get("desk", type=int)
     if did:                                                # a link to a desk opens THAT desk (same rule as /select), not the cookie's
         u, d = current_user(), store.desk(did)
-        if d and (OPEN or (u and d["owner_id"] == u["id"])):
+        if d and (OPEN or (u and desk_role(d, u))):
             session["desk"] = did
     elif "new" not in request.args and current_user():
         d = current_desk()                                 # /desk/workspace means "my desk"; ?new=1 means "a new one"
@@ -5823,7 +5984,7 @@ def desk_cyber():
     did = request.args.get("desk", type=int)
     if did:
         u, d = current_user(), store.desk(did)
-        if d and (OPEN or (u and d["owner_id"] == u["id"])):
+        if d and (OPEN or (u and desk_role(d, u))):
             session["desk"] = did
     qs = urlencode([(k, v) for k, v in request.args.items(multi=True) if k != "desk"])
     return redirect("/desk/static/cyber.html" + ("?" + qs if qs else ""))
@@ -5837,7 +5998,7 @@ def desk_ops_page():
     did = request.args.get("desk", type=int)
     if did:
         u, d = current_user(), store.desk(did)
-        if d and (OPEN or (u and d["owner_id"] == u["id"])):
+        if d and (OPEN or (u and desk_role(d, u))):
             session["desk"] = did
     return send_from_directory(STATIC_DIR, "ops.html")
 

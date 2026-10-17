@@ -50,6 +50,14 @@ CREATE TABLE IF NOT EXISTS desks (
   id INTEGER PRIMARY KEY AUTOINCREMENT, owner_id INTEGER, name TEXT, template TEXT, tier TEXT DEFAULT 'free',
   config TEXT DEFAULT '{}', created REAL
 );
+CREATE TABLE IF NOT EXISTS desk_members (
+  desk_id INTEGER, user_id INTEGER, role TEXT DEFAULT 'member', added_by INTEGER DEFAULT 0, created REAL,
+  PRIMARY KEY (desk_id, user_id)
+);
+CREATE TABLE IF NOT EXISTS desk_invites (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, desk_id INTEGER, email TEXT, role TEXT DEFAULT 'member', token_hash TEXT UNIQUE,
+  invited_by INTEGER DEFAULT 0, created REAL, expires REAL, accepted REAL
+);
 CREATE TABLE IF NOT EXISTS connectors (
   id INTEGER PRIMARY KEY AUTOINCREMENT, desk_id INTEGER, kind TEXT, name TEXT, config TEXT DEFAULT '{}',
   auto INTEGER DEFAULT 0, status TEXT DEFAULT '', last_test REAL, created REAL
@@ -328,11 +336,68 @@ class Store:
         return d
 
     def desks_for(self, owner_id: int) -> list[dict[str, Any]]:
+        """The desks this account can open: its own (role owner) and the ones it was invited to (role from the invite)."""
         out = []
-        for d in _rows(self._conn.execute("SELECT * FROM desks WHERE owner_id=? ORDER BY created", (owner_id,))):
+        for d in _rows(self._conn.execute(
+                "SELECT d.*, 'owner' AS role FROM desks d WHERE d.owner_id=? "
+                "UNION ALL SELECT d.*, m.role AS role FROM desks d JOIN desk_members m ON m.desk_id=d.id WHERE m.user_id=? "
+                "ORDER BY created", (owner_id, owner_id))):
             d["config"] = json.loads(d.get("config") or "{}")
             out.append(d)
         return out
+
+    # ------------------------------------------------------------ teammates (atlas/desk/app.py desk_role)
+    ROLES = ("manager", "member", "viewer")
+
+    def member_role(self, desk_id: int, user_id: int) -> str:
+        row = self._conn.execute("SELECT role FROM desk_members WHERE desk_id=? AND user_id=?", (desk_id, user_id)).fetchone()
+        return str(row[0]) if row else ""
+
+    def members(self, desk_id: int) -> list[dict[str, Any]]:
+        return _rows(self._conn.execute(
+            "SELECT m.user_id, m.role, m.created, m.added_by, u.email, u.name FROM desk_members m JOIN users u ON u.id=m.user_id "
+            "WHERE m.desk_id=? ORDER BY m.created", (desk_id,)))
+
+    def add_member(self, desk_id: int, user_id: int, role: str, added_by: int = 0) -> None:
+        role = role if role in self.ROLES else "member"
+        with self._lock:
+            self._conn.execute("INSERT INTO desk_members(desk_id,user_id,role,added_by,created) VALUES(?,?,?,?,?) "
+                               "ON CONFLICT(desk_id,user_id) DO UPDATE SET role=excluded.role",
+                               (desk_id, user_id, role, added_by, time.time()))
+            self._conn.commit()
+
+    def remove_member(self, desk_id: int, user_id: int) -> None:
+        with self._lock:
+            self._conn.execute("DELETE FROM desk_members WHERE desk_id=? AND user_id=?", (desk_id, user_id))
+            self._conn.commit()
+
+    def add_invite(self, desk_id: int, email: str, role: str, token_hash: str, invited_by: int, ttl_s: float) -> dict[str, Any]:
+        role = role if role in self.ROLES else "member"
+        with self._lock:
+            self._conn.execute("DELETE FROM desk_invites WHERE desk_id=? AND email=? AND accepted IS NULL", (desk_id, email.strip().lower()))
+            cur = self._conn.execute(
+                "INSERT INTO desk_invites(desk_id,email,role,token_hash,invited_by,created,expires) VALUES(?,?,?,?,?,?,?)",
+                (desk_id, email.strip().lower(), role, token_hash, invited_by, time.time(), time.time() + ttl_s))
+            self._conn.commit()
+            return _rows(self._conn.execute("SELECT * FROM desk_invites WHERE id=?", (cur.lastrowid,)))[0]
+
+    def invites(self, desk_id: int) -> list[dict[str, Any]]:
+        return _rows(self._conn.execute("SELECT id,email,role,created,expires,accepted FROM desk_invites WHERE desk_id=? AND accepted IS NULL "
+                                        "AND expires>? ORDER BY created", (desk_id, time.time())))
+
+    def invite_by_hash(self, token_hash: str) -> dict[str, Any] | None:
+        rows = _rows(self._conn.execute("SELECT * FROM desk_invites WHERE token_hash=?", (token_hash,)))
+        return rows[0] if rows else None
+
+    def accept_invite(self, inv_id: int, user_id: int) -> None:
+        with self._lock:
+            self._conn.execute("UPDATE desk_invites SET accepted=? WHERE id=?", (time.time(), inv_id))
+            self._conn.commit()
+
+    def revoke_invite(self, desk_id: int, inv_id: int) -> None:
+        with self._lock:
+            self._conn.execute("DELETE FROM desk_invites WHERE desk_id=? AND id=?", (desk_id, inv_id))
+            self._conn.commit()
 
     def desk_by_token(self, token: str) -> dict[str, Any] | None:
         rows = _rows(self._conn.execute("SELECT * FROM desks WHERE hook_token=?", (token,)))
@@ -993,6 +1058,9 @@ class Store:
 
     def delete_user(self, uid: int) -> int:
         """The account and everything it owns: every desk's data, the desks, the user row. Returns desks removed."""
+        with self._lock:
+            self._conn.execute("DELETE FROM desk_members WHERE user_id=?", (uid,))
+            self._conn.commit()
         desks = [r[0] for r in self._conn.execute("SELECT id FROM desks WHERE owner_id=?", (uid,)).fetchall()]
         for did in desks:
             self.delete_desk_data(did)

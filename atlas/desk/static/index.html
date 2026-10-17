@@ -1010,6 +1010,8 @@ aside.simple [data-lvl="full"]{display:none}
     <div class="pb" id="setup-byo"><div class="empty">Loading…</div></div></div>
   <div class="panel" style="margin-top:14px"><div class="ph"><h2>Model landscape</h2><span class="hint">who thinks with what — per-agent engine and model; changes apply to the next run</span></div>
     <div class="pb" id="setup-models"><div class="empty">Loading…</div></div></div>
+  <div class="panel" style="margin-top:14px"><div class="ph"><h2>Team</h2><span class="hint">who else works this desk — a manager configures it, a member approves and sends, a viewer only looks</span></div>
+    <div class="pb" id="setup-team"><div class="empty">Loading…</div></div></div>
   <div class="panel" style="margin-top:14px"><div class="ph"><h2>Desk memory</h2><span class="hint">facts the agents keep between runs (they add with <code>remember</code>; you can add or delete)</span></div><div class="pb">
     <div class="row" style="margin-bottom:10px"><input id="m-key" placeholder="key e.g. preferred-viewing-days" style="max-width:260px"><input id="m-val" placeholder="value" style="flex:1"><button class="btn sm p" onclick="addMem()">Remember</button></div>
     <div id="mem-list"></div></div></div>
@@ -1101,7 +1103,7 @@ async function refresh(){
   if (page==='runs') { loadRuns(); if (curRun) loadRun(curRun, true); }
   if (page==='audit') loadAudit();
   if (page==='integrations') loadConnectors();
-  if (page==='setup') { loadMem(); loadByo(); }
+  if (page==='setup') { loadMem(); loadByo(); loadTeam(); }
   if (page==='automations') loadJobs();
   if (page==='cameras') { loadCameras(); loadVisionEvents(); }
   if (page==='report') { loadReport(); loadDayReport(); }
@@ -2637,6 +2639,25 @@ async function renderModels(){
   }).join('') + `</table><p class="hint" style="margin-top:8px">Paid models need OpenRouter credits. The Hermes Agent runtime uses the desk's Hermes connector (or the global instance) and brings its own browser, terminal, memory and skills.</p>`;
 }
 let BYO = null;
+async function loadTeam(){
+  const did = (CFG.desk || {}).id, el = document.getElementById('setup-team'); if (!did || !el) return;
+  const T = await api('/desks/' + did + '/members'); if (!T || T.error) { el.innerHTML = '<div class="empty">Only the owner or a manager sees the team.</div>'; return; }
+  const roleSel = (cur, uid) => `<select style="width:auto;font-size:12px;padding:4px 6px" onchange="api(${jsa('/desks/' + did + '/members/' + uid)},{method:'PATCH',body:{role:this.value}}).then(loadTeam)">${['manager','member','viewer'].map(r=>`<option value="${r}" ${r===cur?'selected':''}>${r}</option>`).join('')}</select>`;
+  const rows = [`<tr><td><b>${esc(T.owner.name||T.owner.email)}</b><div class="hint">${esc(T.owner.email)}</div></td><td><span class="tag">owner</span></td><td></td></tr>`]
+    .concat(T.members.map(m=>`<tr><td><b>${esc(m.name||m.email)}</b><div class="hint">${esc(m.email)}</div></td><td>${roleSel(m.role, m.user_id)}</td><td><button class="btn sm d" onclick="api(${jsa('/desks/' + did + '/members/' + m.user_id)},{method:'DELETE',body:{}}).then(loadTeam)">Remove</button></td></tr>`))
+    .concat(T.invites.map(i=>`<tr><td>${esc(i.email)}<div class="hint">invited · ${esc(i.role)} · expires in ${Math.max(1, Math.round((i.expires - Date.now()/1000)/86400))} d</div></td><td><span class="tag">pending</span></td><td><button class="btn sm d" onclick="api(${jsa('/desks/' + did + '/invites/' + i.id)},{method:'DELETE',body:{}}).then(loadTeam)">Revoke</button></td></tr>`));
+  el.innerHTML = `<table><tr><th>Who</th><th>Role</th><th></th></tr>${rows.join('')}</table>
+    <div class="row" style="margin-top:10px;flex-wrap:wrap"><input id="tm-email" type="email" placeholder="teammate@company.com" style="max-width:260px"><select id="tm-role" style="width:auto"><option value="member">member — approves and sends</option><option value="manager">manager — configures the desk</option><option value="viewer">viewer — looks only</option></select><button class="btn sm p" onclick="inviteMember()">Invite</button></div>
+    <div class="hint" style="margin-top:6px">${T.mail ? 'The invite is emailed; the link works for 7 days.' : 'This server has no mail set up: you will get a link to send yourself.'}</div><div id="tm-out" class="hint" style="margin-top:6px;user-select:all"></div>`;
+}
+async function inviteMember(){
+  const did = (CFG.desk || {}).id; const email = $('#tm-email').value.trim(), role = $('#tm-role').value;
+  const r = await api('/desks/' + did + '/members', {method:'POST', body:{email, role}});
+  if (!r || r.error) return toast(r?.message || r?.error || 'failed');
+  toast(r.joined ? 'Role updated' : (r.mailed ? 'Invite sent' : 'Invite created — copy the link'));
+  if (r.link) $('#tm-out').textContent = 'Send them this link: ' + r.link;
+  $('#tm-email').value = ''; loadTeam();
+}
 async function loadByo(){
   const did = (CFG.desk || {}).id, el = document.getElementById('setup-byo'); if (!did || !el) return;
   BYO = await api(`/desks/${did}/providers`); if (!BYO || BYO.error) { el.innerHTML = '<div class="empty">Could not load.</div>'; return; }

@@ -27,7 +27,7 @@ def test_admin_is_operator_only(client, monkeypatch):
     monkeypatch.setattr(A, "OPEN", False)
     monkeypatch.setattr(U.CFG, "operator_emails", frozenset())
     assert client.get("/desk/admin").status_code == 302                                    # signed out
-    _signup(client, "plain@example.com")
+    _signup(client, "plain-admin@example.com")
     assert client.get("/desk/admin").status_code == 403
     r = client.get("/api/admin/accounts")
     assert r.status_code == 403 and r.get_json()["error"] == "operator_only"
