@@ -297,8 +297,8 @@ def test_usage_page_is_in_the_frame_and_rail(app_client, fresh_limits):
     shell = (STATIC / "shell.js").read_text(encoding="utf-8")
     nav = shell.split("const NAV = [", 1)[1].split("];", 1)[0]
     setup = shell.split("const NAV_SETUP = [", 1)[1].split("];", 1)[0]
-    entry = "['usage', 'Usage', '/desk/usage', 'gauge']"
-    assert entry in nav and entry in setup and "gauge: '<path" in shell
+    entry = "['usage', 'Usage', '/desk/usage', 'gauge'"          # the full menu adds a hint after the icon
+    assert entry in nav and entry + "]" in setup and "gauge: '<path" in shell
     assert "if (p === '/desk/usage') return 'usage';" in shell
     assert "api('/usage/brief')" in shell and "if (SETUP) return usageBadge();" in shell
     assert "shellPage" not in (STATIC / "usage.js").read_text(encoding="utf-8")   # the rail's Ask Atlas behaves as on Home
