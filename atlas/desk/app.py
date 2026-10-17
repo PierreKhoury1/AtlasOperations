@@ -5008,12 +5008,15 @@ def _sse_limit(exc: U.UsageLimit, http_status: int = 0) -> str:
 
 def _demo_stream_fb(base: str, headers: dict[str, str], payload: dict[str, Any], model: str, first: dict[str, Any] | None = None,
                     *, meter: "U.Meter"):
-    """_demo_stream, retried once on the fallback model when the free model's first event is the provider's rate limit
-    (HTTP 429: the free-models-per-day bucket). A limit of our own (the website's share, the pool) is never retried."""
+    """_demo_stream, retried once on the fallback (paid) model when the free model's first event is a rate limit: the
+    provider's (HTTP 429, the free-models-per-day bucket) or our own shared free pool for the day. The paid model is
+    subject to the spend cap like any paid call; the website's own share of requests is never retried."""
     fb = _demo_fallback_model(model)
     seen = False
     for ev in _demo_stream(base, headers, payload, model, first, meter=meter):
-        if not seen and fb and '"error"' in ev and ('"http_status": 429' in ev or "429" in ev or "rate limit" in ev.lower() or "rate-limit" in ev.lower()) and not _spend_blocked():
+        low = ev.lower()
+        if not seen and fb and '"error"' in ev and ('"http_status": 429' in ev or "429" in ev or "rate limit" in low or "rate-limit" in low
+                                                   or "free-model pool" in low) and not _spend_blocked():
             p2 = dict(payload)
             p2["model"] = fb
             yield from _demo_stream(base, headers, p2, fb, first, meter=meter)
