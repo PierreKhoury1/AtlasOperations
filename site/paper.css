@@ -58,7 +58,9 @@ body { background: var(--bg); }
 .eyevid { position: relative; aspect-ratio: 16 / 9; width: 108%; margin: 0 -8% 0 0; border-radius: 14px; overflow: hidden; isolation: isolate; border: 1px solid var(--line2); background: #04070e; box-shadow: var(--shadow-lg); }
 @media (max-width: 1240px) { .eyevid { width: 108%; margin: 0 -8% 0 0; } }
 @media (max-width: 960px) { .eyevid { width: 100%; margin: 0; } }
-.eyevid video, .eyevid img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
+.eyevid { pointer-events: none; user-select: none; }                     /* a picture that moves, not a player: nothing to click */
+.eyevid video, .eyevid img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; pointer-events: none; }
+.eyevid video::-webkit-media-controls { display: none !important; }
 .eyevid::after { content: ""; position: absolute; inset: 0; box-shadow: inset 0 0 0 1px rgba(255,255,255,.06); pointer-events: none; }
 .eyevid .hud { position: absolute; z-index: 2; font-family: var(--mono); font-size: 10.5px; letter-spacing: .28em; color: #c9d4e4; line-height: 2; text-transform: uppercase; font-weight: 500; }
 .eyevid .hud.tl { left: 4%; bottom: 10%; border-left: 1px solid rgba(255,255,255,.35); padding-left: 14px; }
