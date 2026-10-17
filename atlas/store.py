@@ -166,6 +166,9 @@ _MIGRATIONS = [
     ("leads", "desk_id", "INTEGER DEFAULT 1"),
     ("desks", "hook_token", "TEXT"),
     ("jobs", "last_status", "TEXT DEFAULT ''"),
+    ("jobs", "at", "TEXT DEFAULT ''"),                            # clock schedule: HH:MM in tz (atlas/desk/scheduler.py next_due)
+    ("jobs", "on_days", "TEXT DEFAULT ''"),                       # daily | weekdays | weekends | mon,tue,... ("" = daily)
+    ("jobs", "tz", "TEXT DEFAULT ''"),                            # IANA zone for `at` ("" = ATLAS_TZ, else Europe/London)
     ("runs", "ended", "REAL"),
     ("events", "data", "TEXT DEFAULT ''"),
     ("actions", "case_id", "INTEGER DEFAULT 0"),                 # the case an approval belongs to (atlas/cases.py)
@@ -930,11 +933,13 @@ class Store:
             self._conn.commit()
 
     # ------------------------------------------------------------------ jobs (automations)
-    def add_job(self, desk_id: int, kind: str, name: str, task: str, every_min: int = 0, next_run: float | None = None) -> dict[str, Any]:
+    def add_job(self, desk_id: int, kind: str, name: str, task: str, every_min: int = 0, next_run: float | None = None,
+                at: str = "", on_days: str = "", tz: str = "") -> dict[str, Any]:
         with self._lock:
             cur = self._conn.execute(
-                "INSERT INTO jobs(desk_id,kind,name,task,every_min,next_run,enabled,created) VALUES(?,?,?,?,?,?,1,?)",
-                (desk_id, kind, name.strip(), task or "", int(every_min or 0), next_run if next_run is not None else time.time(), time.time()))
+                "INSERT INTO jobs(desk_id,kind,name,task,every_min,next_run,enabled,created,at,on_days,tz) VALUES(?,?,?,?,?,?,1,?,?,?,?)",
+                (desk_id, kind, name.strip(), task or "", int(every_min or 0), next_run if next_run is not None else time.time(), time.time(),
+                 at or "", on_days or "", tz or ""))
             self._conn.commit()
             return self.job(cur.lastrowid)  # type: ignore[return-value]
 
@@ -949,7 +954,8 @@ class Store:
         return _rows(self._conn.execute("SELECT * FROM jobs WHERE enabled=1 AND next_run IS NOT NULL AND next_run<=? ORDER BY next_run", (now,)))
 
     def update_job(self, jid: int, **fields) -> None:
-        fields = {k: v for k, v in fields.items() if k in ("name", "task", "every_min", "next_run", "last_run", "last_result", "last_status", "enabled")}
+        fields = {k: v for k, v in fields.items() if k in ("name", "task", "every_min", "next_run", "last_run", "last_result", "last_status", "enabled",
+                                                       "at", "on_days", "tz")}
         if not fields:
             return
         with self._lock:
@@ -1492,7 +1498,7 @@ class DeskStore:
     def reset(self): return self.s.delete_desk_data(self.desk_id)
     def connectors(self): return self.s.connectors(self.desk_id)
     def connector_by_name(self, name): return self.s.connector_by_name(self.desk_id, name)
-    def add_job(self, kind, name, task, every_min=0, next_run=None):
+    def add_job(self, kind, name, task, every_min=0, next_run=None, **kw):
         return self.s.add_job(self.desk_id, kind, name, task, every_min, next_run)
     def jobs(self): return self.s.jobs(self.desk_id)
     def remember(self, key, value, source=""): return self.s.remember(self.desk_id, key, value, source)

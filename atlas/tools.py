@@ -285,6 +285,8 @@ SCHEMAS: dict[str, dict[str, Any]] = {
                 "task": {"type": "string", "description": "Full instructions, self-contained (include names, emails, context)."},
                 "in_minutes": {"type": "integer", "description": "Run once after this many minutes."},
                 "every_minutes": {"type": "integer", "description": "Repeat every N minutes (omit for one-off)."},
+                "at": {"type": "string", "description": "Clock schedule instead: HH:MM (24h) in the desk's time zone, e.g. '08:00'."},
+                "days": {"type": "string", "description": "With `at`: daily (default), weekdays, weekends, or day names like mon,wed,fri."},
             },
             "required": ["name", "task"],
         },

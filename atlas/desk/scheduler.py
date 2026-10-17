@@ -28,6 +28,7 @@ import re
 import threading
 import time
 import traceback
+from zoneinfo import ZoneInfo
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Callable
@@ -980,6 +981,84 @@ _thread: threading.Thread | None = None
 _stop = threading.Event()
 
 
+# ---------------------------------------------------------------- clock schedules ("08:00 on weekdays, Europe/London")
+DAY_NAMES = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
+DAY_SETS = {"": tuple(range(7)), "daily": tuple(range(7)), "weekdays": (0, 1, 2, 3, 4), "weekends": (5, 6)}
+
+
+def default_tz() -> str:
+    return (os.environ.get("ATLAS_TZ") or "Europe/London").strip() or "Europe/London"
+
+
+def parse_days(raw: Any) -> tuple[str, str]:
+    """'weekdays' | 'daily' | 'weekends' | 'mon,wed,fri' | list -> (canonical text, '') or ('', error)."""
+    if isinstance(raw, (list, tuple)):
+        raw = ",".join(str(x) for x in raw)
+    text = str(raw or "").strip().lower()
+    if text in DAY_SETS:
+        return ("" if text == "daily" else text), ""
+    names = [d.strip()[:3] for d in text.split(",") if d.strip()]
+    bad = [d for d in names if d not in DAY_NAMES]
+    if bad or not names:
+        return "", "days must be daily, weekdays, weekends or day names like mon,wed,fri"
+    seen = sorted(set(DAY_NAMES.index(d) for d in names))
+    if seen == list(range(7)):
+        return "", ""
+    return ",".join(DAY_NAMES[i] for i in seen), ""
+
+
+def _day_set(on_days: str) -> tuple[int, ...]:
+    if on_days in DAY_SETS:
+        return DAY_SETS[on_days]
+    return tuple(DAY_NAMES.index(d) for d in on_days.split(",") if d in DAY_NAMES) or tuple(range(7))
+
+
+def parse_at(raw: Any) -> tuple[str, str]:
+    text = str(raw or "").strip()
+    m = re.fullmatch(r"([0-2]?\d):([0-5]\d)", text)
+    if not m or int(m.group(1)) > 23:
+        return "", "at must be HH:MM (24-hour)"
+    return f"{int(m.group(1)):02d}:{m.group(2)}", ""
+
+
+def check_tz(raw: Any) -> tuple[str, str]:
+    text = str(raw or "").strip()
+    if not text:
+        return "", ""
+    try:
+        ZoneInfo(text)
+    except Exception:
+        return "", f"unknown time zone {text!r} (use an IANA name like Europe/London)"
+    return text, ""
+
+
+def next_due(at: str, on_days: str = "", tz: str = "", after: float | None = None) -> float:
+    """The next moment strictly after `after` that is HH:MM wall-clock in `tz` on one of the allowed days. Wall-clock
+    arithmetic in the zone, so 08:00 stays 08:00 across a DST change instead of drifting by an hour."""
+    from datetime import datetime, timedelta
+    after = time.time() if after is None else after
+    zone = ZoneInfo(tz or default_tz())
+    h, m = (int(x) for x in at.split(":"))
+    days = _day_set(on_days)
+    base = datetime.fromtimestamp(after, zone)
+    for d in range(0, 9):
+        cand = (base + timedelta(days=d)).replace(hour=h, minute=m, second=0, microsecond=0)
+        if cand.weekday() in days and cand.timestamp() > after:
+            return cand.timestamp()
+    return (base + timedelta(days=1)).replace(hour=h, minute=m, second=0, microsecond=0).timestamp()
+
+
+def schedule_words(job: dict[str, Any]) -> str:
+    """'08:00 on weekdays (Europe/London)' for a clock job, else the interval."""
+    at = str(job.get("at") or "")
+    if at:
+        on = str(job.get("on_days") or "")
+        when = {"": "every day", "weekdays": "on weekdays", "weekends": "at weekends"}.get(on, "on " + on.replace(",", ", "))
+        return f"{at} {when} ({job.get('tz') or default_tz()})"
+    every = int(job.get("every_min") or 0)
+    return "once" if not every else (f"every {every} min" if every % 60 else f"every {every // 60} h")
+
+
 def _run_job(store, job: dict[str, Any], start_run: Callable, desk_for: Callable) -> str:
     desk = desk_for(job["desk_id"])
     if not desk:
@@ -1168,7 +1247,12 @@ def _finish_job(store, job: dict[str, Any], start_run: Callable, desk_for: Calla
         return
     every = int(job.get("every_min") or 0)
     every_s = _camera_every(job)
-    if held is not None:                                # the job's own next run, or the limit's retry time if later
+    at = str(job.get("at") or "")
+    if at:                                              # a clock job: the next HH:MM on an allowed day, in its zone
+        now = time.time()
+        own = next_due(at, str(job.get("on_days") or ""), str(job.get("tz") or ""), now)
+        fields["next_run"] = max(own, float(held.retry_at or 0)) if held is not None else own
+    elif held is not None:                              # the job's own next run, or the limit's retry time if later
         now = time.time()
         own = now + (max(every_s, MIN_CAMERA_S) if every_s > 0 else every * 60)
         fields["next_run"] = max(own, float(held.retry_at or (now + U.CFG.busy_retry_s)))

@@ -3493,7 +3493,10 @@ def _log_job_spec(kind: str, raw: Any) -> tuple[dict[str, Any], str]:
 @app.get("/api/jobs")
 def api_jobs():
     desk = need_desk()
-    return jsonify({"jobs": store.jobs(desk["id"]), "kinds": JOB_KINDS, "now": time.time()})
+    jobs = store.jobs(desk["id"])
+    for j in jobs:
+        j["schedule"] = scheduler.schedule_words(j)
+    return jsonify({"jobs": jobs, "kinds": JOB_KINDS, "now": time.time(), "tz": scheduler.default_tz()})
 
 
 @app.post("/api/jobs")
@@ -3503,12 +3506,11 @@ def api_add_job():
     kind = d.get("kind") if d.get("kind") in JOB_KINDS else "task"
     every = int(d.get("every_min") or 0)
     delay = int(d.get("in_min") or 0)
-    at = str(d.get("at") or "").strip()                 # "07:30" = daily at that local time, instead of a bare interval
+    at, on_days, tz, err = _clock_fields(d)             # "07:30" (+ weekdays, zone) = a clock schedule, not an interval
+    if err:
+        return jsonify({"error": err}), 400
     if at:
-        if not re.fullmatch(r"[0-2]?\d:[0-5]\d", at) or int(at.split(":")[0]) > 23:
-            return jsonify({"error": "at must be HH:MM"}), 400
-        from .. import alerts as AL
-        every, nxt = 1440, AL.report_due(at)
+        every, nxt = 1440, scheduler.next_due(at, on_days, tz)
     else:
         nxt = time.time() + (delay * 60 if delay else (every * 60 if every and not d.get("run_now") else 0))
     task = d.get("task") or ""
@@ -3523,8 +3525,25 @@ def api_add_job():
         task = json.dumps({"days": int(d.get("days") or 3)})
     if kind in ("http_poll", "camera_watch") and isinstance(task, dict):
         task = json.dumps(task)
-    j = store.add_job(desk["id"], kind, d.get("name") or JOB_KINDS[kind], task, every, nxt)
+    j = store.add_job(desk["id"], kind, d.get("name") or JOB_KINDS[kind], task, every, nxt, at=at, on_days=on_days, tz=tz)
     return jsonify(j)
+
+
+def _clock_fields(d: dict[str, Any]) -> tuple[str, str, str, str]:
+    """(at, on_days, tz, error) from a job request: `at` HH:MM, `on` daily|weekdays|weekends|mon,wed, `tz` IANA."""
+    at = str(d.get("at") or "").strip()
+    if not at:
+        return "", "", "", ""
+    at, err = scheduler.parse_at(at)
+    if err:
+        return "", "", "", err
+    on_days, err = scheduler.parse_days(d.get("on") or "")
+    if err:
+        return "", "", "", err
+    tz, err = scheduler.check_tz(d.get("tz") or "")
+    if err:
+        return "", "", "", err
+    return at, on_days, tz, ""
 
 
 @app.patch("/api/jobs/<int:jid>")
@@ -3535,12 +3554,13 @@ def api_update_job(jid):
         abort(404)
     d = request.get_json(force=True) or {}
     fields = {k: d[k] for k in ("name", "task", "every_min") if k in d}
-    at = str(d.get("at") or "").strip()
+    at, on_days, tz, err = _clock_fields(d)
+    if err:
+        return jsonify({"error": err}), 400
     if at:
-        if not re.fullmatch(r"[0-2]?\d:[0-5]\d", at) or int(at.split(":")[0]) > 23:
-            return jsonify({"error": "at must be HH:MM"}), 400
-        from .. import alerts as AL
-        fields["every_min"], fields["next_run"] = 1440, AL.report_due(at)
+        fields.update(every_min=1440, at=at, on_days=on_days, tz=tz, next_run=scheduler.next_due(at, on_days, tz))
+    elif "every_min" in fields and "at" in d:           # at="" with an interval: back to a plain interval job
+        fields.update(at="", on_days="", tz="")
     if j["kind"] in scheduler.LOG_JOB_KINDS:
         fields.pop("every_min", None)
         if "task" in d:                                # an edited replay/watch is re-validated and starts over

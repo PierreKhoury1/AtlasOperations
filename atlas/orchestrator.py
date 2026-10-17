@@ -1221,9 +1221,23 @@ class Orchestrator:
                 return "no scheduler in this context"
             every = int(args.get("every_minutes") or 0)
             in_min = int(args.get("in_minutes") or 0)
-            nxt = time.time() + max(1, in_min if in_min else every) * 60
-            job = self.store.add_job("task", str(args.get("name", "scheduled task")), str(args.get("task", "")), every, nxt)
-            when = f"every {every} min" if every else f"in {in_min or every} min"
+            at_raw = str(args.get("at") or "").strip()
+            if at_raw:
+                from .desk import scheduler as _sch
+                at, err = _sch.parse_at(at_raw)
+                if err:
+                    return "error: " + err
+                on_days, err = _sch.parse_days(args.get("days") or "")
+                if err:
+                    return "error: " + err
+                nxt = _sch.next_due(at, on_days)
+                job = self.store.add_job("task", str(args.get("name", "scheduled task")), str(args.get("task", "")), 1440, nxt,
+                                         at=at, on_days=on_days)
+                when = _sch.schedule_words(job)
+            else:
+                nxt = time.time() + max(1, in_min if in_min else every) * 60
+                job = self.store.add_job("task", str(args.get("name", "scheduled task")), str(args.get("task", "")), every, nxt)
+                when = f"every {every} min" if every else f"in {in_min or every} min"
             self.emit("tool", aid, f"schedule_task → #{job['id']} {job['name']} ({when})")
             return f"scheduled job #{job['id']} {when}"
         self.emit("tool", aid, f"{name}({', '.join(f'{k}={str(v)[:60]!r}' for k, v in args.items() if k != 'content')})")
